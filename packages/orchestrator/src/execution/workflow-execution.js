@@ -8,6 +8,7 @@ import {
 } from "../../../runtime-pi/src/control/session-control-queue.js";
 import {
   createApprovalRecord,
+  createAuditRecord,
   createEscalationRecord,
   createExecutionRecord,
   createReviewRecord,
@@ -20,18 +21,26 @@ import {
 import { DEFAULT_ORCHESTRATOR_DB_PATH, PROJECT_ROOT } from "../metadata/constants.js";
 import {
   getExecution,
+  getRegressionRun,
+  getScenarioRun,
   getEscalation,
   getStep,
   insertApproval,
+  insertAuditRecord,
   insertEscalation,
   insertExecutionWithSteps,
   insertReview,
   insertWorkflowEvent,
   listApprovals,
+  listAuditRecords,
   listChildExecutions,
   listEscalations,
   listExecutionGroup,
   listExecutions,
+  listRegressionRunItems,
+  listRegressionRuns,
+  listScenarioRunExecutions,
+  listScenarioRuns,
   listWorkflowEvents,
   listReviews,
   listSteps,
@@ -42,6 +51,13 @@ import {
 } from "../store/execution-store.js";
 import { writeExecutionBrief } from "./brief.js";
 import { planWorkflowInvocation } from "../invocation/plan-workflow-invocation.js";
+import { comparePolicies } from "./policy-diff.js";
+import {
+  getRegressionDefinition,
+  getScenarioDefinition,
+  listRegressionDefinitions,
+  listScenarioDefinitions
+} from "../scenarios/catalog.js";
 
 const DEFAULT_STEP_SOFT_TIMEOUT_MS = 20_000;
 const DEFAULT_STEP_HARD_TIMEOUT_MS = 45_000;
@@ -112,6 +128,46 @@ function emitWorkflowEvent(db, { executionId, stepId = null, sessionId = null, t
   });
   insertWorkflowEvent(db, event);
   return event;
+}
+
+function emitAuditEvent(db, {
+  executionId,
+  stepId = null,
+  sessionId = null,
+  action,
+  actor = "operator",
+  source = "orchestrator",
+  targetType = "execution",
+  targetId = null,
+  payload = {},
+  result = "accepted"
+}) {
+  const record = createAuditRecord({
+    executionId,
+    stepId,
+    sessionId,
+    action,
+    actor,
+    source,
+    targetType,
+    targetId,
+    payload,
+    result
+  });
+  insertAuditRecord(db, record);
+  return record;
+}
+
+function buildAuditContext(payload = {}) {
+  return {
+    actor: payload.decidedBy ?? payload.by ?? payload.owner ?? "operator",
+    source: payload.source ?? "orchestrator"
+  };
+}
+
+function parseIntegerOrNull(value) {
+  const parsed = Number.parseInt(String(value ?? ""), 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
 function openEscalation(db, { execution, step, sourceStepId = null, reason, payload = {}, targetRole = "lead" }) {
@@ -195,7 +251,12 @@ function blockingChildren(children) {
 
 function holdExecutionRecord(execution, reason, nextState = "held") {
   return transitionExecutionRecord(execution, nextState, {
-    heldFromState: nextState === "held" ? execution.state : execution.heldFromState,
+    heldFromState:
+      nextState === "held"
+        ? execution.state === "held"
+          ? execution.heldFromState
+          : execution.state
+        : execution.heldFromState,
     holdReason: reason,
     holdOwner: execution.holdOwner,
     holdGuidance: execution.holdGuidance,
@@ -250,6 +311,11 @@ function getWaveGate(steps, wave) {
   return getStepPolicy(waveStep)?.workflowPolicy?.waveGate ?? { mode: "all" };
 }
 
+function getWavePolicy(steps, wave) {
+  const waveStep = steps.find((step) => getStepWave(step) === wave) ?? null;
+  return getStepPolicy(waveStep)?.workflowPolicy?.wavePolicy ?? {};
+}
+
 function isWaveSatisfied(steps, wave) {
   const waveSteps = steps.filter((step) => getStepWave(step) === wave);
   if (waveSteps.length === 0) {
@@ -268,6 +334,34 @@ function isWaveSatisfied(steps, wave) {
   return successCount >= waveSteps.length;
 }
 
+function getWaveSteps(steps, wave) {
+  return steps.filter((step) => getStepWave(step) === wave);
+}
+
+function getWaveStartedAt(steps, wave) {
+  const candidates = getWaveSteps(steps, wave)
+    .map((step) => step.launchedAt ?? null)
+    .filter(Boolean)
+    .map((value) => Date.parse(value))
+    .filter((value) => Number.isFinite(value));
+  if (candidates.length === 0) {
+    return null;
+  }
+  return new Date(Math.min(...candidates)).toISOString();
+}
+
+function getWaveAgeMs(steps, wave) {
+  const startedAt = getWaveStartedAt(steps, wave);
+  if (!startedAt) {
+    return 0;
+  }
+  const parsed = Date.parse(startedAt);
+  if (!Number.isFinite(parsed)) {
+    return 0;
+  }
+  return Math.max(0, Date.now() - parsed);
+}
+
 function getNextLaunchableSteps(steps) {
   const planned = steps.filter((step) => step.state === "planned");
   if (planned.length === 0) {
@@ -281,6 +375,32 @@ function getNextLaunchableSteps(steps) {
     }
   }
   return [];
+}
+
+function hasPlannedSteps(steps) {
+  return steps.some((step) => step.state === "planned");
+}
+
+function findBlockedWave(steps) {
+  const waves = [...new Set(steps.map((step) => getStepWave(step)))].sort((left, right) => left - right);
+  for (const wave of waves) {
+    const waveSteps = getWaveSteps(steps, wave);
+    const hasPlanned = waveSteps.some((step) => step.state === "planned");
+    const hasActive = waveSteps.some((step) => ACTIVE_STEP_STATES.has(step.state));
+    const hasFailed = waveSteps.some((step) => ["failed", "stopped", "rejected"].includes(step.state));
+    if (hasPlanned || hasActive) {
+      continue;
+    }
+    if (!isWaveSatisfied(steps, wave) && hasFailed) {
+      return {
+        wave,
+        waveName: waveSteps[0]?.waveName ?? null,
+        steps: waveSteps,
+        policy: getWavePolicy(steps, wave)
+      };
+    }
+  }
+  return null;
 }
 
 function getExecutionPolicy(execution) {
@@ -478,6 +598,84 @@ async function applyActiveStepWatchdog(execution, step, session, options = {}) {
   return null;
 }
 
+function applyWavePolicy(db, execution, steps, wave) {
+  const waveSteps = getWaveSteps(steps, wave);
+  if (waveSteps.length === 0) {
+    return null;
+  }
+  const wavePolicy = getWavePolicy(steps, wave);
+  const maxActiveMs = parseIntegerOrNull(wavePolicy.maxActiveMs);
+  if (!maxActiveMs) {
+    return null;
+  }
+  const activeWaveSteps = waveSteps.filter((step) => ACTIVE_STEP_STATES.has(step.state));
+  if (activeWaveSteps.length === 0) {
+    return null;
+  }
+  const ageMs = getWaveAgeMs(steps, wave);
+  if (ageMs < maxActiveMs) {
+    return null;
+  }
+
+  const reason = "wave-timeout";
+  const existingEscalation = listEscalations(db, execution.id).some(
+    (item) => item.status === "open" && item.reason === reason && Number(item.payload?.wave ?? -1) === wave
+  );
+  emitWorkflowEvent(db, {
+    executionId: execution.id,
+    type: "workflow.wave.timed_out",
+    payload: {
+      wave,
+      waveName: waveSteps[0]?.waveName ?? null,
+      ageMs,
+      maxActiveMs
+    }
+  });
+
+  const action = wavePolicy.onTimeout ?? "open_escalation";
+  if (["open_escalation", "hold_execution"].includes(action) && !existingEscalation) {
+    openEscalation(db, {
+      execution,
+      step: activeWaveSteps[0],
+      sourceStepId: activeWaveSteps[0]?.id ?? null,
+      reason,
+      payload: {
+        wave,
+        waveName: waveSteps[0]?.waveName ?? null,
+        ageMs,
+        maxActiveMs,
+        policy: wavePolicy
+      }
+    });
+    emitWorkflowEvent(db, {
+      executionId: execution.id,
+      type: "workflow.wave.escalated",
+      payload: {
+        wave,
+        waveName: waveSteps[0]?.waveName ?? null,
+        reason,
+        ageMs
+      }
+    });
+  }
+
+  if (action === "hold_execution" || wavePolicy.blockNextWaveOnOpenEscalation === true) {
+    const heldExecution = holdExecutionRecord(execution, `wave-${wave}-blocked`);
+    updateExecution(db, heldExecution);
+    return heldExecution;
+  }
+
+  if (action === "fail_execution") {
+    const failedExecution = transitionExecutionRecord(execution, "failed", {
+      currentStepIndex: activeWaveSteps[0]?.sequence ?? execution.currentStepIndex
+    });
+    updateExecution(db, failedExecution);
+    return failedExecution;
+  }
+
+  return null;
+}
+
 export function createExecution(invocation, dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
   return withOrchestratorDatabase(dbPath, (db) => {
     const existing = getExecution(db, invocation.invocationId);
@@ -551,6 +749,7 @@ export function getExecutionDetail(executionId, dbPath = DEFAULT_ORCHESTRATOR_DB
     const approvals = listApprovals(db, executionId);
     const events = listWorkflowEvents(db, executionId);
     const escalations = listEscalations(db, executionId);
+    const audit = listAuditRecords(db, executionId);
     const childExecutions = listChildExecutions(db, executionId);
     const coordinationGroup = execution.coordinationGroupId
       ? listExecutionGroup(db, execution.coordinationGroupId)
@@ -568,6 +767,7 @@ export function getExecutionDetail(executionId, dbPath = DEFAULT_ORCHESTRATOR_DB
       approvals,
       events,
       escalations,
+      audit,
       childExecutions,
       coordinationGroup,
       sessions
@@ -593,6 +793,279 @@ export function listExecutionEscalations(executionId, dbPath = DEFAULT_ORCHESTRA
     }
     return listEscalations(db, executionId);
   });
+}
+
+export function listExecutionAudit(executionId, dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
+  return withOrchestratorDatabase(dbPath, (db) => {
+    const execution = getExecution(db, executionId);
+    if (!execution) {
+      return null;
+    }
+    return listAuditRecords(db, executionId);
+  });
+}
+
+function buildPolicyDiff(baseline = {}, candidate = {}) {
+  const diff = comparePolicies(baseline, candidate);
+  return [
+    ...diff.changed.map((entry) => ({
+      path: entry.key,
+      baseline: entry.baseline,
+      candidate: entry.candidate,
+      tone: "changed"
+    })),
+    ...diff.candidateOnly.map((entry) => ({
+      path: entry.key,
+      baseline: null,
+      candidate: entry.candidate,
+      tone: "added"
+    })),
+    ...diff.baselineOnly.map((entry) => ({
+      path: entry.key,
+      baseline: entry.baseline,
+      candidate: null,
+      tone: "removed"
+    }))
+  ];
+}
+
+export async function getExecutionPolicyDiff(executionId, dbPath = DEFAULT_ORCHESTRATOR_DB_PATH, sessionDbPath = DEFAULT_SESSION_DB_PATH) {
+  const detail = getExecutionDetail(executionId, dbPath, sessionDbPath);
+  if (!detail) {
+    return null;
+  }
+
+  const execution = detail.execution;
+  const roles = detail.steps.map((step) => step.role);
+  const planned = await planWorkflowInvocation({
+    workflowPath: execution.workflowPath,
+    projectPath: execution.projectPath,
+    domainId: execution.domainId,
+    roles,
+    maxRoles: roles.length,
+    objective: execution.objective,
+    coordinationGroupId: execution.coordinationGroupId,
+    parentExecutionId: execution.parentExecutionId,
+    branchKey: execution.branchKey
+  });
+
+  const persistedPolicy = execution.policy ?? {};
+  return {
+    executionId,
+    plannedEffectivePolicy: planned.effectivePolicy ?? {},
+    persistedExecutionPolicy: persistedPolicy,
+    executionVsPlan: buildPolicyDiff(planned.effectivePolicy ?? {}, persistedPolicy),
+    steps: detail.steps.map((step) => ({
+      stepId: step.id,
+      sequence: step.sequence,
+      wave: step.wave ?? step.sequence,
+      waveName: step.waveName ?? null,
+      role: step.role,
+      sessionMode: step.sessionMode ?? null,
+      policy: step.policy ?? {},
+      diffVsExecution: buildPolicyDiff(persistedPolicy, step.policy ?? {}),
+      diffVsPlan: buildPolicyDiff(planned.effectivePolicy ?? {}, step.policy ?? {})
+    }))
+  };
+}
+
+function orderedTimeline(items) {
+  return [...items].sort((left, right) => {
+    const leftTime = Date.parse(left.timestamp ?? left.createdAt ?? left.decidedAt ?? left.updatedAt ?? 0) || 0;
+    const rightTime = Date.parse(right.timestamp ?? right.createdAt ?? right.decidedAt ?? right.updatedAt ?? 0) || 0;
+    if (leftTime !== rightTime) {
+      return leftTime - rightTime;
+    }
+    return String(left.id ?? "").localeCompare(String(right.id ?? ""));
+  });
+}
+
+function buildExecutionHistoryItems(detail, policyDiff) {
+  const items = [];
+  for (const event of detail.events ?? []) {
+    items.push({
+      id: event.id,
+      kind: "workflow-event",
+      timestamp: event.createdAt,
+      executionId: event.executionId,
+      stepId: event.stepId,
+      sessionId: event.sessionId,
+      label: event.type,
+      payload: event.payload ?? {}
+    });
+  }
+  for (const review of detail.reviews ?? []) {
+    items.push({
+      id: review.id,
+      kind: "review",
+      timestamp: review.decidedAt ?? review.createdAt,
+      executionId: review.executionId,
+      stepId: review.stepId,
+      label: `review:${review.status}`,
+      payload: review
+    });
+  }
+  for (const approval of detail.approvals ?? []) {
+    items.push({
+      id: approval.id,
+      kind: "approval",
+      timestamp: approval.decidedAt ?? approval.createdAt,
+      executionId: approval.executionId,
+      stepId: approval.stepId,
+      label: `approval:${approval.status}`,
+      payload: approval
+    });
+  }
+  for (const escalation of detail.escalations ?? []) {
+    items.push({
+      id: escalation.id,
+      kind: "escalation",
+      timestamp: escalation.updatedAt ?? escalation.createdAt,
+      executionId: escalation.executionId,
+      stepId: escalation.stepId,
+      label: `escalation:${escalation.status}`,
+      payload: escalation
+    });
+  }
+  for (const audit of detail.audit ?? []) {
+    items.push({
+      id: audit.id,
+      kind: "audit",
+      timestamp: audit.createdAt,
+      executionId: audit.executionId,
+      stepId: audit.stepId,
+      sessionId: audit.sessionId,
+      label: audit.action,
+      payload: audit
+    });
+  }
+  for (const step of policyDiff?.steps ?? []) {
+    if (step.diffVsExecution.length === 0 && step.diffVsPlan.length === 0) {
+      continue;
+    }
+    items.push({
+      id: `policy-${step.stepId}`,
+      kind: "policy-diff",
+      timestamp: detail.execution.updatedAt ?? detail.execution.createdAt,
+      executionId: detail.execution.id,
+      stepId: step.stepId,
+      label: `policy:${step.role}`,
+      payload: step
+    });
+  }
+  return orderedTimeline(items);
+}
+
+export async function getExecutionHistory(executionId, options = {}, dbPath = DEFAULT_ORCHESTRATOR_DB_PATH, sessionDbPath = DEFAULT_SESSION_DB_PATH) {
+  const detail = getExecutionDetail(executionId, dbPath, sessionDbPath);
+  if (!detail) {
+    return null;
+  }
+  const policyDiff = await getExecutionPolicyDiff(executionId, dbPath, sessionDbPath);
+  const tree = getExecutionTree(executionId, dbPath);
+  return {
+    execution: detail.execution,
+    tree,
+    stepSummary: summarizeStepStates(detail.steps),
+    reviews: detail.reviews,
+    approvals: detail.approvals,
+    escalations: detail.escalations,
+    audit: detail.audit,
+    policyDiff,
+    timeline: buildExecutionHistoryItems(detail, policyDiff),
+    sessions: detail.sessions,
+    scope: options.scope ?? "execution"
+  };
+}
+
+export async function listScenarioCatalog(dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
+  const definitions = await listScenarioDefinitions();
+  return withOrchestratorDatabase(dbPath, (db) =>
+    definitions.map((definition) => {
+      const latestRun = listScenarioRuns(db, definition.id, 1)[0] ?? null;
+      const latestExecutions = latestRun ? listScenarioRunExecutions(db, latestRun.id) : [];
+      return {
+        ...definition,
+        latestRun,
+        latestExecutions
+      };
+    })
+  );
+}
+
+export async function getScenarioCatalogEntry(scenarioId, dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
+  const definition = await getScenarioDefinition(scenarioId);
+  if (!definition) {
+    return null;
+  }
+  return withOrchestratorDatabase(dbPath, (db) => {
+    const latestRun = listScenarioRuns(db, scenarioId, 1)[0] ?? null;
+    const latestExecutions = latestRun ? listScenarioRunExecutions(db, latestRun.id) : [];
+    return {
+      ...definition,
+      latestRun,
+      latestExecutions
+    };
+  });
+}
+
+export async function getScenarioRuns(scenarioId, dbPath = DEFAULT_ORCHESTRATOR_DB_PATH, limit = 20) {
+  const definition = await getScenarioDefinition(scenarioId);
+  if (!definition) {
+    return null;
+  }
+  return withOrchestratorDatabase(dbPath, (db) => ({
+    scenario: definition,
+    runs: listScenarioRuns(db, scenarioId, limit).map((run) => ({
+      ...run,
+      executions: listScenarioRunExecutions(db, run.id)
+    }))
+  }));
+}
+
+export async function listRegressionCatalog(dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
+  const definitions = await listRegressionDefinitions();
+  return withOrchestratorDatabase(dbPath, (db) =>
+    definitions.map((definition) => {
+      const latestRun = listRegressionRuns(db, definition.id, 1)[0] ?? null;
+      const latestItems = latestRun ? listRegressionRunItems(db, latestRun.id) : [];
+      return {
+        ...definition,
+        latestRun,
+        latestItems
+      };
+    })
+  );
+}
+
+export async function getRegressionCatalogEntry(regressionId, dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
+  const definition = await getRegressionDefinition(regressionId);
+  if (!definition) {
+    return null;
+  }
+  return withOrchestratorDatabase(dbPath, (db) => {
+    const latestRun = listRegressionRuns(db, regressionId, 1)[0] ?? null;
+    const latestItems = latestRun ? listRegressionRunItems(db, latestRun.id) : [];
+    return {
+      ...definition,
+      latestRun,
+      latestItems
+    };
+  });
+}
+
+export async function getRegressionRuns(regressionId, dbPath = DEFAULT_ORCHESTRATOR_DB_PATH, limit = 20) {
+  const definition = await getRegressionDefinition(regressionId);
+  if (!definition) {
+    return null;
+  }
+  return withOrchestratorDatabase(dbPath, (db) => ({
+    regression: definition,
+    runs: listRegressionRuns(db, regressionId, limit).map((run) => ({
+      ...run,
+      items: listRegressionRunItems(db, run.id)
+    }))
+  }));
 }
 
 export function listExecutionChildren(executionId, dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
@@ -813,11 +1286,32 @@ export function applyExecutionTreeAction(executionId, action, payload = {}, dbPa
     throw new Error(`unsupported tree action: ${action}`);
   }
 
-  return {
+  const outcome = {
     action,
     changedExecutionIds: results.map((item) => item.execution.id),
     tree: getExecutionTree(executionId, dbPath)
   };
+  withOrchestratorDatabase(dbPath, (db) => {
+    const context = buildAuditContext(payload);
+    emitAuditEvent(db, {
+      executionId,
+      action: `tree:${action}`,
+      actor: context.actor,
+      source: context.source,
+      targetType: "execution-tree",
+      targetId: outcome.tree?.rootExecutionId ?? executionId,
+      payload: {
+        scope: "tree",
+        requestedAction: action,
+        changedExecutionIds: outcome.changedExecutionIds
+      },
+      result: {
+        status: "accepted",
+        changedExecutionIds: outcome.changedExecutionIds
+      }
+    });
+  });
+  return outcome;
 }
 
 export async function applyExecutionTreeGovernance(executionId, action, payload = {}, dbPath = DEFAULT_ORCHESTRATOR_DB_PATH, sessionDbPath = DEFAULT_SESSION_DB_PATH) {
@@ -855,12 +1349,33 @@ export async function applyExecutionTreeGovernance(executionId, action, payload 
     throw new Error(`unsupported tree governance action: ${action}`);
   }
 
-  return {
+  const outcome = {
     action,
     scope,
     changedExecutionIds,
     tree: getExecutionTree(executionId, dbPath)
   };
+  withOrchestratorDatabase(dbPath, (db) => {
+    const context = buildAuditContext(payload);
+    emitAuditEvent(db, {
+      executionId,
+      action: `tree:${action}`,
+      actor: context.actor,
+      source: context.source,
+      targetType: "execution-tree",
+      targetId: outcome.tree?.rootExecutionId ?? executionId,
+      payload: {
+        scope,
+        status: payload.status,
+        changedExecutionIds
+      },
+      result: {
+        status: "accepted",
+        changedExecutionIds
+      }
+    });
+  });
+  return outcome;
 }
 
 async function emitBranchEvents(parentExecutionId, childExecutionId, branchKey, dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
@@ -908,6 +1423,25 @@ export async function branchExecution(parentExecutionId, payload = {}, dbPath = 
 
   const created = createExecution(invocation, dbPath);
   await emitBranchEvents(parentExecutionId, invocation.invocationId, invocation.coordination.branchKey, dbPath);
+  withOrchestratorDatabase(dbPath, (db) => {
+    const context = buildAuditContext(payload);
+    emitAuditEvent(db, {
+      executionId: parentExecutionId,
+      action: "execution:branch",
+      actor: context.actor,
+      source: context.source,
+      targetType: "execution",
+      targetId: invocation.invocationId,
+      payload: {
+        branchKey: invocation.coordination.branchKey,
+        roles: invocation.launches.map((launch) => launch.role)
+      },
+      result: {
+        status: "accepted",
+        childExecutionId: invocation.invocationId
+      }
+    });
+  });
   const detail = payload.wait
     ? await driveExecution(invocation.invocationId, {
       wait: true,
@@ -955,6 +1489,28 @@ export async function spawnExecutionBranches(executionId, branches = [], options
   }
 
   const tree = getExecutionTree(executionId, dbPath);
+  withOrchestratorDatabase(dbPath, (db) => {
+    const context = buildAuditContext(options);
+    emitAuditEvent(db, {
+      executionId,
+      action: "execution:spawn-branches",
+      actor: context.actor,
+      source: context.source,
+      targetType: "execution-tree",
+      targetId: tree?.rootExecutionId ?? executionId,
+      payload: {
+        branchCount: branches.length,
+        branches: branches.map((branch) => ({
+          branchKey: branch?.branchKey ?? null,
+          roles: Array.isArray(branch?.roles) ? branch.roles : []
+        }))
+      },
+      result: {
+        status: "accepted",
+        createdExecutionIds: created.map((item) => item.invocation.invocationId)
+      }
+    });
+  });
   if (options.wait === true) {
     const groupId = tree?.coordinationGroupId ?? executionId;
     const detail = await driveCoordinationGroup(groupId, options, dbPath, sessionDbPath);
@@ -1003,6 +1559,20 @@ export function holdExecution(executionId, payload = {}, dbPath = DEFAULT_ORCHES
         holdExpiresAt: heldExecution.holdExpiresAt
       }
     });
+    const context = buildAuditContext(payload);
+    emitAuditEvent(db, {
+      executionId,
+      action: "execution:hold",
+      actor: context.actor,
+      source: context.source,
+      targetType: "execution",
+      targetId: executionId,
+      payload,
+      result: {
+        status: "accepted",
+        state: heldExecution.state
+      }
+    });
     return getExecutionDetail(executionId, dbPath, sessionDbPath);
   });
 }
@@ -1030,6 +1600,20 @@ export function pauseExecution(executionId, payload = {}, dbPath = DEFAULT_ORCHE
         holdOwner: pausedExecution.holdOwner,
         holdGuidance: pausedExecution.holdGuidance,
         holdExpiresAt: pausedExecution.holdExpiresAt
+      }
+    });
+    const context = buildAuditContext(payload);
+    emitAuditEvent(db, {
+      executionId,
+      action: "execution:pause",
+      actor: context.actor,
+      source: context.source,
+      targetType: "execution",
+      targetId: executionId,
+      payload,
+      result: {
+        status: "accepted",
+        state: pausedExecution.state
       }
     });
     return getExecutionDetail(executionId, dbPath, sessionDbPath);
@@ -1081,6 +1665,22 @@ export function resumeExecution(executionId, payload = {}, dbPath = DEFAULT_ORCH
         reason: payload.reason ?? payload.comments ?? "operator resume",
         previousHoldOwner: execution.holdOwner,
         previousHoldExpiresAt: execution.holdExpiresAt
+      }
+    });
+    const context = buildAuditContext(payload);
+    emitAuditEvent(db, {
+      executionId,
+      stepId: nextStep?.id ?? null,
+      sessionId: nextStep?.sessionId ?? null,
+      action: "execution:resume",
+      actor: context.actor,
+      source: context.source,
+      targetType: "execution",
+      targetId: executionId,
+      payload,
+      result: {
+        status: "accepted",
+        state: resumedExecution.state
       }
     });
     return getExecutionDetail(executionId, dbPath, sessionDbPath);
@@ -1232,6 +1832,38 @@ async function launchStep(execution, step, options = {}) {
 }
 
 async function launchSteps(execution, steps, options = {}) {
+  if (steps.length > 0) {
+    const wave = getStepWave(steps[0]);
+    withOrchestratorDatabase(options.dbPath ?? DEFAULT_ORCHESTRATOR_DB_PATH, (db) => {
+      const priorWave = wave - 1;
+      if (priorWave >= 0) {
+        emitWorkflowEvent(db, {
+          executionId: execution.id,
+          stepId: steps[0].id,
+          sessionId: steps[0].sessionId,
+          type: "workflow.wave.gate_satisfied",
+          payload: {
+            wave: priorWave,
+            nextWave: wave,
+            gate: getWaveGate(listSteps(db, execution.id), priorWave)
+          }
+        });
+      }
+      emitWorkflowEvent(db, {
+        executionId: execution.id,
+        stepId: steps[0].id,
+        sessionId: steps[0].sessionId,
+        type: "workflow.wave.started",
+        payload: {
+          wave,
+          waveName: steps[0].waveName ?? null,
+          size: steps.length,
+          gate: getWaveGate(listSteps(db, execution.id), wave),
+          policy: getWavePolicy(listSteps(db, execution.id), wave)
+        }
+      });
+    });
+  }
   const results = [];
   for (const step of steps) {
     results.push(await launchStep(execution, step, options));
@@ -1265,7 +1897,13 @@ function reconcileCoordinationState(db, execution) {
   }
 
   const blocking = blockingChildren(children);
-  if (blocking.length > 0 && execution.state !== "held") {
+  const coordinationPolicy = getExecutionPolicy(execution)?.coordinationPolicy ?? {};
+  const autoHoldParent = coordinationPolicy.autoHoldParentOnOpenChildEscalation ?? true;
+  const autoResumeParent = coordinationPolicy.resumeParentWhenChildrenSettled ?? true;
+  const familyStallMs = parseIntegerOrNull(coordinationPolicy.escalateOnFamilyStallMs);
+  const maxHeldMs = parseIntegerOrNull(coordinationPolicy.maxHeldMs);
+
+  if (blocking.length > 0 && autoHoldParent && execution.state !== "held") {
     const heldExecution = holdExecutionRecord(execution, "waiting_for_child_executions");
     updateExecution(db, heldExecution);
     emitWorkflowEvent(db, {
@@ -1279,10 +1917,19 @@ function reconcileCoordinationState(db, execution) {
         }))
       }
     });
+    emitWorkflowEvent(db, {
+      executionId: execution.id,
+      type: "workflow.family.held",
+      payload: {
+        reason: "waiting_for_child_executions",
+        blockingChildren: blocking.map((child) => child.id),
+        coordinationGroupId: execution.coordinationGroupId
+      }
+    });
     return heldExecution;
   }
 
-  if (blocking.length === 0 && execution.state === "held" && execution.holdReason === "waiting_for_child_executions") {
+  if (blocking.length === 0 && autoResumeParent && execution.state === "held" && execution.holdReason === "waiting_for_child_executions") {
     const resumedExecution = resumeExecutionRecord(execution);
     updateExecution(db, resumedExecution);
     emitWorkflowEvent(db, {
@@ -1294,7 +1941,79 @@ function reconcileCoordinationState(db, execution) {
         coordinationGroupId: execution.coordinationGroupId
       }
     });
+    emitWorkflowEvent(db, {
+      executionId: execution.id,
+      type: "workflow.family.resumed",
+      payload: {
+        reason: "child_executions_settled",
+        coordinationGroupId: execution.coordinationGroupId
+      }
+    });
     return resumedExecution;
+  }
+
+  if (blocking.length > 0 && familyStallMs) {
+    const anchor = execution.heldAt ?? execution.updatedAt ?? execution.createdAt ?? null;
+    const anchorTime = anchor ? Date.parse(anchor) : NaN;
+    const ageMs = Number.isFinite(anchorTime) ? Math.max(0, Date.now() - anchorTime) : 0;
+    if (ageMs >= familyStallMs) {
+      const alreadyOpen = listEscalations(db, execution.id).some(
+        (escalation) => escalation.status === "open" && escalation.reason === "family-stalled"
+      );
+      if (!alreadyOpen) {
+        openEscalation(db, {
+          execution,
+          reason: "family-stalled",
+          payload: {
+            coordinationGroupId: execution.coordinationGroupId,
+            ageMs,
+            blockingChildren: blocking.map((child) => ({
+              executionId: child.id,
+              state: child.state
+            }))
+          }
+        });
+        emitWorkflowEvent(db, {
+          executionId: execution.id,
+          type: "workflow.family.escalated",
+          payload: {
+            reason: "family-stalled",
+            coordinationGroupId: execution.coordinationGroupId,
+            ageMs
+          }
+        });
+      }
+    }
+  }
+
+  if (execution.state === "held" && execution.holdReason === "waiting_for_child_executions" && maxHeldMs) {
+    const heldAt = execution.heldAt ? Date.parse(execution.heldAt) : NaN;
+    const ageMs = Number.isFinite(heldAt) ? Math.max(0, Date.now() - heldAt) : 0;
+    if (ageMs >= maxHeldMs) {
+      const alreadyOpen = listEscalations(db, execution.id).some(
+        (escalation) => escalation.status === "open" && escalation.reason === "family-held-timeout"
+      );
+      if (!alreadyOpen) {
+        openEscalation(db, {
+          execution,
+          reason: "family-held-timeout",
+          payload: {
+            coordinationGroupId: execution.coordinationGroupId,
+            ageMs,
+            holdReason: execution.holdReason
+          }
+        });
+        emitWorkflowEvent(db, {
+          executionId: execution.id,
+          type: "workflow.family.stalled",
+          payload: {
+            reason: "family-held-timeout",
+            ageMs,
+            coordinationGroupId: execution.coordinationGroupId
+          }
+        });
+      }
+    }
   }
 
   return execution;
@@ -1404,17 +2123,25 @@ export async function reconcileExecution(executionId, options = {}) {
             }
 
             updateStep(db, settledStep);
-            openEscalation(db, {
-              execution,
-              step: settledStep,
-              sourceStepId: settledStep.id,
-              reason: "retry-exhausted",
-              payload: {
-                finalState: settledStep.state,
-                attemptCount: settledStep.attemptCount,
-                maxAttempts: settledStep.maxAttempts
-              }
-            });
+            const currentSteps = listSteps(db, executionId);
+            const wavePolicy = getWavePolicy(currentSteps, getStepWave(activeStep));
+            const failureAction = wavePolicy.onFailure ?? "fail_execution";
+            if (failureAction === "open_escalation" || failureAction === "hold_execution") {
+              openEscalation(db, {
+                execution,
+                step: settledStep,
+                sourceStepId: settledStep.id,
+                reason: "retry-exhausted",
+                payload: {
+                  finalState: settledStep.state,
+                  attemptCount: settledStep.attemptCount,
+                  maxAttempts: settledStep.maxAttempts,
+                  wave: getStepWave(activeStep),
+                  waveName: activeStep.waveName ?? null,
+                  policy: wavePolicy
+                }
+              });
+            }
             emitWorkflowEvent(db, {
               executionId,
               stepId: settledStep.id,
@@ -1426,6 +2153,42 @@ export async function reconcileExecution(executionId, options = {}) {
                 maxAttempts: settledStep.maxAttempts
               }
             });
+            if (failureAction === "hold_execution") {
+              const heldExecution = holdExecutionRecord(execution, `wave-${getStepWave(activeStep)}-failure`);
+              updateExecution(db, heldExecution);
+              return getExecutionDetail(executionId, dbPath, sessionDbPath);
+            }
+            if (failureAction === "open_escalation") {
+              const heldExecution = holdExecutionRecord(execution, `wave-${getStepWave(activeStep)}-escalated`);
+              updateExecution(db, heldExecution);
+              return getExecutionDetail(executionId, dbPath, sessionDbPath);
+            }
+            if (failureAction === "continue") {
+              const currentWave = getStepWave(activeStep);
+              const refreshedWaveSteps = getWaveSteps(listSteps(db, executionId), currentWave);
+              const waveSatisfied = isWaveSatisfied(listSteps(db, executionId), currentWave);
+              const waveStillHasWork = refreshedWaveSteps.some(
+                (step) => step.state === "planned" || ACTIVE_STEP_STATES.has(step.state)
+              );
+              if (!waveSatisfied && !waveStillHasWork) {
+                openEscalation(db, {
+                  execution,
+                  step: settledStep,
+                  sourceStepId: settledStep.id,
+                  reason: "wave-blocked",
+                  payload: {
+                    wave: currentWave,
+                    waveName: activeStep.waveName ?? null,
+                    finalState: settledStep.state,
+                    policy: wavePolicy
+                  }
+                });
+                const heldExecution = holdExecutionRecord(execution, `wave-${currentWave}-blocked`);
+                updateExecution(db, heldExecution);
+                return getExecutionDetail(executionId, dbPath, sessionDbPath);
+              }
+              continue;
+            }
             const failedExecution = transitionExecutionRecord(execution, "failed", {
               currentStepIndex: activeStep.sequence
             });
@@ -1462,6 +2225,14 @@ export async function reconcileExecution(executionId, options = {}) {
               attemptCount: settledStep.attemptCount
             }
           });
+        }
+
+        const activeWaves = [...new Set(getActiveSteps(listSteps(db, executionId)).map((step) => getStepWave(step)))];
+        for (const wave of activeWaves) {
+          const waveState = applyWavePolicy(db, execution, listSteps(db, executionId), wave);
+          if (waveState && SETTLED_EXECUTION_STATES.includes(waveState.state)) {
+            return getExecutionDetail(executionId, dbPath, sessionDbPath);
+          }
         }
 
         const refreshedSteps = listSteps(db, executionId);
@@ -1520,6 +2291,24 @@ export async function reconcileExecution(executionId, options = {}) {
       await launchSteps(detail.execution, launchable, options);
       return getExecutionDetail(executionId, dbPath, sessionDbPath);
     }
+    const waveState = withOrchestratorDatabase(dbPath, (db) => {
+      const execution = getExecution(db, executionId);
+      if (!execution) {
+        return null;
+      }
+      const steps = listSteps(db, executionId);
+      const activeWaves = [...new Set(getActiveSteps(steps).map((step) => getStepWave(step)))];
+      for (const wave of activeWaves) {
+        const state = applyWavePolicy(db, execution, steps, wave);
+        if (state) {
+          return state;
+        }
+      }
+      return null;
+    });
+    if (waveState) {
+      return getExecutionDetail(executionId, dbPath, sessionDbPath);
+    }
     return detail;
   }
 
@@ -1539,6 +2328,41 @@ export async function reconcileExecution(executionId, options = {}) {
   if (nextSteps.length === 0) {
     return withOrchestratorDatabase(dbPath, (db) => {
       const execution = getExecution(db, executionId);
+      const steps = listSteps(db, executionId);
+      if (hasPlannedSteps(steps)) {
+        const blockedWave = findBlockedWave(steps);
+        if (blockedWave) {
+          const existingEscalation = listEscalations(db, executionId).some(
+            (item) => item.status === "open" && item.reason === "wave-blocked" && Number(item.payload?.wave ?? -1) === blockedWave.wave
+          );
+          if (!existingEscalation) {
+            openEscalation(db, {
+              execution,
+              step: blockedWave.steps[0] ?? null,
+              sourceStepId: blockedWave.steps[0]?.id ?? null,
+              reason: "wave-blocked",
+              payload: {
+                wave: blockedWave.wave,
+                waveName: blockedWave.waveName,
+                policy: blockedWave.policy
+              }
+            });
+          }
+          const heldExecution = holdExecutionRecord(execution, `wave-${blockedWave.wave}-blocked`);
+          updateExecution(db, heldExecution);
+          emitWorkflowEvent(db, {
+            executionId,
+            type: "workflow.wave.escalated",
+            payload: {
+              wave: blockedWave.wave,
+              waveName: blockedWave.waveName,
+              reason: "wave-blocked"
+            }
+          });
+          return getExecutionDetail(executionId, dbPath, sessionDbPath);
+        }
+        return getExecutionDetail(executionId, dbPath, sessionDbPath);
+      }
       const completed = transitionExecutionRecord(execution, "completed", {
         reviewStatus: execution.reviewStatus,
         approvalStatus: execution.approvalStatus
@@ -1600,6 +2424,24 @@ export async function recordReviewDecision(executionId, payload, dbPath = DEFAUL
       comments: payload.comments
     });
     insertReview(db, review);
+    const auditContext = buildAuditContext(payload);
+    emitAuditEvent(db, {
+      executionId,
+      stepId: reviewStep.id,
+      sessionId: reviewStep.sessionId,
+      action: "execution:review",
+      actor: auditContext.actor,
+      source: auditContext.source,
+      targetType: "step",
+      targetId: reviewStep.id,
+      payload: {
+        status: payload.status,
+        comments: payload.comments ?? ""
+      },
+      result: {
+        status: "accepted"
+      }
+    });
     emitWorkflowEvent(db, {
       executionId,
       stepId: reviewStep.id,
@@ -1763,6 +2605,24 @@ export async function recordApprovalDecision(executionId, payload, dbPath = DEFA
       comments: payload.comments
     });
     insertApproval(db, approval);
+    const auditContext = buildAuditContext(payload);
+    emitAuditEvent(db, {
+      executionId,
+      stepId: approvalStep.id,
+      sessionId: approvalStep.sessionId,
+      action: "execution:approval",
+      actor: auditContext.actor,
+      source: auditContext.source,
+      targetType: "step",
+      targetId: approvalStep.id,
+      payload: {
+        status: payload.status,
+        comments: payload.comments ?? ""
+      },
+      result: {
+        status: "accepted"
+      }
+    });
     emitWorkflowEvent(db, {
       executionId,
       stepId: approvalStep.id,
@@ -1927,6 +2787,23 @@ export function resolveExecutionEscalation(executionId, escalationId, payload = 
       }
     });
     updateEscalation(db, resolvedEscalation);
+    const auditContext = buildAuditContext(payload);
+    emitAuditEvent(db, {
+      executionId,
+      stepId: escalation.stepId ?? escalation.sourceStepId ?? null,
+      action: "execution:resolve-escalation",
+      actor: auditContext.actor,
+      source: auditContext.source,
+      targetType: "escalation",
+      targetId: escalationId,
+      payload: {
+        resume: payload.resume === true,
+        comments: payload.comments ?? ""
+      },
+      result: {
+        status: "accepted"
+      }
+    });
     emitWorkflowEvent(db, {
       executionId,
       stepId: escalation.stepId ?? escalation.sourceStepId ?? null,

@@ -17,3 +17,8 @@ workflowPolicy:
   approvalRequired: true
 docsKbPolicy:
   queryTerms: [backend]
+coordinationPolicy:
+  autoHoldParentOnOpenChildEscalation: true
+  resumeParentWhenChildrenSettled: true
+  maxHeldMs: 120000
+  escalateOnFamilyStallMs: 60000

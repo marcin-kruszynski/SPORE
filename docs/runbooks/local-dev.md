@@ -39,7 +39,16 @@ If `pi` is installed under `nvm` but not visible in the current shell `PATH`, se
 export SPORE_PI_BIN="${SPORE_PI_BIN:-$(npm prefix -g)/bin/pi}"
 ```
 
+For isolated runs, you can also redirect durable state:
+
+```bash
+export SPORE_ORCHESTRATOR_DB_PATH=/tmp/spore-orchestrator.sqlite
+export SPORE_SESSION_DB_PATH=/tmp/spore-sessions.sqlite
+export SPORE_EVENT_LOG_PATH=/tmp/spore-events.ndjson
+```
+
 6. Follow roadmap in `docs/roadmap/IMPLEMENTATION_ROADMAP.md`.
+7. Prefer named flows from `docs/runbooks/scenario-library.md` for local validation.
 
 ## Environment Verification
 
@@ -64,6 +73,7 @@ Run:
 npm run docs-kb:index
 npm run config:validate
 npm run docs-kb -- search "session model"
+npm run test:all-local
 ```
 
 To inspect domain-policy defaults before a run, plan a workflow without explicit roles and inspect the merged policy:
@@ -113,6 +123,7 @@ curl http://127.0.0.1:8787/health
 curl http://127.0.0.1:8787/status
 curl http://127.0.0.1:8787/sessions
 curl http://127.0.0.1:8787/sessions/smoke-001/artifacts
+curl http://127.0.0.1:8787/sessions/smoke-001/live
 curl -N http://127.0.0.1:8787/stream/events?session=smoke-001
 ```
 
@@ -169,6 +180,42 @@ If execution payloads now include lineage or coordination metadata, inspect them
 ```bash
 curl http://127.0.0.1:8789/executions
 curl http://127.0.0.1:8789/executions/e2e-review-002
+```
+
+## TUI and Family Inspection
+
+Use the terminal surface against the same orchestrator HTTP APIs as the web client:
+
+```bash
+node packages/tui/src/cli/spore-ops.js execution --execution e2e-review-002 --api http://127.0.0.1:8789
+node packages/tui/src/cli/spore-ops.js family --execution e2e-review-002 --api http://127.0.0.1:8789
+node packages/tui/src/cli/spore-ops.js audit --execution e2e-review-002 --api http://127.0.0.1:8789
+node packages/tui/src/cli/spore-ops.js policy-diff --execution e2e-review-002 --api http://127.0.0.1:8789
+```
+
+## Canonical Scenario Runs
+
+Use `docs/runbooks/scenario-library.md` for the stable scenario list and preferred commands. The four canonical flows are:
+
+- backend service delivery
+- frontend UI pass
+- CLI verification pass
+- docs ADR pass
+
+Executable scenario and regression catalogs live in:
+
+- `config/scenarios/*.yaml`
+- `config/regressions/*.yaml`
+
+Typical commands:
+
+```bash
+npm run orchestrator:scenario-list
+npm run orchestrator:scenario-show -- --scenario backend-service-delivery
+npm run orchestrator:scenario-run -- --scenario cli-verification-pass --stub
+npm run orchestrator:regression-list
+npm run orchestrator:regression-show -- --regression local-fast
+npm run orchestrator:regression-run -- --regression local-fast --stub
 ```
 
 Look for optional fields such as:

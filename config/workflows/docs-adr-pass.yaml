@@ -1,0 +1,42 @@
+id: docs-adr-pass
+name: Docs ADR Pass
+triggerType: manual
+applicableProjectTypes: [platform, application, service, library]
+roleSequence: [lead, scout, reviewer]
+stepSets:
+  - name: framing
+    roles: [lead]
+    gate:
+      mode: all
+    policy:
+      maxActiveMs: 15000
+      onTimeout: hold_execution
+      onFailure: fail_execution
+      blockNextWaveOnOpenEscalation: true
+  - name: research
+    roles: [scout]
+    gate:
+      mode: all
+    policy:
+      maxActiveMs: 45000
+      onTimeout: open_escalation
+      onFailure: hold_execution
+      blockNextWaveOnOpenEscalation: true
+  - name: decision-review
+    roles: [reviewer]
+    gate:
+      mode: all
+    policy:
+      maxActiveMs: 15000
+      onTimeout: hold_execution
+      onFailure: fail_execution
+      blockNextWaveOnOpenEscalation: true
+reviewStep:
+  required: false
+retryPolicy:
+  maxAttempts: 1
+documentationUpdatePolicy:
+  required: true
+completionRequirements:
+  - adr-draft-captured
+  - open-questions-recorded

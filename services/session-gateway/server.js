@@ -576,6 +576,36 @@ async function createServer(options = {}) {
         return;
       }
 
+      if (parts.length === 3 && parts[0] === "sessions" && parts[2] === "live") {
+        const sessionId = decodeURIComponent(parts[1]);
+        const session = withDatabase(dbPath, (db) => getSession(db, sessionId));
+        if (!session) {
+          notFound(response, pathname);
+          return;
+        }
+        const events = filterEvents(await readEvents(eventsPath), {
+          session: sessionId,
+          limit: url.searchParams.get("limit") ?? "50"
+        });
+        const artifacts = await buildArtifactSummary(session);
+        const controlHistory = artifacts.control?.exists
+          ? (await readArtifactContent(session, "control")).content
+          : [];
+        json(response, 200, {
+          ok: true,
+          session,
+          events,
+          artifacts,
+          controlHistory,
+          launcher: {
+            launcherType: session.launcherType ?? null,
+            tmuxSession: session.tmuxSession ?? null,
+            runId: session.runId ?? null
+          }
+        });
+        return;
+      }
+
       if (parts.length === 4 && parts[0] === "sessions" && parts[2] === "artifacts") {
         const sessionId = decodeURIComponent(parts[1]);
         const artifactName = parts[3];

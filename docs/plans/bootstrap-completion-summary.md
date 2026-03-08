@@ -24,11 +24,11 @@ The bootstrap now includes durable roots for:
 The repository now includes both scaffolding and early executable foundation work:
 
 - `116` documentation files in `docs/`
-- `21` configuration seed files in `config/`
+- `40` configuration seed files in `config/`
 - `35` workspace composition and template files in `workspace/`
 - `18` package placeholder files in `packages/`
 - `13` tool and docsearch files in `tools/`
-- `8` schema and schema README files in `schemas/`
+- `10` schema and schema README files in `schemas/`
 - `2` app placeholders in `apps/`
 - `3` service placeholders in `services/`
 - `5` PI context files in `.pi/`
@@ -56,6 +56,12 @@ Executable foundation now includes:
 - workflow-level pause, hold, resume, fork, and coordination-group drive controls
 - forward-compatible durable execution metadata for lineage, grouping, and recoverable interruption states
 - policy-driven defaults for roles, max attempts, watchdog thresholds, reviewer governance, session mode, and docs-kb startup retrieval
+- canonical scenario workflows for backend service delivery, frontend UI pass, CLI verification, and docs ADR work
+- machine-readable scenario and regression catalogs with durable run history
+- combined execution history reads and normalized scenario-run artifact summaries
+- operator regression report generation under `artifacts/regressions/`
+- isolated local state overrides for orchestrator/session/event stores during tests and demos
+- local regression suites for policy, HTTP, web-proxy, TUI, opt-in real PI smoke, and opt-in real gateway control E2E
 
 ## References Acquired
 
@@ -108,8 +114,8 @@ Canonical open questions live in `docs/research/open-questions.md`.
 
 Build on the landed coordination and recovery slice rather than widening the surface area blindly:
 
-1. harden coordination-group policy so parent/child execution behavior is predictable across block, resume, governance, and escalation paths,
-2. add richer browser visualization for grouped execution history, lineage, and branch intent,
-3. broaden domain policy coverage without baking in one universal branching policy,
-4. add durable hold ownership, timeout, and operator guidance semantics,
-5. keep workflow events, recovery controls, and group-level reads aligned as durable contracts rather than UI-only affordances.
+1. deepen browser drilldowns from execution history into exact artifacts, audit payloads, and lineage branches,
+2. expand regression profiles and scenario coverage without baking in one universal branching policy,
+3. add stronger gateway live-inspection and control E2E coverage under real PI sessions,
+4. extend real-PI scenario coverage from isolated named runs into grouped regression profiles,
+5. keep scenario/regression history, workflow events, and operator recovery routes aligned as durable contracts rather than UI-only affordances.

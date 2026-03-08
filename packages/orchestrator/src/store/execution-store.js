@@ -132,12 +132,83 @@ export function openOrchestratorDatabase(dbPath) {
       updated_at TEXT NOT NULL,
       resolved_at TEXT
     );
+    CREATE TABLE IF NOT EXISTS workflow_audit (
+      id TEXT PRIMARY KEY,
+      execution_id TEXT NOT NULL,
+      step_id TEXT,
+      session_id TEXT,
+      action TEXT NOT NULL,
+      actor TEXT,
+      source TEXT,
+      target_type TEXT,
+      target_id TEXT,
+      payload_json TEXT,
+      result TEXT,
+      created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS scenario_runs (
+      id TEXT PRIMARY KEY,
+      scenario_id TEXT NOT NULL,
+      scenario_label TEXT,
+      workflow_id TEXT,
+      workflow_path TEXT,
+      domain_id TEXT,
+      launcher TEXT,
+      uses_real_pi INTEGER NOT NULL DEFAULT 0,
+      requested_by TEXT,
+      trigger_source TEXT,
+      objective TEXT,
+      status TEXT NOT NULL,
+      assertion_summary_json TEXT,
+      metadata_json TEXT,
+      created_at TEXT NOT NULL,
+      started_at TEXT NOT NULL,
+      ended_at TEXT
+    );
+    CREATE TABLE IF NOT EXISTS scenario_run_executions (
+      id TEXT PRIMARY KEY,
+      scenario_run_id TEXT NOT NULL,
+      execution_id TEXT NOT NULL,
+      session_count INTEGER NOT NULL DEFAULT 0,
+      metadata_json TEXT,
+      created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS regression_runs (
+      id TEXT PRIMARY KEY,
+      regression_id TEXT NOT NULL,
+      regression_label TEXT,
+      requested_by TEXT,
+      trigger_source TEXT,
+      real_pi_required INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL,
+      summary_json TEXT,
+      metadata_json TEXT,
+      created_at TEXT NOT NULL,
+      started_at TEXT NOT NULL,
+      ended_at TEXT
+    );
+    CREATE TABLE IF NOT EXISTS regression_run_items (
+      id TEXT PRIMARY KEY,
+      regression_run_id TEXT NOT NULL,
+      scenario_id TEXT NOT NULL,
+      scenario_run_id TEXT,
+      status TEXT NOT NULL,
+      metadata_json TEXT,
+      created_at TEXT NOT NULL,
+      started_at TEXT NOT NULL,
+      ended_at TEXT
+    );
     CREATE INDEX IF NOT EXISTS idx_workflow_executions_state ON workflow_executions(state);
     CREATE INDEX IF NOT EXISTS idx_workflow_steps_execution_id ON workflow_steps(execution_id);
     CREATE INDEX IF NOT EXISTS idx_workflow_reviews_execution_id ON workflow_reviews(execution_id);
     CREATE INDEX IF NOT EXISTS idx_workflow_approvals_execution_id ON workflow_approvals(execution_id);
     CREATE INDEX IF NOT EXISTS idx_workflow_events_execution_id ON workflow_events(execution_id, event_index);
     CREATE INDEX IF NOT EXISTS idx_workflow_escalations_execution_id ON workflow_escalations(execution_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_workflow_audit_execution_id ON workflow_audit(execution_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_scenario_runs_scenario_id ON scenario_runs(scenario_id, started_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_scenario_run_executions_run_id ON scenario_run_executions(scenario_run_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_regression_runs_regression_id ON regression_runs(regression_id, started_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_regression_run_items_run_id ON regression_run_items(regression_run_id, created_at);
   `);
   ensureColumn(db, "workflow_steps", "attempt_count", "INTEGER NOT NULL DEFAULT 1");
   ensureColumn(db, "workflow_steps", "max_attempts", "INTEGER NOT NULL DEFAULT 1");
@@ -450,6 +521,31 @@ export function insertEscalation(db, escalation) {
     createdAt: escalation.createdAt,
     updatedAt: escalation.updatedAt,
     resolvedAt: escalation.resolvedAt
+  });
+}
+
+export function insertAuditRecord(db, record) {
+  db.prepare(`
+    INSERT INTO workflow_audit (
+      id, execution_id, step_id, session_id, action, actor, source, target_type, target_id,
+      payload_json, result, created_at
+    ) VALUES (
+      @id, @executionId, @stepId, @sessionId, @action, @actor, @source, @targetType, @targetId,
+      @payloadJson, @result, @createdAt
+    )
+  `).run({
+    id: record.id,
+    executionId: record.executionId,
+    stepId: record.stepId,
+    sessionId: record.sessionId,
+    action: record.action,
+    actor: record.actor,
+    source: record.source,
+    targetType: record.targetType,
+    targetId: record.targetId,
+    payloadJson: JSON.stringify(record.payload ?? {}),
+    result: JSON.stringify(record.result ?? {}),
+    createdAt: record.createdAt
   });
 }
 
@@ -800,5 +896,374 @@ export function listEscalations(db, executionId) {
   `).all(executionId).map((record) => ({
     ...record,
     payload: record.payloadJson ? JSON.parse(record.payloadJson) : {}
+  }));
+}
+
+export function listAuditRecords(db, executionId) {
+  return db.prepare(`
+    SELECT
+      id,
+      execution_id AS executionId,
+      step_id AS stepId,
+      session_id AS sessionId,
+      action,
+      actor,
+      source,
+      target_type AS targetType,
+      target_id AS targetId,
+      payload_json AS payloadJson,
+      result,
+      created_at AS createdAt
+    FROM workflow_audit
+    WHERE execution_id = ?
+    ORDER BY created_at DESC
+  `).all(executionId).map((record) => ({
+    ...record,
+    payload: record.payloadJson ? JSON.parse(record.payloadJson) : {},
+    result: parseJsonField(record.result, {})
+  }));
+}
+
+export function insertScenarioRun(db, run) {
+  db.prepare(`
+    INSERT INTO scenario_runs (
+      id, scenario_id, scenario_label, workflow_id, workflow_path, domain_id, launcher,
+      uses_real_pi, requested_by, trigger_source, objective, status, assertion_summary_json,
+      metadata_json, created_at, started_at, ended_at
+    ) VALUES (
+      @id, @scenarioId, @scenarioLabel, @workflowId, @workflowPath, @domainId, @launcher,
+      @usesRealPi, @requestedBy, @triggerSource, @objective, @status, @assertionSummaryJson,
+      @metadataJson, @createdAt, @startedAt, @endedAt
+    )
+  `).run({
+    id: run.id,
+    scenarioId: run.scenarioId,
+    scenarioLabel: run.scenarioLabel,
+    workflowId: run.workflowId,
+    workflowPath: run.workflowPath,
+    domainId: run.domainId,
+    launcher: run.launcher,
+    usesRealPi: run.usesRealPi ? 1 : 0,
+    requestedBy: run.requestedBy,
+    triggerSource: run.triggerSource,
+    objective: run.objective,
+    status: run.status,
+    assertionSummaryJson: JSON.stringify(run.assertionSummary ?? {}),
+    metadataJson: JSON.stringify(run.metadata ?? {}),
+    createdAt: run.createdAt,
+    startedAt: run.startedAt,
+    endedAt: run.endedAt ?? null
+  });
+}
+
+export function updateScenarioRun(db, run) {
+  db.prepare(`
+    UPDATE scenario_runs SET
+      scenario_id = @scenarioId,
+      scenario_label = @scenarioLabel,
+      workflow_id = @workflowId,
+      workflow_path = @workflowPath,
+      domain_id = @domainId,
+      launcher = @launcher,
+      uses_real_pi = @usesRealPi,
+      requested_by = @requestedBy,
+      trigger_source = @triggerSource,
+      objective = @objective,
+      status = @status,
+      assertion_summary_json = @assertionSummaryJson,
+      metadata_json = @metadataJson,
+      started_at = @startedAt,
+      ended_at = @endedAt
+    WHERE id = @id
+  `).run({
+    id: run.id,
+    scenarioId: run.scenarioId,
+    scenarioLabel: run.scenarioLabel,
+    workflowId: run.workflowId,
+    workflowPath: run.workflowPath,
+    domainId: run.domainId,
+    launcher: run.launcher,
+    usesRealPi: run.usesRealPi ? 1 : 0,
+    requestedBy: run.requestedBy,
+    triggerSource: run.triggerSource,
+    objective: run.objective,
+    status: run.status,
+    assertionSummaryJson: JSON.stringify(run.assertionSummary ?? {}),
+    metadataJson: JSON.stringify(run.metadata ?? {}),
+    startedAt: run.startedAt,
+    endedAt: run.endedAt ?? null
+  });
+}
+
+export function getScenarioRun(db, runId) {
+  const record = db.prepare(`
+    SELECT
+      id,
+      scenario_id AS scenarioId,
+      scenario_label AS scenarioLabel,
+      workflow_id AS workflowId,
+      workflow_path AS workflowPath,
+      domain_id AS domainId,
+      launcher,
+      uses_real_pi AS usesRealPi,
+      requested_by AS requestedBy,
+      trigger_source AS triggerSource,
+      objective,
+      status,
+      assertion_summary_json AS assertionSummaryJson,
+      metadata_json AS metadataJson,
+      created_at AS createdAt,
+      started_at AS startedAt,
+      ended_at AS endedAt
+    FROM scenario_runs
+    WHERE id = ?
+  `).get(runId);
+  return record ? {
+    ...record,
+    usesRealPi: Boolean(record.usesRealPi),
+    assertionSummary: parseJsonField(record.assertionSummaryJson, {}),
+    metadata: parseJsonField(record.metadataJson, {})
+  } : null;
+}
+
+export function listScenarioRuns(db, scenarioId = null, limit = 20) {
+  const sql = `
+    SELECT
+      id,
+      scenario_id AS scenarioId,
+      scenario_label AS scenarioLabel,
+      workflow_id AS workflowId,
+      workflow_path AS workflowPath,
+      domain_id AS domainId,
+      launcher,
+      uses_real_pi AS usesRealPi,
+      requested_by AS requestedBy,
+      trigger_source AS triggerSource,
+      objective,
+      status,
+      assertion_summary_json AS assertionSummaryJson,
+      metadata_json AS metadataJson,
+      created_at AS createdAt,
+      started_at AS startedAt,
+      ended_at AS endedAt
+    FROM scenario_runs
+    ${scenarioId ? "WHERE scenario_id = ?" : ""}
+    ORDER BY started_at DESC
+    LIMIT ?
+  `;
+  const statement = db.prepare(sql);
+  const rows = scenarioId ? statement.all(scenarioId, limit) : statement.all(limit);
+  return rows.map((record) => ({
+    ...record,
+    usesRealPi: Boolean(record.usesRealPi),
+    assertionSummary: parseJsonField(record.assertionSummaryJson, {}),
+    metadata: parseJsonField(record.metadataJson, {})
+  }));
+}
+
+export function insertScenarioRunExecution(db, row) {
+  db.prepare(`
+    INSERT INTO scenario_run_executions (
+      id, scenario_run_id, execution_id, session_count, metadata_json, created_at
+    ) VALUES (
+      @id, @scenarioRunId, @executionId, @sessionCount, @metadataJson, @createdAt
+    )
+  `).run({
+    id: row.id,
+    scenarioRunId: row.scenarioRunId,
+    executionId: row.executionId,
+    sessionCount: row.sessionCount ?? 0,
+    metadataJson: JSON.stringify(row.metadata ?? {}),
+    createdAt: row.createdAt
+  });
+}
+
+export function listScenarioRunExecutions(db, scenarioRunId) {
+  return db.prepare(`
+    SELECT
+      id,
+      scenario_run_id AS scenarioRunId,
+      execution_id AS executionId,
+      session_count AS sessionCount,
+      metadata_json AS metadataJson,
+      created_at AS createdAt
+    FROM scenario_run_executions
+    WHERE scenario_run_id = ?
+    ORDER BY created_at ASC
+  `).all(scenarioRunId).map((record) => ({
+    ...record,
+    metadata: parseJsonField(record.metadataJson, {})
+  }));
+}
+
+export function insertRegressionRun(db, run) {
+  db.prepare(`
+    INSERT INTO regression_runs (
+      id, regression_id, regression_label, requested_by, trigger_source, real_pi_required,
+      status, summary_json, metadata_json, created_at, started_at, ended_at
+    ) VALUES (
+      @id, @regressionId, @regressionLabel, @requestedBy, @triggerSource, @realPiRequired,
+      @status, @summaryJson, @metadataJson, @createdAt, @startedAt, @endedAt
+    )
+  `).run({
+    id: run.id,
+    regressionId: run.regressionId,
+    regressionLabel: run.regressionLabel,
+    requestedBy: run.requestedBy,
+    triggerSource: run.triggerSource,
+    realPiRequired: run.realPiRequired ? 1 : 0,
+    status: run.status,
+    summaryJson: JSON.stringify(run.summary ?? {}),
+    metadataJson: JSON.stringify(run.metadata ?? {}),
+    createdAt: run.createdAt,
+    startedAt: run.startedAt,
+    endedAt: run.endedAt ?? null
+  });
+}
+
+export function updateRegressionRun(db, run) {
+  db.prepare(`
+    UPDATE regression_runs SET
+      regression_id = @regressionId,
+      regression_label = @regressionLabel,
+      requested_by = @requestedBy,
+      trigger_source = @triggerSource,
+      real_pi_required = @realPiRequired,
+      status = @status,
+      summary_json = @summaryJson,
+      metadata_json = @metadataJson,
+      started_at = @startedAt,
+      ended_at = @endedAt
+    WHERE id = @id
+  `).run({
+    id: run.id,
+    regressionId: run.regressionId,
+    regressionLabel: run.regressionLabel,
+    requestedBy: run.requestedBy,
+    triggerSource: run.triggerSource,
+    realPiRequired: run.realPiRequired ? 1 : 0,
+    status: run.status,
+    summaryJson: JSON.stringify(run.summary ?? {}),
+    metadataJson: JSON.stringify(run.metadata ?? {}),
+    startedAt: run.startedAt,
+    endedAt: run.endedAt ?? null
+  });
+}
+
+export function getRegressionRun(db, runId) {
+  const record = db.prepare(`
+    SELECT
+      id,
+      regression_id AS regressionId,
+      regression_label AS regressionLabel,
+      requested_by AS requestedBy,
+      trigger_source AS triggerSource,
+      real_pi_required AS realPiRequired,
+      status,
+      summary_json AS summaryJson,
+      metadata_json AS metadataJson,
+      created_at AS createdAt,
+      started_at AS startedAt,
+      ended_at AS endedAt
+    FROM regression_runs
+    WHERE id = ?
+  `).get(runId);
+  return record ? {
+    ...record,
+    realPiRequired: Boolean(record.realPiRequired),
+    summary: parseJsonField(record.summaryJson, {}),
+    metadata: parseJsonField(record.metadataJson, {})
+  } : null;
+}
+
+export function listRegressionRuns(db, regressionId = null, limit = 20) {
+  const sql = `
+    SELECT
+      id,
+      regression_id AS regressionId,
+      regression_label AS regressionLabel,
+      requested_by AS requestedBy,
+      trigger_source AS triggerSource,
+      real_pi_required AS realPiRequired,
+      status,
+      summary_json AS summaryJson,
+      metadata_json AS metadataJson,
+      created_at AS createdAt,
+      started_at AS startedAt,
+      ended_at AS endedAt
+    FROM regression_runs
+    ${regressionId ? "WHERE regression_id = ?" : ""}
+    ORDER BY started_at DESC
+    LIMIT ?
+  `;
+  const statement = db.prepare(sql);
+  const rows = regressionId ? statement.all(regressionId, limit) : statement.all(limit);
+  return rows.map((record) => ({
+    ...record,
+    realPiRequired: Boolean(record.realPiRequired),
+    summary: parseJsonField(record.summaryJson, {}),
+    metadata: parseJsonField(record.metadataJson, {})
+  }));
+}
+
+export function insertRegressionRunItem(db, item) {
+  db.prepare(`
+    INSERT INTO regression_run_items (
+      id, regression_run_id, scenario_id, scenario_run_id, status, metadata_json, created_at, started_at, ended_at
+    ) VALUES (
+      @id, @regressionRunId, @scenarioId, @scenarioRunId, @status, @metadataJson, @createdAt, @startedAt, @endedAt
+    )
+  `).run({
+    id: item.id,
+    regressionRunId: item.regressionRunId,
+    scenarioId: item.scenarioId,
+    scenarioRunId: item.scenarioRunId ?? null,
+    status: item.status,
+    metadataJson: JSON.stringify(item.metadata ?? {}),
+    createdAt: item.createdAt,
+    startedAt: item.startedAt,
+    endedAt: item.endedAt ?? null
+  });
+}
+
+export function updateRegressionRunItem(db, item) {
+  db.prepare(`
+    UPDATE regression_run_items SET
+      scenario_id = @scenarioId,
+      scenario_run_id = @scenarioRunId,
+      status = @status,
+      metadata_json = @metadataJson,
+      started_at = @startedAt,
+      ended_at = @endedAt
+    WHERE id = @id
+  `).run({
+    id: item.id,
+    scenarioId: item.scenarioId,
+    scenarioRunId: item.scenarioRunId ?? null,
+    status: item.status,
+    metadataJson: JSON.stringify(item.metadata ?? {}),
+    startedAt: item.startedAt,
+    endedAt: item.endedAt ?? null
+  });
+}
+
+export function listRegressionRunItems(db, regressionRunId) {
+  return db.prepare(`
+    SELECT
+      id,
+      regression_run_id AS regressionRunId,
+      scenario_id AS scenarioId,
+      scenario_run_id AS scenarioRunId,
+      status,
+      metadata_json AS metadataJson,
+      created_at AS createdAt,
+      started_at AS startedAt,
+      ended_at AS endedAt
+    FROM regression_run_items
+    WHERE regression_run_id = ?
+    ORDER BY created_at ASC
+  `).all(regressionRunId).map((record) => ({
+    ...record,
+    metadata: parseJsonField(record.metadataJson, {})
   }));
 }

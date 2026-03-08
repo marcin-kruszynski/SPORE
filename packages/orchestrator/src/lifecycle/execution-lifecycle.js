@@ -217,3 +217,32 @@ export function createApprovalRecord({ executionId, stepId, status, decidedBy, c
     decidedAt: timestamp
   };
 }
+
+export function createAuditRecord({
+  executionId,
+  stepId = null,
+  sessionId = null,
+  actor = "operator",
+  source = "orchestrator",
+  targetType = "execution",
+  targetId = null,
+  action,
+  payload,
+  result
+}) {
+  const timestamp = now();
+  return {
+    id: crypto.randomUUID(),
+    executionId,
+    stepId,
+    sessionId,
+    actor,
+    source,
+    targetType,
+    targetId: targetId ?? executionId,
+    action,
+    payload: payload ?? {},
+    result: result ?? {},
+    createdAt: timestamp
+  };
+}

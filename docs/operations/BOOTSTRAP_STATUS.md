@@ -36,6 +36,13 @@ Bootstrap foundation is complete enough to support the next implementation phase
 - workflow-level pause, hold, resume, fork, and group-drive controls
 - operator-facing state model that distinguishes recoverable interruption states such as `paused` and `held`
 - policy-driven defaults for role selection, retry attempts, watchdog thresholds, reviewer governance, per-role session mode, and docs-kb startup retrieval
+- isolated local state overrides through `SPORE_ORCHESTRATOR_DB_PATH`, `SPORE_SESSION_DB_PATH`, and `SPORE_EVENT_LOG_PATH`
+- canonical scenario library for backend, frontend, CLI, and docs validation flows
+- machine-readable scenario and regression catalogs under `config/scenarios/` and `config/regressions/`
+- durable scenario-run and regression-run history in orchestrator SQLite
+- combined execution history surface and scenario-run artifact summaries
+- regression report artifacts under `artifacts/regressions/`
+- local regression suites split into `test:policy`, `test:http`, `test:web-proxy`, `test:tui`, `test:all-local`, and opt-in `test:e2e:pi`
 
 ## Ready Areas
 
@@ -50,6 +57,7 @@ Bootstrap foundation is complete enough to support the next implementation phase
 - forward-compatible browser and API contracts for lineage-aware and coordination-aware execution views
 - durable grouped-work inspection without scraping runtime artifacts directly
 - project-specific domain tuning without forking workflow templates
+- isolated test and demo runs without contaminating shared SQLite state
 
 ## Skeleton-Only Areas
 
@@ -77,10 +85,10 @@ Bootstrap foundation is complete enough to support the next implementation phase
 
 ## Next Steps
 
-1. Harden coordination-group policies for blocking, resume, and governance re-entry across related executions.
-2. Expand browser visualization for grouped lineage, branch purpose, and execution recovery timelines.
-3. Broaden domain policy coverage beyond the current role, retry, governance, watchdog, and retrieval defaults.
-4. Add explicit hold ownership, timeout, and operator guidance for long-lived blocked work.
+1. Broaden real PI canonical E2E coverage from single-scenario runs into grouped regression profiles.
+2. Add richer web timeline drilldowns that jump from history rows into exact artifacts and audit payloads.
+3. Add session-gateway live inspection and control E2E coverage against real PI sessions.
+4. Add operator-facing regression history dashboards over durable run/report records.
 
 ## Architectural Risks
 

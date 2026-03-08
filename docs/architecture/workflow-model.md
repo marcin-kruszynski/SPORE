@@ -21,8 +21,15 @@ Each workflow includes:
 - bugfix
 - research-spike
 - review-pass
+- backend-service-delivery
+- frontend-ui-pass
+- cli-verification-pass
+- docs-adr-pass
 - documentation-pass (workspace profile)
 - environment-bootstrap (workspace profile)
+
+Named validation flows and recommended commands live in `docs/runbooks/scenario-library.md`.
+Machine-readable scenario and regression catalogs live in `config/scenarios/` and `config/regressions/`.
 
 ## Current Executable Slice
 
@@ -99,6 +106,7 @@ The stable baseline remains:
 - optional grouped waves of steps inside that execution,
 - one or more runtime sessions launched on behalf of those steps,
 - durable review, approval, escalation, and event history tied to the execution.
+- a combined execution history surface (`/executions/:id/history`) that folds timeline, governance, audit, wave summary, and policy diff into one ordered payload.
 
 The next layer now being encoded into the model is:
 

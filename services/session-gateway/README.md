@@ -8,6 +8,7 @@ This service now provides the first HTTP gateway over SPORE session and event st
 - `GET /status`
 - `GET /sessions`
 - `GET /sessions/:id`
+- `GET /sessions/:id/live`
 - `GET /sessions/:id/artifacts`
 - `GET /sessions/:id/artifacts/:artifact`
 - `GET /events?session=...&run=...&type=...&limit=...`
@@ -26,6 +27,7 @@ Examples:
 
 ```bash
 curl http://127.0.0.1:8787/status
+curl http://127.0.0.1:8787/sessions/control-live-002/live
 curl http://127.0.0.1:8787/sessions/control-live-002/artifacts
 curl http://127.0.0.1:8787/sessions/control-live-002/artifacts/transcript
 curl -N http://127.0.0.1:8787/stream/events?session=control-live-002

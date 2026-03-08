@@ -1,0 +1,9 @@
+id: local-all
+label: Local All
+scenarios: [backend-service-delivery, frontend-ui-pass, cli-verification-pass, docs-adr-pass]
+realPiRequired: false
+stopOnFailure: false
+concurrency: 1
+timeoutMs: 240000
+artifactRetention: default
+tags: [local, canonical]

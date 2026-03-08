@@ -1,44 +1,16 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { startProcess, waitForHealth } from "./helpers/http-harness.js";
 
 import { createExecution } from "../../../packages/orchestrator/src/execution/workflow-execution.js";
 import { planWorkflowInvocation } from "../../../packages/orchestrator/src/invocation/plan-workflow-invocation.js";
+import { makeTempPaths } from "../../../packages/orchestrator/test/helpers/scenario-fixtures.js";
 
 const ORCHESTRATOR_PORT = 8793;
 const WEB_PORT = 8794;
 
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-async function waitForHealth(url, attempts = 40) {
-  for (let index = 0; index < attempts; index += 1) {
-    try {
-      const response = await fetch(url);
-      if (response.ok) {
-        return;
-      }
-    } catch {
-      // service still booting
-    }
-    await sleep(100);
-  }
-  throw new Error(`health check failed: ${url}`);
-}
-
-function startProcess(command, args, env = {}) {
-  return spawn(command, args, {
-    cwd: process.cwd(),
-    env: {
-      ...process.env,
-      ...env
-    },
-    stdio: "ignore"
-  });
-}
-
 test("orchestrator tree and branch APIs expose lineage-aware execution graphs", async (t) => {
+  const { dbPath, sessionDbPath } = await makeTempPaths("spore-http-lineage-");
   const executionId = `http-tree-root-${Date.now()}`;
   const invocation = await planWorkflowInvocation({
     projectPath: "config/projects/example-project.yaml",
@@ -47,10 +19,12 @@ test("orchestrator tree and branch APIs expose lineage-aware execution graphs", 
     invocationId: executionId,
     objective: "HTTP lineage graph test"
   });
-  createExecution(invocation);
+  createExecution(invocation, dbPath);
 
   const orchestrator = startProcess("node", ["services/orchestrator/server.js"], {
-    SPORE_ORCHESTRATOR_PORT: String(ORCHESTRATOR_PORT)
+    SPORE_ORCHESTRATOR_PORT: String(ORCHESTRATOR_PORT),
+    SPORE_ORCHESTRATOR_DB_PATH: dbPath,
+    SPORE_SESSION_DB_PATH: sessionDbPath
   });
   const web = startProcess("node", ["apps/web/server.js"], {
     SPORE_WEB_PORT: String(WEB_PORT),

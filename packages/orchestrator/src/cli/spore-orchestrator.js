@@ -11,13 +11,22 @@ import {
   forkExecution,
   getCoordinationGroupDetail,
   getExecutionDetail,
+  getExecutionHistory,
+  getExecutionPolicyDiff,
+  getRegressionCatalogEntry,
+  getRegressionRuns,
+  getScenarioCatalogEntry,
+  getScenarioRuns,
   getExecutionTree,
   holdExecution,
+  listRegressionCatalog,
   listCoordinationGroups,
+  listExecutionAudit,
   listExecutionChildren,
   listExecutionEscalations,
   listExecutionEvents,
   listExecutionSummaries,
+  listScenarioCatalog,
   pauseExecution,
   recordApprovalDecision,
   recordReviewDecision,
@@ -27,6 +36,11 @@ import {
 } from "../execution/workflow-execution.js";
 import { planWorkflowInvocation } from "../invocation/plan-workflow-invocation.js";
 import { PROJECT_ROOT } from "../../../runtime-pi/src/metadata/constants.js";
+import {
+  getScenarioRunArtifacts,
+  runRegressionById,
+  runScenarioById
+} from "../scenarios/run-history.js";
 
 function parseArgs(argv) {
   const positional = [];
@@ -289,6 +303,158 @@ async function main() {
       throw new Error(`execution not found: ${flags.execution}`);
     }
     console.log(JSON.stringify({ ok: true, executionId: flags.execution, escalations }, null, 2));
+    return;
+  }
+
+  if (command === "audit") {
+    if (!flags.execution) {
+      throw new Error("use audit --execution <id>");
+    }
+    const audit = listExecutionAudit(flags.execution);
+    if (!audit) {
+      throw new Error(`execution not found: ${flags.execution}`);
+    }
+    console.log(JSON.stringify({ ok: true, executionId: flags.execution, audit }, null, 2));
+    return;
+  }
+
+  if (command === "history") {
+    if (!flags.execution) {
+      throw new Error("use history --execution <id>");
+    }
+    const detail = await getExecutionHistory(flags.execution, {
+      scope: flags.scope ?? "execution"
+    });
+    if (!detail) {
+      throw new Error(`execution not found: ${flags.execution}`);
+    }
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
+  if (command === "policy-diff") {
+    if (!flags.execution) {
+      throw new Error("use policy-diff --execution <id>");
+    }
+    const detail = await getExecutionPolicyDiff(flags.execution);
+    if (!detail) {
+      throw new Error(`execution not found: ${flags.execution}`);
+    }
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
+  if (command === "scenario-list") {
+    const scenarios = await listScenarioCatalog();
+    console.log(JSON.stringify({ ok: true, scenarios }, null, 2));
+    return;
+  }
+
+  if (command === "scenario-show") {
+    if (!flags.scenario) {
+      throw new Error("use scenario-show --scenario <id>");
+    }
+    const scenario = await getScenarioCatalogEntry(flags.scenario);
+    if (!scenario) {
+      throw new Error(`scenario not found: ${flags.scenario}`);
+    }
+    console.log(JSON.stringify({ ok: true, scenario }, null, 2));
+    return;
+  }
+
+  if (command === "scenario-runs") {
+    if (!flags.scenario) {
+      throw new Error("use scenario-runs --scenario <id>");
+    }
+    const detail = await getScenarioRuns(flags.scenario, undefined, Number.parseInt(String(flags.limit ?? "20"), 10));
+    if (!detail) {
+      throw new Error(`scenario not found: ${flags.scenario}`);
+    }
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
+  if (command === "scenario-run-artifacts") {
+    if (!flags.run) {
+      throw new Error("use scenario-run-artifacts --run <id>");
+    }
+    const detail = await getScenarioRunArtifacts(flags.run);
+    if (!detail) {
+      throw new Error(`scenario run not found: ${flags.run}`);
+    }
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
+  if (command === "scenario-run") {
+    if (!flags.scenario) {
+      throw new Error("use scenario-run --scenario <id>");
+    }
+    const result = await runScenarioById(flags.scenario, {
+      project: flags.project ?? "config/projects/example-project.yaml",
+      wait: flags.wait !== undefined ? flags.wait === true : true,
+      timeout: flags.timeout ?? "180000",
+      interval: flags.interval ?? "1500",
+      noMonitor: flags["no-monitor"] === true,
+      stub: flags.stub === true,
+      launcher: flags.launcher ?? null,
+      objective: flags.objective ?? null,
+      source: flags.source ?? "cli",
+      by: flags.by ?? "operator",
+      stepSoftTimeoutMs: flags["step-soft-timeout"] ?? null,
+      stepHardTimeoutMs: flags["step-hard-timeout"] ?? null
+    });
+    console.log(JSON.stringify({ ok: true, ...result }, null, 2));
+    return;
+  }
+
+  if (command === "regression-list") {
+    const regressions = await listRegressionCatalog();
+    console.log(JSON.stringify({ ok: true, regressions }, null, 2));
+    return;
+  }
+
+  if (command === "regression-show") {
+    if (!flags.regression) {
+      throw new Error("use regression-show --regression <id>");
+    }
+    const regression = await getRegressionCatalogEntry(flags.regression);
+    if (!regression) {
+      throw new Error(`regression not found: ${flags.regression}`);
+    }
+    console.log(JSON.stringify({ ok: true, regression }, null, 2));
+    return;
+  }
+
+  if (command === "regression-runs") {
+    if (!flags.regression) {
+      throw new Error("use regression-runs --regression <id>");
+    }
+    const detail = await getRegressionRuns(flags.regression, undefined, Number.parseInt(String(flags.limit ?? "20"), 10));
+    if (!detail) {
+      throw new Error(`regression not found: ${flags.regression}`);
+    }
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
+  if (command === "regression-run") {
+    if (!flags.regression) {
+      throw new Error("use regression-run --regression <id>");
+    }
+    const result = await runRegressionById(flags.regression, {
+      project: flags.project ?? "config/projects/example-project.yaml",
+      timeout: flags.timeout ?? "180000",
+      interval: flags.interval ?? "1500",
+      noMonitor: flags["no-monitor"] === true,
+      stub: flags.stub === true,
+      launcher: flags.launcher ?? null,
+      source: flags.source ?? "cli",
+      by: flags.by ?? "operator",
+      stepSoftTimeoutMs: flags["step-soft-timeout"] ?? null,
+      stepHardTimeoutMs: flags["step-hard-timeout"] ?? null
+    });
+    console.log(JSON.stringify({ ok: true, ...result }, null, 2));
     return;
   }
 

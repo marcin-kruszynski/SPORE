@@ -21,6 +21,7 @@ The docs system is the operational backbone of the project. It organizes vision,
 - Comparative analysis: [architecture/comparative-analysis.md](architecture/comparative-analysis.md)
 - Workspace operating model: [operations/workspace-operating-model.md](operations/workspace-operating-model.md)
 - Local development runbook: [runbooks/local-dev.md](runbooks/local-dev.md)
+- Scenario library: [runbooks/scenario-library.md](runbooks/scenario-library.md)
 - Bootstrap architect instruction: [specs/bootstrap-architect-instruction.md](specs/bootstrap-architect-instruction.md)
 - Bootstrap roadmap: [plans/roadmap.md](plans/roadmap.md)
 - Completion summary: [plans/bootstrap-completion-summary.md](plans/bootstrap-completion-summary.md)

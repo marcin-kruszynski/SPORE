@@ -47,6 +47,14 @@
           <span class="label">Coordination Groups</span>
           <strong id="coordination-count">-</strong>
         </article>
+        <article class="status-card">
+          <span class="label">Scenarios</span>
+          <strong id="scenario-count">-</strong>
+        </article>
+        <article class="status-card">
+          <span class="label">Regressions</span>
+          <strong id="regression-count">-</strong>
+        </article>
       </section>
 
       <section class="layout">
@@ -56,6 +64,23 @@
             <span id="execution-subtitle" class="muted">Durable orchestrator runs</span>
           </div>
           <div id="execution-list" class="execution-list"></div>
+
+          <div class="panel-header nested">
+            <h3>Scenarios</h3>
+            <span id="scenario-subtitle" class="muted">Optional orchestrator route</span>
+          </div>
+          <div id="scenario-list" class="execution-list"></div>
+          <div id="scenario-detail" class="detail-card empty-state">
+            Scenario summary will appear here when `/api/orchestrator/scenarios` is available.
+          </div>
+
+          <div class="panel-header nested">
+            <h3>Regressions</h3>
+            <span id="regression-subtitle" class="muted">Optional orchestrator route</span>
+          </div>
+          <div id="regression-list" class="decision-log">
+            <div class="detail-card empty-state">Regression summary will appear here when the route is available.</div>
+          </div>
 
           <div class="panel-header nested">
             <h3>Sessions</h3>
@@ -266,6 +291,16 @@
             </div>
             <div id="execution-timeline" class="execution-timeline empty-state">
               Select an execution to load timeline and history.
+            </div>
+          </section>
+
+          <section>
+            <div class="panel-header nested">
+              <h3>Execution History</h3>
+              <span id="execution-history-state" class="muted">history route: idle</span>
+            </div>
+            <div id="execution-history" class="execution-history empty-state">
+              Select an execution to load structured history and policy snapshots.
             </div>
           </section>
 

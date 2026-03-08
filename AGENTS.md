@@ -62,6 +62,13 @@ When environment assumptions change, update:
 
 Do not leave runtime prerequisites only in chat history.
 
+Useful local overrides for isolated runs and tests:
+
+- `SPORE_PI_BIN`
+- `SPORE_ORCHESTRATOR_DB_PATH`
+- `SPORE_SESSION_DB_PATH`
+- `SPORE_EVENT_LOG_PATH`
+
 ## Runtime and Session Rules
 
 - Prefer testing real runtime flows with `pi` when available; use stub mode only as fallback.
@@ -78,8 +85,10 @@ Do not leave runtime prerequisites only in chat history.
 - Use tmux-backed sessions for inspectable live runs.
 - Reconcile detached sessions through `session-manager reconcile` instead of manual database edits.
 - Use gateway artifact and stream endpoints for transcript, PI event, and live follow use cases before adding new ad hoc readers.
+- Use `GET /sessions/:id/live` for combined live session inspection before stitching separate `session + events + artifacts` reads in a new client.
 - Prefer the explicit orchestrator read surfaces `/executions/:id`, `/executions/:id/events`, and `/executions/:id/escalations` over scraping SQLite directly from UI or automation clients.
 - Prefer `/executions/:id/tree` when a client needs lineage or execution-family structure; do not reconstruct hierarchy from flat coordination arrays if the tree route is sufficient.
+- Prefer `/executions/:id/history` when a client needs a single ordered payload that combines workflow events, governance records, audit records, wave summaries, and policy diff context.
 - Use `spawn-branches` or `POST /executions/:id/branches` for deliberate multi-execution coordination work; do not create child executions by mutating lineage fields directly.
 - Use workflow `stepSets` when you need parallel work inside one execution; do not simulate same-wave behavior by creating fake child executions.
 - Use `stepSets[].gate` to express wave unlock rules inside one execution:
@@ -89,6 +98,10 @@ Do not leave runtime prerequisites only in chat history.
 - Treat wave topology as workflow-owned. Domain policy and policy packs may shape retry, governance, runtime mode, and retrieval behavior around those waves, but should not silently replace workflow wave definitions.
 - When changing retry, timeout, governance, session-mode, or docs retrieval behavior, update both the relevant domain config and the architecture docs that describe policy merging.
 - When changing reusable presets, update `config/policy-packs/`, schema validation, and the config/workflow docs together.
+- Treat `config/scenarios/` as the execution-facing catalog for named scenario runs.
+- Treat `config/regressions/` as the execution-facing catalog for reusable regression profiles.
+- Treat `docs/runbooks/scenario-library.md` as human-facing guidance, not the machine source of truth.
+- Scenario and regression history are durable operator artifacts; do not reconstruct them from shell output when the orchestrator store already has the run records.
 
 ## Minimum Verification Loop
 
@@ -105,6 +118,8 @@ npm run orchestrator:plan -- --domain backend --roles lead
 npm run orchestrator:plan -- --domain backend --roles lead,builder,tester,reviewer
 npm run orchestrator:invoke -- --domain backend --roles lead,reviewer --objective "Lead should produce one sentence; reviewer should return approve, revise, or reject." --wait
 npm run test:policy
+npm run test:http
+npm run test:tui
 npm run test:e2e:pi
 ```
 
@@ -123,6 +138,16 @@ SPORE_RUN_PI_E2E=1 npm run test:e2e:pi
 ```
 
 If the environment does not expose `pi`, this test should skip instead of failing.
+
+For isolated service or test runs, prefer environment-scoped state paths over mutating shared SQLite files:
+
+```bash
+export SPORE_ORCHESTRATOR_DB_PATH=/tmp/spore-orchestrator.sqlite
+export SPORE_SESSION_DB_PATH=/tmp/spore-sessions.sqlite
+export SPORE_EVENT_LOG_PATH=/tmp/spore-events.ndjson
+```
+
+Canonical named scenarios live in `docs/runbooks/scenario-library.md` and `config/workflows/*.yaml`. Prefer those named flows over ad hoc objective strings when validating new execution behavior.
 
 ## Documentation Classification
 
@@ -177,5 +202,7 @@ Current CLI contract: `docs-kb index|search|status|rebuild`.
 - `services/orchestrator/` also exposes durable execution list/detail, rooted execution tree reads, child execution reads, coordination-group reads, workflow event and escalation reads, execution SSE follow, plus `drive`, `drive-tree`, `pause`, `hold`, `resume`, `review`, `approval`, and branch-spawn endpoints.
 - `services/orchestrator/` also exposes tree-level `pause`, `hold`, `resume`, `review`, and `approval` endpoints for execution families.
 - `services/orchestrator/` also exposes escalation resolution and resume for operator recovery.
+- `services/orchestrator/` also exposes audit and policy-diff reads for durable operator and policy inspection.
 - `apps/web/` renders grouped execution list/detail, rooted lineage tree, wave progression, coordination metadata, step/session tree, and review/approval history over those APIs.
+- `packages/tui/` consumes the same orchestrator HTTP surfaces for execution detail, rooted family summary, audit, and policy diff views.
 - UI and automation clients should treat `coordinationGroupId`, `parentExecutionId`, `childExecutionIds`, `branchKey`, `holdReason`, `pausedAt`, `heldAt`, and `resumedAt` as optional additive fields rather than guaranteed schema requirements.

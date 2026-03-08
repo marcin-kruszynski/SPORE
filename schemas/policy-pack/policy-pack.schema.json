@@ -49,6 +49,15 @@
           "items": { "type": "string" }
         }
       }
+    },
+    "coordinationPolicy": {
+      "type": "object",
+      "properties": {
+        "autoHoldParentOnOpenChildEscalation": { "type": "boolean" },
+        "resumeParentWhenChildrenSettled": { "type": "boolean" },
+        "maxHeldMs": { "type": "integer" },
+        "escalateOnFamilyStallMs": { "type": "integer" }
+      }
     }
   }
 }

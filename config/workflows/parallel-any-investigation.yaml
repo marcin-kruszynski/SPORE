@@ -8,14 +8,29 @@ stepSets:
     roles: [lead]
     gate:
       mode: all
+    policy:
+      maxActiveMs: 20000
+      onTimeout: hold_execution
+      onFailure: fail_execution
+      blockNextWaveOnOpenEscalation: true
   - name: exploratory-split
     roles: [scout, builder]
     gate:
       mode: any
+    policy:
+      maxActiveMs: 25000
+      onTimeout: open_escalation
+      onFailure: open_escalation
+      blockNextWaveOnOpenEscalation: false
   - name: synthesis
     roles: [reviewer]
     gate:
       mode: all
+    policy:
+      maxActiveMs: 15000
+      onTimeout: hold_execution
+      onFailure: fail_execution
+      blockNextWaveOnOpenEscalation: true
 branchingConditions:
   - if: evidence-conflicts
     then: request-branch-rework

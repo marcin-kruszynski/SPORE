@@ -13,6 +13,8 @@ const schemaDirectoryMap = new Map([
   ["teams", "team"],
   ["projects", "project"],
   ["domains", "domain"],
+  ["scenarios", "scenario"],
+  ["regressions", "regression"],
   ["policy-packs", "policy-pack"],
   ["system", "system"]
 ]);

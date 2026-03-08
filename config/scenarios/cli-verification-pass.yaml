@@ -1,0 +1,18 @@
+id: cli-verification-pass
+label: CLI Verification Pass
+workflow: config/workflows/cli-verification-pass.yaml
+domain: cli
+roles: [lead, builder, tester, reviewer]
+objectiveTemplate: Verify a CLI-facing change and return a short verification-oriented verdict.
+policyPackExpectation: [cli-core]
+expectedGovernance:
+  reviewRequired: true
+  approvalRequired: false
+  reworkCapable: false
+expectedWaveTopology:
+  waveCount: 3
+  labels: [plan, implement-and-verify, cli-review]
+  allowsBranching: false
+realPiEligible: true
+regressionProfiles: [local-fast, local-all, pi-canonical]
+tags: [cli, verification, canonical]

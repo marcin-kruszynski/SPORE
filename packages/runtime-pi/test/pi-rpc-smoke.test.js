@@ -101,10 +101,11 @@ test("pi-rpc smoke run completes and writes runtime artifacts", async (t) => {
     fs.readFile(statusPath, "utf8")
   ]);
   const status = JSON.parse(statusRaw);
+  const finalResult = payload.sessionFinal ?? payload.finalResult ?? null;
 
   assert.equal(payload.ok, true);
-  assert.ok(payload.finalResult?.ok ?? payload.finalResult?.skippedTransition ?? false);
+  assert.ok(finalResult?.ok ?? finalResult?.skippedTransition ?? false);
   assert.match(transcript, /SPORE_PI_RPC_SMOKE_OK/);
   assert.ok(eventsRaw.trim().length > 0);
-  assert.equal(status.status, "finished");
+  assert.ok(["completed", "finished"].includes(status.status));
 });

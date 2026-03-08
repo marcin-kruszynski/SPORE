@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["id", "label", "workflow", "domain", "roles", "objectiveTemplate", "expectedGovernance", "expectedWaveTopology", "realPiEligible", "regressionProfiles"],
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "label": { "type": "string", "minLength": 1 },
+    "workflow": { "type": "string", "minLength": 1 },
+    "domain": { "type": "string", "minLength": 1 },
+    "roles": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+    "objectiveTemplate": { "type": "string", "minLength": 1 },
+    "policyPackExpectation": { "type": "array", "items": { "type": "string" } },
+    "expectedGovernance": {
+      "type": "object",
+      "required": ["reviewRequired", "approvalRequired"],
+      "properties": {
+        "reviewRequired": { "type": "boolean" },
+        "approvalRequired": { "type": "boolean" },
+        "reworkCapable": { "type": "boolean" }
+      },
+      "additionalProperties": true
+    },
+    "expectedWaveTopology": {
+      "type": "object",
+      "required": ["waveCount", "labels"],
+      "properties": {
+        "waveCount": { "type": "integer", "minimum": 1 },
+        "labels": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+        "allowsBranching": { "type": "boolean" }
+      },
+      "additionalProperties": true
+    },
+    "realPiEligible": { "type": "boolean" },
+    "regressionProfiles": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "tags": { "type": "array", "items": { "type": "string" } }
+  },
+  "additionalProperties": true
+}

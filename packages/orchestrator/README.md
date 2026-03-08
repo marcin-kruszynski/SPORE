@@ -75,6 +75,10 @@ Recommended interpretation:
 - `group --group <id>` returns group detail with grouped executions.
 - `events --execution <id>` returns only workflow events for timeline consumers.
 - `escalations --execution <id>` returns only escalation records for operator consumers.
+- `history --execution <id>` returns one combined execution history payload with timeline, governance, audit, wave summary, and policy diff.
+- `scenario-list`, `scenario-show`, `scenario-runs`, and `scenario-run` expose the machine-readable scenario catalog and durable scenario runs backed by `config/scenarios/`.
+- `regression-list`, `regression-show`, `regression-runs`, and `regression-run` expose reusable regression profiles and durable run history backed by `config/regressions/`.
+- `scenario-run-artifacts --run <id>` returns a normalized execution/session artifact summary for one scenario run.
 - `drive-group --group <id>` reconciles grouped executions until they settle or reach a governance/blocked stop.
 - `drive-tree --execution <id>` resolves the execution root and drives the whole family through its coordination group.
 - `spawn-branches --execution <id> --branches-json <json>` creates multiple child branches under one parent execution.
@@ -113,6 +117,10 @@ npm run orchestrator:approve -- --execution e2e-review-001 --status approved
 npm run orchestrator:review-tree -- --execution branch-review-001 --status approved
 npm run orchestrator:approve-tree -- --execution branch-review-001 --status approved
 npm run orchestrator:resolve-escalation -- --execution branch-review-001 --escalation <id> --resume
+npm run orchestrator:history -- --execution branch-review-001
+npm run orchestrator:scenario-list
+npm run orchestrator:scenario-run -- --scenario cli-verification-pass --stub
+npm run orchestrator:regression-run -- --regression local-fast --stub
 ```
 
 Planning without `--roles` is the easiest way to inspect domain-policy defaults in the returned `effectivePolicy` and `launches[]`.

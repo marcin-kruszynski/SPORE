@@ -37,6 +37,31 @@ async function commandFromSiblingNode(command) {
   return (await isExecutable(candidate)) ? candidate : null;
 }
 
+async function commandFromGlobalNpmBin(command) {
+  return new Promise((resolve) => {
+    const child = spawn("bash", ["-lc", "npm prefix -g"], {
+      stdio: ["ignore", "pipe", "ignore"]
+    });
+    let stdout = "";
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk.toString();
+    });
+    child.on("exit", async (code) => {
+      if (code !== 0) {
+        resolve(null);
+        return;
+      }
+      const prefix = stdout.trim();
+      if (!prefix) {
+        resolve(null);
+        return;
+      }
+      const candidate = path.join(prefix, "bin", command);
+      resolve((await isExecutable(candidate)) ? candidate : null);
+    });
+  });
+}
+
 async function commandFromNvm(command) {
   const nvmDir = process.env.NVM_DIR ?? path.join(os.homedir(), ".nvm");
   const versionsRoot = path.join(nvmDir, "versions", "node");
@@ -52,6 +77,31 @@ async function commandFromNvm(command) {
     return null;
   }
   return null;
+}
+
+async function commandFromGlobalNpmPrefix(command) {
+  return new Promise((resolve) => {
+    const child = spawn("bash", ["-lc", "npm prefix -g"], {
+      stdio: ["ignore", "pipe", "ignore"]
+    });
+    let stdout = "";
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk.toString();
+    });
+    child.on("exit", async (code) => {
+      if (code !== 0) {
+        resolve(null);
+        return;
+      }
+      const prefix = stdout.trim();
+      if (!prefix) {
+        resolve(null);
+        return;
+      }
+      const candidate = path.join(prefix, "bin", command);
+      resolve((await isExecutable(candidate)) ? candidate : null);
+    });
+  });
 }
 
 export async function resolveCommandBinary(command) {
@@ -70,7 +120,16 @@ export async function resolveCommandBinary(command) {
     return fromSibling;
   }
 
+  const fromGlobalNpmBin = await commandFromGlobalNpmBin(command);
+  if (fromGlobalNpmBin) {
+    return fromGlobalNpmBin;
+  }
+
   if (command === "pi") {
+    const fromNpmPrefix = await commandFromGlobalNpmPrefix(command);
+    if (fromNpmPrefix) {
+      return fromNpmPrefix;
+    }
     const fromNvm = await commandFromNvm(command);
     if (fromNvm) {
       return fromNvm;

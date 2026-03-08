@@ -71,7 +71,8 @@ test("backend domain policy propagates from planner into execution store records
       maxAttempts: 5,
       waveGate: {
         mode: "all"
-      }
+      },
+      wavePolicy: {}
     },
     runtimePolicy: {
       sessionMode: "ephemeral"

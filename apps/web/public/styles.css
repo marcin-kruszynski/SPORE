@@ -162,7 +162,8 @@ h1 {
 .session-list,
 .execution-list,
 .event-list,
-.decision-log {
+.decision-log,
+.history-stack {
   display: grid;
   gap: 12px;
 }
@@ -996,6 +997,18 @@ button:disabled {
 .compact-empty {
   min-height: auto;
   padding: 14px 16px;
+}
+
+.code-block.compact-code {
+  margin: 10px 0 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(19, 27, 35, 0.92);
+  color: #f4efe5;
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  overflow-x: auto;
 }
 
 @media (max-width: 1200px) {

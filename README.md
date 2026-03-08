@@ -844,7 +844,11 @@ SPORE_RUN_PI_E2E=1 npm run test:e2e:pi
 
 If `pi` is not installed, the runtime falls back to the stub launcher automatically. The default real launcher is `pi-rpc`, which maintains tmux inspectability while routing operator control through PI RPC.
 
+For isolated local runs, you can redirect durable state with `SPORE_ORCHESTRATOR_DB_PATH`, `SPORE_SESSION_DB_PATH`, and `SPORE_EVENT_LOG_PATH`.
+
 See [docs/runbooks/local-dev.md](docs/runbooks/local-dev.md) for the full setup and smoke test guide.
+See [docs/runbooks/scenario-library.md](docs/runbooks/scenario-library.md) for canonical named scenarios.
+Executable scenario and regression catalogs live in `config/scenarios/` and `config/regressions/`.
 
 ---
 
@@ -871,6 +875,7 @@ npm run session:events -- --session <id>   # Session event history
 npm run session:feed                       # Live event feed (follow mode)
 npm run session:reconcile                  # Reconcile detached sessions
 npm run session:reconcile:watch -- --stop-on-settled  # Continuous reconciliation
+npm run gateway:start                      # Shared session HTTP surface
 ```
 
 ### Orchestration
@@ -888,8 +893,15 @@ npm run orchestrator:tree -- --execution <id>
 npm run orchestrator:drive-tree -- --execution <id> --wait
 npm run orchestrator:review-tree -- --execution <id> --status approved
 npm run orchestrator:approve-tree -- --execution <id> --status approved
+npm run orchestrator:audit -- --execution <id>
+npm run orchestrator:policy-diff -- --execution <id>
 npm run test:policy
+npm run test:http
+npm run test:web-proxy
+npm run test:tui
+npm run test:all-local
 npm run test:e2e:pi                      # opt-in real PI smoke; set SPORE_RUN_PI_E2E=1
+npm run test:e2e:gateway-control         # opt-in real gateway control E2E
 ```
 
 ### Operator Surfaces
@@ -898,6 +910,7 @@ npm run test:e2e:pi                      # opt-in real PI smoke; set SPORE_RUN_P
 npm run ops:dashboard                      # Terminal dashboard
 npm run ops:dashboard -- --watch           # Continuous refresh
 npm run ops:inspect -- --session <id>      # Deep session inspection
+node packages/tui/src/cli/spore-ops.js family --execution <id> --api http://127.0.0.1:8789
 npm run gateway:start                      # HTTP gateway on :8787
 npm run orchestrator:start                 # Orchestrator service on :8789
 npm run web:start                          # Web console on :8788
@@ -906,6 +919,38 @@ npm run orchestrator:group -- --group <id> # One coordination-group detail
 npm run orchestrator:pause -- --execution <id> --reason "Operator pause"
 npm run orchestrator:hold -- --execution <id> --reason "Dependency wait"
 npm run orchestrator:resume -- --execution <id> --comments "Resume after hold"
+npm run orchestrator:history -- --execution <id>
+npm run orchestrator:scenario-list
+npm run orchestrator:scenario-show -- --scenario backend-service-delivery
+npm run orchestrator:scenario-run -- --scenario cli-verification-pass --stub
+npm run orchestrator:regression-list
+npm run orchestrator:regression-show -- --regression local-fast
+npm run orchestrator:regression-run -- --regression local-fast --stub
+```
+
+### Shared HTTP Surfaces
+
+| Method | Route | Purpose |
+|---|---|---|
+| `GET` | `/executions/:id/history` | Combined ordered execution history with governance, audit, waves, and policy diff |
+| `GET` | `/scenarios` | Scenario catalog with latest run summary |
+| `GET` | `/scenarios/:id` | One scenario definition with latest run |
+| `GET` | `/scenarios/:id/runs` | Durable scenario run history |
+| `GET` | `/scenarios/:id/runs/:runId/artifacts` | Artifact summary for one scenario run |
+| `POST` | `/scenarios/:id/run` | Launch one named scenario |
+| `GET` | `/regressions` | Regression catalog with latest run summary |
+| `GET` | `/regressions/:id` | One regression profile with latest run |
+| `GET` | `/regressions/:id/runs` | Durable regression run history |
+| `POST` | `/regressions/:id/run` | Launch one named regression profile |
+| `GET` | `/sessions/:id/live` | Combined live session metadata, events, artifacts, and control history |
+
+### Canonical Scenario Invocations
+
+```bash
+npm run orchestrator:plan -- --workflow config/workflows/backend-service-delivery.yaml --domain backend --roles lead,builder,tester,reviewer
+npm run orchestrator:plan -- --workflow config/workflows/frontend-ui-pass.yaml --domain frontend --roles lead,scout,builder,tester,reviewer
+npm run orchestrator:plan -- --workflow config/workflows/cli-verification-pass.yaml --domain cli --roles lead,builder,tester,reviewer
+npm run orchestrator:plan -- --workflow config/workflows/docs-adr-pass.yaml --domain docs --roles lead,scout,reviewer
 ```
 
 ### Gateway Control Examples

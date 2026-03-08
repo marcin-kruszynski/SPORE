@@ -1,0 +1,18 @@
+id: backend-service-delivery
+label: Backend Service Delivery
+workflow: config/workflows/backend-service-delivery.yaml
+domain: backend
+roles: [lead, builder, tester, reviewer]
+objectiveTemplate: Deliver a backend service slice with one clear implementation summary and one review verdict.
+policyPackExpectation: [service-core, platform-backend]
+expectedGovernance:
+  reviewRequired: true
+  approvalRequired: true
+  reworkCapable: true
+expectedWaveTopology:
+  waveCount: 3
+  labels: [framing, implementation, service-review]
+  allowsBranching: false
+realPiEligible: true
+regressionProfiles: [local-fast, local-all, pi-canonical]
+tags: [backend, service, canonical]

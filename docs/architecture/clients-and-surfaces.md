@@ -79,6 +79,9 @@ Current orchestrator read surfaces are expanding toward:
 - coordination-group list/detail,
 - execution event history,
 - execution escalation history,
+- combined execution history,
+- scenario catalog and durable scenario runs,
+- regression catalog and durable regression runs,
 - execution and group-level drive actions.
 - execution-family branch spawn actions.
 
@@ -87,8 +90,15 @@ Clients should therefore prefer explicit orchestrator read and control routes ov
 The current preferred lineage surface is:
 
 - `GET /executions/:id/tree`
+- `GET /executions/:id/history`
 
 That route gives the browser or automation client one rooted payload for the whole execution family. It should be preferred over rebuilding hierarchy from flat coordination-group arrays when the route is available.
+
+The current preferred live session surface is:
+
+- `GET /sessions/:id/live`
+
+That route should be preferred when a client needs one combined payload for session metadata, recent events, artifact summary, and control history.
 
 ## Operator Recovery Surface Expectations
 

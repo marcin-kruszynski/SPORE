@@ -168,6 +168,9 @@ function mergePolicies(domainConfig = {}, domainOverride = {}) {
         ...asArray(domainConfig.docsKbPolicy?.queryTerms),
         ...asArray(domainOverride.docsKbPolicy?.queryTerms)
       ])
+    },
+    coordinationPolicy: {
+      ...mergeObjects(domainConfig.coordinationPolicy, domainOverride.coordinationPolicy)
     }
   };
 }
@@ -176,7 +179,8 @@ function emptyPolicyContainer() {
   return {
     workflowPolicy: {},
     runtimePolicy: {},
-    docsKbPolicy: {}
+    docsKbPolicy: {},
+    coordinationPolicy: {}
   };
 }
 
@@ -223,6 +227,7 @@ function buildWaveAssignments(workflow, selectedRoles) {
   const roleToWave = new Map();
   const roleToWaveName = new Map();
   const roleToWaveGate = new Map();
+  const roleToWavePolicy = new Map();
   const explicitSets = asArray(workflow.stepSets);
   let nextWave = 0;
 
@@ -236,6 +241,7 @@ function buildWaveAssignments(workflow, selectedRoles) {
         roleToWave.set(role, nextWave);
         roleToWaveName.set(role, set?.name ?? `wave-${nextWave + 1}`);
         roleToWaveGate.set(role, set?.gate ?? { mode: "all" });
+        roleToWavePolicy.set(role, set?.policy ?? {});
       }
     }
     nextWave += 1;
@@ -246,6 +252,7 @@ function buildWaveAssignments(workflow, selectedRoles) {
       roleToWave.set(role, nextWave);
       roleToWaveName.set(role, `wave-${nextWave + 1}`);
       roleToWaveGate.set(role, { mode: "all" });
+      roleToWavePolicy.set(role, {});
       nextWave += 1;
     }
   }
@@ -255,7 +262,8 @@ function buildWaveAssignments(workflow, selectedRoles) {
     sequence,
     wave: roleToWave.get(role) ?? sequence,
     waveName: roleToWaveName.get(role) ?? `wave-${sequence + 1}`,
-    waveGate: roleToWaveGate.get(role) ?? { mode: "all" }
+    waveGate: roleToWaveGate.get(role) ?? { mode: "all" },
+    wavePolicy: roleToWavePolicy.get(role) ?? {}
   }));
 }
 
@@ -379,6 +387,7 @@ export async function planWorkflowInvocation({
       wave: assignment.wave,
       waveName: assignment.waveName,
       waveGate: assignment.waveGate,
+      wavePolicy: assignment.wavePolicy,
       waveSize: waveSizes[assignment.wave] ?? 1,
       maxAttempts: resolveMaxAttempts(role, workflow, policy),
       objective,
@@ -390,7 +399,8 @@ export async function planWorkflowInvocation({
           stepSoftTimeoutMs: policy.workflowPolicy?.stepSoftTimeoutMs ?? null,
           stepHardTimeoutMs: policy.workflowPolicy?.stepHardTimeoutMs ?? null,
           maxAttempts: resolveMaxAttempts(role, workflow, policy),
-          waveGate: assignment.waveGate
+          waveGate: assignment.waveGate,
+          wavePolicy: assignment.wavePolicy
         },
         runtimePolicy: {
           sessionMode: sessionModeOverride
@@ -462,6 +472,14 @@ export async function planWorkflowInvocation({
         resultLimit: policy.docsKbPolicy?.resultLimit ?? 5,
         queryTerms: asArray(policy.docsKbPolicy?.queryTerms),
         queryTemplate: policy.docsKbPolicy?.queryTemplate ?? null
+      },
+      coordinationPolicy: {
+        autoHoldParentOnOpenChildEscalation:
+          policy.coordinationPolicy?.autoHoldParentOnOpenChildEscalation ?? true,
+        resumeParentWhenChildrenSettled:
+          policy.coordinationPolicy?.resumeParentWhenChildrenSettled ?? true,
+        maxHeldMs: policy.coordinationPolicy?.maxHeldMs ?? null,
+        escalateOnFamilyStallMs: policy.coordinationPolicy?.escalateOnFamilyStallMs ?? null
       },
       policyPackIds: domainPolicyPacks.map((pack) => pack.id)
     },

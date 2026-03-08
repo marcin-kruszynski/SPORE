@@ -20,6 +20,10 @@ import {
 import { openOrchestratorDatabase, updateStep } from "../src/store/execution-store.js";
 import { transitionStepRecord } from "../src/lifecycle/execution-lifecycle.js";
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function makeTempPaths() {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'spore-policy-'));
   return {
@@ -170,12 +174,13 @@ test('frontend review changes_requested can branch rework into a child execution
 
 test('parallel workflow waves launch multiple steps inside one execution wave', async () => {
   const { dbPath, sessionDbPath } = await makeTempPaths();
+  const invocationId = `parallel-wave-policy-test-${Date.now()}`;
   const invocation = await planWorkflowInvocation({
     workflowPath: 'config/workflows/parallel-investigation.yaml',
     projectPath: 'config/projects/example-project.yaml',
     domainId: 'backend',
     roles: ['lead', 'scout', 'builder', 'reviewer'],
-    invocationId: 'parallel-wave-policy-test'
+    invocationId
   });
 
   createExecution(invocation, dbPath);
@@ -187,6 +192,7 @@ test('parallel workflow waves launch multiple steps inside one execution wave', 
     launcher: 'stub',
     noMonitor: true
   });
+  await sleep(50);
   let activeSteps = detail.steps.filter((step) => step.state === 'active');
   assert.equal(activeSteps.length, 1);
   assert.equal(activeSteps[0].role, 'lead');
@@ -209,6 +215,7 @@ test('parallel workflow waves launch multiple steps inside one execution wave', 
     launcher: 'stub',
     noMonitor: true
   });
+  await sleep(50);
   activeSteps = detail.steps.filter((step) => step.state === 'active');
   const activeRoles = activeSteps.map((step) => step.role).sort();
 
@@ -218,17 +225,18 @@ test('parallel workflow waves launch multiple steps inside one execution wave', 
 
 test('family-level governance can review and approve all pending child executions', async () => {
   const { dbPath, sessionDbPath } = await makeTempPaths();
+  const rootInvocationId = `family-governance-root-test-${Date.now()}`;
   const rootInvocation = await planWorkflowInvocation({
     projectPath: 'config/projects/example-project.yaml',
     domainId: 'frontend',
     roles: ['builder', 'tester', 'reviewer'],
-    invocationId: 'family-governance-root-test'
+    invocationId: rootInvocationId
   });
 
   createExecution(rootInvocation, dbPath);
   await spawnExecutionBranches(rootInvocation.invocationId, [
-    { roles: ['builder', 'reviewer'], invocationId: 'family-governance-child-a' },
-    { roles: ['tester', 'reviewer'], invocationId: 'family-governance-child-b' }
+    { roles: ['builder', 'reviewer'], invocationId: `${rootInvocationId}-child-a` },
+    { roles: ['tester', 'reviewer'], invocationId: `${rootInvocationId}-child-b` }
   ], {}, dbPath, sessionDbPath);
 
   const children = listExecutionChildren(rootInvocation.invocationId, dbPath);
@@ -263,12 +271,13 @@ test('family-level governance can review and approve all pending child execution
 
 test('wave gate any can unlock the next wave before all prior-wave steps settle', async () => {
   const { dbPath, sessionDbPath } = await makeTempPaths();
+  const invocationId = `parallel-any-wave-policy-test-${Date.now()}`;
   const invocation = await planWorkflowInvocation({
     workflowPath: 'config/workflows/parallel-any-investigation.yaml',
     projectPath: 'config/projects/example-project.yaml',
     domainId: 'backend',
     roles: ['lead', 'scout', 'builder', 'reviewer'],
-    invocationId: 'parallel-any-wave-policy-test'
+    invocationId
   });
 
   createExecution(invocation, dbPath);
@@ -280,6 +289,7 @@ test('wave gate any can unlock the next wave before all prior-wave steps settle'
     launcher: 'stub',
     noMonitor: true
   });
+  await sleep(50);
 
   const db = openOrchestratorDatabase(dbPath);
   try {
@@ -299,6 +309,7 @@ test('wave gate any can unlock the next wave before all prior-wave steps settle'
     launcher: 'stub',
     noMonitor: true
   });
+  await sleep(50);
 
   const waveOne = detail.steps.filter((step) => step.wave === 1);
   const scout = waveOne.find((step) => step.role === 'scout');
@@ -321,6 +332,7 @@ test('wave gate any can unlock the next wave before all prior-wave steps settle'
     launcher: 'stub',
     noMonitor: true
   });
+  await sleep(50);
 
   const refreshedReviewer = detail.steps.find((step) => step.id === reviewer.id);
   assert.equal(refreshedReviewer.state, 'active');

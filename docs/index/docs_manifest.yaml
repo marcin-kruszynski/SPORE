@@ -107,3 +107,10 @@ documents:
     owner: bootstrap-agent
     tags: [audit, status]
     path: docs/operations/BOOTSTRAP_STATUS.md
+  - id: scenario-library
+    type: runbook
+    domain: shared
+    status: active
+    owner: bootstrap-agent
+    tags: [scenarios, validation, canonical]
+    path: docs/runbooks/scenario-library.md

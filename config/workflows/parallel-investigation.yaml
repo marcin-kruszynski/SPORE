@@ -8,15 +8,30 @@ stepSets:
     roles: [lead]
     gate:
       mode: all
+    policy:
+      maxActiveMs: 20000
+      onTimeout: hold_execution
+      onFailure: fail_execution
+      blockNextWaveOnOpenEscalation: true
   - name: parallel-investigation
     roles: [scout, builder]
     gate:
       mode: min_success_count
       count: 2
+    policy:
+      maxActiveMs: 30000
+      onTimeout: open_escalation
+      onFailure: open_escalation
+      blockNextWaveOnOpenEscalation: true
   - name: synthesis
     roles: [reviewer]
     gate:
       mode: all
+    policy:
+      maxActiveMs: 15000
+      onTimeout: hold_execution
+      onFailure: fail_execution
+      blockNextWaveOnOpenEscalation: true
 branchingConditions:
   - if: evidence-conflicts
     then: request-branch-rework

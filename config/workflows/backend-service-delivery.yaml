@@ -1,0 +1,44 @@
+id: backend-service-delivery
+name: Backend Service Delivery
+triggerType: manual
+applicableProjectTypes: [platform, service]
+roleSequence: [lead, builder, tester, reviewer]
+stepSets:
+  - name: framing
+    roles: [lead]
+    gate:
+      mode: all
+    policy:
+      maxActiveMs: 30000
+      onTimeout: hold_execution
+      onFailure: fail_execution
+      blockNextWaveOnOpenEscalation: true
+  - name: implementation
+    roles: [builder, tester]
+    gate:
+      mode: min_success_count
+      count: 2
+    policy:
+      maxActiveMs: 90000
+      onTimeout: open_escalation
+      onFailure: open_escalation
+      blockNextWaveOnOpenEscalation: true
+  - name: service-review
+    roles: [reviewer]
+    gate:
+      mode: all
+    policy:
+      maxActiveMs: 30000
+      onTimeout: hold_execution
+      onFailure: fail_execution
+      blockNextWaveOnOpenEscalation: true
+reviewStep:
+  required: true
+retryPolicy:
+  maxAttempts: 3
+documentationUpdatePolicy:
+  required: true
+completionRequirements:
+  - service-contract-reviewed
+  - test-evidence-recorded
+  - review-verdict-recorded

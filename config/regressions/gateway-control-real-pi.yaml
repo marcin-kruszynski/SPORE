@@ -1,0 +1,9 @@
+id: gateway-control-real-pi
+label: Gateway Control Real PI
+scenarios: [backend-service-delivery]
+realPiRequired: true
+stopOnFailure: true
+concurrency: 1
+timeoutMs: 240000
+artifactRetention: full
+tags: [pi, gateway, control]

@@ -1,0 +1,18 @@
+id: frontend-ui-pass
+label: Frontend UI Pass
+workflow: config/workflows/frontend-ui-pass.yaml
+domain: frontend
+roles: [lead, scout, builder, tester, reviewer]
+objectiveTemplate: Run a frontend UI pass with concise design implementation notes and a reviewer verdict.
+policyPackExpectation: [ui-core]
+expectedGovernance:
+  reviewRequired: true
+  approvalRequired: true
+  reworkCapable: true
+expectedWaveTopology:
+  waveCount: 3
+  labels: [framing, ui-build, ui-review]
+  allowsBranching: true
+realPiEligible: true
+regressionProfiles: [local-fast, local-all, pi-canonical]
+tags: [frontend, ui, canonical]

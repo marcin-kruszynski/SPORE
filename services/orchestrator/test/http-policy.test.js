@@ -1,44 +1,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { startProcess, waitForHealth } from './helpers/http-harness.js';
+import { makeTempPaths } from '../../../packages/orchestrator/test/helpers/scenario-fixtures.js';
 
 const ORCHESTRATOR_PORT = 8791;
 const WEB_PORT = 8792;
 
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-async function waitForHealth(url, attempts = 40) {
-  for (let index = 0; index < attempts; index += 1) {
-    try {
-      const response = await fetch(url);
-      if (response.ok) {
-        return;
-      }
-    } catch {
-      // ignore during bootstrap
-    }
-    await sleep(100);
-  }
-  throw new Error(`health check failed: ${url}`);
-}
-
-function startProcess(command, args, env = {}) {
-  const child = spawn(command, args, {
-    cwd: process.cwd(),
-    env: {
-      ...process.env,
-      ...env
-    },
-    stdio: 'ignore'
-  });
-  return child;
-}
-
 test('orchestrator HTTP and web proxy expose policy-aware plan preview', async (t) => {
+  const { dbPath, sessionDbPath } = await makeTempPaths('spore-http-policy-');
   const orchestrator = startProcess('node', ['services/orchestrator/server.js'], {
-    SPORE_ORCHESTRATOR_PORT: String(ORCHESTRATOR_PORT)
+    SPORE_ORCHESTRATOR_PORT: String(ORCHESTRATOR_PORT),
+    SPORE_ORCHESTRATOR_DB_PATH: dbPath,
+    SPORE_SESSION_DB_PATH: sessionDbPath
   });
   const web = startProcess('node', ['apps/web/server.js'], {
     SPORE_WEB_PORT: String(WEB_PORT),

@@ -10,6 +10,20 @@ const state = {
   executionDetail: null,
   executionListError: null,
   executionDetailError: null,
+  scenarios: [],
+  scenarioRouteState: "idle",
+  scenarioRouteError: null,
+  selectedScenarioId: null,
+  scenarioDetail: null,
+  scenarioDetailState: "idle",
+  scenarioDetailError: null,
+  scenarioRuns: [],
+  scenarioRunsState: "idle",
+  scenarioRunsError: null,
+  regressions: [],
+  selectedRegressionId: null,
+  regressionRouteState: "idle",
+  regressionRouteError: null,
   workflowPreview: null,
   workflowPreviewError: null,
   workflowPreviewDirty: false,
@@ -26,12 +40,21 @@ const els = {
   stateSummary: document.getElementById("state-summary"),
   executionCount: document.getElementById("execution-count"),
   coordinationCount: document.getElementById("coordination-count"),
+  scenarioCount: document.getElementById("scenario-count"),
+  regressionCount: document.getElementById("regression-count"),
   executionSubtitle: document.getElementById("execution-subtitle"),
   executionList: document.getElementById("execution-list"),
+  scenarioSubtitle: document.getElementById("scenario-subtitle"),
+  scenarioList: document.getElementById("scenario-list"),
+  scenarioDetail: document.getElementById("scenario-detail"),
+  regressionSubtitle: document.getElementById("regression-subtitle"),
+  regressionList: document.getElementById("regression-list"),
   executionDetailSubtitle: document.getElementById("execution-detail-subtitle"),
   executionDetail: document.getElementById("execution-detail"),
   executionTree: document.getElementById("execution-tree"),
   executionTimeline: document.getElementById("execution-timeline"),
+  executionHistoryState: document.getElementById("execution-history-state"),
+  executionHistory: document.getElementById("execution-history"),
   decisionLog: document.getElementById("decision-log"),
   driveButton: document.getElementById("drive-button"),
   driveGroupButton: document.getElementById("drive-group-button"),
@@ -828,6 +851,59 @@ function readFirstField(record, keys = []) {
   return null;
 }
 
+function readFirstArrayField(record, keys = []) {
+  for (const key of keys) {
+    if (Array.isArray(record?.[key])) {
+      return record[key];
+    }
+  }
+  return [];
+}
+
+function readFirstObjectField(record, keys = []) {
+  for (const key of keys) {
+    if (isObject(record?.[key])) {
+      return record[key];
+    }
+  }
+  return null;
+}
+
+function coerceCount(value) {
+  if (Array.isArray(value)) {
+    return value.length;
+  }
+  const parsed = Number(value);
+  if (Number.isFinite(parsed) && parsed >= 0) {
+    return parsed;
+  }
+  return null;
+}
+
+function inferEventTone(type, payload = {}) {
+  const text = `${normalizeText(type, "").toLowerCase()} ${normalizeText(payload?.status, "").toLowerCase()}`;
+  if (text.includes("failed") || text.includes("reject") || text.includes("escalat") || text.includes("error")) return "failed";
+  if (text.includes("complete") || text.includes("approved") || text.includes("resolved")) return "completed";
+  if (text.includes("paused") || text.includes("held") || text.includes("hold")) return "paused";
+  if (text.includes("started") || text.includes("pending") || text.includes("running") || text.includes("resume")) return "running";
+  return "neutral";
+}
+
+function normalizeRouteArray(payload, keys = []) {
+  if (Array.isArray(payload)) {
+    return payload;
+  }
+  if (!isObject(payload)) {
+    return [];
+  }
+  const preferred = readFirstArrayField(payload, keys);
+  if (preferred.length > 0) {
+    return preferred;
+  }
+  const discovered = Object.values(payload).find((value) => Array.isArray(value));
+  return Array.isArray(discovered) ? discovered : [];
+}
+
 function collectGuidanceItems(record = {}, policy = null) {
   const items = [];
   const push = (label, value, tone = "") => {
@@ -1026,6 +1102,91 @@ function buildExecutionGroups(executions = []) {
   return orderedGroups;
 }
 
+function isRouteUnavailable(error) {
+  const status = Number(error?.status);
+  return status === 404 || status === 405 || status === 501;
+}
+
+async function optionalApi(path, options = {}) {
+  try {
+    const payload = await api(path, options);
+    return {
+      state: "ready",
+      payload,
+      error: null
+    };
+  } catch (error) {
+    if (isRouteUnavailable(error)) {
+      return {
+        state: "unavailable",
+        payload: null,
+        error: null
+      };
+    }
+    return {
+      state: "error",
+      payload: null,
+      error: error.message
+    };
+  }
+}
+
+function getScenarioIdentifier(record, index = 0) {
+  return normalizeText(
+    readFirstField(record, ["id", "scenarioId", "scenarioKey", "slug", "name", "key", "title"]),
+    `scenario-${index + 1}`
+  );
+}
+
+function getScenarioStatus(record = {}) {
+  return normalizeText(readFirstField(record, ["status", "state", "result", "latestStatus", "lastStatus"]), "unknown");
+}
+
+function normalizeExecutionHistoryRows(history) {
+  const records = normalizeRouteArray(history, ["history", "entries", "events", "timeline", "items", "records"]);
+  const rows = [];
+
+  records.forEach((record, index) => {
+    const payload = isObject(record) ? record : { value: record };
+    const timestamp = readFirstField(payload, [
+      "timestamp",
+      "createdAt",
+      "occurredAt",
+      "recordedAt",
+      "updatedAt",
+      "at"
+    ]);
+    const parsed = parseTimestamp(timestamp);
+    if (parsed === null) {
+      return;
+    }
+    const type = readFirstField(payload, ["type", "eventType", "action", "kind", "name", "label"]) ?? "history";
+    const status = readFirstField(payload, ["status", "state", "result", "outcome"]);
+    const details = [
+      readFirstField(payload, ["stepId", "step", "stepKey"]),
+      readFirstField(payload, ["sessionId", "session", "sessionKey"]),
+      readFirstField(payload, ["executionId", "runId", "invocationId"]),
+      status
+    ]
+      .filter((value) => hasDisplayValue(value))
+      .map((value) => String(value));
+    const summaryPayload = readFirstObjectField(payload, ["payload", "detail", "metadata", "meta", "context"]);
+    if (summaryPayload && Object.keys(summaryPayload).length > 0) {
+      details.push(JSON.stringify(summaryPayload));
+    }
+    rows.push({
+      ts: parsed,
+      timestamp,
+      title: normalizeText(type, "history"),
+      meta: details.join(" · "),
+      tone: inferEventTone(type, { status }),
+      sortBias: Number(payload?.eventIndex ?? payload?.index ?? index)
+    });
+  });
+
+  return rows.sort((left, right) => (left.ts - right.ts) || (left.sortBias - right.sortBias));
+}
+
 async function api(path, options = {}) {
   const response = await fetch(`/api${path}`, {
     headers: {
@@ -1044,7 +1205,10 @@ async function api(path, options = {}) {
     }
   }
   if (!response.ok) {
-    throw new Error(payload.message || payload.error || `request failed: ${response.status}`);
+    const error = new Error(payload.message || payload.error || `request failed: ${response.status}`);
+    error.status = response.status;
+    error.payload = payload;
+    throw error;
   }
   return payload;
 }
@@ -1058,6 +1222,26 @@ function renderStatus(status) {
   els.stateSummary.textContent = states || "-";
   els.executionCount.textContent = String(state.executions.length);
   els.coordinationCount.textContent = String(uniqueCoordinationGroupCount(state.executions));
+  if (els.scenarioCount) {
+    els.scenarioCount.textContent =
+      state.scenarioRouteState === "ready"
+        ? String(state.scenarios.length)
+        : state.scenarioRouteState === "unavailable"
+          ? "n/a"
+          : state.scenarioRouteState === "error"
+            ? "err"
+            : "-";
+  }
+  if (els.regressionCount) {
+    els.regressionCount.textContent =
+      state.regressionRouteState === "ready"
+        ? String(state.regressions.length)
+        : state.regressionRouteState === "unavailable"
+          ? "n/a"
+          : state.regressionRouteState === "error"
+            ? "err"
+            : "-";
+  }
 }
 
 function renderExecutions() {
@@ -1139,6 +1323,229 @@ function renderExecutions() {
       refresh().catch((error) => console.error(error));
     });
   }
+}
+
+function renderScenarioStatus(record = {}) {
+  const run = record.latestRun ?? null;
+  const status = run?.status ?? "idle";
+  return renderStatePill(status);
+}
+
+function renderScenarios() {
+  if (!els.scenarioList) {
+    return;
+  }
+  if (state.scenarioRouteState === "unavailable") {
+    els.scenarioSubtitle.textContent = "Scenario routes unavailable";
+    els.scenarioList.innerHTML = `<div class="detail-card empty-state">Scenario routes are not available from the orchestrator service.</div>`;
+    return;
+  }
+  if (state.scenarioRouteState === "error") {
+    els.scenarioSubtitle.textContent = "Scenario routes failed";
+    els.scenarioList.innerHTML = `<div class="detail-card empty-state">Failed to load scenarios: ${escapeHtml(state.scenarioRouteError)}</div>`;
+    return;
+  }
+  els.scenarioSubtitle.textContent = `${state.scenarios.length} scenario${state.scenarios.length === 1 ? "" : "s"}`;
+  if (state.scenarios.length === 0) {
+    els.scenarioList.innerHTML = `<div class="detail-card empty-state">No scenarios registered.</div>`;
+    return;
+  }
+  els.scenarioList.innerHTML = state.scenarios.map((scenario) => `
+    <article class="session-item ${scenario.id === state.selectedScenarioId ? "active" : ""}" data-scenario-id="${escapeHtml(scenario.id)}">
+      <div class="session-title">
+        <strong>${escapeHtml(scenario.label ?? scenario.id)}</strong>
+        ${renderScenarioStatus(scenario)}
+      </div>
+      <div class="session-meta">
+        <code>id=${escapeHtml(scenario.id)}</code>
+        <code>domain=${escapeHtml(normalizeText(scenario.domain))}</code>
+        <code>workflow=${escapeHtml(normalizeText(scenario.workflow))}</code>
+      </div>
+      <div class="lineage-meta">
+        ${renderMetaPill("roles", Array.isArray(scenario.roles) ? scenario.roles.length : 0)}
+        ${scenario.realPiEligible ? renderMetaPill("real-pi", "yes", "root") : renderMetaPill("real-pi", "no")}
+      </div>
+    </article>
+  `).join("");
+  for (const item of els.scenarioList.querySelectorAll("[data-scenario-id]")) {
+    item.addEventListener("click", () => {
+      state.selectedScenarioId = item.dataset.scenarioId;
+      refresh().catch((error) => console.error(error));
+    });
+  }
+}
+
+function renderScenarioDetail() {
+  if (!els.scenarioDetail) {
+    return;
+  }
+  if (state.scenarioRouteState === "unavailable") {
+    els.scenarioDetail.className = "detail-card empty-state";
+    els.scenarioDetail.textContent = "Scenario detail is unavailable because the orchestrator route is not exposed.";
+    return;
+  }
+  if (state.scenarioDetailState === "error") {
+    els.scenarioDetail.className = "detail-card empty-state";
+    els.scenarioDetail.textContent = `Failed to load scenario detail: ${state.scenarioDetailError}`;
+    return;
+  }
+  const scenario = state.scenarioDetail?.scenario ?? null;
+  if (!scenario) {
+    els.scenarioDetail.className = "detail-card empty-state";
+    els.scenarioDetail.textContent = "Select a scenario to inspect latest run history and launch it through the orchestrator.";
+    return;
+  }
+  const latestRun = scenario.latestRun ?? state.scenarioRuns[0] ?? null;
+  els.scenarioDetail.className = "detail-card";
+  els.scenarioDetail.innerHTML = `
+    <div class="session-title">
+      <strong>${escapeHtml(scenario.label ?? scenario.id)}</strong>
+      ${renderScenarioStatus(scenario)}
+    </div>
+    <div class="detail-grid">
+      <div><span class="muted">Scenario ID</span><br /><code>${escapeHtml(scenario.id)}</code></div>
+      <div><span class="muted">Domain</span><br /><code>${escapeHtml(normalizeText(scenario.domain))}</code></div>
+      <div><span class="muted">Workflow</span><br /><code>${escapeHtml(normalizeText(scenario.workflow))}</code></div>
+      <div><span class="muted">Latest Run</span><br /><code>${escapeHtml(normalizeText(latestRun?.id))}</code></div>
+    </div>
+    <p class="tree-objective">${escapeHtml(normalizeText(scenario.objectiveTemplate, "No objective template."))}</p>
+    <div class="control-row">
+      <button type="button" id="scenario-run-button" class="primary-button">Run Scenario</button>
+      <button type="button" id="scenario-run-stub-button" class="secondary-button">Run Scenario (Stub)</button>
+    </div>
+    <div class="lineage-meta">
+      ${renderMetaPill("roles", Array.isArray(scenario.roles) ? scenario.roles.join(", ") : "-")}
+      ${renderMetaPill("runs", state.scenarioRuns.length)}
+    </div>
+    <section class="history-stack">
+      ${(state.scenarioRuns ?? []).slice(0, 5).map((run) => `
+        <article class="event-item">
+          <div class="event-title">
+            <strong>${escapeHtml(normalizeText(run.status))}</strong>
+            <code>${escapeHtml(normalizeText(run.startedAt))}</code>
+          </div>
+          <div class="event-meta">
+            <code>${escapeHtml(normalizeText(run.id))}</code>
+            <code>executions=${escapeHtml(String((run.executions ?? []).length))}</code>
+            <code>sessions=${escapeHtml(String(run.executions?.reduce((acc, item) => acc + Number(item.sessionCount ?? 0), 0) ?? 0))}</code>
+          </div>
+        </article>
+      `).join("") || `<div class="detail-card empty-state">No scenario runs recorded yet.</div>`}
+    </section>
+  `;
+  const runButton = document.getElementById("scenario-run-button");
+  const runStubButton = document.getElementById("scenario-run-stub-button");
+  runButton?.addEventListener("click", () => runScenario(false).catch((error) => alert(error.message)));
+  runStubButton?.addEventListener("click", () => runScenario(true).catch((error) => alert(error.message)));
+}
+
+function renderRegressions() {
+  if (!els.regressionList) {
+    return;
+  }
+  if (state.regressionRouteState === "unavailable") {
+    els.regressionSubtitle.textContent = "Regression routes unavailable";
+    els.regressionList.innerHTML = `<div class="detail-card empty-state">Regression routes are not available from the orchestrator service.</div>`;
+    return;
+  }
+  if (state.regressionRouteState === "error") {
+    els.regressionSubtitle.textContent = "Regression routes failed";
+    els.regressionList.innerHTML = `<div class="detail-card empty-state">Failed to load regressions: ${escapeHtml(state.regressionRouteError)}</div>`;
+    return;
+  }
+  els.regressionSubtitle.textContent = `${state.regressions.length} regression${state.regressions.length === 1 ? "" : "s"}`;
+  if (state.regressions.length === 0) {
+    els.regressionList.innerHTML = `<div class="detail-card empty-state">No regression profiles registered.</div>`;
+    return;
+  }
+  els.regressionList.innerHTML = state.regressions.map((regression) => `
+    <article class="decision-card">
+      <div class="event-title">
+        <strong>${escapeHtml(regression.label ?? regression.id)}</strong>
+        ${renderStatePill(regression.latestRun?.status ?? "idle")}
+      </div>
+      <div class="event-meta">
+        <code>${escapeHtml(regression.id)}</code>
+        <code>scenarios=${escapeHtml(String((regression.scenarios ?? []).length))}</code>
+        <code>real-pi=${escapeHtml(regression.realPiRequired ? "yes" : "no")}</code>
+      </div>
+      <div class="lineage-meta">
+        ${renderMetaPill("latest", normalizeText(regression.latestRun?.id))}
+        ${renderMetaPill("passed", regression.latestRun?.summary?.passCount ?? 0, "root")}
+        ${renderMetaPill("failed", regression.latestRun?.summary?.failCount ?? 0, regression.latestRun?.summary?.failCount ? "failed" : "")}
+      </div>
+      <div class="control-row">
+        <button type="button" class="secondary-button regression-run-button" data-regression-id="${escapeHtml(regression.id)}">Run</button>
+        <button type="button" class="secondary-button regression-run-stub-button" data-regression-id="${escapeHtml(regression.id)}">Run (Stub)</button>
+      </div>
+    </article>
+  `).join("");
+  for (const button of els.regressionList.querySelectorAll(".regression-run-button")) {
+    button.addEventListener("click", () => runRegression(button.dataset.regressionId, false).catch((error) => alert(error.message)));
+  }
+  for (const button of els.regressionList.querySelectorAll(".regression-run-stub-button")) {
+    button.addEventListener("click", () => runRegression(button.dataset.regressionId, true).catch((error) => alert(error.message)));
+  }
+}
+
+function renderExecutionHistory(detail) {
+  if (!els.executionHistory || !els.executionHistoryState) {
+    return;
+  }
+  const history = detail?.history ?? null;
+  if (!detail?.execution) {
+    els.executionHistoryState.textContent = "history route: idle";
+    els.executionHistory.className = "execution-history empty-state";
+    els.executionHistory.textContent = "Select an execution to load structured history and policy snapshots.";
+    return;
+  }
+  if (!history) {
+    els.executionHistoryState.textContent = "history route: unavailable";
+    els.executionHistory.className = "execution-history empty-state";
+    els.executionHistory.textContent = "Structured execution history is not available for the selected execution.";
+    return;
+  }
+  const rows = normalizeExecutionHistoryRows({ timeline: history.timeline ?? [] });
+  els.executionHistoryState.textContent = `history route: ready · ${rows.length} row${rows.length === 1 ? "" : "s"}`;
+  els.executionHistory.className = "execution-history";
+  els.executionHistory.innerHTML = `
+    <div class="timeline-summary">
+      <code>tree=${escapeHtml(String(history.tree?.executionCount ?? 1))}</code>
+      <code>timeline=${escapeHtml(String(rows.length))}</code>
+      <code>audit=${escapeHtml(String((history.audit ?? []).length))}</code>
+      <code>escalations=${escapeHtml(String((history.escalations ?? []).length))}</code>
+    </div>
+    ${renderWaveSummaryPanel({
+      title: "History Wave Summary",
+      stepSummary: history.stepSummary,
+      compact: true,
+      emptyText: "No wave summary returned."
+    })}
+    ${renderPolicyDiffPanel({
+      title: "Execution Policy Diff",
+      baselineTitle: "Planned Effective Policy",
+      candidateTitle: "Persisted Execution Policy",
+      baselinePolicy: history.policyDiff?.plannedEffectivePolicy ?? null,
+      candidatePolicy: history.policyDiff?.persistedExecutionPolicy ?? null,
+      compact: true,
+      mode: "full",
+      emptyText: "No policy diff returned."
+    })}
+    <ol class="timeline-list">
+      ${rows.map((row) => `
+        <li class="timeline-item ${escapeHtml(row.tone)}">
+          <div class="timeline-dot" aria-hidden="true"></div>
+          <div class="timeline-content">
+            <div class="timeline-title">
+              <strong>${escapeHtml(row.title)}</strong>
+              <code>${escapeHtml(row.timestamp)}</code>
+            </div>
+            ${row.meta ? `<p class="timeline-meta">${escapeHtml(row.meta)}</p>` : ""}
+          </div>
+        </li>
+      `).join("") || `<li class="timeline-item neutral"><div class="timeline-content"><p class="timeline-meta">No structured history rows returned.</p></div></li>`}
+    </ol>
+  `;
 }
 
 function renderExecutionMiniCard(execution, { label, selectedId } = {}) {
@@ -2047,9 +2454,10 @@ function renderDecisionLog(detail) {
   const reviews = detail?.reviews ?? [];
   const approvals = detail?.approvals ?? [];
   const escalations = detail?.escalations ?? [];
+  const audit = detail?.audit ?? [];
 
-  if (reviews.length === 0 && approvals.length === 0 && escalations.length === 0) {
-    els.decisionLog.innerHTML = `<div class="detail-card empty-state">No review, approval, or escalation records.</div>`;
+  if (reviews.length === 0 && approvals.length === 0 && escalations.length === 0 && audit.length === 0) {
+    els.decisionLog.innerHTML = `<div class="detail-card empty-state">No review, approval, escalation, or audit records.</div>`;
     return;
   }
 
@@ -2082,6 +2490,32 @@ function renderDecisionLog(detail) {
       )
       .join("");
 
+  const renderAuditItems = (items) =>
+    items
+      .map(
+        (item) => `
+          <article class="event-item decision-item">
+            <div class="event-title">
+              <strong>${escapeHtml(normalizeText(item.action))}</strong>
+              <code>${formatTimestamp(item.createdAt)}</code>
+            </div>
+            <div class="event-meta">
+              ${item.actor ? `<code>actor=${escapeHtml(normalizeText(item.actor))}</code>` : ""}
+              ${item.source ? `<code>source=${escapeHtml(normalizeText(item.source))}</code>` : ""}
+              ${item.targetType ? `<code>target=${escapeHtml(normalizeText(item.targetType))}</code>` : ""}
+              ${item.targetId ? `<code>id=${escapeHtml(normalizeText(item.targetId))}</code>` : ""}
+              ${item.result ? `<code>result=${escapeHtml(normalizeText(item.result?.status ?? item.result))}</code>` : ""}
+              ${
+                item.payload && Object.keys(item.payload).length > 0
+                  ? `<pre class="code-block compact-code">${escapeHtml(JSON.stringify(item.payload, null, 2))}</pre>`
+                  : ""
+              }
+            </div>
+          </article>
+        `
+      )
+      .join("");
+
   els.decisionLog.innerHTML = `
     <div class="decision-grid">
       <article class="decision-card">
@@ -2095,6 +2529,10 @@ function renderDecisionLog(detail) {
       <article class="decision-card">
         <h3>Escalations</h3>
         <div class="event-list">${escalations.length ? renderItems(escalations) : `<div class="detail-card empty-state">No escalations yet.</div>`}</div>
+      </article>
+      <article class="decision-card">
+        <h3>Audit</h3>
+        <div class="event-list">${audit.length ? renderAuditItems(audit) : `<div class="detail-card empty-state">No audit records yet.</div>`}</div>
       </article>
     </div>
   `;
@@ -2215,6 +2653,7 @@ function renderExecutionDetail() {
       : "");
   const groupMemberCount = treeContext?.executionCount ?? groupSummary?.executionCount ?? groupMembers.length;
   const effectivePolicy = execution?.policy ?? null;
+  const policyDiff = detail?.policyDiff ?? null;
   const treeExecutionCount = treeContext?.executionCount ?? Math.max(groupMemberCount, hasSelection ? 1 : 0);
   const treeInterruptedCount = treeContext
     ? treeContext.rows.filter((row) => ["paused", "held"].includes(normalizeText(row.execution?.state))).length
@@ -2375,16 +2814,41 @@ function renderExecutionDetail() {
       emptyText: "No execution policy was persisted for this run."
     })}
     ${renderPolicyDiffPanel({
-      title: "Diff vs Current Preview",
-      baselineTitle: normalizeText(state.workflowPreview?.invocationId, "Preview Effective Policy"),
+      title: "Diff vs Current Config Plan",
+      baselineTitle: normalizeText(state.workflowPreview?.invocationId ?? policyDiff?.executionId, "Current Config Plan"),
       candidateTitle: `${execution.id} Persisted Policy`,
-      baselinePolicy: state.workflowPreview?.effectivePolicy ?? null,
+      baselinePolicy: state.workflowPreview?.effectivePolicy ?? policyDiff?.plannedEffectivePolicy ?? null,
       candidatePolicy: effectivePolicy,
-      baselineCarriers: [state.workflowPreview, state.workflowPreview?.effectivePolicy, state.workflowPreview?.domain, state.workflowPreview?.project],
+      baselineCarriers: [state.workflowPreview, state.workflowPreview?.effectivePolicy, policyDiff, policyDiff?.plannedEffectivePolicy],
       candidateCarriers: [execution, effectivePolicy],
       mode: "full",
-      emptyText: "Load a workflow preview to compare the selected execution against a plan preview."
+      emptyText: "No current-config plan policy available for this execution."
     })}
+    ${
+      policyDiff?.steps?.length
+        ? `<section class="workflow-launch-section">
+            <div class="policy-panel-header">
+              <strong>Step Override Summary</strong>
+              <span class="muted">${escapeHtml(String(policyDiff.steps.length))} step${policyDiff.steps.length === 1 ? "" : "s"}</span>
+            </div>
+            <div class="workflow-launch-list">${policyDiff.steps
+              .map((step) => `
+                <article class="workflow-launch-card">
+                  <div class="session-title">
+                    <strong>${escapeHtml(step.role)}</strong>
+                    <span class="pill active">wave ${escapeHtml(String(step.wave ?? step.sequence ?? 0))}</span>
+                  </div>
+                  <div class="session-meta">
+                    <code>step=${escapeHtml(normalizeText(step.stepId))}</code>
+                    <code>execution-diff=${escapeHtml(String(step.diffVsExecution?.length ?? 0))}</code>
+                    <code>plan-diff=${escapeHtml(String(step.diffVsPlan?.length ?? 0))}</code>
+                  </div>
+                </article>
+              `)
+              .join("")}</div>
+          </section>`
+        : ""
+    }
   `;
 
   els.executionGuidance.outerHTML = renderGuidancePanel({
@@ -2586,17 +3050,23 @@ async function loadExecutionDetail() {
 
   try {
     const executionId = encodeURIComponent(state.selectedExecutionId);
-    const [detailPayload, eventsPayload, escalationsPayload, treePayload] = await Promise.all([
+    const [detailPayload, eventsPayload, escalationsPayload, treePayload, auditPayload, policyDiffPayload, historyPayload] = await Promise.all([
       api(`/orchestrator/executions/${executionId}`),
       api(`/orchestrator/executions/${executionId}/events`),
       api(`/orchestrator/executions/${executionId}/escalations`),
-      api(`/orchestrator/executions/${executionId}/tree`).catch(() => null)
+      api(`/orchestrator/executions/${executionId}/tree`).catch(() => null),
+      api(`/orchestrator/executions/${executionId}/audit`).catch(() => null),
+      api(`/orchestrator/executions/${executionId}/policy-diff`).catch(() => null),
+      api(`/orchestrator/executions/${executionId}/history`).catch(() => null)
     ]);
     const detail = detailPayload.detail ?? null;
     if (detail) {
       detail.events = eventsPayload.events ?? detail.events ?? [];
       detail.escalations = escalationsPayload.escalations ?? detail.escalations ?? [];
       detail.tree = treePayload?.tree ?? detail.tree ?? null;
+      detail.audit = auditPayload?.audit ?? detail.audit ?? [];
+      detail.policyDiff = policyDiffPayload?.detail ?? null;
+      detail.history = historyPayload?.detail ?? null;
     }
     state.executionDetail = detail;
     state.executionDetailError = null;
@@ -2604,6 +3074,53 @@ async function loadExecutionDetail() {
     state.executionDetail = null;
     state.executionDetailError = error.message;
   }
+}
+
+async function loadScenarioCatalog() {
+  const result = await optionalApi("/orchestrator/scenarios");
+  state.scenarioRouteState = result.state;
+  state.scenarioRouteError = result.error;
+  state.scenarios = result.payload?.scenarios ?? [];
+
+  if (state.selectedScenarioId && !state.scenarios.some((item) => item.id === state.selectedScenarioId)) {
+    state.selectedScenarioId = null;
+  }
+  if (!state.selectedScenarioId && state.scenarios[0]) {
+    state.selectedScenarioId = state.scenarios[0].id;
+  }
+}
+
+async function loadScenarioDetail() {
+  if (!state.selectedScenarioId || state.scenarioRouteState !== "ready") {
+    state.scenarioDetail = null;
+    state.scenarioRuns = [];
+    state.scenarioDetailState = "idle";
+    state.scenarioRunsState = "idle";
+    state.scenarioDetailError = null;
+    state.scenarioRunsError = null;
+    return;
+  }
+
+  const scenarioId = encodeURIComponent(state.selectedScenarioId);
+  const [detailResult, runsResult] = await Promise.all([
+    optionalApi(`/orchestrator/scenarios/${scenarioId}`),
+    optionalApi(`/orchestrator/scenarios/${scenarioId}/runs`)
+  ]);
+
+  state.scenarioDetailState = detailResult.state;
+  state.scenarioDetailError = detailResult.error;
+  state.scenarioDetail = detailResult.payload ?? null;
+
+  state.scenarioRunsState = runsResult.state;
+  state.scenarioRunsError = runsResult.error;
+  state.scenarioRuns = runsResult.payload?.detail?.runs ?? [];
+}
+
+async function loadRegressionCatalog() {
+  const result = await optionalApi("/orchestrator/regressions");
+  state.regressionRouteState = result.state;
+  state.regressionRouteError = result.error;
+  state.regressions = result.payload?.regressions ?? [];
 }
 
 async function refresh() {
@@ -2616,6 +3133,10 @@ async function refresh() {
   }
 
   await loadExecutionSummaries();
+  await Promise.all([
+    loadScenarioCatalog(),
+    loadRegressionCatalog()
+  ]);
 
   const detailPromises = [];
   if (state.selectedSessionId) {
@@ -2629,6 +3150,7 @@ async function refresh() {
   }
 
   detailPromises.push(loadExecutionDetail());
+  detailPromises.push(loadScenarioDetail());
   const results = await Promise.all(detailPromises);
   if (state.selectedSessionId) {
     state.detail = results[0];
@@ -2636,10 +3158,45 @@ async function refresh() {
 
   renderStatus(statusPayload.status);
   renderExecutions();
+  renderScenarios();
+  renderScenarioDetail();
+  renderRegressions();
   renderSessions();
   renderWorkflowPreview();
   renderExecutionDetail();
+  renderExecutionHistory(state.executionDetail);
   renderDetail();
+}
+
+async function runScenario(stub = false) {
+  if (!state.selectedScenarioId) {
+    return;
+  }
+  await api(`/orchestrator/scenarios/${encodeURIComponent(state.selectedScenarioId)}/run`, {
+    method: "POST",
+    body: JSON.stringify({
+      stub,
+      wait: true,
+      by: "web-operator",
+      source: "web"
+    })
+  });
+  await refresh();
+}
+
+async function runRegression(regressionId, stub = false) {
+  if (!regressionId) {
+    return;
+  }
+  await api(`/orchestrator/regressions/${encodeURIComponent(regressionId)}/run`, {
+    method: "POST",
+    body: JSON.stringify({
+      stub,
+      by: "web-operator",
+      source: "web"
+    })
+  });
+  await refresh();
 }
 
 async function sendAction(action, payload = {}) {

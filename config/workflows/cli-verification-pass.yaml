@@ -1,0 +1,44 @@
+id: cli-verification-pass
+name: CLI Verification Pass
+triggerType: manual
+applicableProjectTypes: [platform, application, service]
+roleSequence: [lead, builder, tester, reviewer]
+stepSets:
+  - name: plan
+    roles: [lead]
+    gate:
+      mode: all
+    policy:
+      maxActiveMs: 20000
+      onTimeout: hold_execution
+      onFailure: fail_execution
+      blockNextWaveOnOpenEscalation: true
+  - name: implement-and-verify
+    roles: [builder, tester]
+    gate:
+      mode: min_success_count
+      count: 2
+    policy:
+      maxActiveMs: 60000
+      onTimeout: open_escalation
+      onFailure: open_escalation
+      blockNextWaveOnOpenEscalation: true
+  - name: cli-review
+    roles: [reviewer]
+    gate:
+      mode: all
+    policy:
+      maxActiveMs: 20000
+      onTimeout: hold_execution
+      onFailure: fail_execution
+      blockNextWaveOnOpenEscalation: true
+reviewStep:
+  required: true
+retryPolicy:
+  maxAttempts: 2
+documentationUpdatePolicy:
+  required: false
+completionRequirements:
+  - cli-output-validated
+  - shell-regression-check-complete
+  - review-verdict-recorded

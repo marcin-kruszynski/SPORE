@@ -1,0 +1,9 @@
+id: local-fast
+label: Local Fast
+scenarios: [backend-service-delivery, frontend-ui-pass, cli-verification-pass]
+realPiRequired: false
+stopOnFailure: false
+concurrency: 1
+timeoutMs: 180000
+artifactRetention: default
+tags: [local, fast]

@@ -11,12 +11,14 @@ activeDomains:
     reviewerProfile: ui-reviewer
     tools: [docs-kb, browser-runner]
     skills: [design-systems, accessibility]
-    workflowPreferences: [feature-delivery, review-pass]
+    workflowPreferences: [feature-delivery, frontend-ui-pass, review-pass]
     workflowPolicy:
       maxAttemptsByRole:
         builder: 4
     docsKbPolicy:
       queryTerms: [example-project, frontend, design-system]
+    coordinationPolicy:
+      maxHeldMs: 120000
   - id: backend
     policyPacks: [platform-backend]
     leadProfile: backend-lead
@@ -26,7 +28,7 @@ activeDomains:
     reviewerProfile: service-reviewer
     tools: [docs-kb, api-prober]
     skills: [service-design, codegen, api-analysis]
-    workflowPreferences: [feature-delivery, bugfix]
+    workflowPreferences: [feature-delivery, backend-service-delivery, bugfix]
     workflowPolicy:
       defaultRoles: [lead, builder, tester, reviewer]
       retryTargetRole: builder
@@ -40,6 +42,9 @@ activeDomains:
     docsKbPolicy:
       queryTerms: [example-project, backend, platform, service]
       resultLimit: 7
+    coordinationPolicy:
+      maxHeldMs: 180000
+      escalateOnFamilyStallMs: 90000
   - id: cli
     policyPacks: [cli-core]
     leadProfile: cli-lead
@@ -49,17 +54,19 @@ activeDomains:
     reviewerProfile: cli-reviewer
     tools: [docs-kb, shell]
     skills: [terminal-ux, scripting]
-    workflowPreferences: [feature-delivery, review-pass]
+    workflowPreferences: [feature-delivery, cli-verification-pass, review-pass]
     workflowPolicy:
       approvalRequired: false
     docsKbPolicy:
       queryTerms: [example-project, cli, terminal]
+    coordinationPolicy:
+      maxHeldMs: 90000
 attachedTeams: [web-app-team, service-team]
 profileVariants:
   - frontend-builder
   - backend-builder
   - browser-tester
-workflowDefaults: [feature-delivery]
+workflowDefaults: [feature-delivery, backend-service-delivery, frontend-ui-pass, cli-verification-pass]
 docsLocation: docs/
 embeddingIndex:
   provider: local-bootstrap

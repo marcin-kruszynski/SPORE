@@ -1,0 +1,9 @@
+id: pi-canonical
+label: PI Canonical
+scenarios: [backend-service-delivery, frontend-ui-pass, cli-verification-pass]
+realPiRequired: true
+stopOnFailure: false
+concurrency: 1
+timeoutMs: 360000
+artifactRetention: full
+tags: [pi, canonical]
