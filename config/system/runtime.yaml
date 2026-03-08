@@ -1,0 +1,12 @@
+id: runtime-settings
+primaryRuntime: pi
+runtimeAdapters:
+  - id: pi
+    package: packages/runtime-pi
+    sessionTransport: local-process
+    supportsSteering: planned
+    supportsSessionInspection: true
+sessionDefaults:
+  mode: tmux-backed
+  storeRoot: tmp/sessions
+  captureTranscript: true

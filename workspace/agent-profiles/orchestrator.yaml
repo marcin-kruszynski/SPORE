@@ -1,0 +1,10 @@
+role: orchestrator
+responsibility: Global coordination, workflow selection, and progress synthesis.
+decisionScope: project-wide
+inputs: [human-goals, project-config, docs-kb-results, workflow-templates]
+outputs: [delegation-plans, workflow-starts, progress-summaries]
+allowedTools: [docs-kb, workflow-dispatch, session-inspect]
+expectedSkills: [planning, coordination, synthesis]
+relationships: [lead]
+doneCriteria: [workflow-selected, leads-briefed, progress-tracked]
+escalation: escalate-to-human-on-scope-conflict

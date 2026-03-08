@@ -1,0 +1,26 @@
+{
+  "type": "object",
+  "required": ["id", "type", "timestamp", "runId", "sessionId", "agentIdentityId", "payload"],
+  "properties": {
+    "id": { "type": "string" },
+    "type": {
+      "type": "string",
+      "enum": [
+        "session.planned",
+        "session.starting",
+        "session.active",
+        "session.completed",
+        "session.failed",
+        "session.stopped"
+      ]
+    },
+    "timestamp": { "type": "string" },
+    "runId": { "type": "string" },
+    "sessionId": { "type": "string" },
+    "projectId": { "type": "string" },
+    "domainId": { "type": "string" },
+    "workflowId": { "type": "string" },
+    "agentIdentityId": { "type": "string" },
+    "payload": { "type": "object" }
+  }
+}

@@ -1,0 +1,160 @@
+# AGENTS.md
+
+## Mission
+
+SPORE (Swarm Protocol for Orchestration, Rituals & Execution) is building a modular, profile-driven, documentation-first foundation for future multi-agent orchestration across software projects.
+
+## Scope Boundary
+
+Current phase is bootstrap-plus-executable-foundation. Work includes:
+- repository structure,
+- architecture and governance documentation,
+- configuration skeletons,
+- references and research synthesis,
+- local-first docs search and indexing,
+- session metadata, lifecycle, and operator surfaces,
+- PI-first runtime planning and first live session harness,
+- shared gateway surfaces for future clients,
+- workflow planning and invocation through the first orchestrator-facing slice.
+
+Do not implement production orchestrator runtime, production Web UI, or full execution engine in this phase.
+
+## Primary Sources of Truth
+
+1. `docs/INDEX.md`
+2. `docs/index/DOCS_INDEX.md`
+3. `docs/index/docs_manifest.yaml`
+4. `docs/decisions/`
+
+## Work Rules for Agents
+
+- Update documentation with each material change.
+- Add or update ADRs for architecture boundary changes.
+- Keep research in `docs/research/` and decisions in `docs/decisions/`.
+- Keep profile definitions in `config/profiles/` and `workspace/agent-profiles/`.
+- Keep workflow definitions in `config/workflows/` and `workspace/workflow-profiles/`.
+- Keep project examples in `config/projects/` and `workspace/projects/`.
+- Keep domain execution policy in `config/domains/` and `config/projects/* activeDomains[]`.
+- Keep docs indices synchronized when adding/moving docs.
+- Prefer updating canonical docs over creating redundant fragments.
+
+## Environment Baseline
+
+Assume the repository is expected to run with:
+
+- `node >= 24`
+- `npm`
+- `tmux`
+- `pi` CLI from `@mariozechner/pi-coding-agent`
+- `jq`
+- `sqlite3`
+- `python3`
+- `git`
+- `rg`
+
+When environment assumptions change, update:
+
+1. `README.md`
+2. `docs/runbooks/local-dev.md`
+3. `.pi/SYSTEM.md`
+4. this file
+
+Do not leave runtime prerequisites only in chat history.
+
+## Runtime and Session Rules
+
+- Prefer testing real runtime flows with `pi` when available; use stub mode only as fallback.
+- Treat `packages/runtime-pi/` as the authoritative PI integration boundary.
+- Prefer `pi-rpc` for real runtime validation; only use `pi-json` or stub mode when isolating launcher behavior.
+- Treat `packages/session-manager/` as the authoritative session state and lifecycle boundary.
+- Treat `services/session-gateway/` as the shared HTTP surface for clients; do not build new clients against ad hoc file reads when gateway data is sufficient.
+- Treat `packages/orchestrator/` and `services/orchestrator/` as the workflow planning and invocation boundary.
+- Treat merged domain policy as execution input, not as passive metadata.
+- Treat the orchestrator execution store as the source of truth for workflow state; do not infer workflow completion from session files alone.
+- Treat `waiting_review` and `waiting_approval` as settled governance states, not as runtime failures.
+- Treat workflow events and escalation records as first-class execution artifacts; update the event model docs when execution state transitions change.
+- Prefer resolving escalations through orchestrator commands or HTTP APIs; do not mutate escalation rows manually.
+- Use tmux-backed sessions for inspectable live runs.
+- Reconcile detached sessions through `session-manager reconcile` instead of manual database edits.
+- Use gateway artifact and stream endpoints for transcript, PI event, and live follow use cases before adding new ad hoc readers.
+- Prefer the explicit orchestrator read surfaces `/executions/:id`, `/executions/:id/events`, and `/executions/:id/escalations` over scraping SQLite directly from UI or automation clients.
+- When changing retry, timeout, governance, session-mode, or docs retrieval behavior, update both the relevant domain config and the architecture docs that describe policy merging.
+
+## Minimum Verification Loop
+
+Before claiming runtime/session work is done, prefer verifying at least:
+
+```bash
+npm run docs-kb:index
+npm run config:validate
+npm run runtime-pi:plan -- --profile config/profiles/lead.yaml --project config/projects/example-project.yaml
+npm run runtime-pi:run -- --profile config/profiles/lead.yaml --project config/projects/example-project.yaml --session-id smoke-001 --run-id smoke-001
+npm run session:status
+npm run gateway:start
+npm run orchestrator:plan -- --domain backend --roles lead
+npm run orchestrator:plan -- --domain backend --roles lead,builder,tester,reviewer
+npm run orchestrator:invoke -- --domain backend --roles lead,reviewer --objective "Lead should produce one sentence; reviewer should return approve, revise, or reject." --wait
+```
+
+If `pi` is unavailable, say so explicitly and note that runtime validation used the stub launcher.
+
+If `pi` is installed but missing from `PATH` in the current shell, set:
+
+```bash
+export SPORE_PI_BIN="${SPORE_PI_BIN:-$(npm prefix -g)/bin/pi}"
+```
+
+## Documentation Classification
+
+- Vision: `docs/vision/`
+- Architecture: `docs/architecture/`
+- Research notes: `docs/research/`
+- Decisions (ADR): `docs/decisions/`
+- Specs: `docs/specs/`
+- Plans and roadmap: `docs/plans/` and `docs/roadmap/`
+- Operations and policies: `docs/runbooks/` and `docs/operations/`
+
+## Reference Repositories
+
+Reference sources are in `references/` and are read-only inspiration:
+- `overstory`, `mulch`, `beads`, `gastown`, `pi-mono`, `agentic-engineering-book`
+- `pi-agent` is a local alias to `pi-mono`.
+
+Never cargo-cult copy implementations. Extract concepts and adapt to SPORE.
+
+## Incremental Delivery Pattern
+
+1. Clarify target and boundaries.
+2. Create/update architecture docs.
+3. Create/update config and schemas.
+4. Create/update tools and runbooks.
+5. Update docs indexes and manifests.
+
+## ADR Workflow
+
+- Use `docs/decisions/adr-template.md`.
+- Name ADRs sequentially: `ADR-XXXX-topic.md`.
+- Link ADR in `docs/INDEX.md` and `docs/index/docs_manifest.yaml`.
+
+## Docs Search Usage
+
+Use `tools/docsearch/` conventions:
+- provider contract: `tools/docsearch/provider-contract.md`
+- collections plan: `tools/docsearch/collections-plan.md`
+- query recipes: `tools/docsearch/query-recipes.md`
+
+Current CLI contract: `docs-kb index|search|status|rebuild`.
+
+## Operator Surfaces
+
+- `services/session-gateway/` now exposes:
+  - status/session/event reads
+  - artifact reads
+  - `text/event-stream` event feed
+  - control actions: `stop`, `mark-complete`, `steer`
+- `apps/web/` consumes those APIs and the orchestrator proxy rather than reading local files directly.
+- `services/orchestrator/` now exposes workflow `plan` and `invoke` endpoints.
+- `services/orchestrator/` also exposes durable execution list/detail, child execution reads, coordination-group reads, workflow event and escalation reads, execution SSE follow, plus `drive`, `pause`, `hold`, `resume`, `review`, and `approval` endpoints.
+- `services/orchestrator/` also exposes escalation resolution and resume for operator recovery.
+- `apps/web/` renders grouped execution list/detail, coordination and lineage metadata, step/session tree, and review/approval history over those APIs.
+- UI and automation clients should treat `coordinationGroupId`, `parentExecutionId`, `childExecutionIds`, `branchKey`, `holdReason`, `pausedAt`, `heldAt`, and `resumedAt` as optional additive fields rather than guaranteed schema requirements.

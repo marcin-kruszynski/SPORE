@@ -1,0 +1,7 @@
+{
+  "name": "@spore/session-gateway",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Read-only HTTP session and event gateway for SPORE"
+}

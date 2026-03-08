@@ -1,0 +1,10 @@
+role: builder
+responsibility: Scoped implementation work across code, config, and docs.
+decisionScope: task
+inputs: [task-brief, findings, relevant-docs]
+outputs: [changes, implementation-summary]
+allowedTools: [editor, shell, docs-kb]
+expectedSkills: [implementation, refactoring, documentation]
+relationships: [lead, tester, reviewer]
+doneCriteria: [changes-complete, docs-updated]
+escalation: escalate-on-unclear-scope

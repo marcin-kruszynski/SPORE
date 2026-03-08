@@ -1,0 +1,13 @@
+domain: orchestration
+goals:
+  - define how work is delegated and supervised
+  - preserve human-steerable control over swarm behavior
+typicalTasks:
+  - model workflows
+  - define escalation policy
+  - define run and handoff semantics
+requiredSkills: [planning, coordination, systems-thinking]
+requiredTools: [docs-kb, session-inspect]
+typicalRoles: [orchestrator, lead, reviewer]
+dependencies: [agent-runtime, knowledge, session-ui]
+risks: [role-confusion, implicit-coordination]

@@ -1,0 +1,22 @@
+{
+  "type": "object",
+  "required": ["id", "name", "domains", "leadProfile", "workerProfiles", "workflows", "skills", "tools"],
+  "properties": {
+    "id": { "type": "string" },
+    "name": { "type": "string" },
+    "domains": { "type": "array", "items": { "type": "string" } },
+    "leadProfile": { "type": "string" },
+    "workerProfiles": {
+      "type": "object",
+      "properties": {
+        "scout": { "type": "string" },
+        "builder": { "type": "string" },
+        "tester": { "type": "string" },
+        "reviewer": { "type": "string" }
+      }
+    },
+    "workflows": { "type": "array", "items": { "type": "string" } },
+    "skills": { "type": "array", "items": { "type": "string" } },
+    "tools": { "type": "array", "items": { "type": "string" } }
+  }
+}

@@ -1,0 +1,14 @@
+id: review-pass
+name: Review Pass
+triggerType: handoff
+applicableProjectTypes: [application, platform, service]
+roleSequence: [lead, reviewer]
+branchingConditions: []
+reviewStep:
+  required: true
+retryPolicy:
+  maxAttempts: 1
+documentationUpdatePolicy:
+  required: false
+completionRequirements:
+  - verdict-issued

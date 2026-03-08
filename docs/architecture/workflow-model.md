@@ -1,0 +1,215 @@
+# Workflow Model
+
+Workflow templates define reusable orchestration patterns.
+
+## Template Requirements
+
+Each workflow includes:
+- trigger type,
+- applicable project types,
+- role sequence,
+- branching conditions,
+- review step,
+- retry policy,
+- docs update policy,
+- completion requirements.
+
+## Seeded Workflows
+
+- feature-delivery
+- bugfix
+- research-spike
+- review-pass
+- documentation-pass (workspace profile)
+- environment-bootstrap (workspace profile)
+
+## Current Executable Slice
+
+The bootstrap execution path now supports:
+
+- durable workflow execution records in SQLite,
+- workflow event emission for execution, step, review, approval, retry, and escalation transitions,
+- ordered multi-session step launch,
+- parent-child session linking between consecutive steps,
+- domain-aware workflow policy defaults from `config/domains/*.yaml` plus project `activeDomains[]` overrides,
+- execution records that can carry lineage metadata such as `parentExecutionId` and `coordinationGroupId`,
+- execution records that can carry branch metadata such as `branchKey`,
+- coordination-group list and detail views for related executions,
+- child-execution reads for lineage-aware operator surfaces,
+- governance stop points at `waiting_review` and `waiting_approval`,
+- explicit operator review and approval decisions,
+- retry and rework branching when review or approval requests changes,
+- escalation records when retry budgets are exhausted,
+- operator resolution of open escalations with optional execution resume,
+- operator fork, pause, hold, resume, and coordination-group drive controls,
+- paused and held execution states for operator-controlled interruption without treating the execution as failed,
+- completion, failure, rejection, and cancellation as execution end states.
+
+## Domain Policy Integration
+
+Workflow invocation is now domain-policy aware.
+
+The current precedence is:
+
+1. explicit invocation roles,
+2. merged domain `workflowPolicy.defaultRoles`,
+3. workflow template `roleSequence`.
+
+The merged policy comes from:
+
+- `config/domains/<domain>.yaml` as the base,
+- the matching project `activeDomains[]` entry as the overlay.
+
+That policy currently affects:
+
+- default role selection,
+- per-role and default `maxAttempts`,
+- reviewer-step `reviewRequired` and `approvalRequired` defaults,
+- step watchdog `stepSoftTimeoutMs` and `stepHardTimeoutMs`,
+- per-role `sessionMode`,
+- docs-kb startup retrieval query terms and result limit.
+
+The orchestrator persists both the execution-level merged policy and the per-step launch policy so later drive, review, approval, and recovery behavior can use the same durable defaults.
+
+## Durable Execution Shape
+
+The durable execution model is evolving from a single ordered role list toward a coordination-aware workflow graph.
+
+The stable baseline remains:
+
+- one execution record as the durable unit of workflow state,
+- one or more workflow steps inside that execution,
+- one or more runtime sessions launched on behalf of those steps,
+- durable review, approval, escalation, and event history tied to the execution.
+
+The next layer now being encoded into the model is:
+
+- coordination groups that relate multiple sibling or descendant executions,
+- explicit parent-child execution lineage,
+- branch-aware execution variants created by retry, rework, or operator-directed fork paths,
+- non-terminal operator states such as `paused` and `held`.
+
+## Coordination Groups
+
+Coordination groups are the execution-level container for work that no longer fits a single linear role list.
+
+The intended model is:
+
+- one root execution can own a coordination group,
+- child or sibling executions can join that group as forked or branched work,
+- the group can be inspected as one operator-facing unit without collapsing the underlying execution records,
+- parent-child lineage and coordination-group membership remain related but distinct concepts.
+
+That distinction matters operationally:
+
+- lineage explains ancestry,
+- coordination explains which executions are currently meant to be managed together,
+- branch metadata explains why a sibling or descendant exists.
+
+The current executable foundation already exposes durable metadata for that shape, while still treating some group-level policy as an evolving layer rather than a frozen final contract.
+
+## Execution Lineage
+
+Execution lineage is intended to answer two different questions:
+
+1. Where did this execution come from?
+2. What other executions is it coordinated with?
+
+Those concerns should remain separate.
+
+Lineage fields:
+
+- `parentExecutionId`: identifies the immediate ancestor execution when an execution is branched or forked from another execution.
+- `childExecutionIds`: identifies known descendants when the execution detail payload includes them.
+- `branchKey`: identifies the logical branch name or retry/rework lane when the workflow creates divergent paths.
+
+Coordination fields:
+
+- `coordinationGroupId`: identifies a shared execution group that may contain multiple related executions.
+
+An execution may have:
+
+- no parent and no coordination group,
+- a parent but no coordination group,
+- a coordination group but no parent,
+- both a parent execution and a coordination group.
+
+Clients should treat lineage and coordination metadata as optional and should not assume every execution participates in a group.
+
+## Parent/Child Execution Behavior
+
+Parent and child executions should be understandable without requiring the client to infer workflow semantics from timestamps alone.
+
+The recommended interpretation is:
+
+- the parent execution remains the durable source of the original workflow intent,
+- a child execution captures a branch, fork, retry lane, or delegated substream,
+- the coordination group provides the operator view over the family of related executions,
+- operators should prefer group-aware drive and recovery controls over ad hoc per-session intervention when coordinated work is involved.
+
+As multi-execution behavior expands, a parent execution may temporarily remain blocked while child executions are still active or unresolved. That blocked condition should be represented as workflow state, not as an implicit guess derived from runtime sessions.
+
+## Governance States
+
+The durable execution state model now distinguishes between:
+
+- active execution states such as `planned`, `running`, or step-specific progress,
+- governance stop states such as `waiting_review` and `waiting_approval`,
+- operator interruption states such as `paused` and `held`,
+- terminal states such as `completed`, `failed`, `rejected`, or `canceled`.
+
+`paused` and `held` are not failures.
+
+The recommended distinction is:
+
+- `paused`: an operator-directed stop that intentionally suspends forward progress until an explicit resume decision,
+- `held`: a recoverable blocked state used when execution should remain intact but cannot yet advance, for example while waiting on related executions, external clarification, or an operator checkpoint.
+
+Use them for:
+
+- temporary operator intervention,
+- controlled recovery after an escalation,
+- waiting on an external dependency,
+- coordination barriers where one execution should not advance until related work catches up.
+
+Recommended metadata for those states includes:
+
+- `pausedAt`
+- `heldAt`
+- `holdReason`
+- `heldFromState`
+- `resumedAt`
+
+Clients and operators should preserve the distinction between:
+
+- governance stops that require review or approval,
+- operator-imposed pauses,
+- orchestration or dependency holds,
+- true terminal failure.
+
+That prevents grouped workflows from being misread as broken when they are merely waiting on a coordinated branch.
+
+Current watchdog behavior also uses the persisted workflow policy as its default threshold source:
+
+- `stepSoftTimeoutMs` triggers orchestrator steering when no more specific runtime override is supplied,
+- `stepHardTimeoutMs` triggers orchestrator abort when no more specific runtime override is supplied.
+
+## Operator Recovery Model
+
+Operator recovery is now a first-class concern of the workflow model.
+
+Recovery actions should be understood as durable workflow operations, not ad hoc database edits. The model should support:
+
+- resolving an escalation,
+- resuming an execution after operator intervention,
+- pausing or holding an execution without discarding its history,
+- reviewing and approving work after a rework loop,
+- coordinating related executions through shared group state rather than manual out-of-band tracking.
+
+As coordination-group support expands, operators should prefer execution-level and orchestration-level recovery controls over manipulating runtime session artifacts directly.
+
+Near-term follow-on work after the current coordination slice should focus on:
+
+1. stable coordination policies for when grouped executions block, resume, or re-enter governance states,
+2. richer group-level history views that explain lineage and branch purpose more clearly,
+3. explicit hold reasons, ownership, and timeout/escalation guidance for long-lived blocked work.

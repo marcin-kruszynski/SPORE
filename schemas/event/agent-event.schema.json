@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "spore/agent-event.schema.json",
+  "title": "SPORE Agent Event",
+  "type": "object",
+  "required": ["id", "type", "timestamp", "runId", "sessionId"],
+  "properties": {
+    "id": { "type": "string" },
+    "type": { "type": "string" },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "runId": { "type": "string" },
+    "sessionId": { "type": "string" },
+    "projectId": { "type": "string" },
+    "domainId": { "type": "string" },
+    "workflowId": { "type": "string" },
+    "agentIdentityId": { "type": "string" },
+    "payload": { "type": "object" }
+  },
+  "additionalProperties": true
+}

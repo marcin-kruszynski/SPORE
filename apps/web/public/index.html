@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SPORE Operator</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="backdrop"></div>
+    <main class="app-shell">
+      <section class="hero">
+        <div>
+          <p class="eyebrow">SPORE</p>
+          <h1>Operator Console</h1>
+          <p class="subtitle">
+            Gateway-backed session visibility, durable execution control, artifact inspection, and workflow launch.
+          </p>
+        </div>
+        <div class="hero-actions">
+          <button id="refresh-button" class="primary-button">Refresh</button>
+          <label class="toggle">
+            <input id="auto-refresh" type="checkbox" checked />
+            <span>Auto refresh</span>
+          </label>
+        </div>
+      </section>
+
+      <section class="status-grid" id="status-grid">
+        <article class="status-card">
+          <span class="label">Sessions</span>
+          <strong id="session-count">-</strong>
+        </article>
+        <article class="status-card">
+          <span class="label">Events</span>
+          <strong id="event-count">-</strong>
+        </article>
+        <article class="status-card">
+          <span class="label">States</span>
+          <strong id="state-summary">-</strong>
+        </article>
+        <article class="status-card">
+          <span class="label">Executions</span>
+          <strong id="execution-count">-</strong>
+        </article>
+        <article class="status-card">
+          <span class="label">Coordination Groups</span>
+          <strong id="coordination-count">-</strong>
+        </article>
+      </section>
+
+      <section class="layout">
+        <section class="panel left-stack">
+          <div class="panel-header">
+            <h2>Executions</h2>
+            <span id="execution-subtitle" class="muted">Durable orchestrator runs</span>
+          </div>
+          <div id="execution-list" class="execution-list"></div>
+
+          <div class="panel-header nested">
+            <h3>Sessions</h3>
+            <span id="session-subtitle" class="muted">Recent runtime records</span>
+          </div>
+          <div id="session-list" class="session-list"></div>
+
+          <div class="panel-header nested">
+            <h3>Workflow Invoke</h3>
+            <span id="stream-state" class="muted">event stream: idle</span>
+          </div>
+          <form id="workflow-form" class="workflow-form">
+            <label class="form-label" for="workflow-domain">Domain</label>
+            <input id="workflow-domain" type="text" value="backend" placeholder="backend" />
+            <label class="form-label" for="workflow-roles">Roles</label>
+            <input id="workflow-roles" type="text" value="lead" placeholder="lead,scout,builder" />
+            <label class="form-label" for="workflow-objective">Objective</label>
+            <textarea id="workflow-objective" rows="5" placeholder="Describe the workflow objective"></textarea>
+            <button type="submit" id="workflow-button" class="primary-button">Invoke Workflow</button>
+          </form>
+        </section>
+
+        <section class="panel detail-panel">
+          <div class="panel-header">
+            <h2>Execution Detail</h2>
+            <span id="execution-detail-subtitle" class="muted">Select an execution</span>
+          </div>
+
+          <div id="execution-detail" class="detail-card empty-state">
+            Select an execution to inspect durable orchestration state, step/session lineage, and governance controls.
+          </div>
+
+          <form id="execution-control-form" class="control-form execution-control-form">
+            <div class="control-row">
+              <button type="button" id="drive-button" class="primary-button" disabled>Drive Execution</button>
+              <button type="button" id="drive-group-button" class="secondary-button" disabled>Drive Group</button>
+              <label class="toggle">
+                <input id="drive-wait" type="checkbox" />
+                <span>wait</span>
+              </label>
+            </div>
+            <div class="inline-grid">
+              <div>
+                <label class="form-label" for="drive-timeout">Timeout (ms)</label>
+                <input id="drive-timeout" type="number" min="1" step="1" value="180000" />
+              </div>
+              <div>
+                <label class="form-label" for="drive-interval">Interval (ms)</label>
+                <input id="drive-interval" type="number" min="1" step="1" value="1500" />
+              </div>
+            </div>
+
+            <article class="decision-card operator-state-card">
+              <h3>Operator State</h3>
+              <div class="control-row">
+                <button type="button" id="pause-button" class="secondary-button" disabled>Pause</button>
+                <button type="button" id="hold-button" class="secondary-button" disabled>Hold</button>
+                <button type="button" id="resume-button" class="primary-button" disabled>Resume</button>
+              </div>
+              <label class="form-label" for="execution-operator-reason">Reason</label>
+              <input id="execution-operator-reason" type="text" value="Operator intervention." placeholder="Operator intervention." />
+              <label class="form-label" for="execution-operator-comments">Comments</label>
+              <textarea id="execution-operator-comments" rows="3" placeholder="Optional pause, hold, or resume notes"></textarea>
+            </article>
+
+            <div class="decision-grid">
+              <article class="decision-card">
+                <h3>Review</h3>
+                <label class="form-label" for="review-status">Status</label>
+                <select id="review-status">
+                  <option value="approved">approved</option>
+                  <option value="changes_requested">changes_requested</option>
+                  <option value="rejected">rejected</option>
+                </select>
+                <label class="form-label" for="review-by">By</label>
+                <input id="review-by" type="text" value="operator" placeholder="operator" />
+                <label class="form-label" for="review-comments">Comments</label>
+                <textarea id="review-comments" rows="3" placeholder="Review context"></textarea>
+                <button type="button" id="review-button" class="secondary-button" disabled>Submit Review</button>
+              </article>
+
+              <article class="decision-card">
+                <h3>Approval</h3>
+                <label class="form-label" for="approval-status">Status</label>
+                <select id="approval-status">
+                  <option value="approved">approved</option>
+                  <option value="rejected">rejected</option>
+                </select>
+                <label class="form-label" for="approval-by">By</label>
+                <input id="approval-by" type="text" value="operator" placeholder="operator" />
+                <label class="form-label" for="approval-comments">Comments</label>
+                <textarea id="approval-comments" rows="3" placeholder="Approval context"></textarea>
+                <button type="button" id="approval-button" class="secondary-button" disabled>Submit Approval</button>
+              </article>
+            </div>
+          </form>
+
+          <section>
+            <div class="panel-header nested">
+              <h3>Step / Session Tree</h3>
+            </div>
+            <div id="execution-tree" class="execution-tree empty-state">Select an execution to load steps.</div>
+          </section>
+
+          <section>
+            <div class="panel-header nested">
+              <h3>Execution Timeline</h3>
+              <span id="execution-stream-state" class="muted">execution stream: idle</span>
+            </div>
+            <div id="execution-timeline" class="execution-timeline empty-state">
+              Select an execution to load timeline and history.
+            </div>
+          </section>
+
+          <section>
+            <div class="panel-header nested">
+              <h3>Review &amp; Approval Log</h3>
+            </div>
+            <div id="decision-log" class="decision-log"></div>
+          </section>
+
+          <div class="panel-header nested">
+            <h2>Session Detail</h2>
+            <span id="detail-subtitle" class="muted">Select a session</span>
+          </div>
+
+          <div id="session-detail" class="detail-card empty-state">
+            Select a session to inspect runtime metadata, recent events, and operator controls.
+          </div>
+
+          <form id="control-form" class="control-form">
+            <div class="control-row">
+              <button type="button" id="stop-button" class="warning-button" disabled>Stop</button>
+              <button type="button" id="complete-button" class="secondary-button" disabled>Mark Complete</button>
+            </div>
+            <label class="form-label" for="steer-message">Steer Message</label>
+            <textarea id="steer-message" rows="4" placeholder="Send an operator steer message to the selected session"></textarea>
+            <button type="submit" id="steer-button" class="primary-button" disabled>Send Steer</button>
+          </form>
+
+          <div class="tab-row">
+            <button type="button" class="tab-button active" data-tab="events">Events</button>
+            <button type="button" class="tab-button" data-tab="transcript">Transcript</button>
+            <button type="button" class="tab-button" data-tab="pi-events">PI Events</button>
+            <button type="button" class="tab-button" data-tab="artifacts">Artifacts</button>
+          </div>
+
+          <section id="tab-events" class="tab-panel active">
+            <div class="panel-header nested">
+              <h3>Recent Events</h3>
+            </div>
+            <div id="event-list" class="event-list"></div>
+          </section>
+
+          <section id="tab-transcript" class="tab-panel">
+            <div class="panel-header nested">
+              <h3>Transcript</h3>
+            </div>
+            <pre id="transcript-view" class="artifact-view empty-state">Select a session to load transcript artifacts.</pre>
+          </section>
+
+          <section id="tab-pi-events" class="tab-panel">
+            <div class="panel-header nested">
+              <h3>PI Events</h3>
+            </div>
+            <pre id="pi-events-view" class="artifact-view empty-state">Select a session to load PI event artifacts.</pre>
+          </section>
+
+          <section id="tab-artifacts" class="tab-panel">
+            <div class="panel-header nested">
+              <h3>Artifacts</h3>
+            </div>
+            <div id="artifact-list" class="artifact-list"></div>
+          </section>
+        </section>
+      </section>
+    </main>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

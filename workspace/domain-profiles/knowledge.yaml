@@ -1,0 +1,13 @@
+domain: knowledge
+goals:
+  - preserve architecture and operational memory
+  - make project knowledge retrievable by humans and agents
+typicalTasks:
+  - maintain docs index
+  - define retrieval contracts
+  - capture ADRs and research notes
+requiredSkills: [technical-writing, synthesis, information-architecture]
+requiredTools: [docs-kb]
+typicalRoles: [lead, scout, builder, reviewer]
+dependencies: [shared, orchestration]
+risks: [note-sprawl, stale-canonical-docs]

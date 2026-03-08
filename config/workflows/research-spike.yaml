@@ -1,0 +1,17 @@
+id: research-spike
+name: Research Spike
+triggerType: manual
+applicableProjectTypes: [platform, library, application]
+roleSequence: [orchestrator, lead, scout, reviewer]
+branchingConditions:
+  - if: prototype-needed
+    then: add-builder
+reviewStep:
+  required: false
+retryPolicy:
+  maxAttempts: 1
+documentationUpdatePolicy:
+  required: true
+completionRequirements:
+  - findings-documented
+  - open-questions-captured

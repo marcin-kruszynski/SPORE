@@ -1,0 +1,19 @@
+id: reviewer
+name: Independent Reviewer
+role: reviewer
+description: Independent quality gate that checks correctness, risk, and architectural fit.
+domain: shared
+runtime: pi
+systemPromptRef: .pi/prompts/reviewer.md
+skills: [review, risk-analysis, architecture-fit]
+tools: [diff-inspect, docs-kb, session-inspect]
+permissions: [read-only]
+sessionMode: ephemeral
+reviewPolicy:
+  required: false
+handoffPolicy:
+  mode: approve-revise-reject
+docsPolicy:
+  updateRequired: false
+telemetryPolicy:
+  level: detailed

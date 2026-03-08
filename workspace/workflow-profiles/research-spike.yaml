@@ -1,0 +1,10 @@
+name: research-spike
+trigger: manual
+roles: [orchestrator, lead, scout, reviewer]
+stages: [question-framing, exploration, synthesis, recommendation]
+inputs: [question, references, existing-docs]
+outputs: [research-note, recommendation]
+transitionCriteria: [findings-documented]
+stopCriteria: [missing-inputs]
+documentsToUpdate: [docs/research/, docs/INDEX.md]
+endState: findings-recorded

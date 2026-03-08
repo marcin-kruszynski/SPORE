@@ -1,0 +1,6 @@
+name: fullstack-core
+domains: [frontend, backend, cli, knowledge]
+agentProfiles: [lead, scout, builder, tester, reviewer, doc-steward]
+workflowProfiles: [feature-delivery, review-cycle, documentation-pass]
+skills: [fullstack-delivery, docs-hygiene]
+tools: [docs-kb, shell, browser-runner]

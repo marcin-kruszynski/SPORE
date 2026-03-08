@@ -1,0 +1,10 @@
+role: scout
+responsibility: Research and discovery before implementation or review.
+decisionScope: task
+inputs: [question, codebase, references, docs-kb]
+outputs: [findings, maps, recommendations]
+allowedTools: [docs-kb, code-search, reference-inspect]
+expectedSkills: [research, synthesis, architecture-reading]
+relationships: [lead, builder]
+doneCriteria: [findings-documented]
+escalation: escalate-if-source-of-truth-conflicts

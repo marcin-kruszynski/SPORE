@@ -1,0 +1,26 @@
+id: default-agent-platform
+name: Default Agent Platform
+activeDomains:
+  - frontend
+  - backend
+  - cli
+attachedTeams:
+  - fullstack-core
+  - research-team
+defaultWorkflows:
+  - feature-delivery
+  - review-cycle
+enabledSkills:
+  - docs-hygiene
+  - architecture-analysis
+enabledTools:
+  - docs-kb
+  - session-inspect
+uiModel:
+  surfaces: [cli, tui, web]
+sessionModel:
+  liveInspectionRequired: true
+  preferredTransport: tmux
+memoryModel:
+  docsRoot: docs/
+  retrievalLayer: packages/docs-kb

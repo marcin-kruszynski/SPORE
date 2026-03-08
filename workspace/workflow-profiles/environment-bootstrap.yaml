@@ -1,0 +1,10 @@
+name: environment-bootstrap
+trigger: manual
+roles: [orchestrator, lead, scout, builder, reviewer]
+stages: [structure, references, docs, config, verification]
+inputs: [bootstrap-goals]
+outputs: [repository-foundation, completion-summary]
+transitionCriteria: [docs-linked, references-acquired]
+stopCriteria: [missing-reference-access]
+documentsToUpdate: [docs/INDEX.md, docs/plans/bootstrap-completion-summary.md]
+endState: handoff-ready

@@ -1,0 +1,13 @@
+domain: infra
+goals:
+  - keep the platform local-first and operable
+  - prepare future deployment and environment automation
+typicalTasks:
+  - runtime setup
+  - local environment management
+  - future CI and deploy planning
+requiredSkills: [automation, environment-design]
+requiredTools: [shell]
+typicalRoles: [lead, builder, tester]
+dependencies: [agent-runtime, backend]
+risks: [overbuilding-deployment-early]

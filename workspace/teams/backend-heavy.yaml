@@ -1,0 +1,6 @@
+name: backend-heavy
+domains: [backend, cli, orchestration]
+agentProfiles: [lead, scout, builder, tester, reviewer]
+workflowProfiles: [feature-delivery, research-spike, review-cycle]
+skills: [service-design, api-analysis]
+tools: [docs-kb, shell, api-prober]

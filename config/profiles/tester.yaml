@@ -1,0 +1,19 @@
+id: tester
+name: Validation Tester
+role: tester
+description: Validation-focused profile for scripted checks, tests, and behavioral verification.
+domain: shared
+runtime: pi
+systemPromptRef: .pi/prompts/tester.md
+skills: [validation, probing, regression-checking]
+tools: [shell, test-runner, session-inspect]
+permissions: [read-only, run-tests]
+sessionMode: ephemeral
+reviewPolicy:
+  required: false
+handoffPolicy:
+  mode: verdict-plus-evidence
+docsPolicy:
+  updateRequired: false
+telemetryPolicy:
+  level: standard

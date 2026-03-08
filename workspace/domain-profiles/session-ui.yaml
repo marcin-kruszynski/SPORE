@@ -1,0 +1,13 @@
+domain: session-ui
+goals:
+  - make active work visible and steerable
+  - unify terminal and browser session understanding
+typicalTasks:
+  - define session panels
+  - define event feeds
+  - define steering affordances
+requiredSkills: [operator-ux, terminal-ux, event-visualization]
+requiredTools: [session-inspect, docs-kb]
+typicalRoles: [lead, builder, tester]
+dependencies: [frontend, cli, backend]
+risks: [overcomplicated-controls, incomplete-session-context]

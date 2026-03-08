@@ -1,0 +1,54 @@
+{
+  "type": "object",
+  "required": ["id", "name", "leadProfile", "defaultBuilderProfile", "defaultScoutProfile", "defaultTesterProfile", "defaultReviewerProfile", "tools", "skills", "workflowDefaults"],
+  "properties": {
+    "id": { "type": "string" },
+    "name": { "type": "string" },
+    "leadProfile": { "type": "string" },
+    "defaultBuilderProfile": { "type": "string" },
+    "defaultScoutProfile": { "type": "string" },
+    "defaultTesterProfile": { "type": "string" },
+    "defaultReviewerProfile": { "type": "string" },
+    "tools": { "type": "array", "items": { "type": "string" } },
+    "skills": { "type": "array", "items": { "type": "string" } },
+    "workflowDefaults": { "type": "array", "items": { "type": "string" } },
+    "workflowPolicy": {
+      "type": "object",
+      "properties": {
+        "stepSoftTimeoutMs": { "type": "integer" },
+        "stepHardTimeoutMs": { "type": "integer" },
+        "defaultMaxAttempts": { "type": "integer" },
+        "defaultRoles": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "maxAttemptsByRole": {
+          "type": "object",
+          "additionalProperties": { "type": "integer" }
+        },
+        "reviewRequired": { "type": "boolean" },
+        "approvalRequired": { "type": "boolean" }
+      }
+    },
+    "runtimePolicy": {
+      "type": "object",
+      "properties": {
+        "sessionModeByRole": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        }
+      }
+    },
+    "docsKbPolicy": {
+      "type": "object",
+      "properties": {
+        "resultLimit": { "type": "integer" },
+        "queryTemplate": { "type": "string" },
+        "queryTerms": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    }
+  }
+}

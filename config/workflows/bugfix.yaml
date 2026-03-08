@@ -1,0 +1,17 @@
+id: bugfix
+name: Bugfix
+triggerType: manual
+applicableProjectTypes: [application, platform, service]
+roleSequence: [orchestrator, lead, builder, tester, reviewer]
+branchingConditions:
+  - if: root-cause-unclear
+    then: add-scout
+reviewStep:
+  required: true
+retryPolicy:
+  maxAttempts: 3
+documentationUpdatePolicy:
+  required: true
+completionRequirements:
+  - defect-reproduced
+  - fix-validated

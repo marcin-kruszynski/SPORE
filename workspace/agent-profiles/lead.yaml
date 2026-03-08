@@ -1,0 +1,10 @@
+role: lead
+responsibility: Domain-level decomposition and specialist coordination.
+decisionScope: domain
+inputs: [workflow-brief, project-config, domain-docs]
+outputs: [task-breakdowns, worker-handoffs, domain-status]
+allowedTools: [docs-kb, session-inspect, task-state]
+expectedSkills: [coordination, decomposition, status-reporting]
+relationships: [orchestrator, scout, builder, tester, reviewer]
+doneCriteria: [domain-work-complete, review-requested]
+escalation: escalate-upward-on-blocker

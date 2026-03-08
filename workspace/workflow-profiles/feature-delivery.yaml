@@ -1,0 +1,10 @@
+name: feature-delivery
+trigger: manual
+roles: [orchestrator, lead, scout, builder, tester, reviewer]
+stages: [plan, research, build, validate, review, document]
+inputs: [goal, project-config, domain-config]
+outputs: [implemented-feature, validation-evidence, review-verdict]
+transitionCriteria: [research-complete, implementation-complete, validation-complete]
+stopCriteria: [scope-conflict, blocked-runtime]
+documentsToUpdate: [docs/INDEX.md, relevant-architecture-docs]
+endState: approved-or-revised

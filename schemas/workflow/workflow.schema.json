@@ -1,0 +1,42 @@
+{
+  "type": "object",
+  "required": ["id", "name", "triggerType", "applicableProjectTypes", "roleSequence", "reviewStep", "retryPolicy", "documentationUpdatePolicy", "completionRequirements"],
+  "properties": {
+    "id": { "type": "string" },
+    "name": { "type": "string" },
+    "triggerType": { "type": "string" },
+    "applicableProjectTypes": { "type": "array", "items": { "type": "string" } },
+    "roleSequence": { "type": "array", "items": { "type": "string" } },
+    "branchingConditions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["if", "then"],
+        "properties": {
+          "if": { "type": "string" },
+          "then": { "type": "string" }
+        }
+      }
+    },
+    "reviewStep": {
+      "type": "object",
+      "properties": {
+        "required": { "type": "boolean" },
+        "approvalRequired": { "type": "boolean" }
+      }
+    },
+    "retryPolicy": {
+      "type": "object",
+      "properties": {
+        "maxAttempts": { "type": "integer" }
+      }
+    },
+    "documentationUpdatePolicy": {
+      "type": "object",
+      "properties": {
+        "required": { "type": "boolean" }
+      }
+    },
+    "completionRequirements": { "type": "array", "items": { "type": "string" } }
+  }
+}

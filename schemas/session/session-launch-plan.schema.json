@@ -1,0 +1,63 @@
+{
+  "type": "object",
+  "required": ["version", "runtime", "adapterId", "session", "pi", "metadata"],
+  "properties": {
+    "version": { "type": "integer" },
+    "runtime": { "type": "string" },
+    "adapterId": { "type": "string" },
+    "adapterPackage": { "type": "string" },
+    "sessionTransport": { "type": "string" },
+    "session": {
+      "type": "object",
+      "required": ["id", "runId", "role", "profileId", "sessionMode", "transportMode"],
+      "properties": {
+        "id": { "type": "string" },
+        "runId": { "type": "string" },
+        "role": { "type": "string" },
+        "profileId": { "type": "string" },
+        "profileName": { "type": "string" },
+        "sessionMode": { "type": "string" },
+        "transportMode": { "type": "string" },
+        "transcriptCapture": { "type": "boolean" },
+        "storeRoot": { "type": "string" }
+      }
+    },
+    "project": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "type": { "type": "string" },
+        "docsLocation": { "type": "string" },
+        "workflowDefaults": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "pi": {
+      "type": "object",
+      "required": ["skills", "tools", "permissions", "contextFiles"],
+      "properties": {
+        "systemPromptRef": { "type": "string" },
+        "contextFiles": { "type": "array", "items": { "type": "string" } },
+        "skills": { "type": "array", "items": { "type": "string" } },
+        "tools": { "type": "array", "items": { "type": "string" } },
+        "permissions": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "required": ["generatedAt", "sourceFiles"],
+      "properties": {
+        "generatedAt": { "type": "string" },
+        "sourceFiles": {
+          "type": "object",
+          "required": ["profile", "runtime"],
+          "properties": {
+            "profile": { "type": "string" },
+            "runtime": { "type": "string" },
+            "project": { "type": "string" }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,10 @@
+role: reviewer
+responsibility: Independent quality gate and approval recommendation.
+decisionScope: task
+inputs: [diffs, evidence, relevant-docs]
+outputs: [approve, revise, reject]
+allowedTools: [diff-inspect, docs-kb]
+expectedSkills: [review, risk-analysis, architecture-fit]
+relationships: [lead, builder, tester]
+doneCriteria: [verdict-issued]
+escalation: escalate-on-policy-conflict

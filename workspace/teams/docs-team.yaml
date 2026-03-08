@@ -1,0 +1,6 @@
+name: docs-team
+domains: [knowledge, docs]
+agentProfiles: [doc-steward, memory-steward, reviewer]
+workflowProfiles: [documentation-pass, review-cycle]
+skills: [technical-writing, indexing]
+tools: [docs-kb]

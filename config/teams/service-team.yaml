@@ -1,0 +1,12 @@
+id: service-team
+name: Service Delivery Team
+domains: [backend, cli, docs]
+leadProfile: lead
+workerProfiles:
+  scout: scout
+  builder: builder
+  tester: tester
+  reviewer: reviewer
+workflows: [feature-delivery, bugfix, review-pass]
+skills: [service-design, testing, release-readiness]
+tools: [docs-kb, shell]

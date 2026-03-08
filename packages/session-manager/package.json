@@ -1,0 +1,7 @@
+{
+  "name": "@spore/session-manager",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Session metadata and lifecycle management for SPORE"
+}

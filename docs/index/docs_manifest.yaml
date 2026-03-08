@@ -1,0 +1,109 @@
+version: 1
+updated_at: 2026-03-08
+owner: bootstrap-agent
+documents:
+  - id: docs-index
+    type: index
+    domain: shared
+    status: active
+    owner: bootstrap-agent
+    tags: [navigation, canonical]
+    path: docs/INDEX.md
+  - id: docs-operating-index
+    type: index
+    domain: shared
+    status: active
+    owner: bootstrap-agent
+    tags: [navigation, operating-system]
+    path: docs/index/DOCS_INDEX.md
+  - id: product-vision
+    type: vision
+    domain: orchestration
+    status: active
+    owner: future-architect
+    tags: [vision, mission]
+    path: docs/vision/product-vision.md
+  - id: architecture-overview
+    type: architecture
+    domain: orchestration
+    status: active
+    owner: future-architect
+    tags: [architecture, module-boundaries]
+    path: docs/architecture/system-overview.md
+  - id: runtime-model
+    type: architecture
+    domain: agent-runtime
+    status: active
+    owner: future-runtime-architect
+    tags: [pi-first, runtime]
+    path: docs/architecture/runtime-model.md
+  - id: session-model
+    type: architecture
+    domain: session-ui
+    status: active
+    owner: future-session-architect
+    tags: [sessions, inspectability, tmux]
+    path: docs/architecture/session-model.md
+  - id: config-model
+    type: architecture
+    domain: shared
+    status: active
+    owner: bootstrap-agent
+    tags: [configuration, profiles, workflows]
+    path: docs/architecture/config-model.md
+  - id: embeddings-search
+    type: architecture
+    domain: knowledge
+    status: active
+    owner: bootstrap-agent
+    tags: [kb, embeddings, local-first]
+    path: docs/architecture/embeddings-search.md
+  - id: comparative-analysis
+    type: architecture
+    domain: shared
+    status: active
+    owner: bootstrap-agent
+    tags: [comparison, references, architecture]
+    path: docs/architecture/comparative-analysis.md
+  - id: reference-synthesis
+    type: synthesis
+    domain: shared
+    status: active
+    owner: bootstrap-agent
+    tags: [references, research, synthesis]
+    path: docs/references/reference-synthesis.md
+  - id: bootstrap-instruction
+    type: spec
+    domain: shared
+    status: active
+    owner: bootstrap-agent
+    tags: [bootstrap, scope, instruction]
+    path: docs/specs/bootstrap-architect-instruction.md
+  - id: adr-scope
+    type: decision
+    domain: shared
+    status: accepted
+    owner: architecture-council
+    tags: [scope, boundary]
+    path: docs/decisions/ADR-0001-project-scope.md
+  - id: adr-runtime
+    type: decision
+    domain: agent-runtime
+    status: accepted
+    owner: architecture-council
+    tags: [pi-first, runtime]
+    path: docs/decisions/ADR-0002-runtime-pi-first.md
+  - id: implementation-roadmap
+    type: roadmap
+    domain: shared
+    status: active
+    owner: bootstrap-agent
+    tags: [phases, waves, execution]
+    path: docs/roadmap/IMPLEMENTATION_ROADMAP.md
+  - id: bootstrap-status
+    type: operations
+    domain: shared
+    status: active
+    owner: bootstrap-agent
+    tags: [audit, status]
+    path: docs/operations/BOOTSTRAP_STATUS.md

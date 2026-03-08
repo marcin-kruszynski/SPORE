@@ -1,0 +1,12 @@
+id: web-app-team
+name: Web Application Team
+domains: [frontend, backend, docs]
+leadProfile: lead
+workerProfiles:
+  scout: scout
+  builder: builder
+  tester: tester
+  reviewer: reviewer
+workflows: [feature-delivery, review-pass]
+skills: [ui-implementation, api-integration, docs-hygiene]
+tools: [docs-kb, session-inspect]

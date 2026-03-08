@@ -1,0 +1,12 @@
+id: observability-settings
+eventStore:
+  mode: local-file-plus-sqlite
+  logPath: data/state/events.ndjson
+  metadataStore: data/state/metadata.sqlite
+sessionTracking:
+  captureLifecycle: true
+  captureToolEvents: true
+  captureReviewEvents: true
+health:
+  watchdogMode: staged
+  mechanicalChecksFirst: true

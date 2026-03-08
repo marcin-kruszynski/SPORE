@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "spore/session.schema.json",
+  "title": "SPORE Session",
+  "type": "object",
+  "required": ["id", "runId", "agentIdentityId", "profileId", "state"],
+  "properties": {
+    "id": { "type": "string" },
+    "runId": { "type": "string" },
+    "agentIdentityId": { "type": "string" },
+    "profileId": { "type": "string" },
+    "projectId": { "type": "string" },
+    "domainId": { "type": "string" },
+    "workflowId": { "type": "string" },
+    "parentSessionId": { "type": "string" },
+    "runtimeAdapter": { "type": "string" },
+    "state": {
+      "type": "string",
+      "enum": ["planned", "starting", "active", "paused", "blocked", "completed", "failed", "stopped", "canceled"]
+    },
+    "startedAt": { "type": "string", "format": "date-time" },
+    "endedAt": { "type": "string", "format": "date-time" }
+  },
+  "additionalProperties": true
+}

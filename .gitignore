@@ -1,0 +1,46 @@
+# OS
+.DS_Store
+
+# Editors
+.vscode/
+.idea/
+
+# CLI
+.cursor/
+.codex/
+
+# Env
+.env
+.env.local
+
+# Node/Python common
+node_modules/
+__pycache__/
+*.pyc
+
+# Build and temp
+dist/
+build/
+coverage/
+.tmp/
+artifacts/*
+!artifacts/README.md
+scripts/*
+!scripts/README.md
+
+# Runtime state and caches
+data/cache/*
+!data/cache/README.md
+data/state/*
+!data/state/README.md
+data/embeddings/*
+!data/embeddings/README.md
+data/docs-index/*
+!data/docs-index/README.md
+tmp/*
+!tmp/README.md
+
+# References are local study mirrors. Track only repository-level guidance.
+references/*
+!references/README.md
+!references/REFERENCE_MANIFEST.md

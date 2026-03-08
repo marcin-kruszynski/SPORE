@@ -1,0 +1,19 @@
+id: lead
+name: Domain Lead
+role: lead
+description: Domain-scoped coordinator that decomposes work and manages specialist handoffs.
+domain: shared
+runtime: pi
+systemPromptRef: .pi/prompts/lead.md
+skills: [decomposition, coordination, reporting]
+tools: [docs-kb, session-inspect, task-state]
+permissions: [read-docs, spawn-workers, update-status]
+sessionMode: persistent
+reviewPolicy:
+  required: false
+handoffPolicy:
+  mode: explicit
+docsPolicy:
+  updateRequired: true
+telemetryPolicy:
+  level: standard

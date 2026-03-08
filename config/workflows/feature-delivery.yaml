@@ -1,0 +1,18 @@
+id: feature-delivery
+name: Feature Delivery
+triggerType: manual
+applicableProjectTypes: [application, platform]
+roleSequence: [orchestrator, lead, scout, builder, tester, reviewer]
+branchingConditions:
+  - if: implementation-risk-high
+    then: require-scout-pass
+reviewStep:
+  required: true
+retryPolicy:
+  maxAttempts: 2
+documentationUpdatePolicy:
+  required: true
+completionRequirements:
+  - implementation-complete
+  - validation-evidence-recorded
+  - review-verdict-recorded

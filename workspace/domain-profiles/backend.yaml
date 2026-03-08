@@ -1,0 +1,13 @@
+domain: backend
+goals:
+  - provide durable orchestration and indexing services
+  - expose stable data contracts to clients
+typicalTasks:
+  - design APIs
+  - define persistence strategy
+  - implement orchestration services
+requiredSkills: [service-design, api-analysis, storage-modeling]
+requiredTools: [shell, docs-kb, api-prober]
+typicalRoles: [lead, scout, builder, tester, reviewer]
+dependencies: [orchestration, knowledge, agent-runtime]
+risks: [premature-abstraction, state-fragmentation]

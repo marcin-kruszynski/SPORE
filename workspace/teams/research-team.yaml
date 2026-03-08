@@ -1,0 +1,6 @@
+name: research-team
+domains: [knowledge, orchestration, agent-runtime]
+agentProfiles: [lead, scout, reviewer, memory-steward]
+workflowProfiles: [research-spike, documentation-pass]
+skills: [synthesis, architecture-analysis]
+tools: [docs-kb, reference-inspect]

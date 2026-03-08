@@ -1,0 +1,10 @@
+{
+  "name": "@spore/docs-kb",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Local-first documentation indexing and search for SPORE",
+  "bin": {
+    "docs-kb": "./src/cli/docs-kb.js"
+  }
+}

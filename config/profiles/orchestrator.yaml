@@ -1,0 +1,20 @@
+id: orchestrator
+name: Core Orchestrator
+role: orchestrator
+description: Top-level coordinator responsible for workflow selection, delegation, and project-wide visibility.
+domain: orchestration
+runtime: pi
+systemPromptRef: .pi/prompts/orchestrator.md
+skills: [planning, coordination, docs-navigation]
+tools: [docs-kb, session-inspect, workflow-dispatch]
+permissions: [read-config, read-docs, dispatch-workflows]
+sessionMode: persistent
+reviewPolicy:
+  required: false
+handoffPolicy:
+  mode: explicit
+  mustReportUpward: true
+docsPolicy:
+  updateRequired: true
+telemetryPolicy:
+  level: detailed

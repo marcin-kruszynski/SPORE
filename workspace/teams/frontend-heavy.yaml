@@ -1,0 +1,6 @@
+name: frontend-heavy
+domains: [frontend, session-ui, knowledge]
+agentProfiles: [lead, scout, builder, tester, reviewer, doc-steward]
+workflowProfiles: [feature-delivery, documentation-pass, review-cycle]
+skills: [ui-implementation, accessibility]
+tools: [docs-kb, browser-runner]

@@ -1,0 +1,13 @@
+domain: frontend
+goals:
+  - create operator-facing browser experiences
+  - keep documentation and session visibility usable
+typicalTasks:
+  - design dashboard views
+  - implement session inspection panels
+  - build documentation exploration surfaces
+requiredSkills: [ui-implementation, accessibility, interaction-design]
+requiredTools: [browser-runner, docs-kb]
+typicalRoles: [lead, scout, builder, tester, reviewer]
+dependencies: [session-ui, knowledge, backend]
+risks: [state-drift-between-ui-and-core-model, operator-overload]

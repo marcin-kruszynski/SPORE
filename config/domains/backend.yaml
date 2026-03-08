@@ -1,0 +1,30 @@
+id: backend
+name: Backend
+leadProfile: backend-lead
+defaultBuilderProfile: backend-builder
+defaultScoutProfile: backend-scout
+defaultTesterProfile: api-tester
+defaultReviewerProfile: service-reviewer
+tools: [docs-kb, api-prober, shell]
+skills: [service-design, api-analysis, codegen]
+workflowDefaults: [feature-delivery, bugfix]
+workflowPolicy:
+  defaultRoles: [lead, builder, tester, reviewer]
+  stepSoftTimeoutMs: 30000
+  stepHardTimeoutMs: 90000
+  defaultMaxAttempts: 3
+  maxAttemptsByRole:
+    builder: 4
+    tester: 3
+  reviewRequired: true
+  approvalRequired: true
+runtimePolicy:
+  sessionModeByRole:
+    lead: persistent
+    scout: ephemeral
+    builder: ephemeral
+    tester: ephemeral
+    reviewer: persistent
+docsKbPolicy:
+  resultLimit: 6
+  queryTerms: [backend, service, api, integration]

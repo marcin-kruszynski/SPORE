@@ -1,0 +1,19 @@
+id: builder
+name: Implementation Builder
+role: builder
+description: Scoped implementation profile for code, docs, and configuration changes.
+domain: shared
+runtime: pi
+systemPromptRef: .pi/prompts/builder.md
+skills: [implementation, refactoring, documentation]
+tools: [editor, shell, docs-kb]
+permissions: [workspace-write, run-tests]
+sessionMode: ephemeral
+reviewPolicy:
+  required: true
+handoffPolicy:
+  mode: artifact-plus-summary
+docsPolicy:
+  updateRequired: true
+telemetryPolicy:
+  level: standard

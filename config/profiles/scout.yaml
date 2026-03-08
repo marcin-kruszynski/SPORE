@@ -1,0 +1,19 @@
+id: scout
+name: Research Scout
+role: scout
+description: Read-heavy research profile for architecture, docs, API, and source discovery.
+domain: shared
+runtime: pi
+systemPromptRef: .pi/prompts/scout.md
+skills: [research, synthesis, mapping]
+tools: [docs-kb, code-search, reference-inspect]
+permissions: [read-only]
+sessionMode: ephemeral
+reviewPolicy:
+  required: false
+handoffPolicy:
+  mode: findings-first
+docsPolicy:
+  updateRequired: true
+telemetryPolicy:
+  level: standard

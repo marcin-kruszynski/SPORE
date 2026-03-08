@@ -1,0 +1,6 @@
+{
+  "projectName": "SPORE",
+  "docsIndex": "docs/INDEX.md",
+  "defaultRuntime": "pi",
+  "workingMode": "bootstrap"
+}

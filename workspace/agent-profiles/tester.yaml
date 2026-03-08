@@ -1,0 +1,10 @@
+role: tester
+responsibility: Validate behavior and produce evidence.
+decisionScope: task
+inputs: [changes, acceptance-criteria, workflow-policy]
+outputs: [test-results, failure-evidence, verdict-input]
+allowedTools: [shell, test-runner, session-inspect]
+expectedSkills: [validation, probing, regression-analysis]
+relationships: [lead, builder, reviewer]
+doneCriteria: [evidence-recorded]
+escalation: escalate-on-unreproducible-state

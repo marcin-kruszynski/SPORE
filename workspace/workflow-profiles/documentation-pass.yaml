@@ -1,0 +1,10 @@
+name: documentation-pass
+trigger: handoff
+roles: [lead, doc-steward, reviewer]
+stages: [audit, update, relink, verify]
+inputs: [changed-artifacts, affected-docs]
+outputs: [updated-docs, refreshed-index]
+transitionCriteria: [canonical-docs-updated]
+stopCriteria: [canonical-source-unclear]
+documentsToUpdate: [docs/INDEX.md, docs/index/docs_manifest.yaml]
+endState: docs-synchronized

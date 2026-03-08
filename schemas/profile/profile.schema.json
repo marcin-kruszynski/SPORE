@@ -1,0 +1,42 @@
+{
+  "type": "object",
+  "required": ["id", "name", "role", "description", "domain", "runtime", "skills", "tools", "permissions", "sessionMode"],
+  "properties": {
+    "id": { "type": "string" },
+    "name": { "type": "string" },
+    "role": { "type": "string" },
+    "description": { "type": "string" },
+    "domain": { "type": "string" },
+    "runtime": { "type": "string" },
+    "systemPromptRef": { "type": "string" },
+    "skills": { "type": "array", "items": { "type": "string" } },
+    "tools": { "type": "array", "items": { "type": "string" } },
+    "permissions": { "type": "array", "items": { "type": "string" } },
+    "sessionMode": { "type": "string" },
+    "reviewPolicy": {
+      "type": "object",
+      "properties": {
+        "required": { "type": "boolean" }
+      }
+    },
+    "handoffPolicy": {
+      "type": "object",
+      "properties": {
+        "mode": { "type": "string" },
+        "mustReportUpward": { "type": "boolean" }
+      }
+    },
+    "docsPolicy": {
+      "type": "object",
+      "properties": {
+        "updateRequired": { "type": "boolean" }
+      }
+    },
+    "telemetryPolicy": {
+      "type": "object",
+      "properties": {
+        "level": { "type": "string" }
+      }
+    }
+  }
+}

@@ -1,0 +1,91 @@
+{
+  "type": "object",
+  "required": ["id", "name", "type", "activeDomains", "attachedTeams", "workflowDefaults", "docsLocation", "embeddingIndex", "runtimePolicies"],
+  "properties": {
+    "id": { "type": "string" },
+    "name": { "type": "string" },
+    "type": { "type": "string" },
+    "activeDomains": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "leadProfile", "scoutProfile", "builderProfile", "testerProfile", "reviewerProfile", "tools", "skills", "workflowPreferences"],
+        "properties": {
+          "id": { "type": "string" },
+          "leadProfile": { "type": "string" },
+          "scoutProfile": { "type": "string" },
+          "builderProfile": { "type": "string" },
+          "testerProfile": { "type": "string" },
+          "reviewerProfile": { "type": "string" },
+          "tools": { "type": "array", "items": { "type": "string" } },
+          "skills": { "type": "array", "items": { "type": "string" } },
+          "workflowPreferences": { "type": "array", "items": { "type": "string" } },
+          "workflowPolicy": {
+            "type": "object",
+            "properties": {
+              "stepSoftTimeoutMs": { "type": "integer" },
+              "stepHardTimeoutMs": { "type": "integer" },
+              "defaultMaxAttempts": { "type": "integer" },
+              "defaultRoles": {
+                "type": "array",
+                "items": { "type": "string" }
+              },
+              "maxAttemptsByRole": {
+                "type": "object",
+                "additionalProperties": { "type": "integer" }
+              },
+              "reviewRequired": { "type": "boolean" },
+              "approvalRequired": { "type": "boolean" }
+            }
+          },
+          "runtimePolicy": {
+            "type": "object",
+            "properties": {
+              "sessionModeByRole": {
+                "type": "object",
+                "additionalProperties": { "type": "string" }
+              }
+            }
+          },
+          "docsKbPolicy": {
+            "type": "object",
+            "properties": {
+              "resultLimit": { "type": "integer" },
+              "queryTemplate": { "type": "string" },
+              "queryTerms": {
+                "type": "array",
+                "items": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "attachedTeams": { "type": "array", "items": { "type": "string" } },
+    "profileVariants": { "type": "array", "items": { "type": "string" } },
+    "workflowDefaults": { "type": "array", "items": { "type": "string" } },
+    "docsLocation": { "type": "string" },
+    "embeddingIndex": {
+      "type": "object",
+      "required": ["provider", "storePath"],
+      "properties": {
+        "provider": { "type": "string" },
+        "storePath": { "type": "string" }
+      }
+    },
+    "uiSettings": {
+      "type": "object",
+      "properties": {
+        "surfaces": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "runtimePolicies": {
+      "type": "object",
+      "required": ["runtime"],
+      "properties": {
+        "runtime": { "type": "string" },
+        "liveInspectionRequired": { "type": "boolean" }
+      }
+    }
+  }
+}

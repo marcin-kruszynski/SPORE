@@ -1,0 +1,9 @@
+id: permissions-settings
+defaults:
+  network: controlled
+  filesystem: workspace-write
+  shell: allowed
+reviewRequirements:
+  builderWritesRequireReview: true
+  testerCanWriteFixes: false
+  reviewerIsReadOnlyByDefault: true

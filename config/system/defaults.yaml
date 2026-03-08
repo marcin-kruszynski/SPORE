@@ -1,0 +1,14 @@
+id: system-defaults
+runtime: pi
+documentation:
+  indexPath: docs/INDEX.md
+  manifestPath: docs/index/docs_manifest.yaml
+  updateRequiredOnStructuralChange: true
+knowledge:
+  docsRoot: docs/
+  referencesRoot: references/
+  docsKbPackage: packages/docs-kb
+ui:
+  defaultSurface: cli
+  enableTui: true
+  enableWebUi: true

@@ -1,0 +1,10 @@
+name: review-cycle
+trigger: handoff
+roles: [lead, tester, reviewer]
+stages: [evidence-collection, review, verdict]
+inputs: [changes, test-results]
+outputs: [review-verdict]
+transitionCriteria: [evidence-present]
+stopCriteria: [missing-evidence]
+documentsToUpdate: []
+endState: approved-revise-reject

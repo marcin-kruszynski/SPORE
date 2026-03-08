@@ -1,0 +1,66 @@
+id: example-project
+name: Example Multi-Domain Project
+type: platform
+activeDomains:
+  - id: frontend
+    leadProfile: frontend-lead
+    scoutProfile: frontend-scout
+    builderProfile: frontend-builder
+    testerProfile: browser-tester
+    reviewerProfile: ui-reviewer
+    tools: [docs-kb, browser-runner]
+    skills: [design-systems, accessibility]
+    workflowPreferences: [feature-delivery, review-pass]
+    workflowPolicy:
+      maxAttemptsByRole:
+        builder: 4
+    docsKbPolicy:
+      queryTerms: [example-project, frontend, design-system]
+  - id: backend
+    leadProfile: backend-lead
+    scoutProfile: backend-scout
+    builderProfile: backend-builder
+    testerProfile: api-tester
+    reviewerProfile: service-reviewer
+    tools: [docs-kb, api-prober]
+    skills: [service-design, codegen, api-analysis]
+    workflowPreferences: [feature-delivery, bugfix]
+    workflowPolicy:
+      defaultRoles: [lead, builder, tester, reviewer]
+      maxAttemptsByRole:
+        builder: 5
+      stepHardTimeoutMs: 120000
+    runtimePolicy:
+      sessionModeByRole:
+        reviewer: persistent
+    docsKbPolicy:
+      queryTerms: [example-project, backend, platform, service]
+      resultLimit: 7
+  - id: cli
+    leadProfile: cli-lead
+    scoutProfile: cli-scout
+    builderProfile: cli-builder
+    testerProfile: cli-tester
+    reviewerProfile: cli-reviewer
+    tools: [docs-kb, shell]
+    skills: [terminal-ux, scripting]
+    workflowPreferences: [feature-delivery, review-pass]
+    workflowPolicy:
+      approvalRequired: false
+    docsKbPolicy:
+      queryTerms: [example-project, cli, terminal]
+attachedTeams: [web-app-team, service-team]
+profileVariants:
+  - frontend-builder
+  - backend-builder
+  - browser-tester
+workflowDefaults: [feature-delivery]
+docsLocation: docs/
+embeddingIndex:
+  provider: local-bootstrap
+  storePath: data/docs-index/spore-docs.sqlite
+uiSettings:
+  surfaces: [cli, tui, web]
+runtimePolicies:
+  runtime: pi
+  liveInspectionRequired: true
