@@ -1,5 +1,6 @@
 id: cli
 name: CLI
+policyPacks: [cli-core]
 leadProfile: cli-lead
 defaultBuilderProfile: cli-builder
 defaultScoutProfile: cli-scout
@@ -9,22 +10,8 @@ tools: [docs-kb, shell]
 skills: [terminal-ux, scripting, release-checks]
 workflowDefaults: [feature-delivery, review-pass]
 workflowPolicy:
-  defaultRoles: [lead, builder, tester, reviewer]
-  stepSoftTimeoutMs: 20000
-  stepHardTimeoutMs: 60000
-  defaultMaxAttempts: 2
   maxAttemptsByRole:
     builder: 3
-  retryTargetRole: builder
-  resetDescendantSteps: true
   reviewRequired: true
-  approvalRequired: false
-runtimePolicy:
-  sessionModeByRole:
-    lead: persistent
-    builder: ephemeral
-    tester: ephemeral
-    reviewer: persistent
 docsKbPolicy:
-  resultLimit: 5
-  queryTerms: [cli, shell, terminal, command]
+  queryTerms: [cli]

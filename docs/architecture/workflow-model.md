@@ -8,6 +8,7 @@ Each workflow includes:
 - trigger type,
 - applicable project types,
 - role sequence,
+- optional `stepSets` for wave-based parallel launch inside one execution,
 - branching conditions,
 - review step,
 - retry policy,
@@ -30,18 +31,22 @@ The bootstrap execution path now supports:
 - durable workflow execution records in SQLite,
 - workflow event emission for execution, step, review, approval, retry, and escalation transitions,
 - ordered multi-session step launch,
+- wave-based launch of multiple steps inside one execution when a workflow defines `stepSets`,
+- wave-gated unlock rules inside one execution (`all`, `any`, `min_success_count`),
 - parent-child session linking between consecutive steps,
 - domain-aware workflow policy defaults from `config/domains/*.yaml` plus project `activeDomains[]` overrides,
 - execution records that can carry lineage metadata such as `parentExecutionId` and `coordinationGroupId`,
 - execution records that can carry branch metadata such as `branchKey`,
 - coordination-group list and detail views for related executions,
 - child-execution reads for lineage-aware operator surfaces,
+- rooted execution-tree reads for lineage-aware clients,
 - governance stop points at `waiting_review` and `waiting_approval`,
 - explicit operator review and approval decisions,
 - retry and rework branching when review or approval requests changes,
 - escalation records when retry budgets are exhausted,
 - operator resolution of open escalations with optional execution resume,
 - operator fork, pause, hold, resume, and coordination-group drive controls,
+- operator tree-drive, tree-review, tree-approval, and multi-branch spawn controls for execution families,
 - paused and held execution states for operator-controlled interruption without treating the execution as failed,
 - completion, failure, rejection, and cancellation as execution end states.
 
@@ -70,6 +75,12 @@ That policy currently affects:
 - per-role `sessionMode`,
 - docs-kb startup retrieval query terms and result limit.
 
+Workflow templates can additionally shape execution topology directly:
+
+- `roleSequence` remains the linear fallback,
+- `stepSets` can group selected roles into the same execution wave,
+- planner output persists `wave` and `waveName` onto each launch and durable step record.
+
 The orchestrator persists both the execution-level merged policy and the per-step launch policy so later drive, review, approval, and recovery behavior can use the same durable defaults.
 
 That now includes:
@@ -85,6 +96,7 @@ The stable baseline remains:
 
 - one execution record as the durable unit of workflow state,
 - one or more workflow steps inside that execution,
+- optional grouped waves of steps inside that execution,
 - one or more runtime sessions launched on behalf of those steps,
 - durable review, approval, escalation, and event history tied to the execution.
 
@@ -114,6 +126,27 @@ That distinction matters operationally:
 - branch metadata explains why a sibling or descendant exists.
 
 The current executable foundation already exposes durable metadata for that shape, while still treating some group-level policy as an evolving layer rather than a frozen final contract.
+
+The newest operator-facing read surface is the rooted execution tree. It answers:
+
+- which execution is the family root,
+- which descendants belong to the same coordination family,
+- what step-state summary each node currently has,
+- where the selected execution sits inside that lineage.
+
+Inside one execution, the newest step-level coordination surface is the execution wave:
+
+- all steps in the same wave may launch together,
+- later waves unlock according to the prior wave gate:
+  - `all`: every step in the prior wave must complete,
+  - `any`: one completed step is enough,
+  - `min_success_count`: a configured number of completions is enough,
+- review or approval gates still stop forward progress before a later wave is launched.
+
+That means one execution can now express both:
+
+- strict parallel stages,
+- partial-unlock exploratory stages where one successful lane is enough to move the workflow forward.
 
 ## Execution Lineage
 
@@ -153,6 +186,12 @@ The recommended interpretation is:
 - a child execution captures a branch, fork, retry lane, or delegated substream,
 - the coordination group provides the operator view over the family of related executions,
 - operators should prefer group-aware drive and recovery controls over ad hoc per-session intervention when coordinated work is involved.
+
+That now includes explicit family-building controls:
+
+- `fork` for a single child execution,
+- `spawn-branches` for multiple child executions under one parent,
+- rooted execution-tree reads so the client can render the family without guessing ancestry from timestamps.
 
 As multi-execution behavior expands, a parent execution may temporarily remain blocked while child executions are still active or unresolved. That blocked condition should be represented as workflow state, not as an implicit guess derived from runtime sessions.
 
@@ -212,6 +251,12 @@ Recovery actions should be understood as durable workflow operations, not ad hoc
 - pausing or holding an execution without discarding its history,
 - reviewing and approving work after a rework loop,
 - coordinating related executions through shared group state rather than manual out-of-band tracking.
+
+Family-level governance is now part of that model:
+
+- tree review can approve or reject all pending descendant review gates in one operator action,
+- tree approval can approve or reject all pending descendant approval gates in one operator action,
+- the rooted execution tree remains the preferred operator surface for family-wide recovery and governance work.
 
 As coordination-group support expands, operators should prefer execution-level and orchestration-level recovery controls over manipulating runtime session artifacts directly.
 

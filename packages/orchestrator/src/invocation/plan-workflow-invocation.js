@@ -100,10 +100,31 @@ async function resolveDomainConfig(domainId) {
   if (!(await fileExists(candidate))) {
     return { path: null, config: null };
   }
-  return {
+  const result = {
     path: candidate,
     config: await readYaml(candidate)
   };
+  return result;
+}
+
+async function resolvePolicyPack(packId) {
+  const candidate = resolvePath(`config/policy-packs/${packId}.yaml`);
+  if (!(await fileExists(candidate))) {
+    throw new Error(`policy pack not found: ${packId}`);
+  }
+  return {
+    id: packId,
+    path: candidate,
+    config: await readYaml(candidate)
+  };
+}
+
+async function resolvePolicyPacks(packIds = []) {
+  const packs = [];
+  for (const packId of unique(asArray(packIds))) {
+    packs.push(await resolvePolicyPack(packId));
+  }
+  return packs;
 }
 
 function mergeObjects(base = {}, overlay = {}) {
@@ -124,6 +145,14 @@ function mergePolicies(domainConfig = {}, domainOverride = {}) {
       defaultRoles:
         domainOverride.workflowPolicy?.defaultRoles ??
         domainConfig.workflowPolicy?.defaultRoles ??
+        null,
+      reworkStrategy:
+        domainOverride.workflowPolicy?.reworkStrategy ??
+        domainConfig.workflowPolicy?.reworkStrategy ??
+        null,
+      reworkRoles:
+        domainOverride.workflowPolicy?.reworkRoles ??
+        domainConfig.workflowPolicy?.reworkRoles ??
         null
     },
     runtimePolicy: {
@@ -141,6 +170,18 @@ function mergePolicies(domainConfig = {}, domainOverride = {}) {
       ])
     }
   };
+}
+
+function emptyPolicyContainer() {
+  return {
+    workflowPolicy: {},
+    runtimePolicy: {},
+    docsKbPolicy: {}
+  };
+}
+
+function mergePolicyChain(items = []) {
+  return items.reduce((accumulator, item) => mergePolicies(accumulator, item), emptyPolicyContainer());
 }
 
 async function resolveProfilePath(project, domainId, role) {
@@ -175,6 +216,47 @@ function determineRoles({ explicitRoles, workflow, policy, maxRoles }) {
     return defaultRoles.slice(0, Math.max(1, maxRoles));
   }
   return asArray(workflow.roleSequence).slice(0, Math.max(1, maxRoles));
+}
+
+function buildWaveAssignments(workflow, selectedRoles) {
+  const selected = asArray(selectedRoles);
+  const roleToWave = new Map();
+  const roleToWaveName = new Map();
+  const roleToWaveGate = new Map();
+  const explicitSets = asArray(workflow.stepSets);
+  let nextWave = 0;
+
+  for (const set of explicitSets) {
+    const roles = asArray(set?.roles).filter((role) => selected.includes(role));
+    if (roles.length === 0) {
+      continue;
+    }
+    for (const role of roles) {
+      if (!roleToWave.has(role)) {
+        roleToWave.set(role, nextWave);
+        roleToWaveName.set(role, set?.name ?? `wave-${nextWave + 1}`);
+        roleToWaveGate.set(role, set?.gate ?? { mode: "all" });
+      }
+    }
+    nextWave += 1;
+  }
+
+  for (const role of selected) {
+    if (!roleToWave.has(role)) {
+      roleToWave.set(role, nextWave);
+      roleToWaveName.set(role, `wave-${nextWave + 1}`);
+      roleToWaveGate.set(role, { mode: "all" });
+      nextWave += 1;
+    }
+  }
+
+  return selected.map((role, sequence) => ({
+    role,
+    sequence,
+    wave: roleToWave.get(role) ?? sequence,
+    waveName: roleToWaveName.get(role) ?? `wave-${sequence + 1}`,
+    waveGate: roleToWaveGate.get(role) ?? { mode: "all" }
+  }));
 }
 
 function resolveMaxAttempts(role, workflow, policy) {
@@ -243,9 +325,17 @@ export async function planWorkflowInvocation({
   const project = await readYaml(resolvedProjectPath);
   const domain = domainId ? resolveDomain(project, domainId) : null;
   const domainConfig = await resolveDomainConfig(domainId);
+  const domainPolicyPacks = await resolvePolicyPacks([
+    ...asArray(domainConfig.config?.policyPacks),
+    ...asArray(domain?.policyPacks)
+  ]);
   const resolvedWorkflowPath = await resolveWorkflowPath(project, domain, workflowPath);
   const workflow = await readYaml(resolvedWorkflowPath);
-  const policy = mergePolicies(domainConfig.config ?? {}, domain ?? {});
+  const policy = mergePolicyChain([
+    ...domainPolicyPacks.map((pack) => pack.config ?? {}),
+    domainConfig.config ?? {},
+    domain ?? {}
+  ]);
   const selectedRoles = determineRoles({
     explicitRoles: roles,
     workflow,
@@ -255,10 +345,16 @@ export async function planWorkflowInvocation({
   const effectiveInvocationId = invocationId ?? `invoke-${Date.now()}`;
   const effectiveRunId = `${effectiveInvocationId}-${domainId ?? "shared"}`;
   const timestamp = Date.now();
+  const waveAssignments = buildWaveAssignments(workflow, selectedRoles);
+  const waveSizes = waveAssignments.reduce((accumulator, assignment) => {
+    accumulator[assignment.wave] = (accumulator[assignment.wave] ?? 0) + 1;
+    return accumulator;
+  }, {});
 
   const launches = [];
-  for (let index = 0; index < selectedRoles.length; index += 1) {
-    const role = selectedRoles[index];
+  for (let index = 0; index < waveAssignments.length; index += 1) {
+    const assignment = waveAssignments[index];
+    const role = assignment.role;
     const profile = await resolveProfilePath(project, domainId, role);
     const governance = resolveGovernance(role, workflow, policy);
     const sessionModeOverride = policy.runtimePolicy?.sessionModeByRole?.[role] ?? null;
@@ -279,6 +375,11 @@ export async function planWorkflowInvocation({
       workflowPath: normalizeRelativePath(resolvedWorkflowPath),
       sessionId: `${effectiveInvocationId}-${domainId ?? "shared"}-${role}-${index + 1}`,
       runId: `${effectiveRunId}-${timestamp}`,
+      sequence: index,
+      wave: assignment.wave,
+      waveName: assignment.waveName,
+      waveGate: assignment.waveGate,
+      waveSize: waveSizes[assignment.wave] ?? 1,
       maxAttempts: resolveMaxAttempts(role, workflow, policy),
       objective,
       sessionMode: sessionModeOverride,
@@ -288,7 +389,8 @@ export async function planWorkflowInvocation({
         workflowPolicy: {
           stepSoftTimeoutMs: policy.workflowPolicy?.stepSoftTimeoutMs ?? null,
           stepHardTimeoutMs: policy.workflowPolicy?.stepHardTimeoutMs ?? null,
-          maxAttempts: resolveMaxAttempts(role, workflow, policy)
+          maxAttempts: resolveMaxAttempts(role, workflow, policy),
+          waveGate: assignment.waveGate
         },
         runtimePolicy: {
           sessionMode: sessionModeOverride
@@ -308,7 +410,7 @@ export async function planWorkflowInvocation({
     });
   }
 
-  return {
+  const result = {
     invocationId: effectiveInvocationId,
     objective,
     workflow: {
@@ -316,6 +418,7 @@ export async function planWorkflowInvocation({
       name: workflow.name,
       path: normalizeRelativePath(resolvedWorkflowPath),
       roleSequence: workflow.roleSequence ?? [],
+      stepSets: asArray(workflow.stepSets),
       branchingConditions: workflow.branchingConditions ?? [],
       reviewStep: workflow.reviewStep ?? {},
       retryPolicy: workflow.retryPolicy ?? { maxAttempts: 1 }
@@ -345,6 +448,8 @@ export async function planWorkflowInvocation({
           1,
         retryTargetRole: policy.workflowPolicy?.retryTargetRole ?? null,
         resetDescendantSteps: policy.workflowPolicy?.resetDescendantSteps ?? false,
+        reworkStrategy: policy.workflowPolicy?.reworkStrategy ?? null,
+        reworkRoles: asArray(policy.workflowPolicy?.reworkRoles),
         defaultRoles:
           policy.workflowPolicy?.defaultRoles ??
           workflow.roleSequence ??
@@ -357,7 +462,8 @@ export async function planWorkflowInvocation({
         resultLimit: policy.docsKbPolicy?.resultLimit ?? 5,
         queryTerms: asArray(policy.docsKbPolicy?.queryTerms),
         queryTemplate: policy.docsKbPolicy?.queryTemplate ?? null
-      }
+      },
+      policyPackIds: domainPolicyPacks.map((pack) => pack.id)
     },
     launches,
     metadata: {
@@ -365,7 +471,18 @@ export async function planWorkflowInvocation({
         workflow: normalizeRelativePath(resolvedWorkflowPath),
         project: normalizeRelativePath(resolvedProjectPath),
         domainConfig: normalizeRelativePath(domainConfig.path)
-      }
+      },
+      policyPacks: domainPolicyPacks.map((pack) => ({
+        id: pack.id,
+        path: normalizeRelativePath(pack.path),
+        name: pack.config?.name ?? pack.id
+      }))
     }
   };
+
+  if (result.domain) {
+    result.domain.policyPacks = domainPolicyPacks.map((pack) => pack.id);
+  }
+
+  return result;
 }

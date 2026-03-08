@@ -1,5 +1,6 @@
 id: frontend
 name: Frontend
+policyPacks: [ui-core]
 leadProfile: frontend-lead
 defaultBuilderProfile: frontend-builder
 defaultScoutProfile: frontend-scout
@@ -9,24 +10,10 @@ tools: [docs-kb, browser-runner]
 skills: [ui-implementation, accessibility, interaction-design]
 workflowDefaults: [feature-delivery, review-pass]
 workflowPolicy:
-  defaultRoles: [lead, scout, builder, tester, reviewer]
-  stepSoftTimeoutMs: 25000
-  stepHardTimeoutMs: 75000
-  defaultMaxAttempts: 2
   maxAttemptsByRole:
     builder: 3
     tester: 2
-  retryTargetRole: builder
-  resetDescendantSteps: true
   reviewRequired: true
   approvalRequired: true
-runtimePolicy:
-  sessionModeByRole:
-    lead: persistent
-    scout: ephemeral
-    builder: ephemeral
-    tester: ephemeral
-    reviewer: persistent
 docsKbPolicy:
-  resultLimit: 7
-  queryTerms: [frontend, ui, component, accessibility]
+  queryTerms: [frontend]

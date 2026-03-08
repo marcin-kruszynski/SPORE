@@ -217,6 +217,17 @@ const server = http.createServer(async (request, response) => {
       return;
     }
 
+    if (request.method === "GET" && parts.length === 3 && parts[0] === "executions" && parts[2] === "tree") {
+      const payload = await runCli([
+        "packages/orchestrator/src/cli/spore-orchestrator.js",
+        "tree",
+        "--execution",
+        parts[1]
+      ]);
+      json(response, 200, payload);
+      return;
+    }
+
     if (request.method === "GET" && parts.length === 3 && parts[0] === "executions" && parts[2] === "events") {
       const payload = await runCli([
         "packages/orchestrator/src/cli/spore-orchestrator.js",
@@ -300,6 +311,24 @@ const server = http.createServer(async (request, response) => {
       return;
     }
 
+    if (request.method === "POST" && parts.length === 4 && parts[0] === "executions" && parts[2] === "tree" && parts[3] === "drive") {
+      const body = await readJsonBody(request);
+      const args = [
+        "packages/orchestrator/src/cli/spore-orchestrator.js",
+        "drive-tree",
+        "--execution",
+        parts[1]
+      ];
+      if (body.wait) args.push("--wait");
+      if (body.timeout) args.push("--timeout", String(body.timeout));
+      if (body.interval) args.push("--interval", String(body.interval));
+      if (body.stepSoftTimeout) args.push("--step-soft-timeout", String(body.stepSoftTimeout));
+      if (body.stepHardTimeout) args.push("--step-hard-timeout", String(body.stepHardTimeout));
+      const payload = await runCli(args);
+      json(response, 200, payload);
+      return;
+    }
+
     if (request.method === "POST" && parts.length === 3 && parts[0] === "executions" && parts[2] === "fork") {
       const body = await readJsonBody(request);
       const args = [
@@ -321,11 +350,49 @@ const server = http.createServer(async (request, response) => {
       return;
     }
 
+    if (request.method === "POST" && parts.length === 3 && parts[0] === "executions" && parts[2] === "branches") {
+      const body = await readJsonBody(request);
+      const args = [
+        "packages/orchestrator/src/cli/spore-orchestrator.js",
+        "spawn-branches",
+        "--execution",
+        parts[1],
+        "--branches-json",
+        JSON.stringify(body.branches ?? [])
+      ];
+      if (body.wait) args.push("--wait");
+      if (body.timeout) args.push("--timeout", String(body.timeout));
+      if (body.interval) args.push("--interval", String(body.interval));
+      if (body.stepSoftTimeout) args.push("--step-soft-timeout", String(body.stepSoftTimeout));
+      if (body.stepHardTimeout) args.push("--step-hard-timeout", String(body.stepHardTimeout));
+      const payload = await runCli(args);
+      json(response, 200, payload);
+      return;
+    }
+
     if (request.method === "POST" && parts.length === 3 && parts[0] === "executions" && parts[2] === "pause") {
       const body = await readJsonBody(request);
       const payload = await runCli([
         "packages/orchestrator/src/cli/spore-orchestrator.js",
         "pause",
+        "--execution",
+        parts[1],
+        ...(body.by ? ["--by", body.by] : []),
+        ...(body.owner ? ["--owner", body.owner] : []),
+        ...(body.reason ? ["--reason", body.reason] : []),
+        ...(body.comments ? ["--comments", body.comments] : []),
+        ...(body.guidance ? ["--guidance", body.guidance] : []),
+        ...(body.timeoutMs ? ["--timeout-ms", String(body.timeoutMs)] : [])
+      ]);
+      json(response, 200, payload);
+      return;
+    }
+
+    if (request.method === "POST" && parts.length === 4 && parts[0] === "executions" && parts[2] === "tree" && parts[3] === "pause") {
+      const body = await readJsonBody(request);
+      const payload = await runCli([
+        "packages/orchestrator/src/cli/spore-orchestrator.js",
+        "pause-tree",
         "--execution",
         parts[1],
         ...(body.by ? ["--by", body.by] : []),
@@ -357,11 +424,43 @@ const server = http.createServer(async (request, response) => {
       return;
     }
 
+    if (request.method === "POST" && parts.length === 4 && parts[0] === "executions" && parts[2] === "tree" && parts[3] === "hold") {
+      const body = await readJsonBody(request);
+      const payload = await runCli([
+        "packages/orchestrator/src/cli/spore-orchestrator.js",
+        "hold-tree",
+        "--execution",
+        parts[1],
+        ...(body.by ? ["--by", body.by] : []),
+        ...(body.owner ? ["--owner", body.owner] : []),
+        ...(body.reason ? ["--reason", body.reason] : []),
+        ...(body.comments ? ["--comments", body.comments] : []),
+        ...(body.guidance ? ["--guidance", body.guidance] : []),
+        ...(body.timeoutMs ? ["--timeout-ms", String(body.timeoutMs)] : [])
+      ]);
+      json(response, 200, payload);
+      return;
+    }
+
     if (request.method === "POST" && parts.length === 3 && parts[0] === "executions" && parts[2] === "resume") {
       const body = await readJsonBody(request);
       const payload = await runCli([
         "packages/orchestrator/src/cli/spore-orchestrator.js",
         "resume",
+        "--execution",
+        parts[1],
+        ...(body.by ? ["--by", body.by] : []),
+        ...(body.comments ? ["--comments", body.comments] : [])
+      ]);
+      json(response, 200, payload);
+      return;
+    }
+
+    if (request.method === "POST" && parts.length === 4 && parts[0] === "executions" && parts[2] === "tree" && parts[3] === "resume") {
+      const body = await readJsonBody(request);
+      const payload = await runCli([
+        "packages/orchestrator/src/cli/spore-orchestrator.js",
+        "resume-tree",
         "--execution",
         parts[1],
         ...(body.by ? ["--by", body.by] : []),
@@ -387,6 +486,23 @@ const server = http.createServer(async (request, response) => {
       return;
     }
 
+    if (request.method === "POST" && parts.length === 4 && parts[0] === "executions" && parts[2] === "tree" && parts[3] === "review") {
+      const body = await readJsonBody(request);
+      const payload = await runCli([
+        "packages/orchestrator/src/cli/spore-orchestrator.js",
+        "review-tree",
+        "--execution",
+        parts[1],
+        "--status",
+        body.status ?? "approved",
+        ...(body.scope ? ["--scope", body.scope] : []),
+        ...(body.by ? ["--by", body.by] : []),
+        ...(body.comments ? ["--comments", body.comments] : [])
+      ]);
+      json(response, 200, payload);
+      return;
+    }
+
     if (request.method === "POST" && parts.length === 3 && parts[0] === "executions" && parts[2] === "approval") {
       const body = await readJsonBody(request);
       const payload = await runCli([
@@ -396,6 +512,23 @@ const server = http.createServer(async (request, response) => {
         parts[1],
         "--status",
         body.status ?? "approved",
+        ...(body.by ? ["--by", body.by] : []),
+        ...(body.comments ? ["--comments", body.comments] : [])
+      ]);
+      json(response, 200, payload);
+      return;
+    }
+
+    if (request.method === "POST" && parts.length === 4 && parts[0] === "executions" && parts[2] === "tree" && parts[3] === "approval") {
+      const body = await readJsonBody(request);
+      const payload = await runCli([
+        "packages/orchestrator/src/cli/spore-orchestrator.js",
+        "approve-tree",
+        "--execution",
+        parts[1],
+        "--status",
+        body.status ?? "approved",
+        ...(body.scope ? ["--scope", body.scope] : []),
         ...(body.by ? ["--by", body.by] : []),
         ...(body.comments ? ["--comments", body.comments] : [])
       ]);

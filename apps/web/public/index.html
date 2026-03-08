@@ -84,7 +84,7 @@
             <span id="workflow-preview-state" class="muted">plan preview: idle</span>
           </div>
           <div id="workflow-preview" class="detail-card empty-state">
-            Preview a workflow plan to inspect merged policy, launch defaults, and per-step governance before invocation.
+            Preview a workflow plan to inspect merged policy, readable launch deltas, and compare it against persisted execution policy before or after invocation.
           </div>
         </section>
 
@@ -95,7 +95,7 @@
           </div>
 
           <div id="execution-detail" class="detail-card empty-state">
-            Select an execution to inspect durable orchestration state, step/session lineage, and governance controls.
+            Select an execution to inspect durable orchestration state, policy drift versus preview, step/session lineage, and governance controls.
           </div>
 
           <form id="execution-control-form" class="control-form execution-control-form">
@@ -134,6 +134,47 @@
               </div>
             </article>
 
+            <article class="decision-card operator-state-card">
+              <h3>Tree-Level Actions</h3>
+              <p id="execution-tree-action-summary" class="tree-objective">
+                Select an execution to target its rooted execution family over the orchestrator tree routes.
+              </p>
+              <div class="control-row">
+                <button type="button" id="drive-tree-button" class="primary-button" disabled>Drive Tree</button>
+                <button type="button" id="pause-tree-button" class="secondary-button" disabled>Pause Tree</button>
+                <button type="button" id="hold-tree-button" class="secondary-button" disabled>Hold Tree</button>
+                <button type="button" id="resume-tree-button" class="primary-button" disabled>Resume Tree</button>
+              </div>
+            </article>
+
+            <article class="decision-card operator-state-card">
+              <h3>Spawn Branches</h3>
+              <p id="branch-spawn-summary" class="tree-objective">
+                Provide one or more branch specs to create child executions under the selected execution.
+              </p>
+              <label class="form-label" for="branch-definitions">Branch Specs JSON</label>
+              <textarea
+                id="branch-definitions"
+                rows="7"
+                placeholder='[{"branchKey":"builder-track","roles":["builder","tester"],"objective":"Investigate backend fix"},{"branchKey":"review-track","roles":["scout","reviewer"]}]'
+              ></textarea>
+              <label class="toggle">
+                <input id="branch-spawn-wait" type="checkbox" />
+                <span>drive tree after spawn</span>
+              </label>
+              <div class="inline-grid">
+                <div>
+                  <label class="form-label" for="branch-timeout">Timeout (ms)</label>
+                  <input id="branch-timeout" type="number" min="1" step="1" value="180000" />
+                </div>
+                <div>
+                  <label class="form-label" for="branch-interval">Interval (ms)</label>
+                  <input id="branch-interval" type="number" min="1" step="1" value="1500" />
+                </div>
+              </div>
+              <button type="button" id="branch-spawn-button" class="primary-button" disabled>Spawn Branches</button>
+            </article>
+
             <div class="decision-grid">
               <article class="decision-card">
                 <h3>Review</h3>
@@ -163,6 +204,51 @@
                 <textarea id="approval-comments" rows="3" placeholder="Approval context"></textarea>
                 <button type="button" id="approval-button" class="secondary-button" disabled>Submit Approval</button>
               </article>
+
+              <article class="decision-card">
+                <h3>Family Review</h3>
+                <p id="family-review-summary" class="decision-summary">
+                  Select an execution to review pending governance across its rooted execution tree.
+                </p>
+                <label class="form-label" for="family-review-status">Status</label>
+                <select id="family-review-status">
+                  <option value="approved">approved</option>
+                  <option value="changes_requested">changes_requested</option>
+                  <option value="rejected">rejected</option>
+                </select>
+                <label class="form-label" for="family-review-scope">Scope</label>
+                <select id="family-review-scope">
+                  <option value="all-pending">all-pending</option>
+                  <option value="first-pending">first-pending</option>
+                </select>
+                <label class="form-label" for="family-review-by">By</label>
+                <input id="family-review-by" type="text" value="operator" placeholder="operator" />
+                <label class="form-label" for="family-review-comments">Comments</label>
+                <textarea id="family-review-comments" rows="3" placeholder="Family review context"></textarea>
+                <button type="button" id="family-review-button" class="secondary-button" disabled>Submit Family Review</button>
+              </article>
+
+              <article class="decision-card">
+                <h3>Family Approval</h3>
+                <p id="family-approval-summary" class="decision-summary">
+                  Select an execution to approve pending governance across its rooted execution tree.
+                </p>
+                <label class="form-label" for="family-approval-status">Status</label>
+                <select id="family-approval-status">
+                  <option value="approved">approved</option>
+                  <option value="rejected">rejected</option>
+                </select>
+                <label class="form-label" for="family-approval-scope">Scope</label>
+                <select id="family-approval-scope">
+                  <option value="all-pending">all-pending</option>
+                  <option value="first-pending">first-pending</option>
+                </select>
+                <label class="form-label" for="family-approval-by">By</label>
+                <input id="family-approval-by" type="text" value="operator" placeholder="operator" />
+                <label class="form-label" for="family-approval-comments">Comments</label>
+                <textarea id="family-approval-comments" rows="3" placeholder="Family approval context"></textarea>
+                <button type="button" id="family-approval-button" class="secondary-button" disabled>Submit Family Approval</button>
+              </article>
             </div>
           </form>
 
@@ -170,7 +256,7 @@
             <div class="panel-header nested">
               <h3>Step / Session Tree</h3>
             </div>
-            <div id="execution-tree" class="execution-tree empty-state">Select an execution to load steps.</div>
+            <div id="execution-tree" class="execution-tree empty-state">Select an execution to load the orchestrator tree and step records.</div>
           </section>
 
           <section>

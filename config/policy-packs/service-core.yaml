@@ -1,0 +1,19 @@
+id: service-core
+name: Service Core Policy
+description: Baseline policy pack for service and backend-oriented delivery.
+workflowPolicy:
+  defaultRoles: [lead, builder, tester, reviewer]
+  defaultMaxAttempts: 3
+  retryTargetRole: builder
+  resetDescendantSteps: true
+  stepSoftTimeoutMs: 30000
+  stepHardTimeoutMs: 90000
+runtimePolicy:
+  sessionModeByRole:
+    lead: persistent
+    builder: ephemeral
+    tester: ephemeral
+    reviewer: persistent
+docsKbPolicy:
+  resultLimit: 6
+  queryTerms: [service, api, integration]

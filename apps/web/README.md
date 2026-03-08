@@ -14,16 +14,25 @@ This app now provides the first minimal browser-based operator surface for SPORE
 - adds workflow plan preview so operators can inspect invocation policy before launch:
   - merged execution `effectivePolicy`
   - per-launch `policy` blocks for each planned step
+  - readable per-launch deltas against preview `effectivePolicy`
 - adds durable execution visibility and governance controls over orchestrator APIs:
   - execution list (`GET /executions`)
   - execution detail (`GET /executions/:id`)
+  - execution tree (`GET /executions/:id/tree`)
   - execution event stream (`GET /stream/executions?execution=:id`)
   - drive (`POST /executions/:id/drive`)
+  - drive tree (`POST /executions/:id/tree/drive`)
   - pause (`POST /executions/:id/pause`)
+  - pause tree (`POST /executions/:id/tree/pause`)
   - hold (`POST /executions/:id/hold`)
+  - hold tree (`POST /executions/:id/tree/hold`)
   - resume (`POST /executions/:id/resume`)
+  - resume tree (`POST /executions/:id/tree/resume`)
+  - branch spawn (`POST /executions/:id/branches`)
   - review (`POST /executions/:id/review`)
+  - family review (`POST /executions/:id/tree/review`)
   - approval (`POST /executions/:id/approval`)
+  - family approval (`POST /executions/:id/tree/approval`)
 - adds coordination-group visibility and controls over orchestrator APIs:
   - coordination group detail (`GET /coordination-groups/:id`)
   - child execution reads (`GET /executions/:id/children`)
@@ -40,11 +49,20 @@ This app now provides the first minimal browser-based operator surface for SPORE
   - `heldAt`
   - `resumedAt`
 - renders execution effective policy from the persisted execution payload when available
+- adds rooted tree controls so operators can drive, pause, hold, or resume the whole execution family from the selected execution
+- adds family governance controls so operators can review or approve all pending descendants from the selected rooted execution
+- adds branch-spawn controls with JSON branch specs, optional post-spawn drive, and first-created branch focus after creation
+- compares current workflow plan preview policy against the selected persisted execution policy when both are present
 - renders per-step policy detail inside the execution tree from each step `policy` payload
+- renders step-level policy deltas against persisted execution policy and preview launch policy when available
+- renders wave progression summaries from rooted execution tree payloads, including gate mode and per-wave state totals
+- renders lineage and execution hierarchy from the orchestrator tree payload instead of reconstructing hierarchy only from coordination-group members
 - shows hold ownership and timeout guidance affordances when additive backend fields are present, while still exposing policy-based watchdog defaults
+- surfaces policy pack and preset labels when backend or config metadata exposes them in additive payload fields
 - renders execution step/session tree with clearer lineage cues from orchestrator detail payloads
 - renders a coordination and lineage board for parent/child execution context when optional payload fields are present
 - renders execution timeline/history from workflow events where available
+- renders execution wave progression summaries from rooted tree `stepSummary.byWave` data in both the tree and timeline surfaces
 - follows execution activity through the orchestrator SSE stream in addition to the session SSE stream
 - exposes escalation resolution controls, including resume of the affected execution path
 - keeps existing session/operator tabs and controls unchanged

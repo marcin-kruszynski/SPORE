@@ -70,6 +70,8 @@ SPORE addresses this by building a **structured orchestration protocol** where:
 | Human-steerable transparent runtime | Live tmux sessions, SSE event streams, operator control actions |
 | Strong retrieval of prior decisions | Local-first docs knowledge base with keyword + semantic search |
 | Domain-shaped execution behavior | Domain policies override retries, watchdogs, session mode, and docs retrieval |
+| Coordinated execution families | Rooted execution trees, branch spawning, and lineage-aware group control |
+| Parallel work inside one execution | Workflow step sets become launch waves with multiple active steps |
 
 ---
 
@@ -279,7 +281,17 @@ That policy currently controls:
 - per-role session mode overrides,
 - startup retrieval query terms and result limits for `docs-kb`.
 
+Reusable policy packs in `config/policy-packs/` can feed those same merged blocks before raw domain and project overrides are applied.
+
 The merged policy is snapshotted into each execution and step record at creation time so later config edits do not erase the provenance of a past run.
+
+Workflow templates can now define `stepSets` with explicit wave gates:
+
+- `all`
+- `any`
+- `min_success_count`
+
+This lets one execution express both strict sequential stages and partially unlocked parallel work.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -740,10 +752,10 @@ This repository is in the **bootstrap-plus-executable-foundation** phase.
 | Docs KB | **Working** | SQLite index, keyword + semantic search, incremental reindex |
 | Runtime PI | **Working** | Session planning, tmux launch, pi-rpc/pi-json/stub launchers |
 | Session Manager | **Working** | SQLite store, lifecycle FSM, event log, feed, reconciliation |
-| Orchestrator | **Working** | Workflow plan/invoke/drive, review/approval gates, retry/rework branching, escalation tracking, escalation resume, durable execution |
+| Orchestrator | **Working** | Workflow plan/invoke/drive, step-set waves, tree governance, retry/rework branching, escalation tracking, escalation resume, durable execution |
 | TUI | **Working** | Dashboard (watch mode), session inspection, tmux pane capture |
 | Session Gateway | **Working** | REST API, SSE streaming, control actions (stop/complete/steer) |
-| Web Console | **Working** | SPA over gateway + orchestrator proxies |
+| Web Console | **Working** | SPA over gateway + orchestrator proxies with wave timeline and family controls |
 | Reference Analysis | **Complete** | 6 repositories studied, synthesis documented |
 
 ### What is not yet implemented
@@ -827,6 +839,7 @@ npm run orchestrator:plan -- --domain backend --roles lead,builder,tester,review
 npm run orchestrator:invoke -- --domain backend --roles lead,reviewer \
   --objective "Lead should produce one sentence; reviewer should return approve, revise, or reject." \
   --wait
+SPORE_RUN_PI_E2E=1 npm run test:e2e:pi
 ```
 
 If `pi` is not installed, the runtime falls back to the stub launcher automatically. The default real launcher is `pi-rpc`, which maintains tmux inspectability while routing operator control through PI RPC.
@@ -871,6 +884,12 @@ npm run orchestrator:invoke -- --domain backend --roles lead,reviewer \
 npm run orchestrator:drive -- --execution <id>
 npm run orchestrator:review -- --execution <id> --status approved
 npm run orchestrator:approve -- --execution <id> --status approved
+npm run orchestrator:tree -- --execution <id>
+npm run orchestrator:drive-tree -- --execution <id> --wait
+npm run orchestrator:review-tree -- --execution <id> --status approved
+npm run orchestrator:approve-tree -- --execution <id> --status approved
+npm run test:policy
+npm run test:e2e:pi                      # opt-in real PI smoke; set SPORE_RUN_PI_E2E=1
 ```
 
 ### Operator Surfaces

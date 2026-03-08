@@ -1,0 +1,14 @@
+id: platform-backend
+name: Platform Backend Overrides
+description: Project-specific backend execution overrides for the example platform.
+workflowPolicy:
+  defaultRoles: [lead, builder, tester, reviewer]
+  maxAttemptsByRole:
+    builder: 5
+  stepHardTimeoutMs: 120000
+runtimePolicy:
+  sessionModeByRole:
+    reviewer: persistent
+docsKbPolicy:
+  resultLimit: 7
+  queryTerms: [example-project, backend, platform]

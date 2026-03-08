@@ -48,6 +48,8 @@ export function createStepRecord(executionId, launch, sequence) {
     id: `${executionId}:step:${sequence + 1}`,
     executionId,
     sequence,
+    wave: launch.wave ?? sequence,
+    waveName: launch.waveName ?? `wave-${(launch.wave ?? sequence) + 1}`,
     role: launch.role,
     requestedProfileId: launch.requestedProfileId,
     profilePath: launch.profilePath,

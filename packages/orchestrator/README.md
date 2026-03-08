@@ -6,21 +6,26 @@ This package now owns the first workflow-planning and workflow-invocation slice 
 
 - read workflow and project config,
 - merge domain defaults from `config/domains/*.yaml` with matching project `activeDomains[]` policy overrides,
+- merge reusable presets from `config/policy-packs/*.yaml` into those domain and project policy layers,
 - resolve per-role profile config with domain-aware fallback,
 - generate invocation plans with stable session ids and run ids,
+- translate workflow `stepSets` into durable per-step wave assignments and wave gates,
 - create invocation brief files under `tmp/orchestrator/`,
 - launch runtime sessions through `packages/runtime-pi/`,
 - persist executions, steps, reviews, approvals, workflow events, and escalations in SQLite,
 - drive ordered multi-session execution until a governance or terminal state,
 - track parent/child execution lineage and coordination-group membership as durable metadata,
 - expose execution children and coordination-group summaries for operator consumers,
+- expose explicit execution tree payloads rooted at the family ancestor execution,
 - stop at `waiting_review` and `waiting_approval`,
 - record operator review and approval decisions,
 - branch into retry/rework paths when review or approval requests changes,
 - fork child executions into a coordination-aware execution family,
+- spawn multiple child branches under one execution in a single operator call,
 - open escalation records when retry budgets are exhausted,
 - allow operators to resolve an escalation and resume an execution without manual database edits,
 - allow operators to pause, hold, resume, and drive either a single execution or a coordination group,
+- allow operators to pause, hold, resume, drive, review, and approve an entire rooted execution family,
 - seed each launch with policy-backed defaults for roles, attempts, reviewer governance, session mode, watchdog thresholds, and docs-kb startup retrieval.
 
 ## Domain Policy Inputs
@@ -33,8 +38,11 @@ Current orchestrator planning reads two domain policy sources:
 Supported policy blocks are:
 
 - `workflowPolicy`: `defaultRoles`, `defaultMaxAttempts`, `maxAttemptsByRole`, `stepSoftTimeoutMs`, `stepHardTimeoutMs`, `reviewRequired`, `approvalRequired`
+- workflow templates may also declare `stepSets`, which the planner converts into per-step `wave`, `waveName`, and `workflowPolicy.waveGate` metadata for parallel launch inside one execution.
 - `runtimePolicy`: `sessionModeByRole`
 - `docsKbPolicy`: `resultLimit`, `queryTerms`, optional `queryTemplate`
+
+Reusable policy packs can contribute to those same merged blocks before the raw domain and project overrides are applied.
 
 Current behavior is:
 
@@ -62,18 +70,25 @@ Recommended interpretation:
 
 - `show --execution <id>` returns execution detail with steps, sessions, reviews, approvals, events, and escalations.
 - `children --execution <id>` returns known child executions for lineage-aware tooling.
+- `tree --execution <id>` returns the rooted execution graph for lineage-aware tooling.
 - `groups` returns known coordination-group summaries.
 - `group --group <id>` returns group detail with grouped executions.
 - `events --execution <id>` returns only workflow events for timeline consumers.
 - `escalations --execution <id>` returns only escalation records for operator consumers.
 - `drive-group --group <id>` reconciles grouped executions until they settle or reach a governance/blocked stop.
+- `drive-tree --execution <id>` resolves the execution root and drives the whole family through its coordination group.
+- `spawn-branches --execution <id> --branches-json <json>` creates multiple child branches under one parent execution.
 - `resolve-escalation --execution <id> --escalation <id> [--resume]` resolves an open escalation and can requeue the affected step.
 - `pause --execution <id>`, `hold --execution <id>`, and `resume --execution <id>` expose durable workflow-level interruption controls.
+- `pause-tree --execution <id>`, `hold-tree --execution <id>`, and `resume-tree --execution <id>` apply those controls across the rooted execution family.
+- `review-tree --execution <id>` and `approve-tree --execution <id>` apply governance decisions across pending descendants in the rooted execution family.
 
 `plan` and `invoke` also return:
 
 - `invocation.effectivePolicy` for the merged execution-level policy,
 - `invocation.launches[].policy` for the per-step launch policy persisted with each step.
+- `invocation.launches[].wave` and `waveName` for the step-set-derived execution wave,
+- `invocation.launches[].policy.workflowPolicy.waveGate` for the unlock rule attached to that wave.
 
 ## Run
 
@@ -82,13 +97,21 @@ npm run orchestrator:plan -- --domain backend --roles lead
 npm run orchestrator:plan -- --domain backend --max-roles 4
 npm run orchestrator:invoke -- --domain backend --roles lead --objective "Validate runtime wiring"
 npm run orchestrator:fork -- --execution branch-review-001 --roles lead,reviewer --objective "Run child branch"
+npm run orchestrator:tree -- --execution branch-review-001
 npm run orchestrator:drive -- --execution e2e-review-001 --wait
 npm run orchestrator:drive-group -- --group branch-review-001 --wait
+npm run orchestrator:drive-tree -- --execution branch-review-001 --wait
 npm run orchestrator:pause -- --execution branch-review-001 --reason "Operator pause"
+npm run orchestrator:pause-tree -- --execution branch-review-001 --reason "Pause whole family"
 npm run orchestrator:hold -- --execution branch-review-001 --reason "Waiting for grouped work"
+npm run orchestrator:hold-tree -- --execution branch-review-001 --reason "Hold whole family"
 npm run orchestrator:resume -- --execution branch-review-001 --comments "Resume after coordination barrier"
+npm run orchestrator:resume-tree -- --execution branch-review-001 --comments "Resume whole family"
+npm run orchestrator:spawn-branches -- --execution branch-review-001 --branches-json '[{"roles":["builder","tester"]},{"roles":["scout","reviewer"]}]'
 npm run orchestrator:review -- --execution e2e-review-001 --status approved
 npm run orchestrator:approve -- --execution e2e-review-001 --status approved
+npm run orchestrator:review-tree -- --execution branch-review-001 --status approved
+npm run orchestrator:approve-tree -- --execution branch-review-001 --status approved
 npm run orchestrator:resolve-escalation -- --execution branch-review-001 --escalation <id> --resume
 ```
 

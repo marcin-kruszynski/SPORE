@@ -7,6 +7,24 @@
     "triggerType": { "type": "string" },
     "applicableProjectTypes": { "type": "array", "items": { "type": "string" } },
     "roleSequence": { "type": "array", "items": { "type": "string" } },
+    "stepSets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["roles"],
+        "properties": {
+          "name": { "type": "string" },
+          "roles": { "type": "array", "items": { "type": "string" } },
+          "gate": {
+            "type": "object",
+            "properties": {
+              "mode": { "type": "string", "enum": ["all", "any", "min_success_count"] },
+              "count": { "type": "integer" }
+            }
+          }
+        }
+      }
+    },
     "branchingConditions": {
       "type": "array",
       "items": {

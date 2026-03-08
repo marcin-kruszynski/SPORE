@@ -35,6 +35,7 @@ Do not implement production orchestrator runtime, production Web UI, or full exe
 - Keep workflow definitions in `config/workflows/` and `workspace/workflow-profiles/`.
 - Keep project examples in `config/projects/` and `workspace/projects/`.
 - Keep domain execution policy in `config/domains/` and `config/projects/* activeDomains[]`.
+- Keep reusable policy presets in `config/policy-packs/`.
 - Keep docs indices synchronized when adding/moving docs.
 - Prefer updating canonical docs over creating redundant fragments.
 
@@ -78,7 +79,16 @@ Do not leave runtime prerequisites only in chat history.
 - Reconcile detached sessions through `session-manager reconcile` instead of manual database edits.
 - Use gateway artifact and stream endpoints for transcript, PI event, and live follow use cases before adding new ad hoc readers.
 - Prefer the explicit orchestrator read surfaces `/executions/:id`, `/executions/:id/events`, and `/executions/:id/escalations` over scraping SQLite directly from UI or automation clients.
+- Prefer `/executions/:id/tree` when a client needs lineage or execution-family structure; do not reconstruct hierarchy from flat coordination arrays if the tree route is sufficient.
+- Use `spawn-branches` or `POST /executions/:id/branches` for deliberate multi-execution coordination work; do not create child executions by mutating lineage fields directly.
+- Use workflow `stepSets` when you need parallel work inside one execution; do not simulate same-wave behavior by creating fake child executions.
+- Use `stepSets[].gate` to express wave unlock rules inside one execution:
+  - `all`
+  - `any`
+  - `min_success_count`
+- Treat wave topology as workflow-owned. Domain policy and policy packs may shape retry, governance, runtime mode, and retrieval behavior around those waves, but should not silently replace workflow wave definitions.
 - When changing retry, timeout, governance, session-mode, or docs retrieval behavior, update both the relevant domain config and the architecture docs that describe policy merging.
+- When changing reusable presets, update `config/policy-packs/`, schema validation, and the config/workflow docs together.
 
 ## Minimum Verification Loop
 
@@ -94,6 +104,8 @@ npm run gateway:start
 npm run orchestrator:plan -- --domain backend --roles lead
 npm run orchestrator:plan -- --domain backend --roles lead,builder,tester,reviewer
 npm run orchestrator:invoke -- --domain backend --roles lead,reviewer --objective "Lead should produce one sentence; reviewer should return approve, revise, or reject." --wait
+npm run test:policy
+npm run test:e2e:pi
 ```
 
 If `pi` is unavailable, say so explicitly and note that runtime validation used the stub launcher.
@@ -103,6 +115,14 @@ If `pi` is installed but missing from `PATH` in the current shell, set:
 ```bash
 export SPORE_PI_BIN="${SPORE_PI_BIN:-$(npm prefix -g)/bin/pi}"
 ```
+
+The real PI smoke suite is opt-in:
+
+```bash
+SPORE_RUN_PI_E2E=1 npm run test:e2e:pi
+```
+
+If the environment does not expose `pi`, this test should skip instead of failing.
 
 ## Documentation Classification
 
@@ -154,7 +174,8 @@ Current CLI contract: `docs-kb index|search|status|rebuild`.
   - control actions: `stop`, `mark-complete`, `steer`
 - `apps/web/` consumes those APIs and the orchestrator proxy rather than reading local files directly.
 - `services/orchestrator/` now exposes workflow `plan` and `invoke` endpoints.
-- `services/orchestrator/` also exposes durable execution list/detail, child execution reads, coordination-group reads, workflow event and escalation reads, execution SSE follow, plus `drive`, `pause`, `hold`, `resume`, `review`, and `approval` endpoints.
+- `services/orchestrator/` also exposes durable execution list/detail, rooted execution tree reads, child execution reads, coordination-group reads, workflow event and escalation reads, execution SSE follow, plus `drive`, `drive-tree`, `pause`, `hold`, `resume`, `review`, `approval`, and branch-spawn endpoints.
+- `services/orchestrator/` also exposes tree-level `pause`, `hold`, `resume`, `review`, and `approval` endpoints for execution families.
 - `services/orchestrator/` also exposes escalation resolution and resume for operator recovery.
-- `apps/web/` renders grouped execution list/detail, coordination and lineage metadata, step/session tree, and review/approval history over those APIs.
+- `apps/web/` renders grouped execution list/detail, rooted lineage tree, wave progression, coordination metadata, step/session tree, and review/approval history over those APIs.
 - UI and automation clients should treat `coordinationGroupId`, `parentExecutionId`, `childExecutionIds`, `branchKey`, `holdReason`, `pausedAt`, `heldAt`, and `resumedAt` as optional additive fields rather than guaranteed schema requirements.

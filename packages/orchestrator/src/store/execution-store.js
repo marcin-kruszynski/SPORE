@@ -64,6 +64,8 @@ export function openOrchestratorDatabase(dbPath) {
       id TEXT PRIMARY KEY,
       execution_id TEXT NOT NULL,
       sequence INTEGER NOT NULL,
+      wave INTEGER NOT NULL DEFAULT 0,
+      wave_name TEXT,
       role TEXT NOT NULL,
       requested_profile_id TEXT,
       profile_path TEXT,
@@ -140,6 +142,8 @@ export function openOrchestratorDatabase(dbPath) {
   ensureColumn(db, "workflow_steps", "attempt_count", "INTEGER NOT NULL DEFAULT 1");
   ensureColumn(db, "workflow_steps", "max_attempts", "INTEGER NOT NULL DEFAULT 1");
   ensureColumn(db, "workflow_steps", "last_error", "TEXT");
+  ensureColumn(db, "workflow_steps", "wave", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn(db, "workflow_steps", "wave_name", "TEXT");
   ensureColumn(db, "workflow_executions", "coordination_group_id", "TEXT");
   ensureColumn(db, "workflow_executions", "parent_execution_id", "TEXT");
   ensureColumn(db, "workflow_executions", "branch_key", "TEXT");
@@ -195,11 +199,11 @@ export function insertExecutionWithSteps(db, execution, steps) {
   `);
   const insertStep = db.prepare(`
     INSERT INTO workflow_steps (
-      id, execution_id, sequence, role, requested_profile_id, profile_path, session_id,
+      id, execution_id, sequence, wave, wave_name, role, requested_profile_id, profile_path, session_id,
       parent_session_id, session_mode, policy_json, state, attempt_count, max_attempts, last_error, review_required, review_status, approval_required,
       approval_status, objective, created_at, updated_at, launched_at, settled_at
     ) VALUES (
-      @id, @executionId, @sequence, @role, @requestedProfileId, @profilePath, @sessionId,
+      @id, @executionId, @sequence, @wave, @waveName, @role, @requestedProfileId, @profilePath, @sessionId,
       @parentSessionId, @sessionMode, @policyJson, @state, @attemptCount, @maxAttempts, @lastError, @reviewRequired, @reviewStatus, @approvalRequired,
       @approvalStatus, @objective, @createdAt, @updatedAt, @launchedAt, @settledAt
     )
@@ -242,6 +246,8 @@ export function insertExecutionWithSteps(db, execution, steps) {
         id: step.id,
         executionId: step.executionId,
         sequence: step.sequence,
+        wave: step.wave ?? step.sequence,
+        waveName: step.waveName ?? `wave-${(step.wave ?? step.sequence) + 1}`,
         role: step.role,
         requestedProfileId: step.requestedProfileId,
         profilePath: step.profilePath,
@@ -335,6 +341,8 @@ export function updateStep(db, step) {
   db.prepare(`
     UPDATE workflow_steps SET
       sequence = @sequence,
+      wave = @wave,
+      wave_name = @waveName,
       role = @role,
       requested_profile_id = @requestedProfileId,
       profile_path = @profilePath,
@@ -358,6 +366,8 @@ export function updateStep(db, step) {
   `).run({
     id: step.id,
     sequence: step.sequence,
+    wave: step.wave ?? step.sequence,
+    waveName: step.waveName ?? `wave-${(step.wave ?? step.sequence) + 1}`,
     role: step.role,
     requestedProfileId: step.requestedProfileId,
     profilePath: step.profilePath,
@@ -621,6 +631,8 @@ export function listSteps(db, executionId) {
       id,
       execution_id AS executionId,
       sequence,
+      wave,
+      wave_name AS waveName,
       role,
       requested_profile_id AS requestedProfileId,
       profile_path AS profilePath,
@@ -658,6 +670,8 @@ export function getStep(db, stepId) {
       id,
       execution_id AS executionId,
       sequence,
+      wave,
+      wave_name AS waveName,
       role,
       requested_profile_id AS requestedProfileId,
       profile_path AS profilePath,

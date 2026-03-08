@@ -1,0 +1,20 @@
+id: cli-core
+name: CLI Core Policy
+description: Baseline policy pack for CLI-focused flows.
+workflowPolicy:
+  defaultRoles: [lead, builder, tester, reviewer]
+  defaultMaxAttempts: 2
+  retryTargetRole: builder
+  resetDescendantSteps: true
+  stepSoftTimeoutMs: 20000
+  stepHardTimeoutMs: 60000
+  approvalRequired: false
+runtimePolicy:
+  sessionModeByRole:
+    lead: persistent
+    builder: ephemeral
+    tester: ephemeral
+    reviewer: persistent
+docsKbPolicy:
+  resultLimit: 5
+  queryTerms: [cli, shell, terminal, command]

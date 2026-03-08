@@ -12,6 +12,7 @@
         "required": ["id", "leadProfile", "scoutProfile", "builderProfile", "testerProfile", "reviewerProfile", "tools", "skills", "workflowPreferences"],
         "properties": {
           "id": { "type": "string" },
+          "policyPacks": { "type": "array", "items": { "type": "string" } },
           "leadProfile": { "type": "string" },
           "scoutProfile": { "type": "string" },
           "builderProfile": { "type": "string" },
@@ -32,6 +33,11 @@
               },
               "retryTargetRole": { "type": "string" },
               "resetDescendantSteps": { "type": "boolean" },
+              "reworkStrategy": { "type": "string" },
+              "reworkRoles": {
+                "type": "array",
+                "items": { "type": "string" }
+              },
               "maxAttemptsByRole": {
                 "type": "object",
                 "additionalProperties": { "type": "integer" }

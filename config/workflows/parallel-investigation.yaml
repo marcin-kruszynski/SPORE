@@ -1,0 +1,32 @@
+id: parallel-investigation
+name: Parallel Investigation
+triggerType: manual
+applicableProjectTypes: [platform, application, service]
+roleSequence: [lead, scout, builder, reviewer]
+stepSets:
+  - name: framing
+    roles: [lead]
+    gate:
+      mode: all
+  - name: parallel-investigation
+    roles: [scout, builder]
+    gate:
+      mode: min_success_count
+      count: 2
+  - name: synthesis
+    roles: [reviewer]
+    gate:
+      mode: all
+branchingConditions:
+  - if: evidence-conflicts
+    then: request-branch-rework
+reviewStep:
+  required: true
+retryPolicy:
+  maxAttempts: 2
+documentationUpdatePolicy:
+  required: true
+completionRequirements:
+  - findings-documented
+  - implementation-notes-captured
+  - review-verdict-recorded

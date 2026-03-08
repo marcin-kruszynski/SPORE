@@ -2,12 +2,16 @@
 import { spawn } from "node:child_process";
 
 import {
+  applyExecutionTreeAction,
+  applyExecutionTreeGovernance,
   createExecution,
   driveCoordinationGroup,
   driveExecution,
+  driveExecutionTree,
   forkExecution,
   getCoordinationGroupDetail,
   getExecutionDetail,
+  getExecutionTree,
   holdExecution,
   listCoordinationGroups,
   listExecutionChildren,
@@ -18,7 +22,8 @@ import {
   recordApprovalDecision,
   recordReviewDecision,
   resumeExecution,
-  resolveExecutionEscalation
+  resolveExecutionEscalation,
+  spawnExecutionBranches
 } from "../execution/workflow-execution.js";
 import { planWorkflowInvocation } from "../invocation/plan-workflow-invocation.js";
 import { PROJECT_ROOT } from "../../../runtime-pi/src/metadata/constants.js";
@@ -179,6 +184,18 @@ async function main() {
     return;
   }
 
+  if (command === "tree") {
+    if (!flags.execution) {
+      throw new Error("use tree --execution <id>");
+    }
+    const tree = getExecutionTree(flags.execution);
+    if (!tree) {
+      throw new Error(`execution not found: ${flags.execution}`);
+    }
+    console.log(JSON.stringify({ ok: true, tree }, null, 2));
+    return;
+  }
+
   if (command === "groups") {
     console.log(JSON.stringify({ ok: true, groups: listCoordinationGroups() }, null, 2));
     return;
@@ -211,6 +228,43 @@ async function main() {
       stepHardTimeoutMs: flags["step-hard-timeout"] ?? null
     });
     console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
+  if (command === "drive-tree") {
+    if (!flags.execution) {
+      throw new Error("use drive-tree --execution <id>");
+    }
+    const detail = await driveExecutionTree(flags.execution, {
+      wait: flags.wait === true,
+      timeoutMs: flags.timeout ?? "180000",
+      intervalMs: flags.interval ?? "1500",
+      noMonitor: flags["no-monitor"] === true,
+      stub: flags.stub === true,
+      launcher: flags.launcher ?? null,
+      stepSoftTimeoutMs: flags["step-soft-timeout"] ?? null,
+      stepHardTimeoutMs: flags["step-hard-timeout"] ?? null
+    });
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
+  if (command === "spawn-branches") {
+    if (!flags.execution) {
+      throw new Error("use spawn-branches --execution <id> --branches-json '[{\"roles\":[\"builder\"]}]'");
+    }
+    const branches = JSON.parse(String(flags["branches-json"] ?? "[]"));
+    const result = await spawnExecutionBranches(flags.execution, branches, {
+      wait: flags.wait === true,
+      timeoutMs: flags.timeout ?? "180000",
+      intervalMs: flags.interval ?? "1500",
+      noMonitor: flags["no-monitor"] === true,
+      stub: flags.stub === true,
+      launcher: flags.launcher ?? null,
+      stepSoftTimeoutMs: flags["step-soft-timeout"] ?? null,
+      stepHardTimeoutMs: flags["step-hard-timeout"] ?? null
+    });
+    console.log(JSON.stringify({ ok: true, ...result }, null, 2));
     return;
   }
 
@@ -260,7 +314,7 @@ async function main() {
     if (!flags.execution || !flags.status) {
       throw new Error("use review --execution <id> --status <approved|changes_requested|rejected>");
     }
-    const detail = recordReviewDecision(flags.execution, {
+    const detail = await recordReviewDecision(flags.execution, {
       status: flags.status,
       decidedBy: flags.by ?? "operator",
       comments: flags.comments ?? ""
@@ -269,16 +323,44 @@ async function main() {
     return;
   }
 
+  if (command === "review-tree") {
+    if (!flags.execution || !flags.status) {
+      throw new Error("use review-tree --execution <id> --status <approved|changes_requested|rejected>");
+    }
+    const result = await applyExecutionTreeGovernance(flags.execution, "review", {
+      status: flags.status,
+      scope: flags.scope ?? "all-pending",
+      decidedBy: flags.by ?? "operator",
+      comments: flags.comments ?? ""
+    });
+    console.log(JSON.stringify({ ok: true, ...result }, null, 2));
+    return;
+  }
+
   if (command === "approve") {
     if (!flags.execution || !flags.status) {
       throw new Error("use approve --execution <id> --status <approved|rejected>");
     }
-    const detail = recordApprovalDecision(flags.execution, {
+    const detail = await recordApprovalDecision(flags.execution, {
       status: flags.status,
       decidedBy: flags.by ?? "operator",
       comments: flags.comments ?? ""
     });
     console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
+  if (command === "approve-tree") {
+    if (!flags.execution || !flags.status) {
+      throw new Error("use approve-tree --execution <id> --status <approved|rejected>");
+    }
+    const result = await applyExecutionTreeGovernance(flags.execution, "approval", {
+      status: flags.status,
+      scope: flags.scope ?? "all-pending",
+      decidedBy: flags.by ?? "operator",
+      comments: flags.comments ?? ""
+    });
+    console.log(JSON.stringify({ ok: true, ...result }, null, 2));
     return;
   }
 
@@ -310,6 +392,21 @@ async function main() {
     return;
   }
 
+  if (command === "pause-tree") {
+    if (!flags.execution) {
+      throw new Error("use pause-tree --execution <id> [--reason <text>]");
+    }
+    const result = applyExecutionTreeAction(flags.execution, "pause", {
+      decidedBy: flags.by ?? "operator",
+      reason: flags.reason ?? flags.comments ?? "",
+      owner: flags.owner ?? flags.by ?? "operator",
+      guidance: flags.guidance ?? flags.comments ?? "",
+      timeoutMs: flags["timeout-ms"] ?? null
+    });
+    console.log(JSON.stringify({ ok: true, ...result }, null, 2));
+    return;
+  }
+
   if (command === "hold") {
     if (!flags.execution) {
       throw new Error("use hold --execution <id> [--reason <text>]");
@@ -325,6 +422,21 @@ async function main() {
     return;
   }
 
+  if (command === "hold-tree") {
+    if (!flags.execution) {
+      throw new Error("use hold-tree --execution <id> [--reason <text>]");
+    }
+    const result = applyExecutionTreeAction(flags.execution, "hold", {
+      decidedBy: flags.by ?? "operator",
+      reason: flags.reason ?? flags.comments ?? "",
+      owner: flags.owner ?? flags.by ?? "operator",
+      guidance: flags.guidance ?? flags.comments ?? "",
+      timeoutMs: flags["timeout-ms"] ?? null
+    });
+    console.log(JSON.stringify({ ok: true, ...result }, null, 2));
+    return;
+  }
+
   if (command === "resume") {
     if (!flags.execution) {
       throw new Error("use resume --execution <id> [--comments <text>]");
@@ -334,6 +446,18 @@ async function main() {
       comments: flags.comments ?? ""
     });
     console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
+  if (command === "resume-tree") {
+    if (!flags.execution) {
+      throw new Error("use resume-tree --execution <id> [--comments <text>]");
+    }
+    const result = applyExecutionTreeAction(flags.execution, "resume", {
+      decidedBy: flags.by ?? "operator",
+      comments: flags.comments ?? ""
+    });
+    console.log(JSON.stringify({ ok: true, ...result }, null, 2));
     return;
   }
 

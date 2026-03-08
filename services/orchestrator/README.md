@@ -6,8 +6,11 @@ Workflow plan and invoke requests now honor merged domain policy from:
 
 - `config/domains/<id>.yaml`
 - the matching `activeDomains[]` project entry
+- any referenced `config/policy-packs/*.yaml`
 
 Those policies currently shape default roles, per-role max attempts, reviewer review and approval requirements, session mode, step watchdog defaults, and docs-kb startup retrieval.
+
+Workflow templates may also define `stepSets`, which the service exposes back through plan/invoke payloads as per-launch `wave`, `waveName`, and `workflowPolicy.waveGate` metadata.
 
 ## Current Endpoints
 
@@ -15,6 +18,7 @@ Those policies currently shape default roles, per-role max attempts, reviewer re
 - `GET /executions`
 - `GET /executions/:id`
 - `GET /executions/:id/children`
+- `GET /executions/:id/tree`
 - `GET /coordination-groups`
 - `GET /coordination-groups/:id`
 - `GET /executions/:id/events`
@@ -23,7 +27,14 @@ Those policies currently shape default roles, per-role max attempts, reviewer re
 - `POST /workflows/plan`
 - `POST /workflows/invoke`
 - `POST /executions/:id/drive`
+- `POST /executions/:id/tree/drive`
+- `POST /executions/:id/tree/pause`
+- `POST /executions/:id/tree/hold`
+- `POST /executions/:id/tree/resume`
+- `POST /executions/:id/tree/review`
+- `POST /executions/:id/tree/approval`
 - `POST /coordination-groups/:id/drive`
+- `POST /executions/:id/branches`
 - `POST /executions/:id/review`
 - `POST /executions/:id/approval`
 - `POST /executions/:id/pause`
@@ -56,6 +67,8 @@ curl http://127.0.0.1:8789/executions
 
 curl http://127.0.0.1:8789/executions/branch-review-001/children
 
+curl http://127.0.0.1:8789/executions/branch-review-001/tree
+
 curl http://127.0.0.1:8789/coordination-groups
 
 curl http://127.0.0.1:8789/coordination-groups/branch-review-001
@@ -69,6 +82,30 @@ curl -N http://127.0.0.1:8789/stream/executions?execution=branch-approval-001
 curl -X POST http://127.0.0.1:8789/coordination-groups/branch-review-001/drive \
   -H 'content-type: application/json' \
   -d '{"wait":true,"timeout":180000,"interval":1000}'
+
+curl -X POST http://127.0.0.1:8789/executions/branch-review-001/tree/drive \
+  -H 'content-type: application/json' \
+  -d '{"wait":true,"timeout":180000,"interval":1000}'
+
+curl -X POST http://127.0.0.1:8789/executions/branch-review-001/tree/hold \
+  -H 'content-type: application/json' \
+  -d '{"reason":"Hold whole family","owner":"operator","guidance":"Resume after review"}'
+
+curl -X POST http://127.0.0.1:8789/executions/branch-review-001/tree/resume \
+  -H 'content-type: application/json' \
+  -d '{"comments":"Resume whole family"}'
+
+curl -X POST http://127.0.0.1:8789/executions/branch-review-001/tree/review \
+  -H 'content-type: application/json' \
+  -d '{"status":"approved","scope":"all-pending","comments":"Approve pending family reviews"}'
+
+curl -X POST http://127.0.0.1:8789/executions/branch-review-001/tree/approval \
+  -H 'content-type: application/json' \
+  -d '{"status":"approved","scope":"all-pending","comments":"Approve pending family approvals"}'
+
+curl -X POST http://127.0.0.1:8789/executions/branch-review-001/branches \
+  -H 'content-type: application/json' \
+  -d '{"branches":[{"roles":["builder","tester"]},{"roles":["scout","reviewer"]}]}'
 
 curl -X POST http://127.0.0.1:8789/executions/e2e-review-002/review \
   -H 'content-type: application/json' \
@@ -96,6 +133,14 @@ curl -X POST http://127.0.0.1:8789/executions/branch-review-001/resume \
 ```
 
 `POST /workflows/plan` returns `invocation.effectivePolicy` plus `invocation.launches[].policy`. `POST /workflows/invoke` returns the same invocation payload alongside execution creation and drive detail, so clients can inspect the exact merged domain policy that was applied.
+
+When a workflow uses `stepSets`, the service also returns:
+
+- `launches[].wave`
+- `launches[].waveName`
+- `launches[].policy.workflowPolicy.waveGate`
+
+`GET /executions/:id/tree` returns the rooted execution family, not just the selected execution. This is the preferred read surface for lineage-aware clients because it makes parent/child ancestry explicit instead of forcing the client to reconstruct hierarchy from flat group payloads.
 
 This remains a bootstrap orchestration surface, not the final durable orchestrator service. The current API already separates:
 

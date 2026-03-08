@@ -74,13 +74,21 @@ These fields should be treated as enhancements, not as mandatory contract requir
 Current orchestrator read surfaces are expanding toward:
 
 - execution detail,
+- rooted execution tree,
 - execution children,
 - coordination-group list/detail,
 - execution event history,
 - execution escalation history,
 - execution and group-level drive actions.
+- execution-family branch spawn actions.
 
 Clients should therefore prefer explicit orchestrator read and control routes over reconstructing groups from raw event streams.
+
+The current preferred lineage surface is:
+
+- `GET /executions/:id/tree`
+
+That route gives the browser or automation client one rooted payload for the whole execution family. It should be preferred over rebuilding hierarchy from flat coordination-group arrays when the route is available.
 
 ## Operator Recovery Surface Expectations
 

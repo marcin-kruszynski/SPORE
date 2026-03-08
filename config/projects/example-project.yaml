@@ -3,6 +3,7 @@ name: Example Multi-Domain Project
 type: platform
 activeDomains:
   - id: frontend
+    policyPacks: [ui-core]
     leadProfile: frontend-lead
     scoutProfile: frontend-scout
     builderProfile: frontend-builder
@@ -17,6 +18,7 @@ activeDomains:
     docsKbPolicy:
       queryTerms: [example-project, frontend, design-system]
   - id: backend
+    policyPacks: [platform-backend]
     leadProfile: backend-lead
     scoutProfile: backend-scout
     builderProfile: backend-builder
@@ -39,6 +41,7 @@ activeDomains:
       queryTerms: [example-project, backend, platform, service]
       resultLimit: 7
   - id: cli
+    policyPacks: [cli-core]
     leadProfile: cli-lead
     scoutProfile: cli-scout
     builderProfile: cli-builder

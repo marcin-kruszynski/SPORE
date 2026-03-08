@@ -1,0 +1,22 @@
+id: ui-core
+name: UI Core Policy
+description: Baseline policy pack for frontend and browser-facing delivery.
+workflowPolicy:
+  defaultRoles: [lead, scout, builder, tester, reviewer]
+  defaultMaxAttempts: 2
+  retryTargetRole: builder
+  resetDescendantSteps: true
+  reworkStrategy: branch
+  reworkRoles: [builder, tester, reviewer]
+  stepSoftTimeoutMs: 25000
+  stepHardTimeoutMs: 75000
+runtimePolicy:
+  sessionModeByRole:
+    lead: persistent
+    scout: ephemeral
+    builder: ephemeral
+    tester: ephemeral
+    reviewer: persistent
+docsKbPolicy:
+  resultLimit: 7
+  queryTerms: [ui, component, accessibility]

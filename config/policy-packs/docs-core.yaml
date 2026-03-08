@@ -1,0 +1,19 @@
+id: docs-core
+name: Docs Core Policy
+description: Baseline policy pack for documentation and knowledge workflows.
+workflowPolicy:
+  defaultRoles: [lead, scout, reviewer]
+  defaultMaxAttempts: 2
+  retryTargetRole: scout
+  resetDescendantSteps: true
+  stepSoftTimeoutMs: 15000
+  stepHardTimeoutMs: 45000
+  approvalRequired: false
+runtimePolicy:
+  sessionModeByRole:
+    lead: persistent
+    scout: ephemeral
+    reviewer: persistent
+docsKbPolicy:
+  resultLimit: 8
+  queryTerms: [documentation, adr, runbook, knowledge]

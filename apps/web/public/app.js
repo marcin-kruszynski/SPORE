@@ -35,15 +35,26 @@ const els = {
   decisionLog: document.getElementById("decision-log"),
   driveButton: document.getElementById("drive-button"),
   driveGroupButton: document.getElementById("drive-group-button"),
+  driveTreeButton: document.getElementById("drive-tree-button"),
   driveWait: document.getElementById("drive-wait"),
   driveTimeout: document.getElementById("drive-timeout"),
   driveInterval: document.getElementById("drive-interval"),
   pauseButton: document.getElementById("pause-button"),
   holdButton: document.getElementById("hold-button"),
   resumeButton: document.getElementById("resume-button"),
+  pauseTreeButton: document.getElementById("pause-tree-button"),
+  holdTreeButton: document.getElementById("hold-tree-button"),
+  resumeTreeButton: document.getElementById("resume-tree-button"),
   executionOperatorReason: document.getElementById("execution-operator-reason"),
   executionOperatorComments: document.getElementById("execution-operator-comments"),
   executionGuidance: document.getElementById("execution-guidance"),
+  executionTreeActionSummary: document.getElementById("execution-tree-action-summary"),
+  branchSpawnSummary: document.getElementById("branch-spawn-summary"),
+  branchDefinitions: document.getElementById("branch-definitions"),
+  branchSpawnWait: document.getElementById("branch-spawn-wait"),
+  branchTimeout: document.getElementById("branch-timeout"),
+  branchInterval: document.getElementById("branch-interval"),
+  branchSpawnButton: document.getElementById("branch-spawn-button"),
   reviewStatus: document.getElementById("review-status"),
   reviewBy: document.getElementById("review-by"),
   reviewComments: document.getElementById("review-comments"),
@@ -52,6 +63,18 @@ const els = {
   approvalBy: document.getElementById("approval-by"),
   approvalComments: document.getElementById("approval-comments"),
   approvalButton: document.getElementById("approval-button"),
+  familyReviewSummary: document.getElementById("family-review-summary"),
+  familyReviewStatus: document.getElementById("family-review-status"),
+  familyReviewScope: document.getElementById("family-review-scope"),
+  familyReviewBy: document.getElementById("family-review-by"),
+  familyReviewComments: document.getElementById("family-review-comments"),
+  familyReviewButton: document.getElementById("family-review-button"),
+  familyApprovalSummary: document.getElementById("family-approval-summary"),
+  familyApprovalStatus: document.getElementById("family-approval-status"),
+  familyApprovalScope: document.getElementById("family-approval-scope"),
+  familyApprovalBy: document.getElementById("family-approval-by"),
+  familyApprovalComments: document.getElementById("family-approval-comments"),
+  familyApprovalButton: document.getElementById("family-approval-button"),
   sessionList: document.getElementById("session-list"),
   eventList: document.getElementById("event-list"),
   sessionDetail: document.getElementById("session-detail"),
@@ -105,6 +128,14 @@ function normalizeText(value, fallback = "-") {
 function parsePositiveInt(value) {
   const parsed = Number.parseInt(String(value ?? ""), 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function parseJsonText(value, label) {
+  try {
+    return JSON.parse(value);
+  } catch {
+    throw new Error(`${label} must be valid JSON.`);
+  }
 }
 
 function isObject(value) {
@@ -187,6 +218,10 @@ function formatDuration(startValue, endValue) {
     return `${minutes}m ${seconds}s`;
   }
   return `${seconds}s`;
+}
+
+function isTerminalExecutionState(value) {
+  return ["completed", "canceled", "failed", "stopped", "rejected"].includes(String(value ?? "").toLowerCase());
 }
 
 function summarizeStates(items = []) {
@@ -302,6 +337,378 @@ function renderPolicyHighlights(policy) {
   return pills.join("");
 }
 
+function tokenizePolicyKey(value) {
+  return String(value ?? "")
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .split(/[\s._-]+/)
+    .map((token) => token.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function classifyPolicyLabelKey(key) {
+  const tokens = tokenizePolicyKey(key);
+  if (tokens.length === 0) {
+    return null;
+  }
+
+  if (tokens[0] === "policy") {
+    tokens.shift();
+  }
+
+  if (!tokens.length) {
+    return null;
+  }
+
+  const kind = tokens[0];
+  if (!["pack", "preset"].includes(kind)) {
+    return null;
+  }
+
+  if (tokens.length === 1) {
+    return kind;
+  }
+
+  return ["id", "name", "label"].includes(tokens[1]) ? kind : null;
+}
+
+function collectPolicyLabelEntries(...carriers) {
+  const items = [];
+  const seen = new Set();
+
+  const visit = (value, depth = 0) => {
+    if (!isObject(value) || depth > 2) {
+      return;
+    }
+
+    for (const [key, item] of Object.entries(value)) {
+      const labelKind = classifyPolicyLabelKey(key);
+      if (labelKind && !isObject(item) && !Array.isArray(item) && hasDisplayValue(item)) {
+        const dedupeKey = `${labelKind}:${String(item)}`;
+        if (!seen.has(dedupeKey)) {
+          seen.add(dedupeKey);
+          items.push({ kind: labelKind, value: String(item) });
+        }
+      }
+
+      if (isObject(item)) {
+        visit(item, depth + 1);
+      }
+    }
+  };
+
+  for (const carrier of carriers.flat()) {
+    visit(carrier);
+  }
+
+  return items.sort((left, right) => left.kind.localeCompare(right.kind) || left.value.localeCompare(right.value));
+}
+
+function renderPolicyLabelPills(carriers = []) {
+  const items = collectPolicyLabelEntries(carriers);
+  if (items.length === 0) {
+    return "";
+  }
+
+  return items
+    .map((item) => renderMetaPill(item.kind, item.value, "policy-label"))
+    .join("");
+}
+
+function normalizePolicyComparable(value) {
+  if (Array.isArray(value)) {
+    return value.filter((item) => hasDisplayValue(item)).map((item) => normalizePolicyComparable(item));
+  }
+
+  if (isObject(value)) {
+    return Object.keys(value)
+      .sort((left, right) => left.localeCompare(right))
+      .reduce((accumulator, key) => {
+        const item = value[key];
+        if (hasDisplayValue(item)) {
+          accumulator[key] = normalizePolicyComparable(item);
+        }
+        return accumulator;
+      }, {});
+  }
+
+  return value;
+}
+
+function policyValueSignature(value) {
+  return JSON.stringify(normalizePolicyComparable(value));
+}
+
+function flattenPolicyEntries(value, path = [], entries = []) {
+  if (!hasDisplayValue(value)) {
+    return entries;
+  }
+
+  if (Array.isArray(value) || !isObject(value)) {
+    entries.push({
+      key: path.join("."),
+      path,
+      value
+    });
+    return entries;
+  }
+
+  for (const key of Object.keys(value).sort((left, right) => left.localeCompare(right))) {
+    const item = value[key];
+    if (!hasDisplayValue(item)) {
+      continue;
+    }
+
+    const nextPath = [...path, key];
+    if (isObject(item) && !Array.isArray(item)) {
+      flattenPolicyEntries(item, nextPath, entries);
+    } else {
+      entries.push({
+        key: nextPath.join("."),
+        path: nextPath,
+        value: item
+      });
+    }
+  }
+
+  return entries;
+}
+
+function formatPolicyPath(path = []) {
+  if (!Array.isArray(path) || path.length === 0) {
+    return "Policy";
+  }
+
+  return path.map((segment) => humanizeKey(segment)).join(" / ");
+}
+
+function comparePolicies(baseline, candidate) {
+  const baselineMap = new Map(flattenPolicyEntries(baseline).map((entry) => [entry.key, entry]));
+  const candidateMap = new Map(flattenPolicyEntries(candidate).map((entry) => [entry.key, entry]));
+  const keys = Array.from(new Set([...baselineMap.keys(), ...candidateMap.keys()])).sort((left, right) =>
+    left.localeCompare(right)
+  );
+  const changed = [];
+  const candidateOnly = [];
+  const baselineOnly = [];
+  let unchangedCount = 0;
+
+  for (const key of keys) {
+    const baselineEntry = baselineMap.get(key) ?? null;
+    const candidateEntry = candidateMap.get(key) ?? null;
+    if (baselineEntry && candidateEntry) {
+      if (policyValueSignature(baselineEntry.value) === policyValueSignature(candidateEntry.value)) {
+        unchangedCount += 1;
+      } else {
+        changed.push({
+          key,
+          path: candidateEntry.path,
+          baseline: baselineEntry.value,
+          candidate: candidateEntry.value
+        });
+      }
+      continue;
+    }
+
+    if (candidateEntry) {
+      candidateOnly.push({
+        key,
+        path: candidateEntry.path,
+        candidate: candidateEntry.value
+      });
+      continue;
+    }
+
+    if (baselineEntry) {
+      baselineOnly.push({
+        key,
+        path: baselineEntry.path,
+        baseline: baselineEntry.value
+      });
+    }
+  }
+
+  return {
+    changed,
+    candidateOnly,
+    baselineOnly,
+    unchangedCount
+  };
+}
+
+function renderPolicyDiffItems(items, { tone, baselineLabel, candidateLabel, includeBaseline = true, includeCandidate = true } = {}) {
+  if (!items.length) {
+    return "";
+  }
+
+  return items
+    .map((item) => {
+      const pathLabel = formatPolicyPath(item.path);
+      return `
+        <article class="policy-diff-item ${escapeHtml(tone || "neutral")}">
+          <div class="policy-diff-item-header">
+            <strong>${escapeHtml(pathLabel)}</strong>
+            <span class="lineage-pill ${escapeHtml(tone || "")}">${escapeHtml(humanizeKey(tone || "change"))}</span>
+          </div>
+          <div class="policy-diff-values">
+            ${
+              includeBaseline
+                ? `<div class="policy-diff-value">
+                    <span class="muted">${escapeHtml(baselineLabel)}</span>
+                    <code>${escapeHtml(formatPolicyValue(item.baseline))}</code>
+                  </div>`
+                : ""
+            }
+            ${
+              includeCandidate
+                ? `<div class="policy-diff-value">
+                    <span class="muted">${escapeHtml(candidateLabel)}</span>
+                    <code>${escapeHtml(formatPolicyValue(item.candidate))}</code>
+                  </div>`
+                : ""
+            }
+          </div>
+        </article>
+      `;
+    })
+    .join("");
+}
+
+function renderPolicyDiffPanel({
+  title,
+  baselineTitle = "Baseline",
+  candidateTitle = "Compared",
+  baselinePolicy,
+  candidatePolicy,
+  baselineCarriers = [],
+  candidateCarriers = [],
+  emptyText = "No policy returned for comparison.",
+  compact = false,
+  mode = "full"
+} = {}) {
+  const panelClass = compact ? "policy-panel policy-diff-panel compact" : "policy-panel policy-diff-panel";
+  const baselineReady = hasDisplayValue(baselinePolicy);
+  const candidateReady = hasDisplayValue(candidatePolicy);
+
+  if (!baselineReady || !candidateReady) {
+    return `
+      <section class="${panelClass}">
+        <div class="policy-panel-header">
+          <strong>${escapeHtml(title)}</strong>
+        </div>
+        <div class="policy-empty">${escapeHtml(emptyText)}</div>
+      </section>
+    `;
+  }
+
+  const comparison = comparePolicies(baselinePolicy, candidatePolicy);
+  const showBaselineOnlyDetails = mode === "full";
+  const hasVisibleDiffs =
+    comparison.changed.length > 0 ||
+    comparison.candidateOnly.length > 0 ||
+    (showBaselineOnlyDetails && comparison.baselineOnly.length > 0);
+  const showDeltaNote = mode === "delta" && comparison.baselineOnly.length > 0 && hasVisibleDiffs;
+  const baselineLabels = renderPolicyLabelPills(baselineCarriers);
+  const candidateLabels = renderPolicyLabelPills(candidateCarriers);
+  const summary = [
+    renderMetaPill("changed", comparison.changed.length, comparison.changed.length ? "changed" : ""),
+    renderMetaPill(mode === "delta" ? "step-only" : "added", comparison.candidateOnly.length, comparison.candidateOnly.length ? "added" : ""),
+    renderMetaPill(mode === "delta" ? "inherited" : "missing", comparison.baselineOnly.length, mode === "full" && comparison.baselineOnly.length ? "removed" : ""),
+    renderMetaPill("same", comparison.unchangedCount)
+  ].join("");
+
+  let emptyMessage = `Policies match across ${comparison.unchangedCount} visible field${comparison.unchangedCount === 1 ? "" : "s"}.`;
+  if (mode === "delta" && comparison.baselineOnly.length > 0 && comparison.changed.length === 0 && comparison.candidateOnly.length === 0) {
+    emptyMessage = `No step-specific deltas. ${comparison.baselineOnly.length} baseline field${comparison.baselineOnly.length === 1 ? "" : "s"} remain inherited or omitted from this step policy.`;
+  }
+
+  return `
+    <section class="${panelClass}">
+      <div class="policy-panel-header">
+        <strong>${escapeHtml(title)}</strong>
+        <div class="lineage-meta">${summary}</div>
+      </div>
+      <div class="policy-diff-context">
+        <div class="policy-diff-side">
+          <span class="muted">Baseline</span>
+          <code>${escapeHtml(baselineTitle)}</code>
+          ${baselineLabels ? `<div class="lineage-meta">${baselineLabels}</div>` : ""}
+        </div>
+        <div class="policy-diff-side">
+          <span class="muted">Compare</span>
+          <code>${escapeHtml(candidateTitle)}</code>
+          ${candidateLabels ? `<div class="lineage-meta">${candidateLabels}</div>` : ""}
+        </div>
+      </div>
+      ${
+        hasVisibleDiffs
+          ? `<div class="policy-diff-list">
+              ${
+                comparison.changed.length > 0
+                  ? `
+                    <section class="policy-diff-group">
+                      <div class="policy-block-header">
+                        <strong>${escapeHtml(mode === "delta" ? "Overrides" : "Changed Fields")}</strong>
+                        <span class="muted">${escapeHtml(String(comparison.changed.length))}</span>
+                      </div>
+                      ${renderPolicyDiffItems(comparison.changed, {
+                        tone: "changed",
+                        baselineLabel: baselineTitle,
+                        candidateLabel: candidateTitle
+                      })}
+                    </section>
+                  `
+                  : ""
+              }
+              ${
+                comparison.candidateOnly.length > 0
+                  ? `
+                    <section class="policy-diff-group">
+                      <div class="policy-block-header">
+                        <strong>${escapeHtml(mode === "delta" ? "Step-Specific Fields" : "Added Fields")}</strong>
+                        <span class="muted">${escapeHtml(String(comparison.candidateOnly.length))}</span>
+                      </div>
+                      ${renderPolicyDiffItems(comparison.candidateOnly, {
+                        tone: "added",
+                        baselineLabel: baselineTitle,
+                        candidateLabel: candidateTitle,
+                        includeBaseline: false
+                      })}
+                    </section>
+                  `
+                  : ""
+              }
+              ${
+                showBaselineOnlyDetails && comparison.baselineOnly.length > 0
+                  ? `
+                    <section class="policy-diff-group">
+                      <div class="policy-block-header">
+                        <strong>Missing Fields</strong>
+                        <span class="muted">${escapeHtml(String(comparison.baselineOnly.length))}</span>
+                      </div>
+                      ${renderPolicyDiffItems(comparison.baselineOnly, {
+                        tone: "removed",
+                        baselineLabel: baselineTitle,
+                        candidateLabel: candidateTitle,
+                        includeCandidate: false
+                      })}
+                    </section>
+                  `
+                  : ""
+              }
+            </div>`
+          : `<div class="policy-empty">${escapeHtml(emptyMessage)}</div>`
+      }
+      ${
+        showDeltaNote
+          ? `<p class="policy-diff-note">${escapeHtml(
+              `${comparison.baselineOnly.length} baseline field${comparison.baselineOnly.length === 1 ? "" : "s"} are inherited or omitted from this step policy.`
+            )}</p>`
+          : ""
+      }
+    </section>
+  `;
+}
+
 function renderPolicyBlock(title, block) {
   if (!hasDisplayValue(block)) {
     return "";
@@ -337,9 +744,11 @@ function renderPolicyBlock(title, block) {
   `;
 }
 
-function renderPolicyPanel({ title, policy, emptyText = "No policy returned.", compact = false } = {}) {
+function renderPolicyPanel({ title, policy, emptyText = "No policy returned.", compact = false, labelCarriers = [] } = {}) {
   const panelClass = compact ? "policy-panel compact" : "policy-panel";
+  const labels = renderPolicyLabelPills(labelCarriers);
   const highlights = renderPolicyHighlights(policy);
+  const summary = [labels, highlights].filter(Boolean).join("");
 
   if (!hasDisplayValue(policy)) {
     return `
@@ -361,13 +770,53 @@ function renderPolicyPanel({ title, policy, emptyText = "No policy returned.", c
     <section class="${panelClass}">
       <div class="policy-panel-header">
         <strong>${escapeHtml(title)}</strong>
-        ${highlights ? `<div class="lineage-meta">${highlights}</div>` : ""}
+        ${summary ? `<div class="lineage-meta">${summary}</div>` : ""}
       </div>
       <div class="policy-block-list">
         ${blocks || renderPolicyBlock("Policy", policy)}
       </div>
     </section>
   `;
+}
+
+function getPreviewLaunches() {
+  return Array.isArray(state.workflowPreview?.launches) ? state.workflowPreview.launches : [];
+}
+
+function findPreviewLaunchForStep(step, sequence = null) {
+  const launches = getPreviewLaunches();
+  if (!launches.length || !step) {
+    return null;
+  }
+
+  if (step.sessionId) {
+    const bySession = launches.find((launch) => launch?.sessionId && launch.sessionId === step.sessionId);
+    if (bySession) {
+      return bySession;
+    }
+  }
+
+  const sequenceIndex = Number.isFinite(sequence) ? sequence : Number(step.sequence);
+  if (Number.isFinite(sequenceIndex)) {
+    const byIndex = launches[sequenceIndex];
+    if (byIndex && (!step.role || byIndex.role === step.role)) {
+      return byIndex;
+    }
+  }
+
+  const requestedProfile = step.requestedProfileId ?? step.profilePath ?? null;
+  if (requestedProfile) {
+    const byProfile = launches.find(
+      (launch) =>
+        launch?.role === step.role &&
+        (launch?.requestedProfileId === requestedProfile || launch?.profilePath === requestedProfile)
+    );
+    if (byProfile) {
+      return byProfile;
+    }
+  }
+
+  return launches.find((launch) => launch?.role === step.role) ?? null;
 }
 
 function readFirstField(record, keys = []) {
@@ -430,6 +879,89 @@ function renderGuidancePanel({ id = "", title, record, policy, emptyText = "No h
       </div>
     </div>
   `;
+}
+
+function buildDrivePayload({ wait, timeoutInput, intervalInput } = {}) {
+  return {
+    wait: Boolean(wait),
+    timeout: parsePositiveInt(timeoutInput?.value) ?? undefined,
+    interval: parsePositiveInt(intervalInput?.value) ?? undefined
+  };
+}
+
+function getBranchDefinitionsDraft() {
+  const text = String(els.branchDefinitions?.value ?? "").trim();
+  if (!text) {
+    return {
+      hasInput: false,
+      branches: []
+    };
+  }
+
+  const parsed = parseJsonText(text, "Branch specs");
+  if (!Array.isArray(parsed)) {
+    throw new Error("Branch specs must be a JSON array.");
+  }
+  if (parsed.length === 0) {
+    throw new Error("Branch specs must include at least one branch object.");
+  }
+  if (!parsed.every((item) => isObject(item))) {
+    throw new Error("Each branch spec must be a JSON object.");
+  }
+
+  return {
+    hasInput: true,
+    branches: parsed
+  };
+}
+
+function summarizeBranchSpec(branch, index) {
+  const tokens = [];
+  if (hasDisplayValue(branch?.branchKey)) {
+    tokens.push(String(branch.branchKey));
+  } else {
+    tokens.push(`branch-${index + 1}`);
+  }
+  if (Array.isArray(branch?.roles) && branch.roles.length > 0) {
+    tokens.push(branch.roles.join("+"));
+  }
+  if (hasDisplayValue(branch?.domainId)) {
+    tokens.push(`domain=${branch.domainId}`);
+  }
+  if (hasDisplayValue(branch?.objective)) {
+    tokens.push(String(branch.objective));
+  }
+  return tokens.join(" · ");
+}
+
+function updateBranchSpawnControls() {
+  const executionId = state.executionDetail?.execution?.id ?? null;
+  if (!executionId) {
+    els.branchSpawnSummary.textContent =
+      "Provide one or more branch specs to create child executions under the selected execution.";
+    els.branchSpawnButton.disabled = true;
+    return;
+  }
+
+  try {
+    const draft = getBranchDefinitionsDraft();
+    if (!draft.hasInput) {
+      els.branchSpawnSummary.textContent =
+        `Ready to spawn child executions under ${executionId}. Accepted fields include branchKey, roles, objective, domainId, workflowPath, projectPath, invocationId, and maxRoles.`;
+      els.branchSpawnButton.disabled = true;
+      return;
+    }
+
+    const previews = draft.branches.slice(0, 2).map((branch, index) => summarizeBranchSpec(branch, index));
+    const extraCount = Math.max(draft.branches.length - previews.length, 0);
+    els.branchSpawnSummary.textContent = `${draft.branches.length} branch spec${
+      draft.branches.length === 1 ? "" : "s"
+    } ready for ${executionId}: ${previews.join(" | ")}${extraCount ? ` | +${extraCount} more` : ""}`;
+    els.branchSpawnButton.disabled = false;
+  } catch (error) {
+    els.branchSpawnSummary.textContent = error.message;
+    els.branchSpawnButton.disabled = true;
+  }
 }
 
 function getWorkflowRequestPayload() {
@@ -639,8 +1171,311 @@ function renderExecutionMiniCard(execution, { label, selectedId } = {}) {
   `;
 }
 
+function formatStateCountsMap(counts = {}) {
+  if (!isObject(counts)) {
+    return "";
+  }
+
+  return Object.entries(counts)
+    .filter(([, value]) => hasDisplayValue(value))
+    .sort((left, right) => left[0].localeCompare(right[0]))
+    .map(([key, value]) => `${key}:${value}`)
+    .join(" · ");
+}
+
+function getSummaryCount(counts = {}, key) {
+  const value = Number(counts?.[key] ?? 0);
+  return Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+function getWaveEntries(stepSummary = {}) {
+  return Array.isArray(stepSummary?.byWave) ? stepSummary.byWave.filter((entry) => isObject(entry)) : [];
+}
+
+function formatWaveLabel(value) {
+  const wave = Number(value);
+  return Number.isFinite(wave) ? `Wave ${wave + 1}` : "Wave";
+}
+
+function formatWaveGate(gate) {
+  if (!isObject(gate)) {
+    return "all";
+  }
+
+  const mode = normalizeText(gate.mode, "all");
+  const threshold = readFirstField(gate, ["count", "threshold", "minSuccessCount", "successCount"]);
+  return hasDisplayValue(threshold) ? `${mode}:${threshold}` : mode;
+}
+
+function getWaveEntryTone(entry = {}) {
+  const byState = entry.byState ?? {};
+  if (entry.satisfied) {
+    return "settled";
+  }
+  if (getSummaryCount(byState, "review_pending") > 0 || getSummaryCount(byState, "approval_pending") > 0) {
+    return "governance";
+  }
+  if (
+    getSummaryCount(byState, "failed") > 0 ||
+    getSummaryCount(byState, "rejected") > 0 ||
+    getSummaryCount(byState, "stopped") > 0
+  ) {
+    return "failed";
+  }
+  if (getSummaryCount(byState, "active") > 0) {
+    return "running";
+  }
+  return "planned";
+}
+
+function renderWaveSummaryPanel({ title, stepSummary, emptyText = "No wave progression returned.", compact = false } = {}) {
+  const waves = getWaveEntries(stepSummary);
+  const panelClass = compact ? "wave-summary-panel compact" : "wave-summary-panel";
+
+  if (waves.length === 0) {
+    return `
+      <section class="${panelClass}">
+        <div class="policy-panel-header">
+          <strong>${escapeHtml(title)}</strong>
+        </div>
+        <div class="policy-empty">${escapeHtml(emptyText)}</div>
+      </section>
+    `;
+  }
+
+  const settledCount = waves.filter((entry) => entry.satisfied).length;
+  const openCount = Math.max(waves.length - settledCount, 0);
+  const frontier = waves.find((entry) => !entry.satisfied) ?? null;
+
+  return `
+    <section class="${panelClass}">
+      <div class="policy-panel-header">
+        <strong>${escapeHtml(title)}</strong>
+        <div class="lineage-meta">
+          ${renderMetaPill("waves", waves.length)}
+          ${renderMetaPill("settled", settledCount, settledCount > 0 ? "root" : "")}
+          ${renderMetaPill("open", openCount, openCount > 0 ? "governance" : "")}
+          ${
+            frontier
+              ? renderMetaPill("frontier", formatWaveLabel(frontier.wave), getWaveEntryTone(frontier) === "governance" ? "governance" : "inherited")
+              : renderMetaPill("frontier", "settled", "root")
+          }
+        </div>
+      </div>
+      <div class="wave-summary-grid">
+        ${waves
+          .map((entry) => {
+            const tone = getWaveEntryTone(entry);
+            const reviewPending = getSummaryCount(entry.byState, "review_pending");
+            const approvalPending = getSummaryCount(entry.byState, "approval_pending");
+            const stateSummary = formatStateCountsMap(entry.byState);
+            const statusLabel =
+              tone === "settled"
+                ? "settled"
+                : tone === "governance"
+                  ? "governance"
+                  : tone === "failed"
+                    ? "blocked"
+                    : tone === "running"
+                      ? "active"
+                      : "planned";
+            const pillTone =
+              tone === "settled"
+                ? "completed"
+                : tone === "governance"
+                  ? "waiting_review"
+                  : tone === "failed"
+                    ? "failed"
+                    : tone === "running"
+                      ? "active"
+                      : "";
+
+            return `
+              <article class="wave-card ${escapeHtml(tone)}">
+                <div class="wave-card-header">
+                  <strong>${escapeHtml(formatWaveLabel(entry.wave))}</strong>
+                  <span class="pill ${escapeHtml(pillTone)}">${escapeHtml(statusLabel)}</span>
+                </div>
+                <div class="lineage-meta">
+                  ${renderMetaPill("gate", formatWaveGate(entry.gate), tone === "settled" ? "root" : tone === "governance" ? "governance" : "inherited")}
+                  ${renderMetaPill("steps", entry.count)}
+                  ${reviewPending ? renderMetaPill("review", reviewPending, "governance") : ""}
+                  ${approvalPending ? renderMetaPill("approval", approvalPending, "governance") : ""}
+                </div>
+                ${stateSummary ? `<p class="tree-objective">states: ${escapeHtml(stateSummary)}</p>` : ""}
+              </article>
+            `;
+          })
+          .join("")}
+      </div>
+    </section>
+  `;
+}
+
+function summarizeWaveProgress(stepSummary = {}) {
+  const waves = getWaveEntries(stepSummary);
+  if (waves.length === 0) {
+    return "";
+  }
+
+  return waves
+    .map((entry) => {
+      const tone = getWaveEntryTone(entry);
+      const stateSummary = formatStateCountsMap(entry.byState) || `${entry.count} step${entry.count === 1 ? "" : "s"}`;
+      const progress = tone === "settled" ? "settled" : `gate ${formatWaveGate(entry.gate)}`;
+      return `${formatWaveLabel(entry.wave)} ${progress} · ${stateSummary}`;
+    })
+    .join(" | ");
+}
+
+function countTreeGovernanceTargets(treeContext, action) {
+  if (!treeContext?.rows?.length) {
+    return {
+      executionCount: 0,
+      stepCount: 0
+    };
+  }
+
+  const waitingState = action === "approval" ? "waiting_approval" : "waiting_review";
+  const pendingState = action === "approval" ? "approval_pending" : "review_pending";
+  let executionCount = 0;
+  let stepCount = 0;
+
+  for (const row of treeContext.rows) {
+    const rowPendingSteps = getSummaryCount(row.stepSummary?.byState ?? {}, pendingState);
+    if (normalizeText(row.execution?.state) === waitingState || rowPendingSteps > 0) {
+      executionCount += 1;
+    }
+    stepCount += rowPendingSteps;
+  }
+
+  return {
+    executionCount,
+    stepCount
+  };
+}
+
+function collectExecutionTreeRows(node, rows = [], depth = 0, parent = null) {
+  if (!node?.execution) {
+    return rows;
+  }
+
+  const row = {
+    node,
+    execution: node.execution,
+    stepSummary: node.stepSummary ?? {},
+    depth,
+    parent
+  };
+  rows.push(row);
+
+  for (const child of node.children ?? []) {
+    collectExecutionTreeRows(child, rows, depth + 1, row);
+  }
+
+  return rows;
+}
+
+function deriveExecutionTreeContext(detail) {
+  const tree = detail?.tree ?? null;
+  const rootNode = tree?.root ?? null;
+  if (!rootNode?.execution) {
+    return null;
+  }
+
+  const rows = collectExecutionTreeRows(rootNode);
+  const selectedExecutionId = tree?.selectedExecutionId ?? detail?.execution?.id ?? null;
+  const selectedRow =
+    rows.find((row) => row.execution.id === selectedExecutionId) ??
+    rows.find((row) => row.execution.id === detail?.execution?.id) ??
+    rows[0] ??
+    null;
+  const parentRow = selectedRow?.parent ?? null;
+  const childRows = rows.filter((row) => row.parent?.execution?.id === selectedRow?.execution?.id);
+  const siblingRows = rows.filter(
+    (row) =>
+      row.parent?.execution?.id === parentRow?.execution?.id &&
+      row.execution.id !== selectedRow?.execution?.id
+  );
+  const byState = {};
+  let heldCount = 0;
+  let activeCount = 0;
+
+  for (const row of rows) {
+    const state = normalizeText(row.execution?.state, "unknown");
+    byState[state] = (byState[state] ?? 0) + 1;
+    if (["paused", "held"].includes(state)) {
+      heldCount += 1;
+    }
+    if (!["completed", "canceled", "failed", "stopped", "rejected"].includes(state)) {
+      activeCount += 1;
+    }
+  }
+
+  return {
+    tree,
+    rows,
+    rootNode,
+    rootRow: rows[0] ?? null,
+    selectedRow,
+    parentRow,
+    childRows,
+    siblingRows,
+    byState,
+    heldCount,
+    activeCount,
+    executionCount: rows.length,
+    coordinationGroupId: tree?.coordinationGroupId ?? null
+  };
+}
+
+function renderExecutionTreeBranch(node, selectedId, depth = 0) {
+  const execution = node?.execution ?? null;
+  if (!execution) {
+    return "";
+  }
+
+  const stepSummary = node.stepSummary ?? {};
+  const stateSummary = formatStateCountsMap(stepSummary.byState);
+  const waveSummary = summarizeWaveProgress(stepSummary);
+  const waveCount = getWaveEntries(stepSummary).length;
+  const label =
+    depth === 0
+      ? "Root execution"
+      : execution.branchKey
+        ? `Branch ${execution.branchKey}`
+        : "Child execution";
+
+  return `
+    <li class="execution-branch-node">
+      <div class="execution-branch-card depth-${Math.min(depth, 4)}">
+        ${renderExecutionMiniCard(execution, {
+          label,
+          selectedId
+        })}
+        <div class="lineage-meta">
+          ${hasDisplayValue(stepSummary.count) ? renderMetaPill("steps", stepSummary.count) : ""}
+          ${waveCount ? renderMetaPill("waves", waveCount, waveCount > 1 ? "branch" : "") : ""}
+          ${Array.isArray(node.children) && node.children.length ? renderMetaPill("children", node.children.length, "child") : ""}
+          ${depth > 0 ? renderMetaPill("depth", depth) : ""}
+        </div>
+        ${stateSummary ? `<p class="tree-objective">step states: ${escapeHtml(stateSummary)}</p>` : ""}
+        ${waveSummary ? `<p class="tree-objective">waves: ${escapeHtml(waveSummary)}</p>` : ""}
+      </div>
+      ${
+        Array.isArray(node.children) && node.children.length > 0
+          ? `<ul class="execution-branch-children">
+              ${node.children.map((child) => renderExecutionTreeBranch(child, selectedId, depth + 1)).join("")}
+            </ul>`
+          : ""
+      }
+    </li>
+  `;
+}
+
 function renderWorkflowLaunchPreview(launch, index) {
   const roleLabel = launch?.role ? `${launch.role}` : `step-${index + 1}`;
+  const previewPolicy = state.workflowPreview?.effectivePolicy ?? null;
   return `
     <article class="workflow-launch-card">
       <div class="lineage-card-header">
@@ -653,13 +1488,27 @@ function renderWorkflowLaunchPreview(launch, index) {
         <code>attempts=${escapeHtml(String(launch?.maxAttempts ?? 1))}</code>
       </div>
       <div class="lineage-meta">
+        ${renderPolicyLabelPills([launch, launch?.policy])}
         ${renderPolicyHighlights(launch?.policy)}
       </div>
       ${renderPolicyPanel({
         title: `Step Policy ${index + 1}`,
         policy: launch?.policy,
+        labelCarriers: [launch, launch?.policy],
         compact: true,
         emptyText: "No step policy returned."
+      })}
+      ${renderPolicyDiffPanel({
+        title: "Delta vs Effective Policy",
+        baselineTitle: normalizeText(state.workflowPreview?.invocationId, "Preview Effective Policy"),
+        candidateTitle: `${roleLabel} Launch Policy`,
+        baselinePolicy: previewPolicy,
+        candidatePolicy: launch?.policy,
+        baselineCarriers: [state.workflowPreview, previewPolicy, state.workflowPreview?.domain, state.workflowPreview?.project],
+        candidateCarriers: [launch, launch?.policy],
+        compact: true,
+        mode: "delta",
+        emptyText: "No preview effective policy returned for comparison."
       })}
     </article>
   `;
@@ -669,6 +1518,137 @@ function renderExecutionLineageBoard(detail) {
   const execution = detail?.execution;
   if (!execution) {
     return "";
+  }
+
+  const treeContext = deriveExecutionTreeContext(detail);
+  if (treeContext) {
+    const selectedRow = treeContext.selectedRow ?? null;
+    const rootRow = treeContext.rootRow ?? null;
+    const parentRow = treeContext.parentRow ?? null;
+    const childRows = treeContext.childRows ?? [];
+    const siblingRows = treeContext.siblingRows ?? [];
+    const selectedWaveSummary = selectedRow?.stepSummary ?? null;
+    const rootWaveSummary =
+      rootRow?.execution?.id !== selectedRow?.execution?.id ? rootRow?.stepSummary ?? null : null;
+    const lineageId =
+      execution.coordinationGroupId ??
+      (treeContext.executionCount > 1 ? treeContext.coordinationGroupId ?? rootRow?.execution?.id : "standalone");
+
+    return `
+      <section class="lineage-board">
+        <div class="lineage-board-header">
+          <strong>Coordination &amp; Lineage</strong>
+          <span class="muted">${escapeHtml(normalizeText(lineageId, "standalone"))}</span>
+        </div>
+        <div class="lineage-meta">
+          ${renderMetaPill("count", treeContext.executionCount)}
+          ${renderMetaPill("roots", 1, "root")}
+          ${renderMetaPill("children", Math.max(treeContext.executionCount - 1, 0), "child")}
+          ${renderMetaPill("active", treeContext.activeCount)}
+          ${renderMetaPill("held", treeContext.heldCount, "held")}
+        </div>
+        <p class="tree-objective">${escapeHtml(formatStateCountsMap(treeContext.byState) || "No execution states yet.")}</p>
+        ${
+          selectedWaveSummary
+            ? renderWaveSummaryPanel({
+                title: selectedRow?.execution?.id === execution.id ? "Selected Execution Waves" : "Current Execution Waves",
+                stepSummary: selectedWaveSummary,
+                compact: true,
+                emptyText: "No wave summary returned for the selected execution."
+              })
+            : ""
+        }
+        ${
+          rootWaveSummary
+            ? renderWaveSummaryPanel({
+                title: "Root Execution Waves",
+                stepSummary: rootWaveSummary,
+                compact: true,
+                emptyText: "No wave summary returned for the root execution."
+              })
+            : ""
+        }
+        <div class="lineage-board-grid">
+          ${
+            selectedRow
+              ? renderExecutionMiniCard(selectedRow.execution, {
+                  label: selectedRow.parent ? "Current child execution" : "Current root execution",
+                  selectedId: execution.id
+                })
+              : ""
+          }
+          ${
+            parentRow
+              ? renderExecutionMiniCard(parentRow.execution, {
+                  label: "Parent execution",
+                  selectedId: execution.id
+                })
+              : ""
+          }
+          ${
+            rootRow && rootRow.execution.id !== selectedRow?.execution?.id
+              ? renderExecutionMiniCard(rootRow.execution, {
+                  label: "Tree root",
+                  selectedId: execution.id
+                })
+              : ""
+          }
+        </div>
+        ${
+          childRows.length > 0
+            ? `
+              <div class="lineage-cluster">
+                <div class="lineage-cluster-header">
+                  <strong>Child executions</strong>
+                  <span class="muted">${escapeHtml(String(childRows.length))}</span>
+                </div>
+                <div class="lineage-board-grid">
+                  ${childRows
+                    .map((row) =>
+                      renderExecutionMiniCard(row.execution, {
+                        label: row.execution.branchKey ? `Branch ${row.execution.branchKey}` : "Child execution",
+                        selectedId: execution.id
+                      })
+                    )
+                    .join("")}
+                </div>
+              </div>
+            `
+            : ""
+        }
+        ${
+          siblingRows.length > 0
+            ? `
+              <div class="lineage-cluster">
+                <div class="lineage-cluster-header">
+                  <strong>Sibling executions</strong>
+                  <span class="muted">${escapeHtml(String(siblingRows.length))}</span>
+                </div>
+                <div class="lineage-board-grid">
+                  ${siblingRows
+                    .map((row) =>
+                      renderExecutionMiniCard(row.execution, {
+                        label: row.execution.branchKey ? `Branch ${row.execution.branchKey}` : "Sibling execution",
+                        selectedId: execution.id
+                      })
+                    )
+                    .join("")}
+                </div>
+              </div>
+            `
+            : ""
+        }
+        <div class="lineage-cluster">
+          <div class="lineage-cluster-header">
+            <strong>Execution tree</strong>
+            <span class="muted">${escapeHtml(String(treeContext.executionCount))} node${treeContext.executionCount === 1 ? "" : "s"}</span>
+          </div>
+          <ul class="execution-branch-list">
+            ${renderExecutionTreeBranch(treeContext.rootNode, execution.id)}
+          </ul>
+        </div>
+      </section>
+    `;
   }
 
   const groupSummary = detail?.coordinationGroupSummary ?? null;
@@ -805,6 +1785,7 @@ function renderExecutionTree(detail) {
             : "root step";
           const objective = String(step.objective ?? "").trim();
           const stepPolicy = step.policy ?? null;
+          const previewLaunch = findPreviewLaunchForStep(step, step.sequence);
           return `
             <li class="tree-node">
               <div class="tree-row">
@@ -832,8 +1813,37 @@ function renderExecutionTree(detail) {
                 ${renderPolicyPanel({
                   title: `Step ${step.sequence + 1} Policy`,
                   policy: stepPolicy,
+                  labelCarriers: [step, stepPolicy],
                   compact: true,
                   emptyText: "No per-step policy returned."
+                })}
+                ${renderPolicyDiffPanel({
+                  title: "Delta vs Execution Policy",
+                  baselineTitle: `${normalizeText(detail?.execution?.id, "Execution")} Effective Policy`,
+                  candidateTitle: `Step ${step.sequence + 1}`,
+                  baselinePolicy: detail?.execution?.policy ?? null,
+                  candidatePolicy: stepPolicy,
+                  baselineCarriers: [detail?.execution, detail?.execution?.policy],
+                  candidateCarriers: [step, stepPolicy],
+                  compact: true,
+                  mode: "delta",
+                  emptyText: "No persisted execution policy returned for comparison."
+                })}
+                ${renderPolicyDiffPanel({
+                  title: "Drift vs Preview Launch",
+                  baselineTitle: previewLaunch
+                    ? `${normalizeText(previewLaunch?.role, `Preview Step ${step.sequence + 1}`)} Launch Policy`
+                    : "Preview Launch Policy",
+                  candidateTitle: `Step ${step.sequence + 1}`,
+                  baselinePolicy: previewLaunch?.policy ?? null,
+                  candidatePolicy: stepPolicy,
+                  baselineCarriers: [state.workflowPreview, previewLaunch, previewLaunch?.policy],
+                  candidateCarriers: [step, stepPolicy],
+                  compact: true,
+                  mode: "full",
+                  emptyText: previewLaunch
+                    ? "No preview launch policy returned for comparison."
+                    : "Load a workflow preview to compare this step against the planned launch policy."
                 })}
                 ${renderGuidancePanel({
                   title: "Hold / Timeout Guidance",
@@ -877,6 +1887,8 @@ function renderExecutionTimeline(detail) {
     return;
   }
 
+  const treeContext = deriveExecutionTreeContext(detail);
+  const selectedWaveSummary = treeContext?.selectedRow?.stepSummary ?? null;
   const workflowEvents = detail?.events ?? [];
   const rows = [];
   const pushRow = (timestamp, title, meta = "", tone = "neutral", sortBias = 0) => {
@@ -963,8 +1975,27 @@ function renderExecutionTimeline(detail) {
 
   rows.sort((left, right) => (left.ts - right.ts) || (left.sortBias - right.sortBias));
   if (rows.length === 0) {
-    els.executionTimeline.className = "execution-timeline empty-state";
-    els.executionTimeline.textContent = "No timeline events recorded for this execution.";
+    if (!selectedWaveSummary) {
+      els.executionTimeline.className = "execution-timeline empty-state";
+      els.executionTimeline.textContent = "No timeline events recorded for this execution.";
+      return;
+    }
+
+    els.executionTimeline.className = "execution-timeline";
+    els.executionTimeline.innerHTML = `
+      <div class="timeline-summary">
+        <code>0 timeline events</code>
+        <code>state=${escapeHtml(normalizeText(execution.state))}</code>
+        <code>waves=${escapeHtml(String(getWaveEntries(selectedWaveSummary).length))}</code>
+      </div>
+      ${renderWaveSummaryPanel({
+        title: "Wave Progression",
+        stepSummary: selectedWaveSummary,
+        compact: true,
+        emptyText: "No wave progression returned for this execution."
+      })}
+      <div class="detail-card empty-state compact-empty">No timeline events recorded for this execution.</div>
+    `;
     return;
   }
 
@@ -975,7 +2006,22 @@ function renderExecutionTimeline(detail) {
       <code>${escapeHtml(rows.length)} timeline events</code>
       <code>duration=${escapeHtml(duration)}</code>
       <code>state=${escapeHtml(normalizeText(execution.state))}</code>
+      ${
+        selectedWaveSummary
+          ? `<code>waves=${escapeHtml(String(getWaveEntries(selectedWaveSummary).length))}</code>`
+          : ""
+      }
     </div>
+    ${
+      selectedWaveSummary
+        ? renderWaveSummaryPanel({
+            title: "Wave Progression",
+            stepSummary: selectedWaveSummary,
+            compact: true,
+            emptyText: "No wave progression returned for this execution."
+          })
+        : ""
+    }
     <ol class="timeline-list">
       ${rows
         .map(
@@ -1089,7 +2135,7 @@ function renderWorkflowPreview() {
     els.workflowPreviewState.textContent = `plan preview: idle`;
     els.workflowPreview.className = "detail-card empty-state";
     els.workflowPreview.textContent =
-      "Preview a workflow plan to inspect merged policy, launch defaults, and per-step governance before invocation.";
+      "Preview a workflow plan to inspect merged policy, readable launch deltas, and compare it against persisted execution policy before or after invocation.";
     return;
   }
 
@@ -1114,7 +2160,21 @@ function renderWorkflowPreview() {
     ${renderPolicyPanel({
       title: "Effective Policy",
       policy: invocation?.effectivePolicy,
+      labelCarriers: [invocation, invocation?.effectivePolicy, invocation?.domain, invocation?.project],
       emptyText: "No merged execution policy returned."
+    })}
+    ${renderPolicyDiffPanel({
+      title: "Persisted Execution Policy Diff",
+      baselineTitle: state.executionDetail?.execution?.id
+        ? `${state.executionDetail.execution.id} Persisted Policy`
+        : "Select an execution to compare",
+      candidateTitle: `${normalizeText(invocation?.invocationId, "Preview")} Effective Policy`,
+      baselinePolicy: state.executionDetail?.execution?.policy ?? null,
+      candidatePolicy: invocation?.effectivePolicy,
+      baselineCarriers: [state.executionDetail?.execution, state.executionDetail?.execution?.policy],
+      candidateCarriers: [invocation, invocation?.effectivePolicy, invocation?.domain, invocation?.project],
+      mode: "full",
+      emptyText: "Select an execution to compare the current preview against the persisted execution policy."
     })}
     <section class="workflow-launch-section">
       <div class="policy-panel-header">
@@ -1136,20 +2196,79 @@ function renderExecutionDetail() {
   const detail = state.executionDetail;
   const execution = detail?.execution;
   const hasSelection = Boolean(execution);
+  const treeContext = deriveExecutionTreeContext(detail);
   const groupId = execution?.coordinationGroupId ?? null;
   const isInterrupted = execution?.state === "paused" || execution?.state === "held";
-  const childExecutions = detail?.childExecutions ?? [];
+  const childExecutionCount =
+    treeContext?.childRows?.length ??
+    detail?.childExecutions?.length ??
+    execution?.childExecutionIds?.length ??
+    0;
   const groupSummary = detail?.coordinationGroupSummary ?? null;
   const groupMembers = detail?.coordinationGroup ?? groupSummary?.executions ?? [];
+  const groupStateSummary =
+    formatStateCountsMap(treeContext?.byState) ||
+    (groupSummary
+      ? Object.entries(groupSummary.byState ?? {})
+          .map(([key, value]) => `${key}:${value}`)
+          .join(" · ")
+      : "");
+  const groupMemberCount = treeContext?.executionCount ?? groupSummary?.executionCount ?? groupMembers.length;
   const effectivePolicy = execution?.policy ?? null;
+  const treeExecutionCount = treeContext?.executionCount ?? Math.max(groupMemberCount, hasSelection ? 1 : 0);
+  const treeInterruptedCount = treeContext
+    ? treeContext.rows.filter((row) => ["paused", "held"].includes(normalizeText(row.execution?.state))).length
+    : ["paused", "held"].includes(execution?.state)
+      ? 1
+      : 0;
+  const treeRunnableCount = treeContext
+    ? treeContext.rows.filter((row) => {
+        const value = normalizeText(row.execution?.state);
+        return !isTerminalExecutionState(value) && !["paused", "held"].includes(value);
+      }).length
+    : execution && !isTerminalExecutionState(execution.state) && !["paused", "held"].includes(execution.state)
+      ? 1
+      : 0;
+  const treeActiveCount = treeContext
+    ? treeContext.activeCount
+    : execution && !isTerminalExecutionState(execution.state)
+      ? 1
+      : 0;
+  const rootExecutionId = treeContext?.rootRow?.execution?.id ?? execution?.id ?? null;
+  const fallbackByState = {};
+  for (const step of detail?.steps ?? []) {
+    fallbackByState[step.state] = (fallbackByState[step.state] ?? 0) + 1;
+  }
+  const governanceContext =
+    treeContext ??
+    (execution
+      ? {
+          rows: [
+            {
+              execution,
+              stepSummary: {
+                byState: fallbackByState
+              }
+            }
+          ]
+        }
+      : null);
+  const familyReviewPending = countTreeGovernanceTargets(governanceContext, "review");
+  const familyApprovalPending = countTreeGovernanceTargets(governanceContext, "approval");
 
   els.driveButton.disabled = !hasSelection;
   els.driveGroupButton.disabled = !hasSelection || !groupId;
+  els.driveTreeButton.disabled = !hasSelection;
   els.pauseButton.disabled = !hasSelection || isInterrupted;
   els.holdButton.disabled = !hasSelection || execution?.state === "held";
   els.resumeButton.disabled = !hasSelection || !["paused", "held"].includes(execution?.state);
+  els.pauseTreeButton.disabled = !hasSelection || treeRunnableCount === 0;
+  els.holdTreeButton.disabled = !hasSelection || treeRunnableCount === 0;
+  els.resumeTreeButton.disabled = !hasSelection || treeInterruptedCount === 0;
   els.reviewButton.disabled = !hasSelection;
   els.approvalButton.disabled = !hasSelection;
+  els.familyReviewButton.disabled = !hasSelection || familyReviewPending.executionCount === 0;
+  els.familyApprovalButton.disabled = !hasSelection || familyApprovalPending.executionCount === 0;
 
   if (!execution) {
     els.executionDetailSubtitle.textContent = "Select an execution";
@@ -1157,16 +2276,45 @@ function renderExecutionDetail() {
     els.executionDetail.className = "detail-card empty-state";
     els.executionDetail.textContent = state.executionDetailError
       ? `Failed to load execution detail: ${state.executionDetailError}`
-      : "Select an execution to inspect durable orchestration state, step/session lineage, and governance controls.";
+      : "Select an execution to inspect durable orchestration state, policy drift versus preview, step/session lineage, and governance controls.";
     els.executionTree.className = "execution-tree empty-state";
-    els.executionTree.textContent = "Select an execution to load steps.";
+    els.executionTree.textContent = "Select an execution to load the orchestrator tree and step records.";
     els.executionTimeline.className = "execution-timeline empty-state";
     els.executionTimeline.textContent = "Select an execution to load timeline and history.";
     els.decisionLog.innerHTML = `<div class="detail-card empty-state">Select an execution to load review and approval history.</div>`;
     els.executionGuidance.className = "operator-guidance empty-state";
     els.executionGuidance.textContent = "Select an execution to inspect hold ownership and timeout guidance.";
+    els.executionTreeActionSummary.textContent =
+      "Select an execution to target its rooted execution family over the orchestrator tree routes.";
+    els.familyReviewSummary.textContent =
+      "Select an execution to review pending governance across its rooted execution tree.";
+    els.familyApprovalSummary.textContent =
+      "Select an execution to approve pending governance across its rooted execution tree.";
+    updateBranchSpawnControls();
     return;
   }
+
+  els.executionTreeActionSummary.textContent = `${treeExecutionCount} execution${
+    treeExecutionCount === 1 ? "" : "s"
+  } rooted at ${normalizeText(rootExecutionId)} · active ${treeActiveCount} · paused/held ${treeInterruptedCount} · review pending ${
+    familyReviewPending.executionCount
+  } · approval pending ${familyApprovalPending.executionCount}. Tree actions resolve through /tree/* from the selected execution.`;
+  els.familyReviewSummary.textContent =
+    familyReviewPending.executionCount > 0
+      ? `${familyReviewPending.executionCount} execution${
+          familyReviewPending.executionCount === 1 ? "" : "s"
+        } are pending review across ${normalizeText(rootExecutionId)} with ${familyReviewPending.stepCount} review-pending step${
+          familyReviewPending.stepCount === 1 ? "" : "s"
+        }.`
+      : `No pending review targets under ${normalizeText(rootExecutionId)}.`;
+  els.familyApprovalSummary.textContent =
+    familyApprovalPending.executionCount > 0
+      ? `${familyApprovalPending.executionCount} execution${
+          familyApprovalPending.executionCount === 1 ? "" : "s"
+        } are pending approval across ${normalizeText(rootExecutionId)} with ${familyApprovalPending.stepCount} approval-pending step${
+          familyApprovalPending.stepCount === 1 ? "" : "s"
+        }.`
+      : `No pending approval targets under ${normalizeText(rootExecutionId)}.`;
 
   els.executionDetailSubtitle.textContent = `${execution.id} · ${execution.state}`;
   els.executionDetail.className = "detail-card";
@@ -1179,7 +2327,7 @@ function renderExecutionDetail() {
       ${renderExecutionModePills(execution)}
       ${groupId ? renderMetaPill("group", groupId) : ""}
       ${execution.parentExecutionId ? renderMetaPill("parent", execution.parentExecutionId, "child") : ""}
-      ${childExecutions.length ? renderMetaPill("children", childExecutions.length, "child") : ""}
+      ${childExecutionCount ? renderMetaPill("children", childExecutionCount, "child") : ""}
       ${
         execution.heldFromState
           ? renderMetaPill("held-from", execution.heldFromState, execution.state === "held" ? "held" : "")
@@ -1202,24 +2350,20 @@ function renderExecutionDetail() {
       <div><span class="muted">Escalations</span><br /><code>${escapeHtml(String(detail?.escalations?.length ?? 0))}</code></div>
       <div><span class="muted">Coordination Group</span><br /><code>${escapeHtml(normalizeText(groupId))}</code></div>
       <div><span class="muted">Parent Execution</span><br /><code>${escapeHtml(normalizeText(execution.parentExecutionId))}</code></div>
-      <div><span class="muted">Child Executions</span><br /><code>${escapeHtml(String(childExecutions.length || execution.childExecutionIds?.length || 0))}</code></div>
+      <div><span class="muted">Child Executions</span><br /><code>${escapeHtml(String(childExecutionCount))}</code></div>
       <div><span class="muted">Branch Key</span><br /><code>${escapeHtml(normalizeText(execution.branchKey))}</code></div>
       <div><span class="muted">Paused At</span><br /><code>${formatTimestamp(execution.pausedAt)}</code></div>
       <div><span class="muted">Held At</span><br /><code>${formatTimestamp(execution.heldAt)}</code></div>
       <div><span class="muted">Resumed At</span><br /><code>${formatTimestamp(execution.resumedAt)}</code></div>
       <div><span class="muted">Hold Reason</span><br /><code>${escapeHtml(normalizeText(execution.holdReason))}</code></div>
       ${
-        groupSummary
-          ? `<div><span class="muted">Group States</span><br /><code>${escapeHtml(
-              Object.entries(groupSummary.byState ?? {})
-                .map(([key, value]) => `${key}:${value}`)
-                .join(" · ")
-            )}</code></div>`
+        groupStateSummary
+          ? `<div><span class="muted">Group States</span><br /><code>${escapeHtml(groupStateSummary)}</code></div>`
           : ""
       }
       ${
-        groupSummary
-          ? `<div><span class="muted">Group Members</span><br /><code>${escapeHtml(String(groupSummary.executionCount ?? groupMembers.length))}</code></div>`
+        groupMemberCount
+          ? `<div><span class="muted">Group Members</span><br /><code>${escapeHtml(String(groupMemberCount))}</code></div>`
           : ""
       }
       <div class="detail-span"><span class="muted">Objective</span><br /><code>${escapeHtml(normalizeText(execution.objective))}</code></div>
@@ -1227,7 +2371,19 @@ function renderExecutionDetail() {
     ${renderPolicyPanel({
       title: "Effective Policy",
       policy: effectivePolicy,
+      labelCarriers: [execution, effectivePolicy],
       emptyText: "No execution policy was persisted for this run."
+    })}
+    ${renderPolicyDiffPanel({
+      title: "Diff vs Current Preview",
+      baselineTitle: normalizeText(state.workflowPreview?.invocationId, "Preview Effective Policy"),
+      candidateTitle: `${execution.id} Persisted Policy`,
+      baselinePolicy: state.workflowPreview?.effectivePolicy ?? null,
+      candidatePolicy: effectivePolicy,
+      baselineCarriers: [state.workflowPreview, state.workflowPreview?.effectivePolicy, state.workflowPreview?.domain, state.workflowPreview?.project],
+      candidateCarriers: [execution, effectivePolicy],
+      mode: "full",
+      emptyText: "Load a workflow preview to compare the selected execution against a plan preview."
     })}
   `;
 
@@ -1243,6 +2399,7 @@ function renderExecutionDetail() {
   renderExecutionTree(detail);
   renderExecutionTimeline(detail);
   renderDecisionLog(detail);
+  updateBranchSpawnControls();
 }
 
 function renderSessions() {
@@ -1429,35 +2586,17 @@ async function loadExecutionDetail() {
 
   try {
     const executionId = encodeURIComponent(state.selectedExecutionId);
-    const [detailPayload, eventsPayload, escalationsPayload] = await Promise.all([
+    const [detailPayload, eventsPayload, escalationsPayload, treePayload] = await Promise.all([
       api(`/orchestrator/executions/${executionId}`),
       api(`/orchestrator/executions/${executionId}/events`),
-      api(`/orchestrator/executions/${executionId}/escalations`)
+      api(`/orchestrator/executions/${executionId}/escalations`),
+      api(`/orchestrator/executions/${executionId}/tree`).catch(() => null)
     ]);
     const detail = detailPayload.detail ?? null;
     if (detail) {
       detail.events = eventsPayload.events ?? detail.events ?? [];
       detail.escalations = escalationsPayload.escalations ?? detail.escalations ?? [];
-      const followUps = [];
-      followUps.push(
-        api(`/orchestrator/executions/${executionId}/children`).catch(() => null)
-      );
-      if (detail.execution?.coordinationGroupId) {
-        followUps.push(
-          api(`/orchestrator/coordination-groups/${encodeURIComponent(detail.execution.coordinationGroupId)}`).catch(() => null)
-        );
-      } else {
-        followUps.push(Promise.resolve(null));
-      }
-
-      const [childrenPayload, groupPayload] = await Promise.all(followUps);
-      if (childrenPayload?.children) {
-        detail.childExecutions = childrenPayload.children;
-      }
-      if (groupPayload?.detail?.summary) {
-        detail.coordinationGroupSummary = groupPayload.detail.summary;
-        detail.coordinationGroup = groupPayload.detail.summary.executions ?? detail.coordinationGroup ?? [];
-      }
+      detail.tree = treePayload?.tree ?? detail.tree ?? null;
     }
     state.executionDetail = detail;
     state.executionDetailError = null;
@@ -1534,6 +2673,38 @@ async function sendExecutionGroupAction(action, payload = {}) {
     method: "POST",
     body: JSON.stringify(payload)
   });
+  await refresh();
+}
+
+async function sendExecutionTreeAction(action, payload = {}) {
+  if (!state.selectedExecutionId) {
+    return;
+  }
+  await api(`/orchestrator/executions/${encodeURIComponent(state.selectedExecutionId)}/tree/${action}`, {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+  await refresh();
+}
+
+async function sendExecutionBranchSpawn(payload = {}) {
+  if (!state.selectedExecutionId) {
+    return;
+  }
+  const response = await api(`/orchestrator/executions/${encodeURIComponent(state.selectedExecutionId)}/branches`, {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+  const firstCreated = Array.isArray(response?.created) ? response.created[0] : null;
+  const createdExecutionId =
+    firstCreated?.detail?.execution?.id ??
+    firstCreated?.created?.execution?.id ??
+    firstCreated?.invocation?.invocationId ??
+    null;
+  if (createdExecutionId) {
+    state.selectedExecutionId = createdExecutionId;
+    connectExecutionEventStream();
+  }
   await refresh();
 }
 
@@ -1665,11 +2836,14 @@ els.autoRefresh.addEventListener("change", () => {
 els.driveButton.addEventListener("click", async () => {
   els.driveButton.disabled = true;
   try {
-    await sendExecutionAction("drive", {
-      wait: els.driveWait.checked,
-      timeout: parsePositiveInt(els.driveTimeout.value) ?? undefined,
-      interval: parsePositiveInt(els.driveInterval.value) ?? undefined
-    });
+    await sendExecutionAction(
+      "drive",
+      buildDrivePayload({
+        wait: els.driveWait.checked,
+        timeoutInput: els.driveTimeout,
+        intervalInput: els.driveInterval
+      })
+    );
   } catch (error) {
     alert(error.message);
   } finally {
@@ -1680,11 +2854,14 @@ els.driveButton.addEventListener("click", async () => {
 els.driveGroupButton.addEventListener("click", async () => {
   els.driveGroupButton.disabled = true;
   try {
-    await sendExecutionGroupAction("drive", {
-      wait: els.driveWait.checked,
-      timeout: parsePositiveInt(els.driveTimeout.value) ?? undefined,
-      interval: parsePositiveInt(els.driveInterval.value) ?? undefined
-    });
+    await sendExecutionGroupAction(
+      "drive",
+      buildDrivePayload({
+        wait: els.driveWait.checked,
+        timeoutInput: els.driveTimeout,
+        intervalInput: els.driveInterval
+      })
+    );
   } catch (error) {
     alert(error.message);
   } finally {
@@ -1697,6 +2874,14 @@ function buildOperatorStatePayload() {
     by: "operator",
     reason: els.executionOperatorReason.value.trim() || "Operator intervention.",
     comments: els.executionOperatorComments.value.trim()
+  };
+}
+
+function buildResumePayload() {
+  const payload = buildOperatorStatePayload();
+  return {
+    by: payload.by,
+    comments: payload.comments || payload.reason
   };
 }
 
@@ -1725,11 +2910,58 @@ els.holdButton.addEventListener("click", async () => {
 els.resumeButton.addEventListener("click", async () => {
   els.resumeButton.disabled = true;
   try {
-    const payload = buildOperatorStatePayload();
-    await sendExecutionAction("resume", {
-      by: payload.by,
-      comments: payload.comments || payload.reason
-    });
+    await sendExecutionAction("resume", buildResumePayload());
+  } catch (error) {
+    alert(error.message);
+  } finally {
+    renderExecutionDetail();
+  }
+});
+
+els.driveTreeButton.addEventListener("click", async () => {
+  els.driveTreeButton.disabled = true;
+  try {
+    await sendExecutionTreeAction(
+      "drive",
+      buildDrivePayload({
+        wait: els.driveWait.checked,
+        timeoutInput: els.driveTimeout,
+        intervalInput: els.driveInterval
+      })
+    );
+  } catch (error) {
+    alert(error.message);
+  } finally {
+    renderExecutionDetail();
+  }
+});
+
+els.pauseTreeButton.addEventListener("click", async () => {
+  els.pauseTreeButton.disabled = true;
+  try {
+    await sendExecutionTreeAction("pause", buildOperatorStatePayload());
+  } catch (error) {
+    alert(error.message);
+  } finally {
+    renderExecutionDetail();
+  }
+});
+
+els.holdTreeButton.addEventListener("click", async () => {
+  els.holdTreeButton.disabled = true;
+  try {
+    await sendExecutionTreeAction("hold", buildOperatorStatePayload());
+  } catch (error) {
+    alert(error.message);
+  } finally {
+    renderExecutionDetail();
+  }
+});
+
+els.resumeTreeButton.addEventListener("click", async () => {
+  els.resumeTreeButton.disabled = true;
+  try {
+    await sendExecutionTreeAction("resume", buildResumePayload());
   } catch (error) {
     alert(error.message);
   } finally {
@@ -1763,6 +2995,56 @@ els.approvalButton.addEventListener("click", async () => {
   } catch (error) {
     alert(error.message);
   } finally {
+    renderExecutionDetail();
+  }
+});
+
+els.familyReviewButton.addEventListener("click", async () => {
+  els.familyReviewButton.disabled = true;
+  try {
+    await sendExecutionTreeAction("review", {
+      status: els.familyReviewStatus.value,
+      scope: els.familyReviewScope.value,
+      by: normalizeText(els.familyReviewBy.value, "operator"),
+      comments: els.familyReviewComments.value.trim()
+    });
+  } catch (error) {
+    alert(error.message);
+  } finally {
+    renderExecutionDetail();
+  }
+});
+
+els.familyApprovalButton.addEventListener("click", async () => {
+  els.familyApprovalButton.disabled = true;
+  try {
+    await sendExecutionTreeAction("approval", {
+      status: els.familyApprovalStatus.value,
+      scope: els.familyApprovalScope.value,
+      by: normalizeText(els.familyApprovalBy.value, "operator"),
+      comments: els.familyApprovalComments.value.trim()
+    });
+  } catch (error) {
+    alert(error.message);
+  } finally {
+    renderExecutionDetail();
+  }
+});
+
+els.branchSpawnButton.addEventListener("click", async () => {
+  els.branchSpawnButton.disabled = true;
+  try {
+    const draft = getBranchDefinitionsDraft();
+    await sendExecutionBranchSpawn({
+      branches: draft.branches,
+      wait: els.branchSpawnWait.checked,
+      timeout: parsePositiveInt(els.branchTimeout.value) ?? undefined,
+      interval: parsePositiveInt(els.branchInterval.value) ?? undefined
+    });
+  } catch (error) {
+    alert(error.message);
+  } finally {
+    updateBranchSpawnControls();
     renderExecutionDetail();
   }
 });
@@ -1834,6 +3116,10 @@ for (const element of [els.workflowDomain, els.workflowRoles, els.workflowObject
     markWorkflowPreviewStale();
   });
 }
+
+els.branchDefinitions.addEventListener("input", () => {
+  updateBranchSpawnControls();
+});
 
 for (const button of els.tabButtons) {
   button.addEventListener("click", () => setActiveTab(button.dataset.tab));

@@ -1,5 +1,6 @@
 id: docs
 name: Documentation
+policyPacks: [docs-core]
 leadProfile: docs-lead
 defaultBuilderProfile: docs-builder
 defaultScoutProfile: docs-scout
@@ -9,19 +10,6 @@ tools: [docs-kb]
 skills: [technical-writing, information-architecture, indexing]
 workflowDefaults: [research-spike, review-pass]
 workflowPolicy:
-  defaultRoles: [lead, scout, reviewer]
-  stepSoftTimeoutMs: 15000
-  stepHardTimeoutMs: 45000
-  defaultMaxAttempts: 2
-  retryTargetRole: scout
-  resetDescendantSteps: true
   reviewRequired: true
-  approvalRequired: false
-runtimePolicy:
-  sessionModeByRole:
-    lead: persistent
-    scout: ephemeral
-    reviewer: persistent
 docsKbPolicy:
-  resultLimit: 8
-  queryTerms: [documentation, adr, runbook, knowledge]
+  queryTerms: [documentation]

@@ -8,6 +8,7 @@ SPORE configuration is declarative and split by concern.
 - `config/profiles/` role-level defaults
 - `config/teams/` domain team composition
 - `config/workflows/` workflow templates
+- `config/policy-packs/` reusable execution policy presets
 - `config/projects/` project assembly
 - `config/domains/` domain defaults, including domain workflow/runtime/docs-kb policy
 
@@ -28,14 +29,49 @@ Project config composes domains, teams, profile variants, workflow defaults, and
 
 Current policy blocks are:
 
-- `workflowPolicy`: `defaultRoles`, `defaultMaxAttempts`, `maxAttemptsByRole`, `stepSoftTimeoutMs`, `stepHardTimeoutMs`, `reviewRequired`, `approvalRequired`, `retryTargetRole`, `resetDescendantSteps`
+- `workflowPolicy`: `defaultRoles`, `defaultMaxAttempts`, `maxAttemptsByRole`, `stepSoftTimeoutMs`, `stepHardTimeoutMs`, `reviewRequired`, `approvalRequired`, `retryTargetRole`, `resetDescendantSteps`, `reworkStrategy`, `reworkRoles`
 - `runtimePolicy`: `sessionModeByRole`
 - `docsKbPolicy`: `resultLimit`, `queryTerms`, optional `queryTemplate`
 
+Workflow templates may also define:
+
+- `stepSets`: ordered wave definitions, each with a `roles` array, optional `name`, and optional `gate`
+
+Supported wave gate modes are:
+
+- `all`
+- `any`
+- `min_success_count`
+
+Those wave definitions are not merged from domain policy. They live in the workflow template and are translated by the planner into durable per-step `wave` / `waveName` metadata.
+
+## Policy Packs
+
+Policy packs are reusable presets stored in `config/policy-packs/`.
+
+They let SPORE share baseline behavior across domains and projects without copying the same retry, governance, runtime, and retrieval blocks into every domain file.
+
+Typical use:
+
+- `service-core` for backend/service delivery
+- `ui-core` for frontend/browser delivery
+- `cli-core` for CLI-oriented flows
+- `docs-core` for documentation and knowledge work
+
+Project- or domain-specific packs can then layer narrower overrides on top, for example `platform-backend`.
+
 Current merge rules are:
 
+- policy packs listed in domain config and project domain overrides are merged before the raw domain override object,
 - project `activeDomains[]` overrides the matching `config/domains/<id>.yaml` entry,
 - `workflowPolicy.maxAttemptsByRole` merges by role key,
 - `runtimePolicy.sessionModeByRole` merges by role key,
 - `docsKbPolicy.queryTerms` is combined and deduplicated,
 - explicit invocation roles still override `workflowPolicy.defaultRoles`.
+
+The effective precedence is:
+
+1. policy packs
+2. base domain config
+3. project `activeDomains[]` override
+4. explicit invocation arguments

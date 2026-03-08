@@ -48,6 +48,8 @@ const DEFAULT_STEP_HARD_TIMEOUT_MS = 45_000;
 const SETTLED_EXECUTION_STATES = ["waiting_review", "waiting_approval", "completed", "failed", "rejected", "canceled", "paused", "held"];
 const TERMINAL_EXECUTION_STATES = new Set(["completed", "failed", "rejected", "canceled"]);
 const GOVERNANCE_EXECUTION_STATES = new Set(["waiting_review", "waiting_approval"]);
+const ACTIVE_STEP_STATES = new Set(["active", "launching"]);
+const WAVE_SUCCESS_STEP_STATES = new Set(["completed"]);
 
 function runCli(command, args) {
   return new Promise((resolve, reject) => {
@@ -235,6 +237,52 @@ function getStepPolicy(step) {
   return step?.policy ?? {};
 }
 
+function getStepWave(step) {
+  return Number.isInteger(step?.wave) ? step.wave : step?.sequence ?? 0;
+}
+
+function getActiveSteps(steps) {
+  return steps.filter((step) => ACTIVE_STEP_STATES.has(step.state));
+}
+
+function getWaveGate(steps, wave) {
+  const waveStep = steps.find((step) => getStepWave(step) === wave) ?? null;
+  return getStepPolicy(waveStep)?.workflowPolicy?.waveGate ?? { mode: "all" };
+}
+
+function isWaveSatisfied(steps, wave) {
+  const waveSteps = steps.filter((step) => getStepWave(step) === wave);
+  if (waveSteps.length === 0) {
+    return true;
+  }
+  const gate = getWaveGate(steps, wave);
+  const successCount = waveSteps.filter((step) => WAVE_SUCCESS_STEP_STATES.has(step.state)).length;
+  const mode = gate?.mode ?? "all";
+  if (mode === "any") {
+    return successCount >= 1;
+  }
+  if (mode === "min_success_count") {
+    const target = Math.max(1, Number.parseInt(String(gate?.count ?? 1), 10));
+    return successCount >= target;
+  }
+  return successCount >= waveSteps.length;
+}
+
+function getNextLaunchableSteps(steps) {
+  const planned = steps.filter((step) => step.state === "planned");
+  if (planned.length === 0) {
+    return [];
+  }
+  const candidateWaves = [...new Set(planned.map((step) => getStepWave(step)))].sort((left, right) => left - right);
+  for (const wave of candidateWaves) {
+    const lowerWaves = [...new Set(steps.map((step) => getStepWave(step)).filter((value) => value < wave))];
+    if (lowerWaves.every((value) => isWaveSatisfied(steps, value))) {
+      return planned.filter((step) => getStepWave(step) === wave).sort((left, right) => left.sequence - right.sequence);
+    }
+  }
+  return [];
+}
+
 function getExecutionPolicy(execution) {
   return execution?.policy ?? {};
 }
@@ -286,6 +334,43 @@ function selectRetryTargetStep(steps, gateStep, execution) {
     }
   }
   return eligible.find(Boolean) ?? null;
+}
+
+function shouldBranchRework(execution) {
+  return getExecutionPolicy(execution)?.workflowPolicy?.reworkStrategy === "branch";
+}
+
+function deriveReworkRoles(steps, retryTarget, gateStep, execution) {
+  const explicitRoles = getExecutionPolicy(execution)?.workflowPolicy?.reworkRoles ?? [];
+  if (Array.isArray(explicitRoles) && explicitRoles.length > 0) {
+    return explicitRoles;
+  }
+  return steps
+    .filter((step) => step.sequence >= retryTarget.sequence && step.sequence <= gateStep.sequence)
+    .map((step) => step.role)
+    .filter(Boolean);
+}
+
+async function branchForRework(execution, gateStep, retryTarget, payload = {}, options = {}) {
+  const branchRoles = deriveReworkRoles(options.steps ?? [], retryTarget, gateStep, execution);
+  if (branchRoles.length === 0) {
+    throw new Error(`cannot derive rework roles for execution: ${execution.id}`);
+  }
+  const objectiveSuffix = payload.comments ? ` Rework request: ${payload.comments}` : "";
+  return branchExecution(
+    execution.id,
+    {
+      workflowPath: execution.workflowPath,
+      projectPath: execution.projectPath,
+      domainId: execution.domainId ?? null,
+      roles: branchRoles,
+      invocationId: `${execution.id}-rework-${Date.now()}`,
+      objective: `${execution.objective}${objectiveSuffix}`.trim(),
+      branchKey: `${gateStep.role}-rework-${Date.now()}`
+    },
+    options.dbPath ?? DEFAULT_ORCHESTRATOR_DB_PATH,
+    options.sessionDbPath ?? DEFAULT_SESSION_DB_PATH
+  );
 }
 
 function resetDependentSteps(steps, execution, retryTarget, gateStep, reason) {
@@ -440,6 +525,8 @@ export function createExecution(invocation, dbPath = DEFAULT_ORCHESTRATOR_DB_PAT
         type: "workflow.step.planned",
         payload: {
           sequence: step.sequence,
+          wave: step.wave ?? step.sequence,
+          waveName: step.waveName ?? null,
           role: step.role,
           requestedProfileId: step.requestedProfileId,
           sessionMode: step.sessionMode,
@@ -543,6 +630,64 @@ function summarizeCoordinationGroupExecutions(groupId, executions) {
   };
 }
 
+function summarizeStepStates(steps) {
+  const byState = {};
+  const byWave = {};
+  for (const step of steps) {
+    byState[step.state] = (byState[step.state] ?? 0) + 1;
+    const wave = Number.isInteger(step.wave) ? step.wave : 0;
+    if (!byWave[wave]) {
+      byWave[wave] = {
+        wave,
+        gate: getWaveGate(steps, wave),
+        satisfied: false,
+        count: 0,
+        byState: {}
+      };
+    }
+    byWave[wave].count += 1;
+    byWave[wave].byState[step.state] = (byWave[wave].byState[step.state] ?? 0) + 1;
+  }
+  return {
+    count: steps.length,
+    byState,
+    byWave: Object.values(byWave)
+      .map((entry) => ({
+        ...entry,
+        satisfied: isWaveSatisfied(steps, entry.wave)
+      }))
+      .sort((left, right) => left.wave - right.wave)
+  };
+}
+
+function resolveExecutionRoot(db, execution) {
+  let current = execution;
+  while (current?.parentExecutionId) {
+    const parent = getExecution(db, current.parentExecutionId);
+    if (!parent) {
+      break;
+    }
+    current = parent;
+  }
+  return current;
+}
+
+function buildExecutionTreeNode(executionId, executionsById, childrenByParent, stepsByExecutionId) {
+  const execution = executionsById.get(executionId);
+  if (!execution) {
+    return null;
+  }
+  const steps = stepsByExecutionId.get(executionId) ?? [];
+  const children = (childrenByParent.get(executionId) ?? [])
+    .map((childId) => buildExecutionTreeNode(childId, executionsById, childrenByParent, stepsByExecutionId))
+    .filter(Boolean);
+  return {
+    execution,
+    stepSummary: summarizeStepStates(steps),
+    children
+  };
+}
+
 export function listCoordinationGroups(dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
   return withOrchestratorDatabase(dbPath, (db) => {
     const groups = new Map();
@@ -575,6 +720,147 @@ export function getCoordinationGroupDetail(groupId, dbPath = DEFAULT_ORCHESTRATO
       details
     };
   });
+}
+
+export function getExecutionTree(executionId, dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
+  return withOrchestratorDatabase(dbPath, (db) => {
+    const execution = getExecution(db, executionId);
+    if (!execution) {
+      return null;
+    }
+    const root = resolveExecutionRoot(db, execution);
+    const groupId = execution.coordinationGroupId ?? root.coordinationGroupId ?? root.id;
+    const executions = listExecutionGroup(db, groupId);
+    const executionsById = new Map(executions.map((item) => [item.id, item]));
+    const childrenByParent = new Map();
+    const stepsByExecutionId = new Map();
+
+    for (const item of executions) {
+      stepsByExecutionId.set(item.id, listSteps(db, item.id));
+      const parentId = item.parentExecutionId ?? null;
+      if (!parentId) {
+        continue;
+      }
+      if (!childrenByParent.has(parentId)) {
+        childrenByParent.set(parentId, []);
+      }
+      childrenByParent.get(parentId).push(item.id);
+    }
+
+    return {
+      selectedExecutionId: execution.id,
+      rootExecutionId: root.id,
+      coordinationGroupId: groupId,
+      executionCount: executions.length,
+      root: buildExecutionTreeNode(root.id, executionsById, childrenByParent, stepsByExecutionId)
+    };
+  });
+}
+
+export async function driveExecutionTree(executionId, options = {}, dbPath = DEFAULT_ORCHESTRATOR_DB_PATH, sessionDbPath = DEFAULT_SESSION_DB_PATH) {
+  const tree = getExecutionTree(executionId, dbPath);
+  if (!tree) {
+    throw new Error(`execution not found: ${executionId}`);
+  }
+  return driveCoordinationGroup(tree.coordinationGroupId, options, dbPath, sessionDbPath);
+}
+
+function flattenExecutionTree(node, items = [], depth = 0) {
+  if (!node) {
+    return items;
+  }
+  items.push({
+    depth,
+    executionId: node.execution.id,
+    state: node.execution.state
+  });
+  for (const child of node.children ?? []) {
+    flattenExecutionTree(child, items, depth + 1);
+  }
+  return items;
+}
+
+export function applyExecutionTreeAction(executionId, action, payload = {}, dbPath = DEFAULT_ORCHESTRATOR_DB_PATH, sessionDbPath = DEFAULT_SESSION_DB_PATH) {
+  const tree = getExecutionTree(executionId, dbPath);
+  if (!tree) {
+    throw new Error(`execution not found: ${executionId}`);
+  }
+
+  const ordered = flattenExecutionTree(tree.root)
+    .filter((item) => !TERMINAL_EXECUTION_STATES.has(item.state));
+  const executionOrder =
+    action === "resume"
+      ? ordered.sort((left, right) => right.depth - left.depth)
+      : ordered.sort((left, right) => left.depth - right.depth);
+
+  const results = [];
+  for (const item of executionOrder) {
+    if (action === "pause") {
+      results.push(pauseExecution(item.executionId, payload, dbPath, sessionDbPath));
+      continue;
+    }
+    if (action === "hold") {
+      results.push(holdExecution(item.executionId, payload, dbPath, sessionDbPath));
+      continue;
+    }
+    if (action === "resume") {
+      const detail = getExecutionDetail(item.executionId, dbPath, sessionDbPath);
+      if (detail?.execution?.state && ["paused", "held"].includes(detail.execution.state)) {
+        results.push(resumeExecution(item.executionId, payload, dbPath, sessionDbPath));
+      }
+      continue;
+    }
+    throw new Error(`unsupported tree action: ${action}`);
+  }
+
+  return {
+    action,
+    changedExecutionIds: results.map((item) => item.execution.id),
+    tree: getExecutionTree(executionId, dbPath)
+  };
+}
+
+export async function applyExecutionTreeGovernance(executionId, action, payload = {}, dbPath = DEFAULT_ORCHESTRATOR_DB_PATH, sessionDbPath = DEFAULT_SESSION_DB_PATH) {
+  const tree = getExecutionTree(executionId, dbPath);
+  if (!tree) {
+    throw new Error(`execution not found: ${executionId}`);
+  }
+
+  const ordered = flattenExecutionTree(tree.root)
+    .sort((left, right) => right.depth - left.depth);
+  const pending = ordered
+    .map((item) => getExecutionDetail(item.executionId, dbPath, sessionDbPath))
+    .filter(Boolean)
+    .filter((detail) =>
+      action === "review"
+        ? detail.execution.state === "waiting_review" || detail.steps.some((step) => step.state === "review_pending")
+        : detail.execution.state === "waiting_approval" || detail.steps.some((step) => step.state === "approval_pending")
+    );
+
+  const scope = payload.scope === "first-pending" ? "first-pending" : "all-pending";
+  const targets = scope === "first-pending" ? pending.slice(0, 1) : pending;
+  const changedExecutionIds = [];
+
+  for (const detail of targets) {
+    if (action === "review") {
+      await recordReviewDecision(detail.execution.id, payload, dbPath, sessionDbPath);
+      changedExecutionIds.push(detail.execution.id);
+      continue;
+    }
+    if (action === "approval") {
+      await recordApprovalDecision(detail.execution.id, payload, dbPath, sessionDbPath);
+      changedExecutionIds.push(detail.execution.id);
+      continue;
+    }
+    throw new Error(`unsupported tree governance action: ${action}`);
+  }
+
+  return {
+    action,
+    scope,
+    changedExecutionIds,
+    tree: getExecutionTree(executionId, dbPath)
+  };
 }
 
 async function emitBranchEvents(parentExecutionId, childExecutionId, branchKey, dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
@@ -643,6 +929,47 @@ export async function branchExecution(parentExecutionId, payload = {}, dbPath = 
 }
 
 export const forkExecution = branchExecution;
+
+export async function spawnExecutionBranches(executionId, branches = [], options = {}, dbPath = DEFAULT_ORCHESTRATOR_DB_PATH, sessionDbPath = DEFAULT_SESSION_DB_PATH) {
+  if (!Array.isArray(branches) || branches.length === 0) {
+    throw new Error("spawnExecutionBranches requires at least one branch spec");
+  }
+  const created = [];
+  for (let index = 0; index < branches.length; index += 1) {
+    const branch = branches[index] ?? {};
+    const roles = Array.isArray(branch.roles) && branch.roles.length > 0
+      ? branch.roles
+      : null;
+    const result = await branchExecution(executionId, {
+      workflowPath: branch.workflowPath ?? null,
+      projectPath: branch.projectPath ?? null,
+      domainId: branch.domainId ?? null,
+      roles,
+      maxRoles: branch.maxRoles ?? roles?.length ?? 1,
+      invocationId: branch.invocationId ?? `${executionId}-branch-${index + 1}-${Date.now()}`,
+      objective: branch.objective ?? null,
+      branchKey: branch.branchKey ?? `branch-${index + 1}-${Date.now()}`,
+      wait: false
+    }, dbPath, sessionDbPath);
+    created.push(result);
+  }
+
+  const tree = getExecutionTree(executionId, dbPath);
+  if (options.wait === true) {
+    const groupId = tree?.coordinationGroupId ?? executionId;
+    const detail = await driveCoordinationGroup(groupId, options, dbPath, sessionDbPath);
+    return {
+      created,
+      tree: getExecutionTree(executionId, dbPath),
+      detail
+    };
+  }
+
+  return {
+    created,
+    tree
+  };
+}
 
 function assertHoldableExecution(execution, steps, action) {
   if (["completed", "canceled"].includes(execution.state)) {
@@ -799,11 +1126,11 @@ export async function driveCoordinationGroup(groupId, options = {}, dbPath = DEF
 }
 
 function getFirstPlannedStep(steps) {
-  return steps.find((step) => step.state === "planned") ?? null;
+  return getNextLaunchableSteps(steps)[0] ?? null;
 }
 
 function assertNoActiveStep(steps, executionId, action) {
-  const activeStep = steps.find((step) => ["active", "launching"].includes(step.state));
+  const activeStep = steps.find((step) => ACTIVE_STEP_STATES.has(step.state));
   if (activeStep) {
     throw new Error(`cannot ${action} execution with active step: ${executionId}`);
   }
@@ -884,6 +1211,8 @@ async function launchStep(execution, step, options = {}) {
       type: "workflow.step.started",
       payload: {
         sequence: updatedStep.sequence,
+        wave: updatedStep.wave ?? updatedStep.sequence,
+        waveName: updatedStep.waveName ?? null,
         role: updatedStep.role,
         sessionMode: updatedStep.sessionMode,
         attemptCount: updatedStep.attemptCount,
@@ -900,6 +1229,14 @@ async function launchStep(execution, step, options = {}) {
       briefPath
     };
   });
+}
+
+async function launchSteps(execution, steps, options = {}) {
+  const results = [];
+  for (const step of steps) {
+    results.push(await launchStep(execution, step, options));
+  }
+  return results;
 }
 
 function settleStepFromSession(step, session) {
@@ -1022,109 +1359,166 @@ export async function reconcileExecution(executionId, options = {}) {
     return detail;
   }
 
-  const activeStep = detail.steps.find((step) => ["active", "launching"].includes(step.state));
-  if (activeStep) {
-    const session = withSessionDatabase(sessionDbPath, (db) => getSession(db, activeStep.sessionId));
-    await applyActiveStepWatchdog(detail.execution, activeStep, session, options);
-    const settledStep = settleStepFromSession(activeStep, session);
-    if (settledStep) {
-      return withOrchestratorDatabase(dbPath, (db) => {
+  const activeSteps = getActiveSteps(detail.steps);
+  if (activeSteps.length > 0) {
+    const observations = [];
+    for (const activeStep of activeSteps) {
+      const session = withSessionDatabase(sessionDbPath, (db) => getSession(db, activeStep.sessionId));
+      await applyActiveStepWatchdog(detail.execution, activeStep, session, options);
+      observations.push({
+        activeStep,
+        session,
+        settledStep: settleStepFromSession(activeStep, session)
+      });
+    }
+
+    if (observations.some((item) => item.settledStep)) {
+      const updatedDetail = withOrchestratorDatabase(dbPath, (db) => {
         const execution = getExecution(db, executionId);
         const dispatchBlocked = isExecutionDispatchBlocked(execution.state);
-        if (["failed", "stopped"].includes(settledStep.state)) {
-          const retryAllowed = activeStep.attemptCount < activeStep.maxAttempts;
-          if (retryAllowed) {
-            const retriedStep = scheduleRetry(activeStep, execution, settledStep.state);
-            updateStep(db, retriedStep);
-            const runningExecution = transitionExecutionRecord(execution, dispatchBlocked ? execution.state : "running", {
-              currentStepIndex: activeStep.sequence
-            });
-            updateExecution(db, runningExecution);
-            emitWorkflowEvent(db, {
-              executionId,
-              stepId: activeStep.id,
-              sessionId: activeStep.sessionId,
-              type: "workflow.step.retry_scheduled",
+
+        for (const observation of observations) {
+          if (!observation.settledStep) {
+            continue;
+          }
+
+          const { activeStep, settledStep } = observation;
+          if (["failed", "stopped"].includes(settledStep.state)) {
+            const retryAllowed = activeStep.attemptCount < activeStep.maxAttempts;
+            if (retryAllowed) {
+              const retriedStep = scheduleRetry(activeStep, execution, settledStep.state);
+              updateStep(db, retriedStep);
+              emitWorkflowEvent(db, {
+                executionId,
+                stepId: activeStep.id,
+                sessionId: activeStep.sessionId,
+                type: "workflow.step.retry_scheduled",
+                payload: {
+                  reason: settledStep.state,
+                  nextAttempt: retriedStep.attemptCount,
+                  maxAttempts: retriedStep.maxAttempts,
+                  nextSessionId: retriedStep.sessionId
+                }
+              });
+              continue;
+            }
+
+            updateStep(db, settledStep);
+            openEscalation(db, {
+              execution,
+              step: settledStep,
+              sourceStepId: settledStep.id,
+              reason: "retry-exhausted",
               payload: {
-                reason: settledStep.state,
-                nextAttempt: retriedStep.attemptCount,
-                maxAttempts: retriedStep.maxAttempts,
-                nextSessionId: retriedStep.sessionId
+                finalState: settledStep.state,
+                attemptCount: settledStep.attemptCount,
+                maxAttempts: settledStep.maxAttempts
               }
             });
+            emitWorkflowEvent(db, {
+              executionId,
+              stepId: settledStep.id,
+              sessionId: settledStep.sessionId,
+              type: "workflow.step.failed",
+              payload: {
+                finalState: settledStep.state,
+                attemptCount: settledStep.attemptCount,
+                maxAttempts: settledStep.maxAttempts
+              }
+            });
+            const failedExecution = transitionExecutionRecord(execution, "failed", {
+              currentStepIndex: activeStep.sequence
+            });
+            updateExecution(db, failedExecution);
             return getExecutionDetail(executionId, dbPath, sessionDbPath);
           }
+
           updateStep(db, settledStep);
-          openEscalation(db, {
-            execution,
-            step: settledStep,
-            sourceStepId: settledStep.id,
-            reason: "retry-exhausted",
-            payload: {
-              finalState: settledStep.state,
-              attemptCount: settledStep.attemptCount,
-              maxAttempts: settledStep.maxAttempts
-            }
-          });
-          const failedExecution = transitionExecutionRecord(execution, "failed", {
-            currentStepIndex: activeStep.sequence
-          });
-          updateExecution(db, failedExecution);
+          if (settledStep.state === "review_pending") {
+            emitWorkflowEvent(db, {
+              executionId,
+              stepId: settledStep.id,
+              sessionId: settledStep.sessionId,
+              type: "workflow.step.review_pending",
+              payload: {
+                sequence: settledStep.sequence,
+                wave: settledStep.wave ?? settledStep.sequence,
+                role: settledStep.role,
+                dispatchBlocked
+              }
+            });
+            continue;
+          }
+
           emitWorkflowEvent(db, {
             executionId,
             stepId: settledStep.id,
             sessionId: settledStep.sessionId,
-            type: "workflow.step.failed",
+            type: "workflow.step.completed",
             payload: {
-              finalState: settledStep.state,
-              attemptCount: settledStep.attemptCount,
-              maxAttempts: settledStep.maxAttempts
+              sequence: settledStep.sequence,
+              wave: settledStep.wave ?? settledStep.sequence,
+              role: settledStep.role,
+              attemptCount: settledStep.attemptCount
             }
           });
-          return getExecutionDetail(executionId, dbPath, sessionDbPath);
         }
-        updateStep(db, settledStep);
-        if (settledStep.state === "review_pending") {
+
+        const refreshedSteps = listSteps(db, executionId);
+        const remainingActive = getActiveSteps(refreshedSteps);
+        const reviewPendingSteps = refreshedSteps.filter((step) => step.state === "review_pending");
+        if (reviewPendingSteps.length > 0 && remainingActive.length === 0) {
+          const pendingStep = reviewPendingSteps.sort((left, right) => left.sequence - right.sequence)[0];
           const waitingReview = transitionExecutionRecord(
             execution,
             dispatchBlocked ? execution.state : "waiting_review",
             {
-            currentStepIndex: activeStep.sequence,
-            reviewStatus: "pending",
-            approvalStatus: settledStep.approvalRequired ? "pending" : null
+              currentStepIndex: pendingStep.sequence,
+              reviewStatus: "pending",
+              approvalStatus: pendingStep.approvalRequired ? "pending" : null
             }
           );
           updateExecution(db, waitingReview);
-          emitWorkflowEvent(db, {
-            executionId,
-            stepId: settledStep.id,
-            sessionId: settledStep.sessionId,
-            type: "workflow.step.review_pending",
-            payload: {
-              sequence: settledStep.sequence,
-              role: settledStep.role,
-              dispatchBlocked
-            }
-          });
           return getExecutionDetail(executionId, dbPath, sessionDbPath);
         }
-        const completedExecution = transitionExecutionRecord(execution, dispatchBlocked ? execution.state : "running", {
-          currentStepIndex: activeStep.sequence + 1
+
+        const approvalPendingSteps = refreshedSteps.filter((step) => step.state === "approval_pending");
+        if (approvalPendingSteps.length > 0 && remainingActive.length === 0) {
+          const pendingStep = approvalPendingSteps.sort((left, right) => left.sequence - right.sequence)[0];
+          const waitingApproval = transitionExecutionRecord(
+            execution,
+            dispatchBlocked ? execution.state : "waiting_approval",
+            {
+              currentStepIndex: pendingStep.sequence,
+              approvalStatus: "pending"
+            }
+          );
+          updateExecution(db, waitingApproval);
+          return getExecutionDetail(executionId, dbPath, sessionDbPath);
+        }
+
+        const nextLaunchable = getNextLaunchableSteps(refreshedSteps);
+        const runningExecution = transitionExecutionRecord(execution, dispatchBlocked ? execution.state : "running", {
+          currentStepIndex:
+            remainingActive[0]?.sequence ??
+            nextLaunchable[0]?.sequence ??
+            refreshedSteps.length
         });
-        updateExecution(db, completedExecution);
-        emitWorkflowEvent(db, {
-          executionId,
-          stepId: settledStep.id,
-          sessionId: settledStep.sessionId,
-          type: "workflow.step.completed",
-          payload: {
-            sequence: settledStep.sequence,
-            role: settledStep.role,
-            attemptCount: settledStep.attemptCount
-          }
-        });
+        updateExecution(db, runningExecution);
         return getExecutionDetail(executionId, dbPath, sessionDbPath);
       });
+
+      const launchable = getNextLaunchableSteps(updatedDetail.steps);
+      if (launchable.length > 0) {
+        await launchSteps(updatedDetail.execution, launchable, options);
+        return getExecutionDetail(executionId, dbPath, sessionDbPath);
+      }
+      return updatedDetail;
+    }
+    const launchable = getNextLaunchableSteps(detail.steps);
+    if (launchable.length > 0) {
+      await launchSteps(detail.execution, launchable, options);
+      return getExecutionDetail(executionId, dbPath, sessionDbPath);
     }
     return detail;
   }
@@ -1141,8 +1535,8 @@ export async function reconcileExecution(executionId, options = {}) {
     return refreshed;
   }
 
-  const nextStep = getFirstPlannedStep(refreshed.steps);
-  if (!nextStep) {
+  const nextSteps = getNextLaunchableSteps(refreshed.steps);
+  if (nextSteps.length === 0) {
     return withOrchestratorDatabase(dbPath, (db) => {
       const execution = getExecution(db, executionId);
       const completed = transitionExecutionRecord(execution, "completed", {
@@ -1162,7 +1556,7 @@ export async function reconcileExecution(executionId, options = {}) {
     });
   }
 
-  await launchStep(refreshed.execution, nextStep, options);
+  await launchSteps(refreshed.execution, nextSteps, options);
   return getExecutionDetail(executionId, dbPath, sessionDbPath);
 }
 
@@ -1186,8 +1580,9 @@ export async function driveExecution(executionId, options = {}) {
   return detail;
 }
 
-export function recordReviewDecision(executionId, payload, dbPath = DEFAULT_ORCHESTRATOR_DB_PATH, sessionDbPath = DEFAULT_SESSION_DB_PATH) {
-  return withOrchestratorDatabase(dbPath, (db) => {
+export async function recordReviewDecision(executionId, payload, dbPath = DEFAULT_ORCHESTRATOR_DB_PATH, sessionDbPath = DEFAULT_SESSION_DB_PATH) {
+  let branchRequest = null;
+  const detail = withOrchestratorDatabase(dbPath, (db) => {
     const execution = getExecution(db, executionId);
     if (!execution) {
       throw new Error(`execution not found: ${executionId}`);
@@ -1242,6 +1637,38 @@ export function recordReviewDecision(executionId, payload, dbPath = DEFAULT_ORCH
     }
 
     const retryTarget = selectRetryTargetStep(steps, reviewStep, execution);
+
+    if (payload.status === "changes_requested" && retryTarget && retryTarget.attemptCount < retryTarget.maxAttempts && shouldBranchRework(execution)) {
+      const updatedStep = transitionStepRecord(reviewStep, "rejected", {
+        reviewStatus: payload.status,
+        approvalStatus: null
+      });
+      updateStep(db, updatedStep);
+      const updatedExecution = transitionExecutionRecord(execution, "running", {
+        currentStepIndex: retryTarget.sequence,
+        reviewStatus: payload.status,
+        approvalStatus: null
+      });
+      updateExecution(db, updatedExecution);
+      emitWorkflowEvent(db, {
+        executionId,
+        stepId: reviewStep.id,
+        sessionId: reviewStep.sessionId,
+        type: "workflow.review.branch_requested",
+        payload: {
+          retryTargetStepId: retryTarget.id,
+          retryTargetRole: retryTarget.role,
+          branchRoles: deriveReworkRoles(steps, retryTarget, reviewStep, execution)
+        }
+      });
+      branchRequest = {
+        execution,
+        gateStep: reviewStep,
+        retryTarget,
+        steps
+      };
+      return getExecutionDetail(executionId, dbPath, sessionDbPath);
+    }
 
     if (payload.status === "changes_requested" && retryTarget && retryTarget.attemptCount < retryTarget.maxAttempts) {
       const retriedTarget = scheduleRetry(retryTarget, execution, "changes_requested");
@@ -1305,10 +1732,20 @@ export function recordReviewDecision(executionId, payload, dbPath = DEFAULT_ORCH
     });
     return getExecutionDetail(executionId, dbPath, sessionDbPath);
   });
+  if (branchRequest) {
+    await branchForRework(branchRequest.execution, branchRequest.gateStep, branchRequest.retryTarget, payload, {
+      dbPath,
+      sessionDbPath,
+      steps: branchRequest.steps
+    });
+    return getExecutionDetail(executionId, dbPath, sessionDbPath);
+  }
+  return detail;
 }
 
-export function recordApprovalDecision(executionId, payload, dbPath = DEFAULT_ORCHESTRATOR_DB_PATH, sessionDbPath = DEFAULT_SESSION_DB_PATH) {
-  return withOrchestratorDatabase(dbPath, (db) => {
+export async function recordApprovalDecision(executionId, payload, dbPath = DEFAULT_ORCHESTRATOR_DB_PATH, sessionDbPath = DEFAULT_SESSION_DB_PATH) {
+  let branchRequest = null;
+  const detail = withOrchestratorDatabase(dbPath, (db) => {
     const execution = getExecution(db, executionId);
     if (!execution) {
       throw new Error(`execution not found: ${executionId}`);
@@ -1363,6 +1800,36 @@ export function recordApprovalDecision(executionId, payload, dbPath = DEFAULT_OR
     }
 
     const retryTarget = selectRetryTargetStep(steps, approvalStep, execution);
+
+    if (retryTarget && retryTarget.attemptCount < retryTarget.maxAttempts && shouldBranchRework(execution)) {
+      const updatedStep = transitionStepRecord(approvalStep, "rejected", {
+        approvalStatus: payload.status
+      });
+      updateStep(db, updatedStep);
+      const updatedExecution = transitionExecutionRecord(execution, "running", {
+        currentStepIndex: retryTarget.sequence,
+        approvalStatus: payload.status
+      });
+      updateExecution(db, updatedExecution);
+      emitWorkflowEvent(db, {
+        executionId,
+        stepId: approvalStep.id,
+        sessionId: approvalStep.sessionId,
+        type: "workflow.approval.branch_requested",
+        payload: {
+          retryTargetStepId: retryTarget.id,
+          retryTargetRole: retryTarget.role,
+          branchRoles: deriveReworkRoles(steps, retryTarget, approvalStep, execution)
+        }
+      });
+      branchRequest = {
+        execution,
+        gateStep: approvalStep,
+        retryTarget,
+        steps
+      };
+      return getExecutionDetail(executionId, dbPath, sessionDbPath);
+    }
 
     if (retryTarget && retryTarget.attemptCount < retryTarget.maxAttempts) {
       const retriedTarget = scheduleRetry(retryTarget, execution, "approval_rejected");
@@ -1424,6 +1891,15 @@ export function recordApprovalDecision(executionId, payload, dbPath = DEFAULT_OR
     });
     return getExecutionDetail(executionId, dbPath, sessionDbPath);
   });
+  if (branchRequest) {
+    await branchForRework(branchRequest.execution, branchRequest.gateStep, branchRequest.retryTarget, payload, {
+      dbPath,
+      sessionDbPath,
+      steps: branchRequest.steps
+    });
+    return getExecutionDetail(executionId, dbPath, sessionDbPath);
+  }
+  return detail;
 }
 
 export function resolveExecutionEscalation(executionId, escalationId, payload = {}, dbPath = DEFAULT_ORCHESTRATOR_DB_PATH, sessionDbPath = DEFAULT_SESSION_DB_PATH) {
