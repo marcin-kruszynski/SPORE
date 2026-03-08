@@ -74,8 +74,18 @@
             <input id="workflow-roles" type="text" value="lead" placeholder="lead,scout,builder" />
             <label class="form-label" for="workflow-objective">Objective</label>
             <textarea id="workflow-objective" rows="5" placeholder="Describe the workflow objective"></textarea>
-            <button type="submit" id="workflow-button" class="primary-button">Invoke Workflow</button>
+            <div class="control-row">
+              <button type="button" id="workflow-preview-button" class="secondary-button">Preview Plan</button>
+              <button type="submit" id="workflow-button" class="primary-button">Invoke Workflow</button>
+            </div>
           </form>
+          <div class="panel-header nested">
+            <h3>Workflow Plan Preview</h3>
+            <span id="workflow-preview-state" class="muted">plan preview: idle</span>
+          </div>
+          <div id="workflow-preview" class="detail-card empty-state">
+            Preview a workflow plan to inspect merged policy, launch defaults, and per-step governance before invocation.
+          </div>
         </section>
 
         <section class="panel detail-panel">
@@ -119,6 +129,9 @@
               <input id="execution-operator-reason" type="text" value="Operator intervention." placeholder="Operator intervention." />
               <label class="form-label" for="execution-operator-comments">Comments</label>
               <textarea id="execution-operator-comments" rows="3" placeholder="Optional pause, hold, or resume notes"></textarea>
+              <div id="execution-guidance" class="operator-guidance empty-state">
+                Select an execution to inspect hold ownership and timeout guidance.
+              </div>
             </article>
 
             <div class="decision-grid">

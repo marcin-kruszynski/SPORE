@@ -64,12 +64,18 @@ That policy currently affects:
 
 - default role selection,
 - per-role and default `maxAttempts`,
+- policy-selected retry target role and downstream reset behavior after rework,
 - reviewer-step `reviewRequired` and `approvalRequired` defaults,
 - step watchdog `stepSoftTimeoutMs` and `stepHardTimeoutMs`,
 - per-role `sessionMode`,
 - docs-kb startup retrieval query terms and result limit.
 
 The orchestrator persists both the execution-level merged policy and the per-step launch policy so later drive, review, approval, and recovery behavior can use the same durable defaults.
+
+That now includes:
+
+- `workflowPolicy.retryTargetRole` so rework can jump back to a domain-chosen step instead of always retrying the last non-review step,
+- `workflowPolicy.resetDescendantSteps` so downstream implementation and validation steps can be re-planned when an earlier step is selected for rework.
 
 ## Durable Execution Shape
 
@@ -88,6 +94,7 @@ The next layer now being encoded into the model is:
 - explicit parent-child execution lineage,
 - branch-aware execution variants created by retry, rework, or operator-directed fork paths,
 - non-terminal operator states such as `paused` and `held`.
+- additive hold metadata such as owner, guidance, and expiry timestamp.
 
 ## Coordination Groups
 

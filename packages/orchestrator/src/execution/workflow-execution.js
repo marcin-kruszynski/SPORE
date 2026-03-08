@@ -195,6 +195,9 @@ function holdExecutionRecord(execution, reason, nextState = "held") {
   return transitionExecutionRecord(execution, nextState, {
     heldFromState: nextState === "held" ? execution.state : execution.heldFromState,
     holdReason: reason,
+    holdOwner: execution.holdOwner,
+    holdGuidance: execution.holdGuidance,
+    holdExpiresAt: execution.holdExpiresAt,
     pausedAt: nextState === "paused" ? new Date().toISOString() : null,
     heldAt: nextState === "held" ? new Date().toISOString() : execution.heldAt,
     resumedAt: execution.resumedAt
@@ -206,6 +209,9 @@ function resumeExecutionRecord(execution) {
   return transitionExecutionRecord(execution, resumedState, {
     heldFromState: null,
     holdReason: null,
+    holdOwner: null,
+    holdGuidance: null,
+    holdExpiresAt: null,
     pausedAt: null,
     heldAt: null,
     resumedAt: new Date().toISOString(),
@@ -243,6 +249,70 @@ function resolveWatchdogThreshold(options, execution, step, key, fallback) {
     ),
     10
   );
+}
+
+function buildHoldMetadata(execution, payload = {}, nextState = "held") {
+  const timeoutMs = payload.timeoutMs ? Number.parseInt(String(payload.timeoutMs), 10) : null;
+  const now = Date.now();
+  return {
+    heldFromState: execution.state,
+    holdReason: payload.reason ?? (nextState === "paused" ? "execution paused" : "operator hold"),
+    holdOwner: payload.owner ?? payload.decidedBy ?? "operator",
+    holdGuidance: payload.guidance ?? payload.comments ?? null,
+    holdExpiresAt: timeoutMs && timeoutMs > 0 ? new Date(now + timeoutMs).toISOString() : null,
+    pausedAt: nextState === "paused" ? new Date(now).toISOString() : null,
+    heldAt: nextState === "held" ? new Date(now).toISOString() : execution.heldAt,
+    endedAt: null
+  };
+}
+
+function hasExpiredHold(execution) {
+  if (!execution?.holdExpiresAt || execution.state !== "held") {
+    return false;
+  }
+  const expiresAt = Date.parse(execution.holdExpiresAt);
+  return Number.isFinite(expiresAt) && expiresAt <= Date.now();
+}
+
+function selectRetryTargetStep(steps, gateStep, execution) {
+  const preferredRole = getExecutionPolicy(execution)?.workflowPolicy?.retryTargetRole ?? null;
+  const eligible = [...steps]
+    .filter((step) => step.sequence < gateStep.sequence && !step.reviewRequired)
+    .reverse();
+  if (preferredRole) {
+    const preferred = eligible.find((step) => step.role === preferredRole);
+    if (preferred) {
+      return preferred;
+    }
+  }
+  return eligible.find(Boolean) ?? null;
+}
+
+function resetDependentSteps(steps, execution, retryTarget, gateStep, reason) {
+  const resetDescendants = getExecutionPolicy(execution)?.workflowPolicy?.resetDescendantSteps ?? false;
+  if (!resetDescendants) {
+    return [];
+  }
+  return steps
+    .filter(
+      (step) =>
+        step.sequence > retryTarget.sequence &&
+        step.sequence < gateStep.sequence &&
+        !step.reviewRequired
+    )
+    .map((step) => {
+      const nextAttempt = step.attemptCount + 1;
+      return transitionStepRecord(step, "planned", {
+        attemptCount: nextAttempt,
+        maxAttempts: Math.max(step.maxAttempts, nextAttempt),
+        sessionId: buildRetriedSessionId(execution, step, nextAttempt),
+        lastError: reason,
+        reviewStatus: step.reviewRequired ? "pending" : step.reviewStatus,
+        approvalStatus: step.approvalRequired ? "pending" : step.approvalStatus,
+        launchedAt: null,
+        settledAt: null
+      });
+    });
 }
 
 async function hasControlAction(sessionId, action, source = "orchestrator") {
@@ -592,12 +662,7 @@ export function holdExecution(executionId, payload = {}, dbPath = DEFAULT_ORCHES
     if (execution.state === "held") {
       return getExecutionDetail(executionId, dbPath, sessionDbPath);
     }
-    const heldExecution = transitionExecutionRecord(execution, "held", {
-      heldFromState: execution.state,
-      holdReason: payload.reason ?? "operator hold",
-      heldAt: new Date().toISOString(),
-      endedAt: null
-    });
+    const heldExecution = transitionExecutionRecord(execution, "held", buildHoldMetadata(execution, payload, "held"));
     updateExecution(db, heldExecution);
     emitWorkflowEvent(db, {
       executionId,
@@ -605,7 +670,10 @@ export function holdExecution(executionId, payload = {}, dbPath = DEFAULT_ORCHES
       payload: {
         decidedBy: payload.decidedBy ?? "operator",
         reason: heldExecution.holdReason,
-        heldFromState: execution.state
+        heldFromState: execution.state,
+        holdOwner: heldExecution.holdOwner,
+        holdGuidance: heldExecution.holdGuidance,
+        holdExpiresAt: heldExecution.holdExpiresAt
       }
     });
     return getExecutionDetail(executionId, dbPath, sessionDbPath);
@@ -623,12 +691,7 @@ export function pauseExecution(executionId, payload = {}, dbPath = DEFAULT_ORCHE
     if (execution.state === "paused") {
       return getExecutionDetail(executionId, dbPath, sessionDbPath);
     }
-    const pausedExecution = transitionExecutionRecord(execution, "paused", {
-      heldFromState: execution.state,
-      holdReason: payload.reason ?? "execution paused",
-      pausedAt: new Date().toISOString(),
-      endedAt: null
-    });
+    const pausedExecution = transitionExecutionRecord(execution, "paused", buildHoldMetadata(execution, payload, "paused"));
     updateExecution(db, pausedExecution);
     emitWorkflowEvent(db, {
       executionId,
@@ -636,7 +699,10 @@ export function pauseExecution(executionId, payload = {}, dbPath = DEFAULT_ORCHE
       payload: {
         decidedBy: payload.decidedBy ?? "operator",
         reason: pausedExecution.holdReason,
-        pausedFromState: execution.state
+        pausedFromState: execution.state,
+        holdOwner: pausedExecution.holdOwner,
+        holdGuidance: pausedExecution.holdGuidance,
+        holdExpiresAt: pausedExecution.holdExpiresAt
       }
     });
     return getExecutionDetail(executionId, dbPath, sessionDbPath);
@@ -667,6 +733,9 @@ export function resumeExecution(executionId, payload = {}, dbPath = DEFAULT_ORCH
     const resumedExecution = transitionExecutionRecord(execution, nextState, {
       heldFromState: null,
       holdReason: null,
+      holdOwner: null,
+      holdGuidance: null,
+      holdExpiresAt: null,
       pausedAt: null,
       heldAt: null,
       resumedAt: new Date().toISOString(),
@@ -682,7 +751,9 @@ export function resumeExecution(executionId, payload = {}, dbPath = DEFAULT_ORCH
         decidedBy: payload.decidedBy ?? "operator",
         resumedFromState: execution.state,
         nextState,
-        reason: payload.reason ?? payload.comments ?? "operator resume"
+        reason: payload.reason ?? payload.comments ?? "operator resume",
+        previousHoldOwner: execution.holdOwner,
+        previousHoldExpiresAt: execution.holdExpiresAt
       }
     });
     return getExecutionDetail(executionId, dbPath, sessionDbPath);
@@ -892,6 +963,39 @@ function reconcileCoordinationState(db, execution) {
   return execution;
 }
 
+function reconcileExpiredHold(db, execution) {
+  if (!hasExpiredHold(execution)) {
+    return execution;
+  }
+  const alreadyOpen = listEscalations(db, execution.id).some(
+    (escalation) => escalation.status === "open" && escalation.reason === "hold-expired"
+  );
+  if (!alreadyOpen) {
+    openEscalation(db, {
+      execution,
+      sourceStepId: null,
+      reason: "hold-expired",
+      payload: {
+        holdReason: execution.holdReason,
+        holdOwner: execution.holdOwner,
+        holdGuidance: execution.holdGuidance,
+        holdExpiresAt: execution.holdExpiresAt
+      }
+    });
+    emitWorkflowEvent(db, {
+      executionId: execution.id,
+      type: "workflow.execution.hold_expired",
+      payload: {
+        holdReason: execution.holdReason,
+        holdOwner: execution.holdOwner,
+        holdGuidance: execution.holdGuidance,
+        holdExpiresAt: execution.holdExpiresAt
+      }
+    });
+  }
+  return execution;
+}
+
 export async function reconcileExecution(executionId, options = {}) {
   const dbPath = options.dbPath ?? DEFAULT_ORCHESTRATOR_DB_PATH;
   const sessionDbPath = options.sessionDbPath ?? DEFAULT_SESSION_DB_PATH;
@@ -904,7 +1008,8 @@ export async function reconcileExecution(executionId, options = {}) {
   withOrchestratorDatabase(dbPath, (db) => {
     const execution = getExecution(db, executionId);
     if (execution) {
-      reconcileCoordinationState(db, execution);
+      const coordinated = reconcileCoordinationState(db, execution);
+      reconcileExpiredHold(db, coordinated);
     }
   });
 
@@ -1136,15 +1241,16 @@ export function recordReviewDecision(executionId, payload, dbPath = DEFAULT_ORCH
       return getExecutionDetail(executionId, dbPath, sessionDbPath);
     }
 
-    const retryTarget = [...steps]
-      .filter((step) => step.sequence < reviewStep.sequence && !step.reviewRequired)
-      .reverse()
-      .find(Boolean);
+    const retryTarget = selectRetryTargetStep(steps, reviewStep, execution);
 
     if (payload.status === "changes_requested" && retryTarget && retryTarget.attemptCount < retryTarget.maxAttempts) {
       const retriedTarget = scheduleRetry(retryTarget, execution, "changes_requested");
+      const resetSteps = resetDependentSteps(steps, execution, retriedTarget, reviewStep, "changes_requested");
       const resetReviewStep = resetReviewGateStep(reviewStep, execution);
       updateStep(db, retriedTarget);
+      for (const resetStep of resetSteps) {
+        updateStep(db, resetStep);
+      }
       updateStep(db, resetReviewStep);
       const updatedExecution = transitionExecutionRecord(execution, "running", {
         currentStepIndex: retriedTarget.sequence,
@@ -1161,7 +1267,8 @@ export function recordReviewDecision(executionId, payload, dbPath = DEFAULT_ORCH
           retryTargetStepId: retriedTarget.id,
           retryTargetRole: retriedTarget.role,
           nextAttempt: retriedTarget.attemptCount,
-          nextSessionId: retriedTarget.sessionId
+          nextSessionId: retriedTarget.sessionId,
+          resetStepIds: resetSteps.map((step) => step.id)
         }
       });
       return getExecutionDetail(executionId, dbPath, sessionDbPath);
@@ -1255,15 +1362,16 @@ export function recordApprovalDecision(executionId, payload, dbPath = DEFAULT_OR
       return getExecutionDetail(executionId, dbPath, sessionDbPath);
     }
 
-    const retryTarget = [...steps]
-      .filter((step) => step.sequence < approvalStep.sequence && !step.reviewRequired)
-      .reverse()
-      .find(Boolean);
+    const retryTarget = selectRetryTargetStep(steps, approvalStep, execution);
 
     if (retryTarget && retryTarget.attemptCount < retryTarget.maxAttempts) {
       const retriedTarget = scheduleRetry(retryTarget, execution, "approval_rejected");
+      const resetSteps = resetDependentSteps(steps, execution, retriedTarget, approvalStep, "approval_rejected");
       const resetApprovalStep = resetReviewGateStep(approvalStep, execution);
       updateStep(db, retriedTarget);
+      for (const resetStep of resetSteps) {
+        updateStep(db, resetStep);
+      }
       updateStep(db, resetApprovalStep);
       const updatedExecution = transitionExecutionRecord(execution, "running", {
         currentStepIndex: retriedTarget.sequence,
@@ -1279,7 +1387,8 @@ export function recordApprovalDecision(executionId, payload, dbPath = DEFAULT_OR
           retryTargetStepId: retriedTarget.id,
           retryTargetRole: retriedTarget.role,
           nextAttempt: retriedTarget.attemptCount,
-          nextSessionId: retriedTarget.sessionId
+          nextSessionId: retriedTarget.sessionId,
+          resetStepIds: resetSteps.map((step) => step.id)
         }
       });
       return getExecutionDetail(executionId, dbPath, sessionDbPath);

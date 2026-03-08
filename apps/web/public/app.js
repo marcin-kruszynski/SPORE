@@ -10,6 +10,10 @@ const state = {
   executionDetail: null,
   executionListError: null,
   executionDetailError: null,
+  workflowPreview: null,
+  workflowPreviewError: null,
+  workflowPreviewDirty: false,
+  workflowPreviewSource: null,
   autoRefreshTimer: null,
   eventSource: null,
   executionEventSource: null,
@@ -39,6 +43,7 @@ const els = {
   resumeButton: document.getElementById("resume-button"),
   executionOperatorReason: document.getElementById("execution-operator-reason"),
   executionOperatorComments: document.getElementById("execution-operator-comments"),
+  executionGuidance: document.getElementById("execution-guidance"),
   reviewStatus: document.getElementById("review-status"),
   reviewBy: document.getElementById("review-by"),
   reviewComments: document.getElementById("review-comments"),
@@ -66,6 +71,9 @@ const els = {
   workflowDomain: document.getElementById("workflow-domain"),
   workflowRoles: document.getElementById("workflow-roles"),
   workflowObjective: document.getElementById("workflow-objective"),
+  workflowPreviewButton: document.getElementById("workflow-preview-button"),
+  workflowPreviewState: document.getElementById("workflow-preview-state"),
+  workflowPreview: document.getElementById("workflow-preview"),
   workflowButton: document.getElementById("workflow-button"),
   executionStreamState: document.getElementById("execution-stream-state"),
   tabButtons: Array.from(document.querySelectorAll("[data-tab]")),
@@ -97,6 +105,57 @@ function normalizeText(value, fallback = "-") {
 function parsePositiveInt(value) {
   const parsed = Number.parseInt(String(value ?? ""), 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function isObject(value) {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function hasDisplayValue(value) {
+  if (value === null || value === undefined) {
+    return false;
+  }
+  if (typeof value === "string") {
+    return value.trim().length > 0;
+  }
+  if (Array.isArray(value)) {
+    return value.some((item) => hasDisplayValue(item));
+  }
+  if (isObject(value)) {
+    return Object.values(value).some((item) => hasDisplayValue(item));
+  }
+  return true;
+}
+
+function humanizeKey(value) {
+  return String(value ?? "")
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function formatPolicyValue(value) {
+  if (!hasDisplayValue(value)) {
+    return "-";
+  }
+  if (typeof value === "boolean") {
+    return value ? "yes" : "no";
+  }
+  if (Array.isArray(value)) {
+    return value
+      .filter((item) => hasDisplayValue(item))
+      .map((item) => formatPolicyValue(item))
+      .join(", ");
+  }
+  if (isObject(value)) {
+    return Object.entries(value)
+      .filter(([, item]) => hasDisplayValue(item))
+      .map(([key, item]) => `${key}=${formatPolicyValue(item)}`)
+      .join(" · ");
+  }
+  return String(value);
 }
 
 function formatTimestamp(value) {
@@ -202,6 +261,205 @@ function renderExecutionModePills(execution) {
     pills.push(renderMetaPill("root", execution.coordinationGroupId, "root"));
   }
   return pills.join("");
+}
+
+function renderPolicyHighlights(policy) {
+  if (!hasDisplayValue(policy)) {
+    return "";
+  }
+
+  const workflowPolicy = policy?.workflowPolicy ?? {};
+  const runtimePolicy = policy?.runtimePolicy ?? {};
+  const docsKbPolicy = policy?.docsKbPolicy ?? {};
+  const governance = policy?.governance ?? {};
+  const pills = [];
+
+  const attempts = workflowPolicy.maxAttempts ?? workflowPolicy.defaultMaxAttempts;
+  if (hasDisplayValue(attempts)) {
+    pills.push(renderMetaPill("attempts", attempts));
+  }
+  if (hasDisplayValue(workflowPolicy.stepSoftTimeoutMs)) {
+    pills.push(renderMetaPill("soft", `${workflowPolicy.stepSoftTimeoutMs}ms`, "paused"));
+  }
+  if (hasDisplayValue(workflowPolicy.stepHardTimeoutMs)) {
+    pills.push(renderMetaPill("hard", `${workflowPolicy.stepHardTimeoutMs}ms`, "held"));
+  }
+  if (hasDisplayValue(runtimePolicy.sessionMode)) {
+    pills.push(renderMetaPill("mode", runtimePolicy.sessionMode));
+  } else if (isObject(runtimePolicy.sessionModeByRole) && Object.keys(runtimePolicy.sessionModeByRole).length > 0) {
+    pills.push(renderMetaPill("modes", Object.keys(runtimePolicy.sessionModeByRole).length));
+  }
+  if (hasDisplayValue(docsKbPolicy.resultLimit)) {
+    pills.push(renderMetaPill("docs", docsKbPolicy.resultLimit));
+  }
+  if (hasDisplayValue(governance.reviewRequired)) {
+    pills.push(renderMetaPill("review", governance.reviewRequired ? "required" : "optional", "governance"));
+  }
+  if (hasDisplayValue(governance.approvalRequired)) {
+    pills.push(renderMetaPill("approval", governance.approvalRequired ? "required" : "optional", "governance"));
+  }
+
+  return pills.join("");
+}
+
+function renderPolicyBlock(title, block) {
+  if (!hasDisplayValue(block)) {
+    return "";
+  }
+
+  const entries = isObject(block)
+    ? Object.entries(block).filter(([, value]) => hasDisplayValue(value))
+    : [["value", block]];
+
+  if (entries.length === 0) {
+    return "";
+  }
+
+  return `
+    <article class="policy-block">
+      <div class="policy-block-header">
+        <strong>${escapeHtml(title)}</strong>
+        <span class="muted">${escapeHtml(String(entries.length))} field${entries.length === 1 ? "" : "s"}</span>
+      </div>
+      <div class="policy-grid">
+        ${entries
+          .map(
+            ([key, value]) => `
+              <div class="policy-item">
+                <span class="muted">${escapeHtml(humanizeKey(key))}</span>
+                <code>${escapeHtml(formatPolicyValue(value))}</code>
+              </div>
+            `
+          )
+          .join("")}
+      </div>
+    </article>
+  `;
+}
+
+function renderPolicyPanel({ title, policy, emptyText = "No policy returned.", compact = false } = {}) {
+  const panelClass = compact ? "policy-panel compact" : "policy-panel";
+  const highlights = renderPolicyHighlights(policy);
+
+  if (!hasDisplayValue(policy)) {
+    return `
+      <section class="${panelClass}">
+        <div class="policy-panel-header">
+          <strong>${escapeHtml(title)}</strong>
+        </div>
+        <div class="policy-empty">${escapeHtml(emptyText)}</div>
+      </section>
+    `;
+  }
+
+  const blocks = Object.entries(policy)
+    .filter(([, value]) => hasDisplayValue(value))
+    .map(([key, value]) => renderPolicyBlock(humanizeKey(key), value))
+    .join("");
+
+  return `
+    <section class="${panelClass}">
+      <div class="policy-panel-header">
+        <strong>${escapeHtml(title)}</strong>
+        ${highlights ? `<div class="lineage-meta">${highlights}</div>` : ""}
+      </div>
+      <div class="policy-block-list">
+        ${blocks || renderPolicyBlock("Policy", policy)}
+      </div>
+    </section>
+  `;
+}
+
+function readFirstField(record, keys = []) {
+  for (const key of keys) {
+    if (hasDisplayValue(record?.[key])) {
+      return record[key];
+    }
+  }
+  return null;
+}
+
+function collectGuidanceItems(record = {}, policy = null) {
+  const items = [];
+  const push = (label, value, tone = "") => {
+    if (hasDisplayValue(value)) {
+      items.push({ label, value, tone });
+    }
+  };
+
+  push("Hold Owner", readFirstField(record, ["holdOwner", "holdOwnerId", "heldBy", "owner"]));
+  push("Ownership Scope", readFirstField(record, ["holdOwnerRole", "ownerRole", "ownerType", "ownerScope"]));
+  push("Hold Timeout At", readFirstField(record, ["holdTimeoutAt", "timeoutAt", "deadlineAt", "heldUntil", "resumeBy"]), "paused");
+  push("Hold Timeout Ms", readFirstField(record, ["holdTimeoutMs", "timeoutMs", "deadlineMs"]), "paused");
+  push(
+    "Operator Guidance",
+    readFirstField(record, ["operatorGuidance", "holdGuidance", "timeoutGuidance", "guidance", "recoveryGuidance"])
+  );
+
+  const workflowPolicy = policy?.workflowPolicy ?? {};
+  push("Policy Soft Timeout", hasDisplayValue(workflowPolicy.stepSoftTimeoutMs) ? `${workflowPolicy.stepSoftTimeoutMs} ms` : null, "paused");
+  push("Policy Hard Timeout", hasDisplayValue(workflowPolicy.stepHardTimeoutMs) ? `${workflowPolicy.stepHardTimeoutMs} ms` : null, "held");
+
+  return items;
+}
+
+function renderGuidancePanel({ id = "", title, record, policy, emptyText = "No hold ownership or timeout guidance returned." } = {}) {
+  const items = collectGuidanceItems(record, policy);
+  const idAttr = id ? ` id="${escapeHtml(id)}"` : "";
+
+  if (items.length === 0) {
+    return `<div${idAttr} class="operator-guidance empty-state">${escapeHtml(emptyText)}</div>`;
+  }
+
+  return `
+    <div${idAttr} class="operator-guidance">
+      <div class="policy-panel-header">
+        <strong>${escapeHtml(title)}</strong>
+      </div>
+      <div class="guidance-list">
+        ${items
+          .map(
+            (item) => `
+              <div class="guidance-item ${escapeHtml(item.tone)}">
+                <span class="muted">${escapeHtml(item.label)}</span>
+                <code>${escapeHtml(formatPolicyValue(item.value))}</code>
+              </div>
+            `
+          )
+          .join("")}
+      </div>
+    </div>
+  `;
+}
+
+function getWorkflowRequestPayload() {
+  const domain = els.workflowDomain.value.trim();
+  const roles = els.workflowRoles.value
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+  const objective = els.workflowObjective.value.trim();
+
+  return {
+    domain,
+    roles,
+    objective,
+    maxRoles: roles.length || 1
+  };
+}
+
+function captureWorkflowPreview(invocation, source) {
+  state.workflowPreview = invocation ?? null;
+  state.workflowPreviewError = null;
+  state.workflowPreviewDirty = false;
+  state.workflowPreviewSource = source ?? null;
+}
+
+function markWorkflowPreviewStale() {
+  if (state.workflowPreview || state.workflowPreviewError) {
+    state.workflowPreviewDirty = true;
+    renderWorkflowPreview();
+  }
 }
 
 function buildExecutionGroups(executions = []) {
@@ -381,6 +639,32 @@ function renderExecutionMiniCard(execution, { label, selectedId } = {}) {
   `;
 }
 
+function renderWorkflowLaunchPreview(launch, index) {
+  const roleLabel = launch?.role ? `${launch.role}` : `step-${index + 1}`;
+  return `
+    <article class="workflow-launch-card">
+      <div class="lineage-card-header">
+        <strong>${escapeHtml(roleLabel)}</strong>
+        <span class="pill ${stateClass(launch?.sessionMode ?? "planned")}">${escapeHtml(normalizeText(launch?.sessionMode, "planned"))}</span>
+      </div>
+      <div class="lineage-card-meta">
+        <code>session=${escapeHtml(normalizeText(launch?.sessionId))}</code>
+        <code>profile=${escapeHtml(normalizeText(launch?.requestedProfileId ?? launch?.profilePath))}</code>
+        <code>attempts=${escapeHtml(String(launch?.maxAttempts ?? 1))}</code>
+      </div>
+      <div class="lineage-meta">
+        ${renderPolicyHighlights(launch?.policy)}
+      </div>
+      ${renderPolicyPanel({
+        title: `Step Policy ${index + 1}`,
+        policy: launch?.policy,
+        compact: true,
+        emptyText: "No step policy returned."
+      })}
+    </article>
+  `;
+}
+
 function renderExecutionLineageBoard(detail) {
   const execution = detail?.execution;
   if (!execution) {
@@ -520,6 +804,7 @@ function renderExecutionTree(detail) {
               : "inherits from unresolved parent"
             : "root step";
           const objective = String(step.objective ?? "").trim();
+          const stepPolicy = step.policy ?? null;
           return `
             <li class="tree-node">
               <div class="tree-row">
@@ -539,8 +824,24 @@ function renderExecutionTree(detail) {
                 <span class="lineage-pill ${step.parentSessionId ? "inherited" : "root"}">${escapeHtml(lineageLabel)}</span>
                 <span class="lineage-pill">${escapeHtml(`children ${childCount}`)}</span>
                 <span class="lineage-pill">${escapeHtml(`duration ${formatDuration(step.launchedAt, step.settledAt)}`)}</span>
+                ${renderPolicyHighlights(stepPolicy)}
               </div>
               ${objective ? `<p class="tree-objective">${escapeHtml(objective)}</p>` : ""}
+              <details class="policy-details">
+                <summary>Step Policy</summary>
+                ${renderPolicyPanel({
+                  title: `Step ${step.sequence + 1} Policy`,
+                  policy: stepPolicy,
+                  compact: true,
+                  emptyText: "No per-step policy returned."
+                })}
+                ${renderGuidancePanel({
+                  title: "Hold / Timeout Guidance",
+                  record: step,
+                  policy: stepPolicy,
+                  emptyText: "No step-specific hold ownership or timeout guidance returned."
+                })}
+              </details>
               ${
                 step.sessionId
                   ? `<div class="tree-session ${session ? "" : "missing"}">
@@ -772,6 +1073,65 @@ function renderDecisionLog(detail) {
   }
 }
 
+function renderWorkflowPreview() {
+  const invocation = state.workflowPreview;
+  const launches = invocation?.launches ?? [];
+  const previewState = state.workflowPreviewDirty ? "stale" : "ready";
+
+  if (state.workflowPreviewError) {
+    els.workflowPreviewState.textContent = `plan preview: error`;
+    els.workflowPreview.className = "detail-card empty-state";
+    els.workflowPreview.textContent = `Failed to load workflow preview: ${state.workflowPreviewError}`;
+    return;
+  }
+
+  if (!invocation) {
+    els.workflowPreviewState.textContent = `plan preview: idle`;
+    els.workflowPreview.className = "detail-card empty-state";
+    els.workflowPreview.textContent =
+      "Preview a workflow plan to inspect merged policy, launch defaults, and per-step governance before invocation.";
+    return;
+  }
+
+  els.workflowPreviewState.textContent = `plan preview: ${previewState}${state.workflowPreviewSource ? ` (${state.workflowPreviewSource})` : ""}`;
+  els.workflowPreview.className = "detail-card workflow-preview-card";
+  els.workflowPreview.innerHTML = `
+    <div class="session-title">
+      <strong>${escapeHtml(normalizeText(invocation.invocationId, "preview"))}</strong>
+      <span class="pill ${state.workflowPreviewDirty ? "waiting_review" : "active"}">${escapeHtml(previewState)}</span>
+    </div>
+    <div class="detail-grid">
+      <div><span class="muted">Workflow</span><br /><code>${escapeHtml(normalizeText(invocation?.workflow?.id))}</code></div>
+      <div><span class="muted">Domain</span><br /><code>${escapeHtml(normalizeText(invocation?.domain?.id))}</code></div>
+      <div><span class="muted">Project</span><br /><code>${escapeHtml(normalizeText(invocation?.project?.id))}</code></div>
+      <div><span class="muted">Launches</span><br /><code>${escapeHtml(String(launches.length))}</code></div>
+      <div><span class="muted">Coordination Group</span><br /><code>${escapeHtml(normalizeText(invocation?.coordination?.groupId))}</code></div>
+      <div><span class="muted">Parent Execution</span><br /><code>${escapeHtml(normalizeText(invocation?.coordination?.parentExecutionId))}</code></div>
+      <div><span class="muted">Branch Key</span><br /><code>${escapeHtml(normalizeText(invocation?.coordination?.branchKey))}</code></div>
+      <div><span class="muted">Source</span><br /><code>${escapeHtml(normalizeText(state.workflowPreviewSource))}</code></div>
+      <div class="detail-span"><span class="muted">Objective</span><br /><code>${escapeHtml(normalizeText(invocation?.objective))}</code></div>
+    </div>
+    ${renderPolicyPanel({
+      title: "Effective Policy",
+      policy: invocation?.effectivePolicy,
+      emptyText: "No merged execution policy returned."
+    })}
+    <section class="workflow-launch-section">
+      <div class="policy-panel-header">
+        <strong>Launch Policies</strong>
+        <span class="muted">${escapeHtml(String(launches.length))} launch${launches.length === 1 ? "" : "es"}</span>
+      </div>
+      ${
+        launches.length > 0
+          ? `<div class="workflow-launch-list">${launches
+              .map((launch, index) => renderWorkflowLaunchPreview(launch, index))
+              .join("")}</div>`
+          : `<div class="policy-empty">No launch preview returned.</div>`
+      }
+    </section>
+  `;
+}
+
 function renderExecutionDetail() {
   const detail = state.executionDetail;
   const execution = detail?.execution;
@@ -781,6 +1141,7 @@ function renderExecutionDetail() {
   const childExecutions = detail?.childExecutions ?? [];
   const groupSummary = detail?.coordinationGroupSummary ?? null;
   const groupMembers = detail?.coordinationGroup ?? groupSummary?.executions ?? [];
+  const effectivePolicy = execution?.policy ?? null;
 
   els.driveButton.disabled = !hasSelection;
   els.driveGroupButton.disabled = !hasSelection || !groupId;
@@ -802,6 +1163,8 @@ function renderExecutionDetail() {
     els.executionTimeline.className = "execution-timeline empty-state";
     els.executionTimeline.textContent = "Select an execution to load timeline and history.";
     els.decisionLog.innerHTML = `<div class="detail-card empty-state">Select an execution to load review and approval history.</div>`;
+    els.executionGuidance.className = "operator-guidance empty-state";
+    els.executionGuidance.textContent = "Select an execution to inspect hold ownership and timeout guidance.";
     return;
   }
 
@@ -861,7 +1224,21 @@ function renderExecutionDetail() {
       }
       <div class="detail-span"><span class="muted">Objective</span><br /><code>${escapeHtml(normalizeText(execution.objective))}</code></div>
     </div>
+    ${renderPolicyPanel({
+      title: "Effective Policy",
+      policy: effectivePolicy,
+      emptyText: "No execution policy was persisted for this run."
+    })}
   `;
+
+  els.executionGuidance.outerHTML = renderGuidancePanel({
+    id: "execution-guidance",
+    title: "Hold / Timeout Guidance",
+    record: execution,
+    policy: effectivePolicy,
+    emptyText: "No hold ownership or timeout guidance returned for this execution."
+  });
+  els.executionGuidance = document.getElementById("execution-guidance");
 
   renderExecutionTree(detail);
   renderExecutionTimeline(detail);
@@ -1121,6 +1498,7 @@ async function refresh() {
   renderStatus(statusPayload.status);
   renderExecutions();
   renderSessions();
+  renderWorkflowPreview();
   renderExecutionDetail();
   renderDetail();
 }
@@ -1171,6 +1549,28 @@ async function sendEscalationAction(escalationId, payload = {}) {
     }
   );
   await refresh();
+}
+
+async function previewWorkflowPlan() {
+  els.workflowPreviewButton.disabled = true;
+  state.workflowPreviewError = null;
+  els.workflowPreviewState.textContent = "plan preview: loading";
+
+  try {
+    const payload = await api("/orchestrator/workflows/plan", {
+      method: "POST",
+      body: JSON.stringify(getWorkflowRequestPayload())
+    });
+    captureWorkflowPreview(payload?.invocation ?? null, "plan");
+  } catch (error) {
+    state.workflowPreview = null;
+    state.workflowPreviewError = error.message;
+    state.workflowPreviewDirty = false;
+    state.workflowPreviewSource = null;
+  } finally {
+    els.workflowPreviewButton.disabled = false;
+    renderWorkflowPreview();
+  }
 }
 
 function setAutoRefresh(enabled) {
@@ -1389,27 +1789,30 @@ els.controlForm.addEventListener("submit", async (event) => {
   }
 });
 
+els.workflowPreviewButton.addEventListener("click", () => {
+  previewWorkflowPlan().catch((error) => {
+    state.workflowPreview = null;
+    state.workflowPreviewError = error.message;
+    state.workflowPreviewDirty = false;
+    state.workflowPreviewSource = null;
+    renderWorkflowPreview();
+  });
+});
+
 els.workflowForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  const domain = els.workflowDomain.value.trim();
-  const roles = els.workflowRoles.value
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean);
-  const objective = els.workflowObjective.value.trim();
+  const requestPayload = getWorkflowRequestPayload();
   els.workflowButton.disabled = true;
   try {
     const payload = await api("/orchestrator/workflows/invoke", {
       method: "POST",
       body: JSON.stringify({
-        domain,
-        roles,
-        objective,
-        maxRoles: roles.length || 1,
+        ...requestPayload,
         wait: false
       })
     });
 
+    captureWorkflowPreview(payload?.invocation ?? null, "invoke");
     const createdExecutionId =
       payload?.created?.execution?.id ?? payload?.invocation?.invocationId ?? payload?.detail?.execution?.id ?? null;
     if (createdExecutionId) {
@@ -1425,6 +1828,12 @@ els.workflowForm.addEventListener("submit", async (event) => {
     els.workflowButton.disabled = false;
   }
 });
+
+for (const element of [els.workflowDomain, els.workflowRoles, els.workflowObjective]) {
+  element.addEventListener("input", () => {
+    markWorkflowPreviewStale();
+  });
+}
 
 for (const button of els.tabButtons) {
   button.addEventListener("click", () => setActiveTab(button.dataset.tab));

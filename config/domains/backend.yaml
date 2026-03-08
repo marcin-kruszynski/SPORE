@@ -16,6 +16,8 @@ workflowPolicy:
   maxAttemptsByRole:
     builder: 4
     tester: 3
+  retryTargetRole: builder
+  resetDescendantSteps: true
   reviewRequired: true
   approvalRequired: true
 runtimePolicy:

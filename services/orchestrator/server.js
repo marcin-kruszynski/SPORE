@@ -329,8 +329,11 @@ const server = http.createServer(async (request, response) => {
         "--execution",
         parts[1],
         ...(body.by ? ["--by", body.by] : []),
+        ...(body.owner ? ["--owner", body.owner] : []),
         ...(body.reason ? ["--reason", body.reason] : []),
-        ...(body.comments ? ["--comments", body.comments] : [])
+        ...(body.comments ? ["--comments", body.comments] : []),
+        ...(body.guidance ? ["--guidance", body.guidance] : []),
+        ...(body.timeoutMs ? ["--timeout-ms", String(body.timeoutMs)] : [])
       ]);
       json(response, 200, payload);
       return;
@@ -344,8 +347,11 @@ const server = http.createServer(async (request, response) => {
         "--execution",
         parts[1],
         ...(body.by ? ["--by", body.by] : []),
+        ...(body.owner ? ["--owner", body.owner] : []),
         ...(body.reason ? ["--reason", body.reason] : []),
-        ...(body.comments ? ["--comments", body.comments] : [])
+        ...(body.comments ? ["--comments", body.comments] : []),
+        ...(body.guidance ? ["--guidance", body.guidance] : []),
+        ...(body.timeoutMs ? ["--timeout-ms", String(body.timeoutMs)] : [])
       ]);
       json(response, 200, payload);
       return;

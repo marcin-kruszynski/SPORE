@@ -11,6 +11,9 @@ This app now provides the first minimal browser-based operator surface for SPORE
   - steer
 - exposes transcript, PI event, and artifact inspection for each session
 - proxies workflow planning and invocation to `services/orchestrator/`
+- adds workflow plan preview so operators can inspect invocation policy before launch:
+  - merged execution `effectivePolicy`
+  - per-launch `policy` blocks for each planned step
 - adds durable execution visibility and governance controls over orchestrator APIs:
   - execution list (`GET /executions`)
   - execution detail (`GET /executions/:id`)
@@ -36,6 +39,9 @@ This app now provides the first minimal browser-based operator surface for SPORE
   - `pausedAt`
   - `heldAt`
   - `resumedAt`
+- renders execution effective policy from the persisted execution payload when available
+- renders per-step policy detail inside the execution tree from each step `policy` payload
+- shows hold ownership and timeout guidance affordances when additive backend fields are present, while still exposing policy-based watchdog defaults
 - renders execution step/session tree with clearer lineage cues from orchestrator detail payloads
 - renders a coordination and lineage board for parent/child execution context when optional payload fields are present
 - renders execution timeline/history from workflow events where available
@@ -83,6 +89,12 @@ The execution surface is now prepared to consume these fields when they appear i
 - `childExecutionIds`
 - `branchKey`
 - `holdReason`
+- `holdOwner`
+- `holdOwnerRole`
+- `holdExpiresAt`
+- `holdTimeoutMs`
+- `holdGuidance`
+- `operatorGuidance`
 - `pausedAt`
 - `heldAt`
 - `resumedAt`

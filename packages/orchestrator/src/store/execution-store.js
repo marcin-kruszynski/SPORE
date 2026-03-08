@@ -48,6 +48,9 @@ export function openOrchestratorDatabase(dbPath) {
       approval_status TEXT,
       held_from_state TEXT,
       hold_reason TEXT,
+      hold_owner TEXT,
+      hold_guidance TEXT,
+      hold_expires_at TEXT,
       paused_at TEXT,
       held_at TEXT,
       resumed_at TEXT,
@@ -142,6 +145,9 @@ export function openOrchestratorDatabase(dbPath) {
   ensureColumn(db, "workflow_executions", "branch_key", "TEXT");
   ensureColumn(db, "workflow_executions", "held_from_state", "TEXT");
   ensureColumn(db, "workflow_executions", "hold_reason", "TEXT");
+  ensureColumn(db, "workflow_executions", "hold_owner", "TEXT");
+  ensureColumn(db, "workflow_executions", "hold_guidance", "TEXT");
+  ensureColumn(db, "workflow_executions", "hold_expires_at", "TEXT");
   ensureColumn(db, "workflow_executions", "paused_at", "TEXT");
   ensureColumn(db, "workflow_executions", "held_at", "TEXT");
   ensureColumn(db, "workflow_executions", "resumed_at", "TEXT");
@@ -178,12 +184,12 @@ export function insertExecutionWithSteps(db, execution, steps) {
     INSERT INTO workflow_executions (
       id, coordination_group_id, parent_execution_id, branch_key,
       workflow_id, workflow_name, workflow_path, project_id, project_name, project_path,
-      domain_id, policy_json, objective, state, review_status, approval_status, held_from_state, hold_reason, paused_at,
+      domain_id, policy_json, objective, state, review_status, approval_status, held_from_state, hold_reason, hold_owner, hold_guidance, hold_expires_at, paused_at,
       held_at, resumed_at, current_step_index, created_at, updated_at, started_at, ended_at
     ) VALUES (
       @id, @coordinationGroupId, @parentExecutionId, @branchKey,
       @workflowId, @workflowName, @workflowPath, @projectId, @projectName, @projectPath,
-      @domainId, @policyJson, @objective, @state, @reviewStatus, @approvalStatus, @heldFromState, @holdReason, @pausedAt,
+      @domainId, @policyJson, @objective, @state, @reviewStatus, @approvalStatus, @heldFromState, @holdReason, @holdOwner, @holdGuidance, @holdExpiresAt, @pausedAt,
       @heldAt, @resumedAt, @currentStepIndex, @createdAt, @updatedAt, @startedAt, @endedAt
     )
   `);
@@ -219,6 +225,9 @@ export function insertExecutionWithSteps(db, execution, steps) {
       approvalStatus: execution.approvalStatus,
       heldFromState: execution.heldFromState,
       holdReason: execution.holdReason,
+      holdOwner: execution.holdOwner,
+      holdGuidance: execution.holdGuidance,
+      holdExpiresAt: execution.holdExpiresAt,
       pausedAt: execution.pausedAt,
       heldAt: execution.heldAt,
       resumedAt: execution.resumedAt,
@@ -279,6 +288,9 @@ export function updateExecution(db, execution) {
       approval_status = @approvalStatus,
       held_from_state = @heldFromState,
       hold_reason = @holdReason,
+      hold_owner = @holdOwner,
+      hold_guidance = @holdGuidance,
+      hold_expires_at = @holdExpiresAt,
       paused_at = @pausedAt,
       held_at = @heldAt,
       resumed_at = @resumedAt,
@@ -306,6 +318,9 @@ export function updateExecution(db, execution) {
     approvalStatus: execution.approvalStatus,
     heldFromState: execution.heldFromState,
     holdReason: execution.holdReason,
+    holdOwner: execution.holdOwner,
+    holdGuidance: execution.holdGuidance,
+    holdExpiresAt: execution.holdExpiresAt,
     pausedAt: execution.pausedAt,
     heldAt: execution.heldAt,
     resumedAt: execution.resumedAt,
@@ -476,6 +491,9 @@ export function getExecution(db, executionId) {
       approval_status AS approvalStatus,
       held_from_state AS heldFromState,
       hold_reason AS holdReason,
+      hold_owner AS holdOwner,
+      hold_guidance AS holdGuidance,
+      hold_expires_at AS holdExpiresAt,
       paused_at AS pausedAt,
       held_at AS heldAt,
       resumed_at AS resumedAt,
@@ -509,6 +527,9 @@ export function listExecutions(db) {
       approval_status AS approvalStatus,
       held_from_state AS heldFromState,
       hold_reason AS holdReason,
+      hold_owner AS holdOwner,
+      hold_guidance AS holdGuidance,
+      hold_expires_at AS holdExpiresAt,
       paused_at AS pausedAt,
       held_at AS heldAt,
       resumed_at AS resumedAt,
@@ -540,6 +561,9 @@ export function listChildExecutions(db, parentExecutionId) {
       approval_status AS approvalStatus,
       held_from_state AS heldFromState,
       hold_reason AS holdReason,
+      hold_owner AS holdOwner,
+      hold_guidance AS holdGuidance,
+      hold_expires_at AS holdExpiresAt,
       paused_at AS pausedAt,
       held_at AS heldAt,
       resumed_at AS resumedAt,
@@ -572,6 +596,9 @@ export function listExecutionGroup(db, coordinationGroupId) {
       approval_status AS approvalStatus,
       held_from_state AS heldFromState,
       hold_reason AS holdReason,
+      hold_owner AS holdOwner,
+      hold_guidance AS holdGuidance,
+      hold_expires_at AS holdExpiresAt,
       paused_at AS pausedAt,
       held_at AS heldAt,
       resumed_at AS resumedAt,

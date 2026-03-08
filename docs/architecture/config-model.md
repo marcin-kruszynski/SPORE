@@ -28,7 +28,7 @@ Project config composes domains, teams, profile variants, workflow defaults, and
 
 Current policy blocks are:
 
-- `workflowPolicy`: `defaultRoles`, `defaultMaxAttempts`, `maxAttemptsByRole`, `stepSoftTimeoutMs`, `stepHardTimeoutMs`, `reviewRequired`, `approvalRequired`
+- `workflowPolicy`: `defaultRoles`, `defaultMaxAttempts`, `maxAttemptsByRole`, `stepSoftTimeoutMs`, `stepHardTimeoutMs`, `reviewRequired`, `approvalRequired`, `retryTargetRole`, `resetDescendantSteps`
 - `runtimePolicy`: `sessionModeByRole`
 - `docsKbPolicy`: `resultLimit`, `queryTerms`, optional `queryTemplate`
 

@@ -27,6 +27,8 @@ activeDomains:
     workflowPreferences: [feature-delivery, bugfix]
     workflowPolicy:
       defaultRoles: [lead, builder, tester, reviewer]
+      retryTargetRole: builder
+      resetDescendantSteps: true
       maxAttemptsByRole:
         builder: 5
       stepHardTimeoutMs: 120000

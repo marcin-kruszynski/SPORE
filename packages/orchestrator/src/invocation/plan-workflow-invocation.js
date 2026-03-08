@@ -343,6 +343,8 @@ export async function planWorkflowInvocation({
           policy.workflowPolicy?.defaultMaxAttempts ??
           workflow.retryPolicy?.maxAttempts ??
           1,
+        retryTargetRole: policy.workflowPolicy?.retryTargetRole ?? null,
+        resetDescendantSteps: policy.workflowPolicy?.resetDescendantSteps ?? false,
         defaultRoles:
           policy.workflowPolicy?.defaultRoles ??
           workflow.roleSequence ??

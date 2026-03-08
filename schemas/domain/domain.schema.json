@@ -22,6 +22,8 @@
           "type": "array",
           "items": { "type": "string" }
         },
+        "retryTargetRole": { "type": "string" },
+        "resetDescendantSteps": { "type": "boolean" },
         "maxAttemptsByRole": {
           "type": "object",
           "additionalProperties": { "type": "integer" }

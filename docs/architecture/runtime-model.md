@@ -43,6 +43,8 @@ When a workflow is launched through the orchestrator, runtime defaults now come 
 - `docsKbPolicy.queryTerms`, `queryTemplate`, and `resultLimit` shape startup retrieval,
 - `workflowPolicy.stepSoftTimeoutMs` and `stepHardTimeoutMs` become the default watchdog thresholds for the step unless the operator supplies explicit drive-time overrides.
 
+The runtime layer also receives the execution's `domainId` and `workflowId` directly in the session plan so startup retrieval, observability, and later policy-aware runtime hooks do not have to reconstruct that context from filenames alone.
+
 ### Future Abstraction
 
 A runtime abstraction layer can be introduced later, but bootstrap and first implementation waves remain PI-centered.

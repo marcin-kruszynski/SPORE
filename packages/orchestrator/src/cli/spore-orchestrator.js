@@ -301,7 +301,10 @@ async function main() {
     }
     const detail = pauseExecution(flags.execution, {
       decidedBy: flags.by ?? "operator",
-      reason: flags.reason ?? flags.comments ?? ""
+      reason: flags.reason ?? flags.comments ?? "",
+      owner: flags.owner ?? flags.by ?? "operator",
+      guidance: flags.guidance ?? flags.comments ?? "",
+      timeoutMs: flags["timeout-ms"] ?? null
     });
     console.log(JSON.stringify({ ok: true, detail }, null, 2));
     return;
@@ -313,7 +316,10 @@ async function main() {
     }
     const detail = holdExecution(flags.execution, {
       decidedBy: flags.by ?? "operator",
-      reason: flags.reason ?? flags.comments ?? ""
+      reason: flags.reason ?? flags.comments ?? "",
+      owner: flags.owner ?? flags.by ?? "operator",
+      guidance: flags.guidance ?? flags.comments ?? "",
+      timeoutMs: flags["timeout-ms"] ?? null
     });
     console.log(JSON.stringify({ ok: true, detail }, null, 2));
     return;

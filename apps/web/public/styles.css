@@ -533,6 +533,115 @@ button:disabled {
   margin-bottom: 4px;
 }
 
+.workflow-preview-card,
+.workflow-launch-card {
+  display: grid;
+  gap: 14px;
+}
+
+.workflow-launch-section,
+.policy-panel,
+.operator-guidance {
+  display: grid;
+  gap: 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(24, 34, 44, 0.08);
+  background: rgba(255, 255, 255, 0.7);
+  padding: 12px;
+}
+
+.policy-panel.compact,
+.operator-guidance {
+  background: rgba(255, 255, 255, 0.76);
+}
+
+.workflow-launch-card {
+  border-radius: 14px;
+  border: 1px solid rgba(24, 34, 44, 0.08);
+  background: rgba(255, 255, 255, 0.76);
+  padding: 12px;
+}
+
+.policy-panel-header,
+.policy-block-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.policy-block-list,
+.workflow-launch-list,
+.guidance-list {
+  display: grid;
+  gap: 12px;
+}
+
+.policy-block {
+  display: grid;
+  gap: 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(24, 34, 44, 0.08);
+  background: rgba(255, 255, 255, 0.82);
+  padding: 12px;
+}
+
+.policy-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.policy-item,
+.guidance-item {
+  display: grid;
+  gap: 6px;
+  align-content: start;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(24, 34, 44, 0.08);
+  background: rgba(248, 244, 239, 0.92);
+}
+
+.guidance-item.paused {
+  border-color: rgba(71, 86, 138, 0.18);
+  background: rgba(236, 240, 251, 0.92);
+}
+
+.guidance-item.held {
+  border-color: rgba(169, 119, 19, 0.22);
+  background: rgba(250, 246, 231, 0.94);
+}
+
+.policy-empty {
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.operator-guidance.empty-state {
+  color: var(--muted);
+  text-align: center;
+}
+
+.policy-details {
+  margin-top: 10px;
+  display: grid;
+  gap: 10px;
+}
+
+.policy-details summary {
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent-dark);
+}
+
+.policy-details[open] summary {
+  margin-bottom: 2px;
+}
+
 .execution-tree {
   border-radius: 14px;
   border: 1px solid var(--line);
@@ -728,7 +837,8 @@ button:disabled {
   }
 
   .status-grid,
-  .detail-grid {
+  .detail-grid,
+  .policy-grid {
     grid-template-columns: 1fr;
   }
 

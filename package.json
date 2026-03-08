@@ -9,6 +9,7 @@
     "docs-kb:index": "node packages/docs-kb/src/cli/docs-kb.js index",
     "docs-kb:status": "node packages/docs-kb/src/cli/docs-kb.js status",
     "docs-kb:rebuild": "node packages/docs-kb/src/cli/docs-kb.js rebuild",
+    "test:policy": "node --test packages/orchestrator/test/domain-policy-propagation.test.js packages/orchestrator/test/domain-policy.test.js packages/runtime-pi/test/domain-policy-runtime-context.test.js",
     "config:validate": "node packages/config-schema/src/cli/validate-config.js",
     "runtime-pi:plan": "node packages/runtime-pi/src/cli/pi-session-plan.js",
     "runtime-pi:run": "node packages/runtime-pi/src/cli/run-session-plan.js",
