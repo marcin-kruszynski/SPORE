@@ -72,7 +72,7 @@ SPORE addresses this by building a **structured orchestration protocol** where:
 | Domain-shaped execution behavior | Domain policies override retries, watchdogs, session mode, and docs retrieval |
 | Coordinated execution families | Rooted execution trees, branch spawning, and lineage-aware group control |
 | Parallel work inside one execution | Workflow step sets become launch waves with multiple active steps |
-| Durable operator validation loops | Scenario and regression catalogs with rerun, trends, reports, and live session diagnostics |
+| Durable operator validation loops | Scenario and regression catalogs with rerun, trends, reports, run-center summaries, and live session diagnostics |
 
 ---
 
@@ -929,6 +929,7 @@ npm run orchestrator:scenario-run-show -- --run <run-id>
 npm run orchestrator:scenario-run-artifacts -- --run <run-id>
 npm run orchestrator:scenario-rerun -- --run <run-id>
 npm run orchestrator:scenario-trends -- --scenario backend-service-delivery
+npm run orchestrator:run-center
 npm run orchestrator:regression-list
 npm run orchestrator:regression-show -- --regression local-fast
 npm run orchestrator:regression-run -- --regression local-fast --stub
@@ -943,6 +944,7 @@ npm run orchestrator:regression-trends -- --regression local-fast
 | Method | Route | Purpose |
 |---|---|---|
 | `GET` | `/executions/:id/history` | Combined ordered execution history with governance, audit, waves, and policy diff |
+| `GET` | `/run-center/summary` | Aggregate operator summary for scenarios, regressions, and recent runs |
 | `GET` | `/scenarios` | Scenario catalog with latest run summary |
 | `GET` | `/scenarios/:id` | One scenario definition with latest run |
 | `GET` | `/scenarios/:id/runs` | Durable scenario run history |
@@ -961,6 +963,8 @@ npm run orchestrator:regression-trends -- --regression local-fast
 | `POST` | `/regressions/:id/run` | Launch one named regression profile |
 | `POST` | `/regression-runs/:runId/rerun` | Rerun one prior regression run with optional overrides |
 | `GET` | `/sessions/:id/live` | Combined live session metadata, events, artifacts, control history, and diagnostics |
+| `GET` | `/sessions/:id/control-history` | Durable control request history for one session |
+| `GET` | `/sessions/:id/control-status/:requestId` | One durable control request with ack/result status |
 
 ### Canonical Scenario Invocations
 
@@ -988,6 +992,12 @@ curl -X POST http://127.0.0.1:8787/sessions/<id>/actions/mark-complete \
 curl -X POST http://127.0.0.1:8787/sessions/<id>/actions/steer \
   -H 'content-type: application/json' \
   -d '{"message":"Report status","enter":true}'
+
+# Read durable control request history
+curl http://127.0.0.1:8787/sessions/<id>/control-history
+
+# Read one durable control request
+curl http://127.0.0.1:8787/sessions/<id>/control-status/<request-id>
 
 # Read artifacts
 curl http://127.0.0.1:8787/sessions/<id>/artifacts

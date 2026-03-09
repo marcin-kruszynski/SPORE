@@ -14,6 +14,7 @@ node packages/tui/src/cli/spore-ops.js family --execution e2e-review-001
 node packages/tui/src/cli/spore-ops.js audit --execution e2e-review-001
 node packages/tui/src/cli/spore-ops.js policy-diff --execution e2e-review-001
 node packages/tui/src/cli/spore-ops.js history --execution e2e-review-001
+node packages/tui/src/cli/spore-ops.js run-center
 node packages/tui/src/cli/spore-ops.js scenario-list
 node packages/tui/src/cli/spore-ops.js scenario-run --scenario cli-verification-pass
 node packages/tui/src/cli/spore-ops.js scenario-run-show --run <run-id>
@@ -41,6 +42,7 @@ The TUI/CLI operator surface now provides:
 - audit log inspection over `/executions/:id/audit`,
 - policy diff inspection over `/executions/:id/policy-diff`,
 - combined execution history inspection over `/executions/:id/history`,
+- aggregate run-center inspection over `/run-center/summary`,
 - scenario and regression catalog inspection over orchestrator HTTP surfaces,
 - scenario and regression run inspection by durable run id,
 - scenario and regression rerun and trend inspection over orchestrator HTTP surfaces,

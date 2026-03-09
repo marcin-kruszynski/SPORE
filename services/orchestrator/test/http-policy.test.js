@@ -1,12 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { startProcess, waitForHealth } from './helpers/http-harness.js';
+import { findFreePort, startProcess, waitForHealth } from './helpers/http-harness.js';
 import { makeTempPaths } from '../../../packages/orchestrator/test/helpers/scenario-fixtures.js';
 
-const ORCHESTRATOR_PORT = 8791;
-const WEB_PORT = 8792;
-
 test('orchestrator HTTP and web proxy expose policy-aware plan preview', async (t) => {
+  const ORCHESTRATOR_PORT = await findFreePort();
+  const WEB_PORT = await findFreePort();
   const { dbPath, sessionDbPath } = await makeTempPaths('spore-http-policy-');
   const orchestrator = startProcess('node', ['services/orchestrator/server.js'], {
     SPORE_ORCHESTRATOR_PORT: String(ORCHESTRATOR_PORT),

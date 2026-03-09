@@ -66,9 +66,24 @@ This app now provides the first minimal browser-based operator surface for SPORE
 - renders scenario catalog, latest scenario runs, and one-click scenario launch over orchestrator APIs
 - renders regression catalog summaries and one-click regression runs over orchestrator APIs
 - adds richer run-center drilldowns:
+  - dedicated run-center summary panel (`GET /orchestrator/run-center/summary`) with:
+    - scenario summaries
+    - regression summaries
+    - recent scenario runs
+    - recent regression runs
+    - aggregated route count cards
   - scenario run selection with per-run metadata, execution links, and scenario-run artifact route integration
   - regression run selection with per-item scenario outcomes, execution jump links, and report/artifact path references
+  - route-backed drilldown blocks for selected run/report/artifact payloads when corresponding scenario/regression routes are available
   - execution-history row selection with in-panel drilldowns to execution/session/audit/escalation/scenario-run references when payload fields are present
+- enriches session detail with Session Live v2 diagnostics from `GET /sessions/:id/live`, including:
+  - operator urgency
+  - stale session flag and stale reason
+  - settle lag
+  - launcher metadata snapshot
+  - control ack status/result
+  - latest control action timestamp
+  - additive control history and recovery suggestion hints
 - renders execution wave progression summaries from rooted tree `stepSummary.byWave` data in both the tree and timeline surfaces
 - follows execution activity through the orchestrator SSE stream in addition to the session SSE stream
 - exposes escalation resolution controls, including resume of the affected execution path

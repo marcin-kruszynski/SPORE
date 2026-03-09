@@ -305,6 +305,14 @@ async function executionHistory(flags) {
   console.log(formatJson(payload));
 }
 
+async function runCenter(flags) {
+  const payload = await orchestratorRequest(
+    flags,
+    `/run-center/summary?limit=${encodeURIComponent(String(flags.limit ?? "10"))}`
+  );
+  console.log(formatJson(payload));
+}
+
 async function executionDetail(flags) {
   if (!flags.execution) {
     throw new Error("use execution --execution <id>");
@@ -574,6 +582,10 @@ async function main() {
     await executionHistory(flags);
     return;
   }
+  if (command === "run-center") {
+    await runCenter(flags);
+    return;
+  }
   if (command === "scenario-list") {
     await scenarioList(flags);
     return;
@@ -642,7 +654,7 @@ async function main() {
     await treeAction(flags, command);
     return;
   }
-  throw new Error("commands: dashboard | inspect | execution | tree | family | audit | policy-diff | history | scenario-list | scenario-show | scenario-runs | scenario-run | scenario-run-show | scenario-run-artifacts | scenario-rerun | scenario-trends | regression-list | regression-show | regression-runs | regression-run | regression-run-show | regression-report | regression-rerun | regression-trends | drive | pause | hold | resume | review | approval");
+  throw new Error("commands: dashboard | inspect | execution | tree | family | audit | policy-diff | history | run-center | scenario-list | scenario-show | scenario-runs | scenario-run | scenario-run-show | scenario-run-artifacts | scenario-rerun | scenario-trends | regression-list | regression-show | regression-runs | regression-run | regression-run-show | regression-report | regression-rerun | regression-trends | drive | pause | hold | resume | review | approval");
 }
 
 main().catch((error) => {

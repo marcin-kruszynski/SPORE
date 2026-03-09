@@ -39,6 +39,24 @@ export function openSessionDatabase(dbPath) {
     );
     CREATE INDEX IF NOT EXISTS idx_sessions_run_id ON sessions(run_id);
     CREATE INDEX IF NOT EXISTS idx_sessions_state ON sessions(state);
+    CREATE TABLE IF NOT EXISTS session_control_requests (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      action TEXT NOT NULL,
+      idempotency_key TEXT,
+      request_payload_json TEXT,
+      ack_status TEXT NOT NULL,
+      status TEXT NOT NULL,
+      result_json TEXT,
+      accepted_at TEXT NOT NULL,
+      completed_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_session_control_requests_session_id
+      ON session_control_requests(session_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_session_control_requests_idempotency
+      ON session_control_requests(session_id, action, idempotency_key);
   `);
   ensureColumns(db, [
     ["launcher_type", "TEXT"],
@@ -207,4 +225,176 @@ export function listSessions(db) {
       ORDER BY updated_at DESC
     `)
     .all();
+}
+
+function parseJsonField(value, fallback = null) {
+  if (!value) {
+    return fallback;
+  }
+  try {
+    return JSON.parse(value);
+  } catch {
+    return fallback;
+  }
+}
+
+export function insertSessionControlRequest(db, request) {
+  db.prepare(`
+    INSERT INTO session_control_requests (
+      id,
+      session_id,
+      action,
+      idempotency_key,
+      request_payload_json,
+      ack_status,
+      status,
+      result_json,
+      accepted_at,
+      completed_at,
+      created_at,
+      updated_at
+    ) VALUES (
+      @id,
+      @sessionId,
+      @action,
+      @idempotencyKey,
+      @requestPayloadJson,
+      @ackStatus,
+      @status,
+      @resultJson,
+      @acceptedAt,
+      @completedAt,
+      @createdAt,
+      @updatedAt
+    )
+  `).run({
+    id: request.id,
+    sessionId: request.sessionId,
+    action: request.action,
+    idempotencyKey: request.idempotencyKey ?? null,
+    requestPayloadJson: JSON.stringify(request.requestPayload ?? {}),
+    ackStatus: request.ackStatus,
+    status: request.status,
+    resultJson: JSON.stringify(request.result ?? {}),
+    acceptedAt: request.acceptedAt,
+    completedAt: request.completedAt ?? null,
+    createdAt: request.createdAt,
+    updatedAt: request.updatedAt
+  });
+}
+
+export function updateSessionControlRequest(db, request) {
+  db.prepare(`
+    UPDATE session_control_requests SET
+      session_id = @sessionId,
+      action = @action,
+      idempotency_key = @idempotencyKey,
+      request_payload_json = @requestPayloadJson,
+      ack_status = @ackStatus,
+      status = @status,
+      result_json = @resultJson,
+      accepted_at = @acceptedAt,
+      completed_at = @completedAt,
+      updated_at = @updatedAt
+    WHERE id = @id
+  `).run({
+    id: request.id,
+    sessionId: request.sessionId,
+    action: request.action,
+    idempotencyKey: request.idempotencyKey ?? null,
+    requestPayloadJson: JSON.stringify(request.requestPayload ?? {}),
+    ackStatus: request.ackStatus,
+    status: request.status,
+    resultJson: JSON.stringify(request.result ?? {}),
+    acceptedAt: request.acceptedAt,
+    completedAt: request.completedAt ?? null,
+    updatedAt: request.updatedAt
+  });
+}
+
+export function getSessionControlRequest(db, requestId) {
+  const row = db.prepare(`
+    SELECT
+      id,
+      session_id AS sessionId,
+      action,
+      idempotency_key AS idempotencyKey,
+      request_payload_json AS requestPayloadJson,
+      ack_status AS ackStatus,
+      status,
+      result_json AS resultJson,
+      accepted_at AS acceptedAt,
+      completed_at AS completedAt,
+      created_at AS createdAt,
+      updated_at AS updatedAt
+    FROM session_control_requests
+    WHERE id = ?
+  `).get(requestId);
+  if (!row) {
+    return null;
+  }
+  return {
+    ...row,
+    requestPayload: parseJsonField(row.requestPayloadJson, {}),
+    result: parseJsonField(row.resultJson, {})
+  };
+}
+
+export function findSessionControlRequestByIdempotency(db, sessionId, action, idempotencyKey) {
+  if (!idempotencyKey) {
+    return null;
+  }
+  const row = db.prepare(`
+    SELECT
+      id,
+      session_id AS sessionId,
+      action,
+      idempotency_key AS idempotencyKey,
+      request_payload_json AS requestPayloadJson,
+      ack_status AS ackStatus,
+      status,
+      result_json AS resultJson,
+      accepted_at AS acceptedAt,
+      completed_at AS completedAt,
+      created_at AS createdAt,
+      updated_at AS updatedAt
+    FROM session_control_requests
+    WHERE session_id = ? AND action = ? AND idempotency_key = ?
+    ORDER BY created_at DESC
+    LIMIT 1
+  `).get(sessionId, action, idempotencyKey);
+  if (!row) {
+    return null;
+  }
+  return {
+    ...row,
+    requestPayload: parseJsonField(row.requestPayloadJson, {}),
+    result: parseJsonField(row.resultJson, {})
+  };
+}
+
+export function listSessionControlRequests(db, sessionId, limit = 50) {
+  return db.prepare(`
+    SELECT
+      id,
+      session_id AS sessionId,
+      action,
+      idempotency_key AS idempotencyKey,
+      request_payload_json AS requestPayloadJson,
+      ack_status AS ackStatus,
+      status,
+      result_json AS resultJson,
+      accepted_at AS acceptedAt,
+      completed_at AS completedAt,
+      created_at AS createdAt,
+      updated_at AS updatedAt
+    FROM session_control_requests
+    WHERE session_id = ?
+    ORDER BY created_at DESC
+    LIMIT ?
+  `).all(sessionId, limit).map((row) => ({
+    ...row,
+    requestPayload: parseJsonField(row.requestPayloadJson, {}),
+    result: parseJsonField(row.resultJson, {})
+  }));
 }

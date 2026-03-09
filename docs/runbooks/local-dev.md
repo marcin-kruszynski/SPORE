@@ -219,6 +219,7 @@ npm run orchestrator:scenario-run-show -- --run <run-id>
 npm run orchestrator:scenario-run-artifacts -- --run <run-id>
 npm run orchestrator:scenario-rerun -- --run <run-id>
 npm run orchestrator:scenario-trends -- --scenario backend-service-delivery
+npm run orchestrator:run-center
 npm run orchestrator:regression-list
 npm run orchestrator:regression-show -- --regression local-fast
 npm run orchestrator:regression-run -- --regression local-fast --stub
@@ -226,6 +227,14 @@ npm run orchestrator:regression-run-show -- --run <run-id>
 npm run orchestrator:regression-report -- --run <run-id>
 npm run orchestrator:regression-rerun -- --run <run-id>
 npm run orchestrator:regression-trends -- --regression local-fast
+```
+
+Live control inspection:
+
+```bash
+curl http://127.0.0.1:8787/sessions/<id>/live
+curl http://127.0.0.1:8787/sessions/<id>/control-history
+curl http://127.0.0.1:8787/sessions/<id>/control-status/<request-id>
 ```
 
 Look for optional fields such as:

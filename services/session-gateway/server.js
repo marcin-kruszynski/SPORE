@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import http from "node:http";
 import path from "node:path";
@@ -17,8 +18,13 @@ import {
 } from "../../packages/session-manager/src/events/event-log.js";
 import {
   getSession,
+  getSessionControlRequest,
+  findSessionControlRequestByIdempotency,
+  insertSessionControlRequest,
+  listSessionControlRequests,
   listSessions,
-  openSessionDatabase
+  openSessionDatabase,
+  updateSessionControlRequest
 } from "../../packages/session-manager/src/store/session-store.js";
 import {
   sendTmuxText,
@@ -150,6 +156,36 @@ function supportsRpcControl(session) {
   return session.launcherType === "pi-rpc";
 }
 
+function createControlRequestRecord(session, action, body, idempotencyKey, requestId = crypto.randomUUID()) {
+  const now = new Date().toISOString();
+  return {
+    id: requestId,
+    sessionId: session.id,
+    action,
+    idempotencyKey,
+    requestPayload: body ?? {},
+    ackStatus: "accepted",
+    status: action === "steer" && supportsRpcControl(session) ? "queued" : "completed",
+    result: {},
+    acceptedAt: now,
+    completedAt: action === "steer" && supportsRpcControl(session) ? null : now,
+    createdAt: now,
+    updatedAt: now
+  };
+}
+
+function settleControlRequest(record, result, overrides = {}) {
+  const now = new Date().toISOString();
+  return {
+    ...record,
+    ackStatus: overrides.ackStatus ?? (record.status === "queued" ? "accepted" : "completed"),
+    status: overrides.status ?? record.status,
+    result,
+    completedAt: overrides.completedAt ?? record.completedAt ?? (overrides.status === "queued" ? null : now),
+    updatedAt: now
+  };
+}
+
 function buildControlSuggestions({ session, diagnostics }) {
   if (diagnostics.status === "settled") {
     return [];
@@ -190,6 +226,7 @@ function deriveSessionDiagnostics(session, events, artifacts, controlHistory) {
   const lastEvent = events.at(-1) ?? null;
   const now = Date.now();
   const updatedAt = session.updatedAt ? Date.parse(session.updatedAt) : null;
+  const startedAt = session.startedAt ? Date.parse(session.startedAt) : null;
   const ageMs = Number.isFinite(updatedAt) ? Math.max(0, now - updatedAt) : null;
   let status = session.state;
   if (isSettled(session)) {
@@ -201,16 +238,38 @@ function deriveSessionDiagnostics(session, events, artifacts, controlHistory) {
   } else {
     status = "awaiting_settlement";
   }
+  const latestControl = Array.isArray(controlHistory) ? controlHistory[0] ?? null : null;
+  const lastSteer = Array.isArray(controlHistory)
+    ? controlHistory.find((entry) => entry.action === "steer")
+    : null;
+  const staleSession = !isSettled(session) && ageMs !== null && ageMs > 60_000;
+  const settleLagMs =
+    Number.isFinite(startedAt)
+      ? Math.max(0, (session.endedAt ? Date.parse(session.endedAt) : now) - startedAt)
+      : null;
+  let operatorUrgency = "low";
+  if (status === "stuck_active") {
+    operatorUrgency = "high";
+  } else if (status === "awaiting_settlement" || latestControl?.status === "queued") {
+    operatorUrgency = "medium";
+  } else if (status === "active") {
+    operatorUrgency = "medium";
+  }
   return {
     status,
     lastEventType: lastEvent?.type ?? null,
     lastEventAt: lastEvent?.createdAt ?? null,
     ageMs,
+    staleSession,
+    settleLagMs,
     hasTranscript: Boolean(artifacts.transcript?.exists),
     hasPiEvents: Boolean(artifacts.piEvents?.exists),
     hasRpcStatus: Boolean(artifacts.rpcStatus?.exists),
     controlCount: Array.isArray(controlHistory) ? controlHistory.length : 0,
     supportsRpcControl: supportsRpcControl(session),
+    lastSteerAt: lastSteer?.acceptedAt ?? null,
+    lastControlResult: latestControl?.result ?? null,
+    operatorUrgency,
     suggestions: buildControlSuggestions({
       session,
       diagnostics: {
@@ -493,16 +552,59 @@ async function handleSteerAction({ session, body, dbPath, eventsPath }) {
 }
 
 async function handleActionRequest({ action, session, body, dbPath, eventsPath }) {
+  const idempotencyKey = body.idempotencyKey ?? null;
+  const existing = withDatabase(dbPath, (db) =>
+    findSessionControlRequestByIdempotency(db, session.id, action, idempotencyKey)
+  );
+  if (existing) {
+    return {
+      ok: true,
+      action,
+      idempotent: true,
+      request: existing,
+      ...existing.result
+    };
+  }
+
+  const controlRequest = createControlRequestRecord(
+    session,
+    action,
+    body,
+    idempotencyKey,
+    body.requestId ?? undefined
+  );
+  withDatabase(dbPath, (db) => insertSessionControlRequest(db, controlRequest));
+
+  let result;
   if (action === "stop") {
-    return handleStopAction({ session, body, dbPath, eventsPath });
+    result = await handleStopAction({ session, body, dbPath, eventsPath });
+  } else if (action === "mark-complete") {
+    result = await handleMarkCompleteAction({ session, body, dbPath, eventsPath });
+  } else if (action === "steer") {
+    result = await handleSteerAction({ session, body, dbPath, eventsPath });
+  } else {
+    throw new Error(`unknown action: ${action}`);
   }
-  if (action === "mark-complete") {
-    return handleMarkCompleteAction({ session, body, dbPath, eventsPath });
-  }
-  if (action === "steer") {
-    return handleSteerAction({ session, body, dbPath, eventsPath });
-  }
-  throw new Error(`unknown action: ${action}`);
+
+  const updatedRequest = settleControlRequest(controlRequest, result, {
+    status:
+      action === "steer"
+        ? (supportsRpcControl(session) ? "queued" : "delivered")
+        : "completed",
+    ackStatus:
+      action === "steer" && supportsRpcControl(session)
+        ? "accepted"
+        : "completed",
+    completedAt:
+      action === "steer" && supportsRpcControl(session)
+        ? null
+        : undefined
+  });
+  withDatabase(dbPath, (db) => updateSessionControlRequest(db, updatedRequest));
+  return {
+    ...result,
+    request: updatedRequest
+  };
 }
 
 async function handleEventStream(request, response, eventsPath, filters) {
@@ -602,6 +704,42 @@ async function createServer(options = {}) {
         return;
       }
 
+      if (request.method === "GET" && parts.length === 3 && parts[0] === "sessions" && parts[2] === "control-history") {
+        const sessionId = decodeURIComponent(parts[1]);
+        const session = withDatabase(dbPath, (db) => getSession(db, sessionId));
+        if (!session) {
+          notFound(response, pathname);
+          return;
+        }
+        const history = withDatabase(dbPath, (db) =>
+          listSessionControlRequests(db, sessionId, Number.parseInt(url.searchParams.get("limit") ?? "50", 10))
+        );
+        json(response, 200, { ok: true, session, controlHistory: history });
+        return;
+      }
+
+      if (
+        request.method === "GET" &&
+        parts.length === 4 &&
+        parts[0] === "sessions" &&
+        parts[2] === "control-status"
+      ) {
+        const sessionId = decodeURIComponent(parts[1]);
+        const requestId = decodeURIComponent(parts[3]);
+        const session = withDatabase(dbPath, (db) => getSession(db, sessionId));
+        if (!session) {
+          notFound(response, pathname);
+          return;
+        }
+        const controlRequest = withDatabase(dbPath, (db) => getSessionControlRequest(db, requestId));
+        if (!controlRequest || controlRequest.sessionId !== sessionId) {
+          notFound(response, pathname);
+          return;
+        }
+        json(response, 200, { ok: true, session, request: controlRequest });
+        return;
+      }
+
       if (request.method === "GET" && pathname === "/stream/events") {
         await handleEventStream(request, response, eventsPath, {
           session: url.searchParams.get("session") ?? undefined,
@@ -658,10 +796,19 @@ async function createServer(options = {}) {
           limit: url.searchParams.get("limit") ?? "50"
         });
         const artifacts = await buildArtifactSummary(session);
-        const controlHistory = artifacts.control?.exists
-          ? (await readArtifactContent(session, "control")).content
-          : [];
+        const durableControlHistory = withDatabase(dbPath, (db) =>
+          listSessionControlRequests(db, sessionId, Number.parseInt(url.searchParams.get("limit") ?? "50", 10))
+        );
+        const artifactControlHistory =
+          durableControlHistory.length === 0 && artifacts.control?.exists
+            ? (await readArtifactContent(session, "control")).content
+            : [];
+        const controlHistory = durableControlHistory.length > 0 ? durableControlHistory : artifactControlHistory;
         const diagnostics = deriveSessionDiagnostics(session, events, artifacts, controlHistory);
+        const rpcStatus =
+          artifacts.rpcStatus?.exists
+            ? (await readArtifactContent(session, "rpcStatus")).content
+            : null;
         json(response, 200, {
           ok: true,
           session,
@@ -673,7 +820,24 @@ async function createServer(options = {}) {
             launcherType: session.launcherType ?? null,
             tmuxSession: session.tmuxSession ?? null,
             runId: session.runId ?? null
-          }
+          },
+          launcherMetadata: {
+            launcherType: session.launcherType ?? null,
+            tmuxSession: session.tmuxSession ?? null,
+            runId: session.runId ?? null,
+            runtimeAdapter: session.runtimeAdapter ?? null,
+            transportMode: session.transportMode ?? null,
+            rpcStatus
+          },
+          controlAck: controlHistory[0]
+            ? {
+                requestId: controlHistory[0].id,
+                ackStatus: controlHistory[0].ackStatus,
+                status: controlHistory[0].status,
+                acceptedAt: controlHistory[0].acceptedAt,
+                completedAt: controlHistory[0].completedAt
+              }
+            : null
         });
         return;
       }
@@ -756,7 +920,10 @@ async function createServer(options = {}) {
 async function main() {
   const host = process.env.SPORE_GATEWAY_HOST ?? "127.0.0.1";
   const port = Number.parseInt(process.env.SPORE_GATEWAY_PORT ?? "8787", 10);
-  const server = await createServer();
+  const server = await createServer({
+    db: process.env.SPORE_SESSION_DB_PATH,
+    events: process.env.SPORE_EVENT_LOG_PATH
+  });
   server.listen(port, host, () => {
     process.stdout.write(
       JSON.stringify(

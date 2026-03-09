@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  getControlHistory,
+  getControlStatus,
   getLiveSession,
   getSessionStatusFromCli,
   launchGatewayControlledSession,
@@ -56,13 +58,19 @@ test("gateway steer and stop scaffolding works with a real PI session", async (t
     `/sessions/${encodeURIComponent(launched.sessionId)}/actions/steer`,
     {
       message: "Please acknowledge this steering message with the token SPORE_STEER_OK.",
-      mode: "follow_up"
+      mode: "follow_up",
+      idempotencyKey: `${launched.sessionId}-steer`
+    },
+    {
+      "x-idempotency-key": `${launched.sessionId}-steer`
     }
   );
 
   assert.equal(steer.status, 200);
   assert.equal(steer.json?.ok, true);
   assert.equal(steer.json?.action, "steer");
+  assert.ok(steer.json?.request?.id);
+  assert.equal(steer.json?.request?.ackStatus, "accepted");
 
   const steerEvent = await waitForGatewayEvent(
     harness.baseUrl,
@@ -81,6 +89,16 @@ test("gateway steer and stop scaffolding works with a real PI session", async (t
   assert.equal(liveAfterSteer.session.id, launched.sessionId);
   assert.ok(liveAfterSteer.controlHistory.length >= 1);
 
+  const steerHistory = await getControlHistory(harness.baseUrl, launched.sessionId, { limit: 10 });
+  assert.equal(steerHistory.status, 200);
+  assert.ok(Array.isArray(steerHistory.json?.controlHistory));
+  assert.ok(steerHistory.json.controlHistory.some((entry) => entry.id === steer.json.request.id));
+
+  const steerStatus = await getControlStatus(harness.baseUrl, launched.sessionId, steer.json.request.id);
+  assert.equal(steerStatus.status, 200);
+  assert.equal(steerStatus.json?.request?.id, steer.json.request.id);
+  assert.equal(steerStatus.json?.request?.ackStatus, "accepted");
+
   const controlArtifactPath = await waitForControlArtifact(launched.sessionId, {
     timeoutMs: 15000,
     intervalMs: 400
@@ -97,12 +115,18 @@ test("gateway steer and stop scaffolding works with a real PI session", async (t
     harness.baseUrl,
     `/sessions/${encodeURIComponent(launched.sessionId)}/actions/stop`,
     {
-      reason: "test requested stop"
+      reason: "test requested stop",
+      idempotencyKey: `${launched.sessionId}-stop`
+    },
+    {
+      "x-idempotency-key": `${launched.sessionId}-stop`
     }
   );
   assert.equal(stop.status, 200);
   assert.equal(stop.json?.ok, true);
   assert.equal(stop.json?.action, "stop");
+  assert.equal(stop.json?.request?.ackStatus, "completed");
+  assert.equal(stop.json?.request?.status, "completed");
 
   const stopped = await waitForGatewaySessionState(
     harness.baseUrl,
@@ -170,12 +194,18 @@ test("gateway mark-complete scaffolding works with a real PI session", async (t)
     harness.baseUrl,
     `/sessions/${encodeURIComponent(launched.sessionId)}/actions/mark-complete`,
     {
-      reason: "test requested completion"
+      reason: "test requested completion",
+      idempotencyKey: `${launched.sessionId}-complete`
+    },
+    {
+      "x-idempotency-key": `${launched.sessionId}-complete`
     }
   );
   assert.equal(markComplete.status, 200);
   assert.equal(markComplete.json?.ok, true);
   assert.equal(markComplete.json?.action, "mark-complete");
+  assert.equal(markComplete.json?.request?.ackStatus, "completed");
+  assert.equal(markComplete.json?.request?.status, "completed");
 
   const completed = await waitForGatewaySessionState(
     harness.baseUrl,

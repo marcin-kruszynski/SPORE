@@ -103,11 +103,12 @@ export async function getJson(baseUrl, routePath) {
   };
 }
 
-export async function postJson(baseUrl, routePath, payload) {
+export async function postJson(baseUrl, routePath, payload, headers = {}) {
   const response = await fetch(new URL(routePath, `${baseUrl}/`), {
     method: "POST",
     headers: {
-      "content-type": "application/json"
+      "content-type": "application/json",
+      ...headers
     },
     body: JSON.stringify(payload)
   });
@@ -116,6 +117,22 @@ export async function postJson(baseUrl, routePath, payload) {
     status: response.status,
     json: text ? JSON.parse(text) : null
   };
+}
+
+export async function getControlHistory(baseUrl, sessionId, options = {}) {
+  const query = new URLSearchParams();
+  if (options.limit) {
+    query.set("limit", String(options.limit));
+  }
+  const suffix = query.size > 0 ? `?${query.toString()}` : "";
+  return getJson(baseUrl, `/sessions/${encodeURIComponent(sessionId)}/control-history${suffix}`);
+}
+
+export async function getControlStatus(baseUrl, sessionId, requestId) {
+  return getJson(
+    baseUrl,
+    `/sessions/${encodeURIComponent(sessionId)}/control-status/${encodeURIComponent(requestId)}`
+  );
 }
 
 export async function waitForGatewaySessionState(baseUrl, sessionId, acceptedStates, options = {}) {

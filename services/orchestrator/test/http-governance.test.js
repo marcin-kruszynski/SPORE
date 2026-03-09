@@ -10,12 +10,11 @@ import {
 import { openOrchestratorDatabase, updateStep } from "../../../packages/orchestrator/src/store/execution-store.js";
 import { transitionStepRecord } from "../../../packages/orchestrator/src/lifecycle/execution-lifecycle.js";
 import { makeTempPaths } from "../../../packages/orchestrator/test/helpers/scenario-fixtures.js";
-import { startProcess, waitForHealth } from "./helpers/http-harness.js";
-
-const ORCHESTRATOR_PORT = 8795;
-const WEB_PORT = 8796;
+import { findFreePort, startProcess, waitForHealth } from "./helpers/http-harness.js";
 
 test("family governance, audit, and policy diff routes work through HTTP and web proxy", async (t) => {
+  const ORCHESTRATOR_PORT = await findFreePort();
+  const WEB_PORT = await findFreePort();
   const { dbPath, sessionDbPath } = await makeTempPaths("spore-http-governance-");
   const executionId = `http-governance-root-${Date.now()}`;
   const invocation = await planWorkflowInvocation({

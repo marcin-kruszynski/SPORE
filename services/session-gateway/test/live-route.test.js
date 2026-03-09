@@ -5,13 +5,35 @@ import path from "node:path";
 
 import { appendEvent } from "../../../packages/session-manager/src/events/event-log.js";
 import { PROJECT_ROOT } from "../../../packages/session-manager/src/metadata/constants.js";
-import { openSessionDatabase, upsertSession } from "../../../packages/session-manager/src/store/session-store.js";
+import {
+  insertSessionControlRequest,
+  openSessionDatabase,
+  upsertSession
+} from "../../../packages/session-manager/src/store/session-store.js";
 import { makeTempPaths } from "../../../packages/orchestrator/test/helpers/scenario-fixtures.js";
 import { getJson, startProcess, waitForHealth } from "../../orchestrator/test/helpers/http-harness.js";
 
-const GATEWAY_PORT = 8799;
+async function findFreePort() {
+  const net = await import("node:net");
+  return new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.on("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      const port = typeof address === "object" && address ? address.port : null;
+      server.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve(port);
+      });
+    });
+  });
+}
 
 test("session live route returns diagnostics and control guidance", async (t) => {
+  const gatewayPort = await findFreePort();
   const temp = await makeTempPaths("spore-gateway-live-");
   const eventLogPath = path.join(temp.root, "events.ndjson");
   const sessionId = `live-route-${Date.now()}`;
@@ -42,6 +64,20 @@ test("session live route returns diagnostics and control guidance", async (t) =>
       endedAt: null,
       createdAt: new Date(Date.now() - 90_000).toISOString(),
       updatedAt: new Date(Date.now() - 90_000).toISOString()
+    });
+    insertSessionControlRequest(sessionDb, {
+      id: `${sessionId}-request`,
+      sessionId,
+      action: "steer",
+      idempotencyKey: `${sessionId}-steer`,
+      requestPayload: { message: "finish soon" },
+      ackStatus: "accepted",
+      status: "queued",
+      result: { ok: true, action: "steer" },
+      acceptedAt: new Date(Date.now() - 30_000).toISOString(),
+      completedAt: null,
+      createdAt: new Date(Date.now() - 30_000).toISOString(),
+      updatedAt: new Date(Date.now() - 30_000).toISOString()
     });
   } finally {
     sessionDb.close();
@@ -75,7 +111,7 @@ test("session live route returns diagnostics and control guidance", async (t) =>
   ]);
 
   const gateway = startProcess("node", ["services/session-gateway/server.js"], {
-    SPORE_GATEWAY_PORT: String(GATEWAY_PORT),
+    SPORE_GATEWAY_PORT: String(gatewayPort),
     SPORE_SESSION_DB_PATH: temp.sessionDbPath,
     SPORE_EVENT_LOG_PATH: eventLogPath
   });
@@ -86,18 +122,37 @@ test("session live route returns diagnostics and control guidance", async (t) =>
     await fs.rm(`${base}.control.ndjson`, { force: true });
   });
 
-  await waitForHealth(`http://127.0.0.1:${GATEWAY_PORT}/health`);
+  await waitForHealth(`http://127.0.0.1:${gatewayPort}/health`);
 
-  const response = await getJson(`http://127.0.0.1:${GATEWAY_PORT}/sessions/${encodeURIComponent(sessionId)}/live`);
+  const response = await getJson(`http://127.0.0.1:${gatewayPort}/sessions/${encodeURIComponent(sessionId)}/live`);
   assert.equal(response.status, 200);
   assert.equal(response.json.ok, true);
   assert.equal(response.json.session.id, sessionId);
   assert.equal(response.json.diagnostics.status, "stuck_active");
   assert.equal(response.json.diagnostics.supportsRpcControl, true);
+  assert.equal(response.json.diagnostics.staleSession, true);
+  assert.equal(response.json.diagnostics.operatorUrgency, "high");
+  assert.ok(typeof response.json.diagnostics.settleLagMs === "number");
   assert.ok(Array.isArray(response.json.diagnostics.suggestions));
   assert.ok(response.json.diagnostics.suggestions.some((item) => item.action === "steer"));
   assert.ok(response.json.diagnostics.suggestions.some((item) => item.action === "stop"));
   assert.equal(response.json.artifacts.transcript.exists, true);
   assert.equal(response.json.artifacts.rpcStatus.exists, true);
   assert.equal(response.json.controlHistory.length, 1);
+  assert.equal(response.json.launcherMetadata.launcherType, "pi-rpc");
+  assert.equal(response.json.launcherMetadata.runtimeAdapter, "runtime-pi");
+  assert.ok(response.json.launcherMetadata.rpcStatus);
+  assert.equal(response.json.controlAck.requestId, `${sessionId}-request`);
+
+  const historyResponse = await getJson(
+    `http://127.0.0.1:${gatewayPort}/sessions/${encodeURIComponent(sessionId)}/control-history`
+  );
+  assert.equal(historyResponse.status, 200);
+  assert.equal(historyResponse.json.controlHistory[0].id, `${sessionId}-request`);
+
+  const statusResponse = await getJson(
+    `http://127.0.0.1:${gatewayPort}/sessions/${encodeURIComponent(sessionId)}/control-status/${encodeURIComponent(`${sessionId}-request`)}`
+  );
+  assert.equal(statusResponse.status, 200);
+  assert.equal(statusResponse.json.request.id, `${sessionId}-request`);
 });

@@ -37,6 +37,7 @@ import {
 import { planWorkflowInvocation } from "../invocation/plan-workflow-invocation.js";
 import { PROJECT_ROOT } from "../../../runtime-pi/src/metadata/constants.js";
 import {
+  getRunCenterSummary,
   getRegressionRunDetail,
   getRegressionRunReport,
   getRegressionTrends,
@@ -354,6 +355,12 @@ async function main() {
   if (command === "scenario-list") {
     const scenarios = await listScenarioCatalog();
     console.log(JSON.stringify({ ok: true, scenarios }, null, 2));
+    return;
+  }
+
+  if (command === "run-center") {
+    const detail = await getRunCenterSummary(undefined, Number.parseInt(String(flags.limit ?? "10"), 10));
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
     return;
   }
 

@@ -201,6 +201,17 @@ const server = http.createServer(async (request, response) => {
       return;
     }
 
+    if (request.method === "GET" && url.pathname === "/run-center/summary") {
+      const payload = await runCli([
+        "packages/orchestrator/src/cli/spore-orchestrator.js",
+        "run-center",
+        "--limit",
+        url.searchParams.get("limit")?.trim() || "10"
+      ]);
+      json(response, 200, payload);
+      return;
+    }
+
     if (request.method === "GET" && url.pathname === "/coordination-groups") {
       const payload = await runCli(["packages/orchestrator/src/cli/spore-orchestrator.js", "groups"]);
       json(response, 200, payload);

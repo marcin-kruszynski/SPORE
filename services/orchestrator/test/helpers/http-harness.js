@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import net from 'node:net';
 
 export function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -17,6 +18,24 @@ export async function waitForHealth(url, attempts = 40) {
     await sleep(100);
   }
   throw new Error(`health check failed: ${url}`);
+}
+
+export async function findFreePort() {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.on('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address();
+      const port = typeof address === 'object' && address ? address.port : null;
+      server.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve(port);
+      });
+    });
+  });
 }
 
 export function startProcess(command, args, env = {}, options = {}) {

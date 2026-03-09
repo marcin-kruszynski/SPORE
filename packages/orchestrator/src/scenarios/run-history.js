@@ -43,6 +43,71 @@ function createRunId(prefix) {
   return `${prefix}-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
 }
 
+function toErrorMessage(value) {
+  return String(value ?? "").trim();
+}
+
+function classifyFailureFromMessage(message) {
+  const normalized = toErrorMessage(message).toLowerCase();
+  if (!normalized) {
+    return null;
+  }
+  if (normalized.includes("auth") || normalized.includes("provider") || normalized.includes("api key")) {
+    return "runtime_setup_failure";
+  }
+  if (normalized.includes("pi") || normalized.includes("launcher") || normalized.includes("rpc")) {
+    return "launcher_failure";
+  }
+  if (normalized.includes("gateway") || normalized.includes("control")) {
+    return "gateway_control_failure";
+  }
+  if (normalized.includes("timeout") || normalized.includes("stuck") || normalized.includes("stall") || normalized.includes("held")) {
+    return "timeout_or_stall";
+  }
+  return "scenario_assertion_failure";
+}
+
+function classifyScenarioOutcome(run, detail = null) {
+  const finalState = detail?.execution?.state ?? run?.status ?? "unknown";
+  const errorMessage = run?.metadata?.error ?? run?.assertionSummary?.error ?? null;
+  if (isSuccessfulState(finalState)) {
+    return { code: "success", reason: finalState };
+  }
+  if (finalState === "held" || finalState === "paused") {
+    return { code: "timeout_or_stall", reason: finalState };
+  }
+  if (finalState === "failed") {
+    return {
+      code: classifyFailureFromMessage(errorMessage) ?? "scenario_assertion_failure",
+      reason: errorMessage ?? finalState
+    };
+  }
+  if (finalState === "rejected" || finalState === "canceled") {
+    return { code: "governance_failure", reason: finalState };
+  }
+  return {
+    code: classifyFailureFromMessage(errorMessage) ?? "scenario_assertion_failure",
+    reason: errorMessage ?? finalState
+  };
+}
+
+function summarizeClassificationCounts(items = [], key = "failureClassification") {
+  return items.reduce((accumulator, item) => {
+    const classification = item?.metadata?.[key] ?? item?.[key] ?? null;
+    if (!classification || classification === "success") {
+      return accumulator;
+    }
+    accumulator[classification] = (accumulator[classification] ?? 0) + 1;
+    return accumulator;
+  }, {});
+}
+
+function sortCountEntries(counts) {
+  return Object.entries(counts)
+    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+    .map(([code, count]) => ({ code, count }));
+}
+
 function scenarioArtifactPaths(sessionId) {
   const base = path.join(PROJECT_ROOT, "tmp", "sessions", sessionId);
   return {
@@ -103,9 +168,15 @@ async function writeRegressionReport(run, items) {
   await fs.mkdir(reportDir, { recursive: true });
   const jsonPath = path.join(reportDir, `${run.id}.summary.json`);
   const mdPath = path.join(reportDir, `${run.id}.summary.md`);
+  const topFailureReasons = sortCountEntries(summarizeClassificationCounts(items));
+  const linkedScenarioRunIds = items.map((item) => item.scenarioRunId).filter(Boolean);
+  const linkedExecutionIds = items.map((item) => item.metadata?.executionId).filter(Boolean);
   const payload = {
     run,
-    items
+    items,
+    topFailureReasons,
+    linkedScenarioRunIds,
+    linkedExecutionIds
   };
   const markdown = [
     `# Regression Report: ${run.regressionLabel}`,
@@ -118,9 +189,18 @@ async function writeRegressionReport(run, items) {
     `- Fail Count: \`${run.summary?.failCount ?? 0}\``,
     `- Skipped Count: \`${run.summary?.skippedCount ?? 0}\``,
     "",
+    "## Top Failure Reasons",
+    "",
+    ...(topFailureReasons.length > 0
+      ? topFailureReasons.map((item) => `- \`${item.code}\`: \`${item.count}\``)
+      : ["- none"]),
+    "",
     "## Items",
     "",
-    ...items.map((item) => `- \`${item.scenarioId}\`: \`${item.status}\``)
+    ...items.map(
+      (item) =>
+        `- \`${item.scenarioId}\`: \`${item.status}\`${item.metadata?.failureClassification ? ` · \`${item.metadata.failureClassification}\`` : ""}`
+    )
   ].join("\n") + "\n";
   await Promise.all([
     fs.writeFile(jsonPath, `${JSON.stringify(payload, null, 2)}\n`, "utf8"),
@@ -173,6 +253,7 @@ function buildAssertionSummary(definition, detail) {
 }
 
 function summarizeScenarioRun(definition, run, executionLinks = []) {
+  const classification = run ? classifyScenarioOutcome(run) : null;
   return {
     scenarioId: definition.id,
     label: definition.label,
@@ -180,17 +261,20 @@ function summarizeScenarioRun(definition, run, executionLinks = []) {
     domain: definition.domain,
     roles: definition.roles ?? [],
     realPiEligible: Boolean(definition.realPiEligible),
+    latestFailureClassification: classification?.code ?? null,
     latestRun: run,
     latestExecutions: executionLinks
   };
 }
 
 function summarizeRegressionRun(definition, run, items = []) {
+  const topFailureReasons = sortCountEntries(summarizeClassificationCounts(items));
   return {
     regressionId: definition.id,
     label: definition.label,
     scenarios: definition.scenarios ?? [],
     realPiRequired: Boolean(definition.realPiRequired),
+    topFailureReasons,
     latestRun: run,
     latestItems: items
   };
@@ -263,7 +347,17 @@ export async function runScenarioById(scenarioId, options = {}, dbPath = DEFAULT
     }, dbPath);
 
     const settledDetail = getExecutionDetail(invocation.invocationId, dbPath);
-    const assertionSummary = buildAssertionSummary(definition, settledDetail ?? detail);
+    const classification = classifyScenarioOutcome(
+      {
+        ...scenarioRun,
+        status: settledDetail?.execution?.state ?? detail?.execution?.state ?? "completed"
+      },
+      settledDetail ?? detail
+    );
+    const assertionSummary = {
+      ...buildAssertionSummary(definition, settledDetail ?? detail),
+      failureClassification: classification.code
+    };
     const artifactSummary = await buildScenarioArtifactSummary(settledDetail ?? detail);
     const endedAt = new Date().toISOString();
     const settledRun = {
@@ -276,7 +370,9 @@ export async function runScenarioById(scenarioId, options = {}, dbPath = DEFAULT
         coordinationGroupId: invocation.coordination.groupId,
         branchKey: invocation.coordination.branchKey,
         projectPath: options.project ?? "config/projects/example-project.yaml",
-        artifactSummary
+        artifactSummary,
+        failureClassification: classification.code,
+        failureReason: classification.reason
       },
       endedAt
     };
@@ -308,11 +404,14 @@ export async function runScenarioById(scenarioId, options = {}, dbPath = DEFAULT
       status: "failed",
       assertionSummary: {
         success: false,
-        error: error.message
+        error: error.message,
+        failureClassification: classifyFailureFromMessage(error.message) ?? "scenario_assertion_failure"
       },
       metadata: {
         ...scenarioRun.metadata,
-        error: error.message
+        error: error.message,
+        failureClassification: classifyFailureFromMessage(error.message) ?? "scenario_assertion_failure",
+        failureReason: error.message
       },
       endedAt
     };
@@ -325,9 +424,20 @@ export async function listScenarioSummaries(dbPath = DEFAULT_ORCHESTRATOR_DB_PAT
   const definitions = await listScenarioDefinitions();
   return withDatabase(dbPath, (db) =>
     definitions.map((definition) => {
-      const latestRun = listScenarioRuns(db, definition.id, 1)[0] ?? null;
+      const recentRuns = listScenarioRuns(db, definition.id, 25);
+      const latestRun = recentRuns[0] ?? null;
       const executionLinks = latestRun ? listScenarioRunExecutions(db, latestRun.id) : [];
-      return summarizeScenarioRun(definition, latestRun, executionLinks);
+      return {
+        ...summarizeScenarioRun(definition, latestRun, executionLinks),
+        latestSuccessfulRun: recentRuns.find((run) => isSuccessfulState(run.status)) ?? null,
+        latestFailingRun: recentRuns.find((run) => !isSuccessfulState(run.status)) ?? null,
+        trendSnapshot: buildTrendPayload(
+          definition.id,
+          "scenario",
+          recentRuns,
+          (run) => isSuccessfulState(run.status)
+        ).windows.last10
+      };
     })
   );
 }
@@ -338,9 +448,20 @@ export async function getScenarioSummary(scenarioId, dbPath = DEFAULT_ORCHESTRAT
     return null;
   }
   return withDatabase(dbPath, (db) => {
-    const latestRun = listScenarioRuns(db, definition.id, 1)[0] ?? null;
+    const recentRuns = listScenarioRuns(db, definition.id, 25);
+    const latestRun = recentRuns[0] ?? null;
     const executionLinks = latestRun ? listScenarioRunExecutions(db, latestRun.id) : [];
-    return summarizeScenarioRun(definition, latestRun, executionLinks);
+    return {
+      ...summarizeScenarioRun(definition, latestRun, executionLinks),
+      latestSuccessfulRun: recentRuns.find((run) => isSuccessfulState(run.status)) ?? null,
+      latestFailingRun: recentRuns.find((run) => !isSuccessfulState(run.status)) ?? null,
+      trendSnapshot: buildTrendPayload(
+        definition.id,
+        "scenario",
+        recentRuns,
+        (run) => isSuccessfulState(run.status)
+      ).windows.last10
+    };
   });
 }
 
@@ -432,7 +553,10 @@ export async function runRegressionById(regressionId, options = {}, dbPath = DEF
         metadata: {
           executionId: result.execution?.execution?.id ?? null,
           executionState: result.execution?.execution?.state ?? null,
-          scenarioStatus: result.run.status
+          scenarioStatus: result.run.status,
+          launcher: result.run.launcher ?? null,
+          failureClassification: result.run.metadata?.failureClassification ?? null,
+          failureReason: result.run.metadata?.failureReason ?? null
         },
         endedAt: new Date().toISOString()
       };
@@ -447,7 +571,9 @@ export async function runRegressionById(regressionId, options = {}, dbPath = DEF
         ...item,
         status: "failed",
         metadata: {
-          error: error.message
+          error: error.message,
+          failureClassification: classifyFailureFromMessage(error.message) ?? "scenario_assertion_failure",
+          failureReason: error.message
         },
         endedAt: new Date().toISOString()
       };
@@ -480,7 +606,8 @@ export async function runRegressionById(regressionId, options = {}, dbPath = DEF
     summary,
     metadata: {
       ...regressionRun.metadata,
-      processedScenarioIds: items.map((item) => item.scenarioId)
+      processedScenarioIds: items.map((item) => item.scenarioId),
+      realPiUsed: options.stub !== true
     },
     endedAt
   };
@@ -502,9 +629,20 @@ export async function listRegressionSummaries(dbPath = DEFAULT_ORCHESTRATOR_DB_P
   const definitions = await listRegressionDefinitions();
   return withDatabase(dbPath, (db) =>
     definitions.map((definition) => {
-      const latestRun = listRegressionRuns(db, definition.id, 1)[0] ?? null;
+      const recentRuns = listRegressionRuns(db, definition.id, 25);
+      const latestRun = recentRuns[0] ?? null;
       const items = latestRun ? listRegressionRunItems(db, latestRun.id) : [];
-      return summarizeRegressionRun(definition, latestRun, items);
+      return {
+        ...summarizeRegressionRun(definition, latestRun, items),
+        latestSuccessfulRun: recentRuns.find((run) => run.status === "passed") ?? null,
+        latestFailingRun: recentRuns.find((run) => run.status !== "passed") ?? null,
+        trendSnapshot: buildTrendPayload(
+          definition.id,
+          "regression",
+          recentRuns,
+          (run) => run.status === "passed"
+        ).windows.last10
+      };
     })
   );
 }
@@ -515,9 +653,20 @@ export async function getRegressionSummary(regressionId, dbPath = DEFAULT_ORCHES
     return null;
   }
   return withDatabase(dbPath, (db) => {
-    const latestRun = listRegressionRuns(db, regressionId, 1)[0] ?? null;
+    const recentRuns = listRegressionRuns(db, regressionId, 25);
+    const latestRun = recentRuns[0] ?? null;
     const items = latestRun ? listRegressionRunItems(db, latestRun.id) : [];
-    return summarizeRegressionRun(definition, latestRun, items);
+    return {
+      ...summarizeRegressionRun(definition, latestRun, items),
+      latestSuccessfulRun: recentRuns.find((run) => run.status === "passed") ?? null,
+      latestFailingRun: recentRuns.find((run) => run.status !== "passed") ?? null,
+      trendSnapshot: buildTrendPayload(
+        definition.id,
+        "regression",
+        recentRuns,
+        (run) => run.status === "passed"
+      ).windows.last10
+    };
   });
 }
 
@@ -684,7 +833,10 @@ export async function getRegressionRunReport(runId, dbPath = DEFAULT_ORCHESTRATO
   }
   return {
     ...detail,
-    reports: normalized
+    reports: normalized,
+    topFailureReasons: sortCountEntries(summarizeClassificationCounts(detail.items)),
+    linkedScenarioRunIds: detail.items.map((item) => item.scenarioRunId).filter(Boolean),
+    linkedExecutionIds: detail.items.map((item) => item.metadata?.executionId).filter(Boolean)
   };
 }
 
@@ -784,4 +936,31 @@ export async function rerunRegressionRun(runId, options = {}, dbPath = DEFAULT_O
       run: updatedRun
     };
   });
+}
+
+export async function getRunCenterSummary(dbPath = DEFAULT_ORCHESTRATOR_DB_PATH, limit = 10) {
+  const [scenarios, regressions] = await Promise.all([
+    listScenarioSummaries(dbPath),
+    listRegressionSummaries(dbPath)
+  ]);
+
+  const recent = withDatabase(dbPath, (db) => ({
+    recentScenarioRuns: listScenarioRuns(db, null, limit),
+    recentRegressionRuns: listRegressionRuns(db, null, limit)
+  }));
+
+  return {
+    counts: {
+      scenarios: scenarios.length,
+      regressions: regressions.length,
+      recentScenarioRuns: recent.recentScenarioRuns.length,
+      recentRegressionRuns: recent.recentRegressionRuns.length,
+      failingScenarios: scenarios.filter((item) => item.latestRun && !isSuccessfulState(item.latestRun.status)).length,
+      failingRegressions: regressions.filter((item) => item.latestRun && item.latestRun.status !== "passed").length
+    },
+    scenarios,
+    regressions,
+    recentScenarioRuns: recent.recentScenarioRuns,
+    recentRegressionRuns: recent.recentRegressionRuns
+  };
 }

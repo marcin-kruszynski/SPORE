@@ -83,6 +83,11 @@ test('tui execution and family commands consume orchestrator HTTP surfaces', asy
   assert.ok(Array.isArray(scenarioListPayload.scenarios));
   assert.ok(scenarioListPayload.scenarios.some((item) => item.id === 'backend-service-delivery'));
 
+  const runCenterOutput = await runCli(['run-center', '--api', `http://127.0.0.1:${ORCHESTRATOR_PORT}`]);
+  const runCenterPayload = JSON.parse(runCenterOutput.stdout);
+  assert.ok(Array.isArray(runCenterPayload.detail.scenarios));
+  assert.ok(Array.isArray(runCenterPayload.detail.regressions));
+
   const scenarioRunOutput = await runCli([
     'scenario-run',
     '--scenario', 'cli-verification-pass',

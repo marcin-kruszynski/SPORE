@@ -9,6 +9,8 @@ This service now provides the first HTTP gateway over SPORE session and event st
 - `GET /sessions`
 - `GET /sessions/:id`
 - `GET /sessions/:id/live`
+- `GET /sessions/:id/control-history`
+- `GET /sessions/:id/control-status/:requestId`
 - `GET /sessions/:id/artifacts`
 - `GET /sessions/:id/artifacts/:artifact`
 - `GET /events?session=...&run=...&type=...&limit=...`
@@ -62,7 +64,14 @@ The combined live route is the preferred read for operator tooling because it no
 - recent events,
 - artifact summary,
 - control history,
+- control acknowledgement summary,
+- launcher metadata,
 - derived diagnostics,
 - suggested recovery actions.
 
 This is not yet the final control plane, but it is enough for early operator workflows and future Web UI integration.
+
+For control-plane diagnostics and idempotency inspection, prefer:
+
+- `GET /sessions/:id/control-history`
+- `GET /sessions/:id/control-status/:requestId`

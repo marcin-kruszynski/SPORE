@@ -204,7 +204,9 @@ Current CLI contract: `docs-kb index|search|status|rebuild`.
 - `services/orchestrator/` also exposes escalation resolution and resume for operator recovery.
 - `services/orchestrator/` also exposes audit and policy-diff reads for durable operator and policy inspection.
 - `services/orchestrator/` also exposes durable scenario-run and regression-run reads by run id, rerun endpoints, and trend reads for operator validation loops.
+- `services/orchestrator/` also exposes `GET /run-center/summary` as the preferred aggregate operator summary for scenarios, regressions, and recent validation runs.
 - `apps/web/` renders grouped execution list/detail, rooted lineage tree, wave progression, coordination metadata, step/session tree, and review/approval history over those APIs.
-- `packages/tui/` consumes the same orchestrator HTTP surfaces for execution detail, rooted family summary, audit, and policy diff views.
-- `GET /sessions/:id/live` should be treated as the preferred combined live-session payload because it now includes diagnostics and suggested recovery actions in addition to events, artifacts, and control history.
+- `packages/tui/` consumes the same orchestrator HTTP surfaces for execution detail, rooted family summary, audit, policy diff, and run-center views.
+- `GET /sessions/:id/live` should be treated as the preferred combined live-session payload because it now includes diagnostics, launcher metadata, control acknowledgements, and suggested recovery actions in addition to events, artifacts, and control history.
+- `GET /sessions/:id/control-history` and `GET /sessions/:id/control-status/:requestId` are the preferred reads for durable control acknowledgement and idempotency inspection; do not reconstruct control state from transcript files when those routes are available.
 - UI and automation clients should treat `coordinationGroupId`, `parentExecutionId`, `childExecutionIds`, `branchKey`, `holdReason`, `pausedAt`, `heldAt`, and `resumedAt` as optional additive fields rather than guaranteed schema requirements.

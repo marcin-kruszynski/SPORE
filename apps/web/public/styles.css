@@ -245,6 +245,58 @@ h1 {
   border-color: rgba(180, 69, 45, 0.24);
 }
 
+.run-center-card {
+  display: grid;
+  gap: 14px;
+}
+
+.run-center-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.run-center-stat {
+  border-radius: 14px;
+  border: 1px solid rgba(24, 34, 44, 0.08);
+  background: rgba(255, 255, 255, 0.74);
+  padding: 10px 12px;
+  display: grid;
+  gap: 4px;
+}
+
+.run-center-stat strong {
+  font-size: 22px;
+  line-height: 1;
+}
+
+.run-center-section {
+  display: grid;
+  gap: 10px;
+}
+
+.run-center-section .panel-header.nested {
+  margin-top: 0;
+}
+
+.run-center-list {
+  display: grid;
+  gap: 10px;
+}
+
+.run-center-item {
+  border-radius: 14px;
+  border: 1px solid rgba(24, 34, 44, 0.08);
+  background: rgba(255, 255, 255, 0.74);
+  padding: 12px;
+}
+
+.run-center-drilldown {
+  box-shadow: none;
+  border-color: rgba(24, 34, 44, 0.08);
+  background: rgba(255, 255, 255, 0.76);
+}
+
 .execution-item.paused,
 .lineage-card.paused {
   border-color: rgba(71, 86, 138, 0.22);
@@ -388,6 +440,20 @@ h1 {
 
 .detail-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.session-detail-stack {
+  display: grid;
+  gap: 12px;
+  background: rgba(0, 0, 0, 0);
+  border: 0;
+  box-shadow: none;
+  padding: 0;
+}
+
+.session-live-v2 {
+  border-color: rgba(24, 84, 138, 0.14);
+  background: linear-gradient(180deg, rgba(242, 247, 255, 0.9), rgba(255, 255, 255, 0.82));
 }
 
 .detail-span {
@@ -1089,6 +1155,7 @@ button:disabled {
 
   .status-grid,
   .detail-grid,
+  .run-center-grid,
   .policy-grid,
   .policy-diff-context,
   .wave-summary-grid {

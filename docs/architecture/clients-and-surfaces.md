@@ -102,8 +102,14 @@ That route should be preferred when a client needs one combined payload for sess
 
 It now also carries derived diagnostics and suggested recovery actions, so browser and TUI clients should use it before inventing separate “health” heuristics for live sessions.
 
+When a client needs durable control acknowledgement or idempotency state, the preferred surfaces are:
+
+- `GET /sessions/:id/control-history`
+- `GET /sessions/:id/control-status/:requestId`
+
 The preferred validation-history surfaces are now:
 
+- `GET /run-center/summary`
 - `GET /scenario-runs/:runId`
 - `GET /scenario-runs/:runId/artifacts`
 - `GET /regression-runs/:runId`

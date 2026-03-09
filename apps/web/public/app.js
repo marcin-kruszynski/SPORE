@@ -2,6 +2,9 @@ const state = {
   sessions: [],
   selectedSessionId: null,
   detail: null,
+  sessionLive: null,
+  sessionLiveState: "idle",
+  sessionLiveError: null,
   artifacts: null,
   transcript: null,
   piEvents: null,
@@ -25,6 +28,9 @@ const state = {
   scenarioRunArtifactsState: "idle",
   scenarioRunArtifactsError: null,
   regressions: [],
+  runCenter: null,
+  runCenterState: "idle",
+  runCenterError: null,
   selectedRegressionId: null,
   regressionRouteState: "idle",
   regressionRouteError: null,
@@ -35,6 +41,8 @@ const state = {
   regressionRunsState: "idle",
   regressionRunsError: null,
   selectedRegressionRunId: null,
+  selectedRunCenterScenarioRunId: null,
+  selectedRunCenterRegressionRunId: null,
   selectedExecutionHistoryRowKey: null,
   workflowPreview: null,
   workflowPreviewError: null,
@@ -54,6 +62,8 @@ const els = {
   coordinationCount: document.getElementById("coordination-count"),
   scenarioCount: document.getElementById("scenario-count"),
   regressionCount: document.getElementById("regression-count"),
+  runCenterState: document.getElementById("run-center-state"),
+  runCenterSummary: document.getElementById("run-center-summary"),
   executionSubtitle: document.getElementById("execution-subtitle"),
   executionList: document.getElementById("execution-list"),
   scenarioSubtitle: document.getElementById("scenario-subtitle"),
@@ -916,6 +926,40 @@ function normalizeRouteArray(payload, keys = []) {
   return Array.isArray(discovered) ? discovered : [];
 }
 
+function readNestedValue(source, paths = []) {
+  for (const entry of paths) {
+    const path = Array.isArray(entry) ? entry : String(entry).split(".");
+    let cursor = source;
+    let ok = true;
+    for (const key of path) {
+      if (!isObject(cursor) && !Array.isArray(cursor)) {
+        ok = false;
+        break;
+      }
+      cursor = cursor?.[key];
+      if (cursor === undefined) {
+        ok = false;
+        break;
+      }
+    }
+    if (ok && hasDisplayValue(cursor)) {
+      return cursor;
+    }
+  }
+  return null;
+}
+
+function normalizeRunCenterCollections(payload = {}) {
+  const root = payload?.summary ?? payload?.detail ?? payload ?? {};
+  return {
+    counts: readFirstObjectField(root, ["counts", "summary", "totals"]) ?? {},
+    scenarios: normalizeRouteArray(root, ["scenarios", "scenarioSummaries", "scenarioStatus", "scenarioItems"]),
+    regressions: normalizeRouteArray(root, ["regressions", "regressionSummaries", "regressionStatus", "regressionItems"]),
+    recentScenarioRuns: normalizeRouteArray(root, ["recentScenarioRuns", "latestScenarioRuns", "scenarioRuns"]),
+    recentRegressionRuns: normalizeRouteArray(root, ["recentRegressionRuns", "latestRegressionRuns", "regressionRuns"])
+  };
+}
+
 function collectGuidanceItems(record = {}, policy = null) {
   const items = [];
   const push = (label, value, tone = "") => {
@@ -1387,6 +1431,9 @@ async function api(path, options = {}) {
 }
 
 function renderStatus(status) {
+  const runCenter = normalizeRunCenterCollections(state.runCenter ?? {});
+  const runCenterScenarioCount = coerceCount(runCenter.counts?.scenarios) ?? runCenter.scenarios.length;
+  const runCenterRegressionCount = coerceCount(runCenter.counts?.regressions) ?? runCenter.regressions.length;
   els.sessionCount.textContent = String(status.sessionCount ?? "-");
   els.eventCount.textContent = String(status.eventCount ?? "-");
   const states = Object.entries(status.byState ?? {})
@@ -1397,7 +1444,9 @@ function renderStatus(status) {
   els.coordinationCount.textContent = String(uniqueCoordinationGroupCount(state.executions));
   if (els.scenarioCount) {
     els.scenarioCount.textContent =
-      state.scenarioRouteState === "ready"
+      state.runCenterState === "ready"
+        ? String(runCenterScenarioCount)
+        : state.scenarioRouteState === "ready"
         ? String(state.scenarios.length)
         : state.scenarioRouteState === "unavailable"
           ? "n/a"
@@ -1407,7 +1456,9 @@ function renderStatus(status) {
   }
   if (els.regressionCount) {
     els.regressionCount.textContent =
-      state.regressionRouteState === "ready"
+      state.runCenterState === "ready"
+        ? String(runCenterRegressionCount)
+        : state.regressionRouteState === "ready"
         ? String(state.regressions.length)
         : state.regressionRouteState === "unavailable"
           ? "n/a"
@@ -1514,6 +1565,22 @@ function buildSessionHref(sessionId) {
 
 function buildScenarioRunArtifactsHref(scenarioId, runId) {
   return `/api/orchestrator/scenarios/${encodeURIComponent(scenarioId)}/runs/${encodeURIComponent(runId)}/artifacts`;
+}
+
+function buildScenarioRunByIdHref(runId) {
+  return `/api/orchestrator/scenario-runs/${encodeURIComponent(runId)}`;
+}
+
+function buildScenarioRunArtifactsByIdHref(runId) {
+  return `/api/orchestrator/scenario-runs/${encodeURIComponent(runId)}/artifacts`;
+}
+
+function buildRegressionRunByIdHref(runId) {
+  return `/api/orchestrator/regression-runs/${encodeURIComponent(runId)}`;
+}
+
+function buildRegressionReportByRunIdHref(runId) {
+  return `/api/orchestrator/regression-runs/${encodeURIComponent(runId)}/report`;
 }
 
 function buildRegressionRunsHref(regressionId) {
@@ -2020,6 +2087,435 @@ function renderRegressions() {
         return;
       }
       state.selectedScenarioId = scenarioId;
+      refresh().catch((error) => console.error(error));
+    });
+  }
+}
+
+function renderRunCenter() {
+  if (!els.runCenterSummary || !els.runCenterState) {
+    return;
+  }
+
+  if (state.runCenterState === "unavailable") {
+    els.runCenterState.textContent = "route: unavailable";
+    els.runCenterSummary.className = "detail-card empty-state";
+    els.runCenterSummary.textContent = "Run center route is not available on this orchestrator.";
+    return;
+  }
+
+  if (state.runCenterState === "error") {
+    els.runCenterState.textContent = "route: error";
+    els.runCenterSummary.className = "detail-card empty-state";
+    els.runCenterSummary.textContent = `Failed to load run center: ${state.runCenterError ?? "unknown error"}`;
+    return;
+  }
+
+  const runCenter = normalizeRunCenterCollections(state.runCenter ?? {});
+  const scenarioSummaries = runCenter.scenarios.map((item, index) => ({
+    id: normalizeText(readFirstField(item, ["id", "scenarioId", "key"]), `scenario-${index + 1}`),
+    label: normalizeText(readFirstField(item, ["label", "name", "scenarioLabel", "title"]), getScenarioIdentifier(item, index)),
+    latestStatus: normalizeText(readFirstField(item, ["latestStatus", "status", "state", "result"]), "unknown"),
+    latestRunId: normalizeText(readFirstField(item, ["latestRunId", "latestRun", "runId"]), "-"),
+    failCount: Number(readFirstField(item, ["failCount", "failed", "latestFailCount", "failingCount"]) ?? 0),
+    passRate: readFirstField(item, ["passRate", "latestPassRate", "successRate"])
+  }));
+  const regressionSummaries = runCenter.regressions.map((item, index) => ({
+    id: normalizeText(readFirstField(item, ["id", "regressionId", "key"]), `regression-${index + 1}`),
+    label: normalizeText(readFirstField(item, ["label", "name", "regressionLabel", "title"]), `regression-${index + 1}`),
+    latestStatus: normalizeText(readFirstField(item, ["latestStatus", "status", "state", "result"]), "unknown"),
+    latestRunId: normalizeText(readFirstField(item, ["latestRunId", "latestRun", "runId"]), "-"),
+    failCount: Number(readFirstField(item, ["failCount", "failed", "latestFailCount", "failingCount"]) ?? 0),
+    passRate: readFirstField(item, ["passRate", "latestPassRate", "successRate"])
+  }));
+  const recentScenarioRuns = runCenter.recentScenarioRuns.map((item, index) => ({
+    runId: normalizeText(readFirstField(item, ["id", "runId"]), `scenario-run-${index + 1}`),
+    scenarioId: normalizeText(readFirstField(item, ["scenarioId", "id", "scenarioKey"]), ""),
+    status: normalizeText(readFirstField(item, ["status", "state", "result"]), "unknown"),
+    startedAt: normalizeText(readFirstField(item, ["startedAt", "createdAt"]), "-"),
+    endedAt: normalizeText(readFirstField(item, ["endedAt", "updatedAt"]), "-"),
+    executionId: normalizeText(readFirstField(item, ["executionId", "targetExecutionId", "latestExecutionId"]), ""),
+    launcher: normalizeText(readFirstField(item, ["launcher", "launcherType"]), "-")
+  }));
+  const recentRegressionRuns = runCenter.recentRegressionRuns.map((item, index) => ({
+    runId: normalizeText(readFirstField(item, ["id", "runId"]), `regression-run-${index + 1}`),
+    regressionId: normalizeText(readFirstField(item, ["regressionId", "id", "regressionKey"]), ""),
+    status: normalizeText(readFirstField(item, ["status", "state", "result"]), "unknown"),
+    startedAt: normalizeText(readFirstField(item, ["startedAt", "createdAt"]), "-"),
+    endedAt: normalizeText(readFirstField(item, ["endedAt", "updatedAt"]), "-"),
+    failCount: Number(readFirstField(item, ["failCount", "failed"]) ?? 0),
+    passCount: Number(readFirstField(item, ["passCount", "passed"]) ?? 0)
+  }));
+
+  if (state.selectedRunCenterScenarioRunId && !recentScenarioRuns.some((item) => item.runId === state.selectedRunCenterScenarioRunId)) {
+    state.selectedRunCenterScenarioRunId = null;
+  }
+  if (!state.selectedRunCenterScenarioRunId && recentScenarioRuns[0]?.runId) {
+    state.selectedRunCenterScenarioRunId = recentScenarioRuns[0].runId;
+  }
+  if (state.selectedRunCenterRegressionRunId && !recentRegressionRuns.some((item) => item.runId === state.selectedRunCenterRegressionRunId)) {
+    state.selectedRunCenterRegressionRunId = null;
+  }
+  if (!state.selectedRunCenterRegressionRunId && recentRegressionRuns[0]?.runId) {
+    state.selectedRunCenterRegressionRunId = recentRegressionRuns[0].runId;
+  }
+
+  const selectedScenarioRun = recentScenarioRuns.find((item) => item.runId === state.selectedRunCenterScenarioRunId) ?? null;
+  const selectedRegressionRun = recentRegressionRuns.find((item) => item.runId === state.selectedRunCenterRegressionRunId) ?? null;
+  const selectedScenarioRunCatalog =
+    selectedScenarioRun && state.selectedScenarioRunId === selectedScenarioRun.runId
+      ? state.scenarioRuns.find((run) => run.id === selectedScenarioRun.runId) ?? null
+      : null;
+  const selectedRegressionRunCatalog =
+    selectedRegressionRun && state.selectedRegressionRunId === selectedRegressionRun.runId
+      ? state.regressionRuns.find((run) => run.id === selectedRegressionRun.runId) ?? null
+      : null;
+
+  const scenarioCount = coerceCount(runCenter.counts?.scenarios) ?? scenarioSummaries.length;
+  const regressionCount = coerceCount(runCenter.counts?.regressions) ?? regressionSummaries.length;
+  const recentScenarioCount = coerceCount(runCenter.counts?.recentScenarioRuns) ?? recentScenarioRuns.length;
+  const recentRegressionCount = coerceCount(runCenter.counts?.recentRegressionRuns) ?? recentRegressionRuns.length;
+
+  els.runCenterState.textContent = `route: ready · scenarios:${scenarioCount} regressions:${regressionCount}`;
+  els.runCenterSummary.className = "detail-card run-center-card";
+  els.runCenterSummary.innerHTML = `
+    <div class="run-center-grid">
+      <article class="run-center-stat">
+        <span class="muted">Scenarios</span>
+        <strong>${escapeHtml(String(scenarioCount))}</strong>
+      </article>
+      <article class="run-center-stat">
+        <span class="muted">Regressions</span>
+        <strong>${escapeHtml(String(regressionCount))}</strong>
+      </article>
+      <article class="run-center-stat">
+        <span class="muted">Recent Scenario Runs</span>
+        <strong>${escapeHtml(String(recentScenarioCount))}</strong>
+      </article>
+      <article class="run-center-stat">
+        <span class="muted">Recent Regression Runs</span>
+        <strong>${escapeHtml(String(recentRegressionCount))}</strong>
+      </article>
+    </div>
+    <section class="run-center-section">
+      <div class="panel-header nested">
+        <h3>Scenario Summaries</h3>
+      </div>
+      <div class="run-center-list">
+        ${
+          scenarioSummaries
+            .slice(0, 8)
+            .map(
+              (item) => `
+                <article class="run-center-item run-history-item" data-run-center-scenario="${escapeHtml(item.id)}">
+                  <div class="event-title">
+                    <strong>${escapeHtml(item.label)}</strong>
+                    ${renderStatePill(item.latestStatus)}
+                  </div>
+                  <div class="event-meta">
+                    <code>id=${escapeHtml(item.id)}</code>
+                    <code>latest=${escapeHtml(item.latestRunId)}</code>
+                    <code>fail=${escapeHtml(String(item.failCount))}</code>
+                    ${
+                      hasDisplayValue(item.passRate)
+                        ? `<code>passRate=${escapeHtml(String(item.passRate))}</code>`
+                        : ""
+                    }
+                  </div>
+                </article>
+              `
+            )
+            .join("") || `<div class="detail-card empty-state compact-empty">No scenario summaries in run-center payload.</div>`
+        }
+      </div>
+    </section>
+    <section class="run-center-section">
+      <div class="panel-header nested">
+        <h3>Regression Summaries</h3>
+      </div>
+      <div class="run-center-list">
+        ${
+          regressionSummaries
+            .slice(0, 8)
+            .map(
+              (item) => `
+                <article class="run-center-item run-history-item" data-run-center-regression="${escapeHtml(item.id)}">
+                  <div class="event-title">
+                    <strong>${escapeHtml(item.label)}</strong>
+                    ${renderStatePill(item.latestStatus)}
+                  </div>
+                  <div class="event-meta">
+                    <code>id=${escapeHtml(item.id)}</code>
+                    <code>latest=${escapeHtml(item.latestRunId)}</code>
+                    <code>fail=${escapeHtml(String(item.failCount))}</code>
+                    ${
+                      hasDisplayValue(item.passRate)
+                        ? `<code>passRate=${escapeHtml(String(item.passRate))}</code>`
+                        : ""
+                    }
+                  </div>
+                </article>
+              `
+            )
+            .join("") || `<div class="detail-card empty-state compact-empty">No regression summaries in run-center payload.</div>`
+        }
+      </div>
+    </section>
+    <section class="run-center-section">
+      <div class="panel-header nested">
+        <h3>Recent Scenario Runs</h3>
+      </div>
+      <div class="run-center-list">
+        ${
+          recentScenarioRuns
+            .slice(0, 10)
+            .map(
+              (item) => `
+                <article class="run-center-item run-history-item ${item.runId === state.selectedRunCenterScenarioRunId ? "active" : ""}" data-run-center-scenario-run-id="${escapeHtml(item.runId)}" data-run-center-scenario-id="${escapeHtml(item.scenarioId)}">
+                  <div class="event-title">
+                    <strong>${escapeHtml(item.scenarioId || item.runId)}</strong>
+                    ${renderStatePill(item.status)}
+                  </div>
+                  <div class="event-meta">
+                    <code>run=${escapeHtml(item.runId)}</code>
+                    <code>launcher=${escapeHtml(item.launcher)}</code>
+                    <code>started=${escapeHtml(item.startedAt)}</code>
+                  </div>
+                </article>
+              `
+            )
+            .join("") || `<div class="detail-card empty-state compact-empty">No recent scenario runs in run-center payload.</div>`
+        }
+      </div>
+      ${
+        selectedScenarioRun
+          ? `
+            <article class="detail-card run-center-drilldown">
+              <div class="event-title">
+                <strong>Scenario Run Drilldown</strong>
+                ${renderStatePill(selectedScenarioRun.status)}
+              </div>
+              <div class="event-meta">
+                <code>run=${escapeHtml(selectedScenarioRun.runId)}</code>
+                <code>scenario=${escapeHtml(selectedScenarioRun.scenarioId || "-")}</code>
+                <code>started=${escapeHtml(selectedScenarioRun.startedAt)}</code>
+                <code>ended=${escapeHtml(selectedScenarioRun.endedAt)}</code>
+              </div>
+              <div class="lineage-meta">
+                <a class="inline-link" href="${escapeHtml(buildScenarioRunByIdHref(selectedScenarioRun.runId))}" target="_blank" rel="noreferrer">run json</a>
+                <a class="inline-link" href="${escapeHtml(buildScenarioRunArtifactsByIdHref(selectedScenarioRun.runId))}" target="_blank" rel="noreferrer">artifacts json</a>
+                ${
+                  selectedScenarioRun.scenarioId
+                    ? `<a class="inline-link" href="${escapeHtml(buildScenarioRunArtifactsHref(selectedScenarioRun.scenarioId, selectedScenarioRun.runId))}" target="_blank" rel="noreferrer">scoped artifacts</a>`
+                    : ""
+                }
+                ${
+                  selectedScenarioRun.executionId
+                    ? `<button type="button" class="secondary-button jump-button" data-jump-execution-id="${escapeHtml(selectedScenarioRun.executionId)}">open execution</button>`
+                    : ""
+                }
+                ${
+                  selectedScenarioRun.scenarioId
+                    ? `<button type="button" class="secondary-button jump-button" data-jump-scenario-id="${escapeHtml(selectedScenarioRun.scenarioId)}">open scenario</button>`
+                    : ""
+                }
+              </div>
+              ${
+                selectedScenarioRunCatalog || state.scenarioRunArtifacts
+                  ? `<details class="policy-details">
+                      <summary>Route-backed Drilldown</summary>
+                      <pre class="code-block compact-code">${escapeHtml(
+                        JSON.stringify(
+                          {
+                            catalogRun: selectedScenarioRunCatalog,
+                            artifacts:
+                              state.selectedScenarioRunId === selectedScenarioRun.runId
+                                ? state.scenarioRunArtifacts
+                                : null
+                          },
+                          null,
+                          2
+                        )
+                      )}</pre>
+                    </details>`
+                  : ""
+              }
+            </article>
+          `
+          : `<div class="detail-card empty-state compact-empty">Select a recent scenario run to inspect drilldown links.</div>`
+      }
+    </section>
+    <section class="run-center-section">
+      <div class="panel-header nested">
+        <h3>Recent Regression Runs</h3>
+      </div>
+      <div class="run-center-list">
+        ${
+          recentRegressionRuns
+            .slice(0, 10)
+            .map(
+              (item) => `
+                <article class="run-center-item run-history-item ${item.runId === state.selectedRunCenterRegressionRunId ? "active" : ""}" data-run-center-regression-run-id="${escapeHtml(item.runId)}" data-run-center-regression-id="${escapeHtml(item.regressionId)}">
+                  <div class="event-title">
+                    <strong>${escapeHtml(item.regressionId || item.runId)}</strong>
+                    ${renderStatePill(item.status)}
+                  </div>
+                  <div class="event-meta">
+                    <code>run=${escapeHtml(item.runId)}</code>
+                    <code>pass=${escapeHtml(String(item.passCount))}</code>
+                    <code>fail=${escapeHtml(String(item.failCount))}</code>
+                    <code>started=${escapeHtml(item.startedAt)}</code>
+                  </div>
+                </article>
+              `
+            )
+            .join("") || `<div class="detail-card empty-state compact-empty">No recent regression runs in run-center payload.</div>`
+        }
+      </div>
+      ${
+        selectedRegressionRun
+          ? `
+            <article class="detail-card run-center-drilldown">
+              <div class="event-title">
+                <strong>Regression Run Drilldown</strong>
+                ${renderStatePill(selectedRegressionRun.status)}
+              </div>
+              <div class="event-meta">
+                <code>run=${escapeHtml(selectedRegressionRun.runId)}</code>
+                <code>regression=${escapeHtml(selectedRegressionRun.regressionId || "-")}</code>
+                <code>started=${escapeHtml(selectedRegressionRun.startedAt)}</code>
+                <code>ended=${escapeHtml(selectedRegressionRun.endedAt)}</code>
+              </div>
+              <div class="lineage-meta">
+                <a class="inline-link" href="${escapeHtml(buildRegressionRunByIdHref(selectedRegressionRun.runId))}" target="_blank" rel="noreferrer">run json</a>
+                <a class="inline-link" href="${escapeHtml(buildRegressionReportByRunIdHref(selectedRegressionRun.runId))}" target="_blank" rel="noreferrer">report json</a>
+                ${
+                  selectedRegressionRun.regressionId
+                    ? `<a class="inline-link" href="${escapeHtml(buildRegressionRunsHref(selectedRegressionRun.regressionId))}" target="_blank" rel="noreferrer">all runs</a>`
+                    : ""
+                }
+                ${
+                  selectedRegressionRun.regressionId
+                    ? `<button type="button" class="secondary-button jump-button" data-jump-regression-id="${escapeHtml(selectedRegressionRun.regressionId)}">open regression</button>`
+                    : ""
+                }
+              </div>
+              ${
+                selectedRegressionRunCatalog
+                  ? `<details class="policy-details">
+                      <summary>Route-backed Drilldown</summary>
+                      <pre class="code-block compact-code">${escapeHtml(
+                        JSON.stringify(
+                          {
+                            catalogRun: selectedRegressionRunCatalog
+                          },
+                          null,
+                          2
+                        )
+                      )}</pre>
+                    </details>`
+                  : ""
+              }
+            </article>
+          `
+          : `<div class="detail-card empty-state compact-empty">Select a recent regression run to inspect drilldown links.</div>`
+      }
+    </section>
+  `;
+
+  for (const button of els.runCenterSummary.querySelectorAll("[data-run-center-scenario]")) {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const scenarioId = button.dataset.runCenterScenario;
+      if (!scenarioId) {
+        return;
+      }
+      state.selectedScenarioId = scenarioId;
+      refresh().catch((error) => console.error(error));
+    });
+  }
+
+  for (const button of els.runCenterSummary.querySelectorAll("[data-run-center-regression]")) {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const regressionId = button.dataset.runCenterRegression;
+      if (!regressionId) {
+        return;
+      }
+      state.selectedRegressionId = regressionId;
+      refresh().catch((error) => console.error(error));
+    });
+  }
+
+  for (const item of els.runCenterSummary.querySelectorAll("[data-run-center-scenario-run-id]")) {
+    item.addEventListener("click", (event) => {
+      event.stopPropagation();
+      state.selectedRunCenterScenarioRunId = item.dataset.runCenterScenarioRunId;
+      const scenarioId = item.dataset.runCenterScenarioId;
+      if (
+        scenarioId &&
+        (state.selectedScenarioId !== scenarioId || state.selectedScenarioRunId !== state.selectedRunCenterScenarioRunId)
+      ) {
+        state.selectedScenarioId = scenarioId;
+        state.selectedScenarioRunId = state.selectedRunCenterScenarioRunId;
+        refresh().catch((error) => console.error(error));
+        return;
+      }
+      renderRunCenter();
+    });
+  }
+
+  for (const item of els.runCenterSummary.querySelectorAll("[data-run-center-regression-run-id]")) {
+    item.addEventListener("click", (event) => {
+      event.stopPropagation();
+      state.selectedRunCenterRegressionRunId = item.dataset.runCenterRegressionRunId;
+      const regressionId = item.dataset.runCenterRegressionId;
+      if (
+        regressionId &&
+        (state.selectedRegressionId !== regressionId || state.selectedRegressionRunId !== state.selectedRunCenterRegressionRunId)
+      ) {
+        state.selectedRegressionId = regressionId;
+        state.selectedRegressionRunId = state.selectedRunCenterRegressionRunId;
+        refresh().catch((error) => console.error(error));
+        return;
+      }
+      renderRunCenter();
+    });
+  }
+
+  for (const button of els.runCenterSummary.querySelectorAll("[data-jump-execution-id]")) {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const executionId = button.dataset.jumpExecutionId;
+      if (!executionId) {
+        return;
+      }
+      state.selectedExecutionId = executionId;
+      connectExecutionEventStream();
+      refresh().catch((error) => console.error(error));
+    });
+  }
+
+  for (const button of els.runCenterSummary.querySelectorAll("[data-jump-scenario-id]")) {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const scenarioId = button.dataset.jumpScenarioId;
+      if (!scenarioId) {
+        return;
+      }
+      state.selectedScenarioId = scenarioId;
+      refresh().catch((error) => console.error(error));
+    });
+  }
+
+  for (const button of els.runCenterSummary.querySelectorAll("[data-jump-regression-id]")) {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const regressionId = button.dataset.jumpRegressionId;
+      if (!regressionId) {
+        return;
+      }
+      state.selectedRegressionId = regressionId;
       refresh().catch((error) => console.error(error));
     });
   }
@@ -3670,10 +4166,160 @@ function renderSessions() {
   }
 }
 
+function extractLiveEnvelope(payload = {}) {
+  const detail = isObject(payload?.detail) ? payload.detail : null;
+  return detail ?? payload;
+}
+
+function readLiveValue(payload, paths = [], fallback = null) {
+  const envelope = extractLiveEnvelope(payload);
+  const value = readNestedValue(envelope, paths);
+  return hasDisplayValue(value) ? value : fallback;
+}
+
+function normalizeLiveControlHistory(payload) {
+  const envelope = extractLiveEnvelope(payload);
+  const options = [
+    envelope?.controlHistory,
+    envelope?.controls,
+    envelope?.control?.history,
+    envelope?.diagnostics?.controlHistory
+  ];
+  for (const value of options) {
+    if (Array.isArray(value)) {
+      return value;
+    }
+  }
+  return [];
+}
+
+function normalizeLiveEvents(payload) {
+  const envelope = extractLiveEnvelope(payload);
+  const options = [
+    envelope?.events,
+    envelope?.recentEvents,
+    envelope?.diagnostics?.recentEvents,
+    payload?.events
+  ];
+  for (const value of options) {
+    if (Array.isArray(value)) {
+      return value;
+    }
+  }
+  return [];
+}
+
+function renderSessionLivePanel(payload) {
+  if (!payload) {
+    return `<article class="detail-card compact-empty">Session live route is unavailable for this session.</article>`;
+  }
+
+  const diagnostics = readLiveValue(payload, ["diagnostics"], {});
+  const launcherMetadata = readLiveValue(payload, ["launcherMetadata"], {});
+  const urgency = readLiveValue(payload, [
+    "diagnostics.operatorUrgency",
+    "diagnostics.urgency",
+    "operatorUrgency"
+  ]);
+  const staleSession = readLiveValue(payload, ["diagnostics.staleSession", "staleSession"], false);
+  const settleLagMs = readLiveValue(payload, ["diagnostics.settleLagMs", "diagnostics.ageMs", "settleLagMs"]);
+  const liveStatus = readLiveValue(payload, ["diagnostics.status", "status"], "unknown");
+  const ackStatus = readLiveValue(payload, [
+    "controlAck.ackStatus",
+    "controlAck.status",
+    "diagnostics.controlAckStatus",
+    "lastControlAck.status"
+  ]);
+  const controlResult = readLiveValue(payload, [
+    "controlAck.result",
+    "lastControlResult",
+    "diagnostics.lastControlResult",
+    "controlResult"
+  ]);
+  const controlAck = readLiveValue(payload, ["controlAck", "lastControlAck"], null);
+  const staleReason = readLiveValue(payload, ["diagnostics.staleReason", "diagnostics.staleHint", "staleReason"]);
+  const suggestions = readLiveValue(payload, ["diagnostics.suggestions", "suggestions"], []);
+  const controlHistory = normalizeLiveControlHistory(payload);
+  const latestControl = controlHistory[controlHistory.length - 1] ?? null;
+
+  return `
+    <article class="detail-card session-live-v2">
+      <div class="event-title">
+        <strong>Session Live v2</strong>
+        ${renderStatePill(liveStatus)}
+      </div>
+      <div class="detail-grid">
+        <div><span class="muted">Operator Urgency</span><br /><code>${escapeHtml(normalizeText(urgency, "-"))}</code></div>
+        <div><span class="muted">Stale Session</span><br /><code>${escapeHtml(staleSession ? "yes" : "no")}</code></div>
+        <div><span class="muted">Settle Lag (ms)</span><br /><code>${escapeHtml(normalizeText(settleLagMs, "-"))}</code></div>
+        <div><span class="muted">Stale Reason</span><br /><code>${escapeHtml(normalizeText(staleReason, "-"))}</code></div>
+        <div><span class="muted">RPC Control</span><br /><code>${escapeHtml(readLiveValue(payload, ["diagnostics.supportsRpcControl", "supportsRpcControl"], false) ? "supported" : "fallback")}</code></div>
+        <div><span class="muted">Ack Status</span><br /><code>${escapeHtml(normalizeText(ackStatus, "-"))}</code></div>
+        <div><span class="muted">Control Result</span><br /><code>${escapeHtml(normalizeText(typeof controlResult === "string" ? controlResult : formatPolicyValue(controlResult), "-"))}</code></div>
+        <div><span class="muted">Last Event</span><br /><code>${escapeHtml(normalizeText(readLiveValue(payload, ["diagnostics.lastEventType", "lastEvent.type"]), "-"))}</code></div>
+        <div><span class="muted">Last Event At</span><br /><code>${escapeHtml(normalizeText(readLiveValue(payload, ["diagnostics.lastEventAt", "lastEvent.timestamp"]), "-"))}</code></div>
+        <div><span class="muted">Last Control Action</span><br /><code>${escapeHtml(normalizeText(readFirstField(latestControl, ["action", "type", "command"]), "-"))}</code></div>
+        <div><span class="muted">Last Control At</span><br /><code>${escapeHtml(normalizeText(readFirstField(latestControl, ["timestamp", "at", "createdAt"]), "-"))}</code></div>
+      </div>
+      <div class="lineage-meta">
+        ${renderMetaPill("control-history", controlHistory.length)}
+        ${renderMetaPill("suggestions", Array.isArray(suggestions) ? suggestions.length : 0)}
+        ${
+          hasDisplayValue(launcherMetadata?.mode)
+            ? renderMetaPill("launcher-mode", launcherMetadata.mode)
+            : ""
+        }
+        ${
+          hasDisplayValue(launcherMetadata?.runtime)
+            ? renderMetaPill("runtime", launcherMetadata.runtime)
+            : ""
+        }
+      </div>
+      ${
+        isObject(launcherMetadata) && Object.keys(launcherMetadata).length > 0
+          ? `<details class="policy-details">
+              <summary>Launcher Metadata</summary>
+              <pre class="code-block compact-code">${escapeHtml(JSON.stringify(launcherMetadata, null, 2))}</pre>
+            </details>`
+          : ""
+      }
+      ${
+        isObject(controlAck)
+          ? `<details class="policy-details">
+              <summary>Control Ack</summary>
+              <pre class="code-block compact-code">${escapeHtml(JSON.stringify(controlAck, null, 2))}</pre>
+            </details>`
+          : ""
+      }
+      ${
+        Array.isArray(suggestions) && suggestions.length > 0
+          ? `<div class="event-list">
+              ${suggestions
+                .slice(0, 4)
+                .map(
+                  (item) => `
+                    <article class="detail-card compact-empty">
+                      <div class="event-title">
+                        <strong>${escapeHtml(normalizeText(item?.action, "action"))}</strong>
+                        ${item?.commandHint ? `<code>${escapeHtml(normalizeText(item.commandHint))}</code>` : ""}
+                      </div>
+                      <p class="decision-summary">${escapeHtml(normalizeText(item?.reason, "No reason provided."))}</p>
+                    </article>
+                  `
+                )
+                .join("")}
+            </div>`
+          : ""
+      }
+    </article>
+  `;
+}
+
 function renderDetail() {
   const detail = state.detail;
   const session = detail?.session;
-  const events = detail?.events ?? [];
+  const liveEvents = normalizeLiveEvents(state.sessionLive);
+  const events = liveEvents.length > 0 ? liveEvents : detail?.events ?? [];
 
   const hasSelection = Boolean(session);
   els.stopButton.disabled = !hasSelection;
@@ -3693,22 +4339,39 @@ function renderDetail() {
   }
 
   els.detailSubtitle.textContent = `${session.id} · ${session.state}`;
-  els.sessionDetail.className = "detail-card";
+  els.sessionDetail.className = "detail-card session-detail-stack";
+  const liveMarkup =
+    state.sessionLiveState === "ready"
+      ? renderSessionLivePanel(state.sessionLive)
+      : state.sessionLiveState === "unavailable"
+      ? `<article class="detail-card compact-empty">Session live route is unavailable for this gateway.</article>`
+      : state.sessionLiveState === "error"
+      ? `<article class="detail-card compact-empty">Session live route error: ${escapeHtml(normalizeText(state.sessionLiveError, "unknown error"))}</article>`
+      : `<article class="detail-card compact-empty">Loading session live diagnostics...</article>`;
   els.sessionDetail.innerHTML = `
-    <div class="session-title">
-      <strong>${escapeHtml(session.id)}</strong>
-      <span class="pill ${stateClass(session.state)}">${escapeHtml(session.state)}</span>
-    </div>
-    <div class="detail-grid">
-      <div><span class="muted">Run</span><br /><code>${escapeHtml(normalizeText(session.runId))}</code></div>
-      <div><span class="muted">Role</span><br /><code>${escapeHtml(normalizeText(session.role))}</code></div>
-      <div><span class="muted">Profile</span><br /><code>${escapeHtml(normalizeText(session.profileId))}</code></div>
-      <div><span class="muted">Project</span><br /><code>${escapeHtml(normalizeText(session.projectId))}</code></div>
-      <div><span class="muted">Launcher</span><br /><code>${escapeHtml(normalizeText(session.launcherType))}</code></div>
-      <div><span class="muted">tmux</span><br /><code>${escapeHtml(normalizeText(session.tmuxSession))}</code></div>
-      <div><span class="muted">Started</span><br /><code>${escapeHtml(normalizeText(session.startedAt))}</code></div>
-      <div><span class="muted">Ended</span><br /><code>${escapeHtml(normalizeText(session.endedAt))}</code></div>
-    </div>
+    <article class="detail-card">
+      <div class="session-title">
+        <strong>${escapeHtml(session.id)}</strong>
+        <span class="pill ${stateClass(session.state)}">${escapeHtml(session.state)}</span>
+      </div>
+      <div class="detail-grid">
+        <div><span class="muted">Run</span><br /><code>${escapeHtml(normalizeText(session.runId))}</code></div>
+        <div><span class="muted">Role</span><br /><code>${escapeHtml(normalizeText(session.role))}</code></div>
+        <div><span class="muted">Profile</span><br /><code>${escapeHtml(normalizeText(session.profileId))}</code></div>
+        <div><span class="muted">Project</span><br /><code>${escapeHtml(normalizeText(session.projectId))}</code></div>
+        <div><span class="muted">Launcher</span><br /><code>${escapeHtml(normalizeText(session.launcherType))}</code></div>
+        <div><span class="muted">tmux</span><br /><code>${escapeHtml(normalizeText(session.tmuxSession))}</code></div>
+        <div><span class="muted">Started</span><br /><code>${escapeHtml(normalizeText(session.startedAt))}</code></div>
+        <div><span class="muted">Ended</span><br /><code>${escapeHtml(normalizeText(session.endedAt))}</code></div>
+      </div>
+    </article>
+    ${liveMarkup}
+    <article class="detail-card compact-empty">
+      <div class="event-title">
+        <strong>Event Source</strong>
+        ${renderMetaPill(liveEvents.length > 0 ? "session-live" : "session-detail", events.length)}
+      </div>
+    </article>
   `;
 
   els.eventList.innerHTML = events.length
@@ -3724,6 +4387,7 @@ function renderDetail() {
               </div>
               <div class="event-meta">
                 <code>run=${escapeHtml(normalizeText(event.runId))}</code>
+                ${event.source ? `<code>source=${escapeHtml(normalizeText(event.source))}</code>` : ""}
                 ${formatObject(event.payload)}
               </div>
             </article>
@@ -3789,6 +4453,19 @@ async function loadArtifacts() {
   } else {
     state.piEvents = null;
   }
+}
+
+async function loadSessionLive() {
+  if (!state.selectedSessionId) {
+    state.sessionLive = null;
+    state.sessionLiveState = "idle";
+    state.sessionLiveError = null;
+    return;
+  }
+  const result = await optionalApi(`/sessions/${encodeURIComponent(state.selectedSessionId)}/live`);
+  state.sessionLiveState = result.state;
+  state.sessionLiveError = result.error;
+  state.sessionLive = result.payload ?? null;
 }
 
 async function loadExecutionSummaries() {
@@ -3858,6 +4535,13 @@ async function loadScenarioCatalog() {
   if (!state.selectedScenarioId && state.scenarios[0]) {
     state.selectedScenarioId = state.scenarios[0].id;
   }
+}
+
+async function loadRunCenterSummary() {
+  const result = await optionalApi("/orchestrator/run-center/summary");
+  state.runCenterState = result.state;
+  state.runCenterError = result.error;
+  state.runCenter = result.payload ?? null;
 }
 
 async function loadScenarioDetail() {
@@ -3978,6 +4662,7 @@ async function refresh() {
 
   await loadExecutionSummaries();
   await Promise.all([
+    loadRunCenterSummary(),
     loadScenarioCatalog(),
     loadRegressionCatalog()
   ]);
@@ -3985,9 +4670,13 @@ async function refresh() {
   const detailPromises = [];
   if (state.selectedSessionId) {
     detailPromises.push(api(`/sessions/${encodeURIComponent(state.selectedSessionId)}?limit=20`));
+    detailPromises.push(loadSessionLive());
     detailPromises.push(loadArtifacts());
   } else {
     state.detail = null;
+    state.sessionLive = null;
+    state.sessionLiveState = "idle";
+    state.sessionLiveError = null;
     state.artifacts = null;
     state.transcript = null;
     state.piEvents = null;
@@ -4006,6 +4695,7 @@ async function refresh() {
   renderScenarios();
   renderScenarioDetail();
   renderRegressions();
+  renderRunCenter();
   renderSessions();
   renderWorkflowPreview();
   renderExecutionDetail();

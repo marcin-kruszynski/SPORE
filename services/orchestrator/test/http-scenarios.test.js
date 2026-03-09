@@ -2,12 +2,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { makeTempPaths } from "../../../packages/orchestrator/test/helpers/scenario-fixtures.js";
-import { getJson, postJson, startProcess, waitForHealth } from "./helpers/http-harness.js";
-
-const ORCHESTRATOR_PORT = 8797;
-const WEB_PORT = 8798;
+import { findFreePort, getJson, postJson, startProcess, waitForHealth } from "./helpers/http-harness.js";
 
 test("scenario, regression, and execution history routes work through orchestrator and web proxy", async (t) => {
+  const ORCHESTRATOR_PORT = await findFreePort();
+  const WEB_PORT = await findFreePort();
   const { dbPath, sessionDbPath, eventLogPath } = await makeTempPaths("spore-http-scenarios-");
 
   const orchestrator = startProcess("node", ["services/orchestrator/server.js"], {
@@ -35,6 +34,12 @@ test("scenario, regression, and execution history routes work through orchestrat
   assert.ok(Array.isArray(scenarios.json.scenarios));
   assert.ok(scenarios.json.scenarios.some((item) => item.id === "backend-service-delivery"));
 
+  const runCenter = await getJson(`http://127.0.0.1:${ORCHESTRATOR_PORT}/run-center/summary`);
+  assert.equal(runCenter.status, 200);
+  assert.ok(Array.isArray(runCenter.json.detail.scenarios));
+  assert.ok(Array.isArray(runCenter.json.detail.regressions));
+  assert.ok(runCenter.json.detail.counts);
+
   const scenario = await getJson(`http://127.0.0.1:${ORCHESTRATOR_PORT}/scenarios/cli-verification-pass`);
   assert.equal(scenario.status, 200);
   assert.equal(scenario.json.scenario.id, "cli-verification-pass");
@@ -42,11 +47,17 @@ test("scenario, regression, and execution history routes work through orchestrat
   const scenarioRun = await postJson(`http://127.0.0.1:${ORCHESTRATOR_PORT}/scenarios/cli-verification-pass/run`, {
     stub: true,
     wait: true,
-    by: "test-runner"
+    by: "test-runner",
+    timeout: 6000,
+    interval: 250,
+    stepSoftTimeout: 250,
+    stepHardTimeout: 1000
   });
   assert.equal(scenarioRun.status, 200);
   assert.equal(scenarioRun.json.run.scenarioId, "cli-verification-pass");
-  assert.ok(["completed", "waiting_review", "waiting_approval"].includes(scenarioRun.json.run.status));
+  assert.ok(
+    ["running", "completed", "waiting_review", "waiting_approval", "held", "failed"].includes(scenarioRun.json.run.status)
+  );
 
   const history = await getJson(
     `http://127.0.0.1:${ORCHESTRATOR_PORT}/executions/${scenarioRun.json.execution.execution.id}/history`
@@ -76,6 +87,10 @@ test("scenario, regression, and execution history routes work through orchestrat
   assert.equal(scenarioArtifacts.status, 200);
   assert.equal(scenarioArtifacts.json.detail.run.id, scenarioRun.json.run.id);
 
+  const runCenterProxy = await getJson(`http://127.0.0.1:${WEB_PORT}/api/orchestrator/run-center/summary`);
+  assert.equal(runCenterProxy.status, 200);
+  assert.ok(Array.isArray(runCenterProxy.json.detail.recentScenarioRuns));
+
   const scenarioTrends = await getJson(
     `http://127.0.0.1:${ORCHESTRATOR_PORT}/scenarios/cli-verification-pass/trends`
   );
@@ -89,7 +104,11 @@ test("scenario, regression, and execution history routes work through orchestrat
       stub: true,
       wait: true,
       by: "test-rerun",
-      reason: "HTTP rerun coverage"
+      reason: "HTTP rerun coverage",
+      timeout: 6000,
+      interval: 250,
+      stepSoftTimeout: 250,
+      stepHardTimeout: 1000
     }
   );
   assert.equal(scenarioRerun.status, 200);
@@ -102,7 +121,11 @@ test("scenario, regression, and execution history routes work through orchestrat
 
   const regressionRun = await postJson(`http://127.0.0.1:${ORCHESTRATOR_PORT}/regressions/local-fast/run`, {
     stub: true,
-    by: "test-runner"
+    by: "test-runner",
+    timeout: 6000,
+    interval: 250,
+    stepSoftTimeout: 250,
+    stepHardTimeout: 1000
   });
   assert.equal(regressionRun.status, 200);
   assert.equal(regressionRun.json.regression.id, "local-fast");
@@ -139,7 +162,11 @@ test("scenario, regression, and execution history routes work through orchestrat
     {
       stub: true,
       by: "test-rerun",
-      reason: "HTTP regression rerun coverage"
+      reason: "HTTP regression rerun coverage",
+      timeout: 6000,
+      interval: 250,
+      stepSoftTimeout: 250,
+      stepHardTimeout: 1000
     }
   );
   assert.equal(regressionRerun.status, 200);

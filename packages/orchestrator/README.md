@@ -76,6 +76,7 @@ Recommended interpretation:
 - `events --execution <id>` returns only workflow events for timeline consumers.
 - `escalations --execution <id>` returns only escalation records for operator consumers.
 - `history --execution <id>` returns one combined execution history payload with timeline, governance, audit, wave summary, and policy diff.
+- `run-center` returns one aggregate operator summary for scenario catalog health, regression catalog health, and recent durable runs.
 - `scenario-list`, `scenario-show`, `scenario-runs`, and `scenario-run` expose the machine-readable scenario catalog and durable scenario runs backed by `config/scenarios/`.
 - `scenario-run-show --run <id>` returns one durable scenario run by run id.
 - `scenario-run-artifacts --run <id>` returns normalized artifact summaries for that scenario run.
@@ -132,6 +133,7 @@ npm run orchestrator:scenario-run-show -- --run <run-id>
 npm run orchestrator:scenario-run-artifacts -- --run <run-id>
 npm run orchestrator:scenario-rerun -- --run <run-id>
 npm run orchestrator:scenario-trends -- --scenario backend-service-delivery
+npm run orchestrator:run-center
 npm run orchestrator:regression-run -- --regression local-fast --stub
 npm run orchestrator:regression-run-show -- --run <run-id>
 npm run orchestrator:regression-report -- --run <run-id>
