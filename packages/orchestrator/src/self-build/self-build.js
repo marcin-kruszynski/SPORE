@@ -29,7 +29,14 @@ import {
   updateWorkItemGroup,
   updateWorkItemRun
 } from "../store/execution-store.js";
-import { createWorkItem, getManagedWorkItem, getManagedWorkItemRun, listManagedWorkItems, runManagedWorkItem } from "../work-items/work-items.js";
+import {
+  createWorkItem,
+  getManagedWorkItem,
+  getManagedWorkItemRun,
+  listManagedWorkItems,
+  runManagedWorkItem,
+  setManagedWorkItemDependencyState
+} from "../work-items/work-items.js";
 
 function withDatabase(dbPath, fn) {
   const db = openOrchestratorDatabase(dbPath);
@@ -77,7 +84,8 @@ function dedupe(values) {
 function groupLinks(groupId) {
   return {
     self: `/work-item-groups/${encodeURIComponent(groupId)}`,
-    run: `/work-item-groups/${encodeURIComponent(groupId)}/run`
+    run: `/work-item-groups/${encodeURIComponent(groupId)}/run`,
+    dependencies: `/work-item-groups/${encodeURIComponent(groupId)}/dependencies`
   };
 }
 
@@ -94,6 +102,502 @@ function proposalLinks(artifactId) {
     review: `/proposal-artifacts/${encodeURIComponent(artifactId)}/review`,
     approval: `/proposal-artifacts/${encodeURIComponent(artifactId)}/approval`
   };
+}
+
+function dependencyEdgeId(itemId, dependencyItemId, strictness = "hard") {
+  return `dependency:${dependencyItemId}:${itemId}:${strictness}`;
+}
+
+function blockerId(edgeId, reasonCode) {
+  return `blocker:${edgeId}:${reasonCode}`;
+}
+
+function normalizeDependencyStrictness(value) {
+  return String(value ?? "hard").trim() === "advisory" ? "advisory" : "hard";
+}
+
+function normalizeAutoRelaxation(value, strictness) {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return {
+      enabled: value.enabled !== false && strictness === "advisory",
+      mode: value.mode ?? (strictness === "advisory" ? "warn-and-run" : "off"),
+      reason: value.reason ?? (strictness === "advisory" ? "Advisory dependency warnings should stay visible without blocking work." : "")
+    };
+  }
+  const enabled = value === undefined ? strictness === "advisory" : Boolean(value) && strictness === "advisory";
+  return {
+    enabled,
+    mode: enabled ? "warn-and-run" : "off",
+    reason: enabled ? "Advisory dependency warnings should stay visible without blocking work." : ""
+  };
+}
+
+function normalizeDependencyEdge(edge, itemId, availableItemIds) {
+  const dependencyItemId = String(edge?.dependencyItemId ?? edge?.dependsOn ?? "").trim();
+  const strictness = normalizeDependencyStrictness(edge?.strictness);
+  if (!dependencyItemId) {
+    throw new Error(`dependency edge for ${itemId} is missing dependencyItemId`);
+  }
+  if (!availableItemIds.has(itemId) || !availableItemIds.has(dependencyItemId)) {
+    throw new Error(`dependency edge must reference items inside the work-item group: ${dependencyItemId} -> ${itemId}`);
+  }
+  if (dependencyItemId === itemId) {
+    throw new Error(`self-dependencies are not allowed: ${itemId}`);
+  }
+  return {
+    id: dependencyEdgeId(itemId, dependencyItemId, strictness),
+    itemId,
+    dependencyItemId,
+    strictness,
+    label: strictness === "advisory" ? "advisory dependency" : "hard dependency",
+    autoRelaxation: normalizeAutoRelaxation(edge?.autoRelaxation ?? edge?.autoRelax ?? undefined, strictness)
+  };
+}
+
+function getStoredDependencyEdges(item, availableItemIds) {
+  const metadataEdges = asArray(item.metadata?.dependencies);
+  if (metadataEdges.length > 0) {
+    return metadataEdges.map((edge) => normalizeDependencyEdge(edge, item.id, availableItemIds));
+  }
+  return dedupe(item.metadata?.dependsOn ?? []).map((dependencyItemId) =>
+    normalizeDependencyEdge({ dependencyItemId, strictness: "hard", autoRelaxation: false }, item.id, availableItemIds)
+  );
+}
+
+function sortByGroupOrder(items = []) {
+  return [...items].sort((left, right) => {
+    const leftOrder = Number(left.metadata?.groupOrder ?? 0);
+    const rightOrder = Number(right.metadata?.groupOrder ?? 0);
+    if (leftOrder !== rightOrder) {
+      return leftOrder - rightOrder;
+    }
+    return String(left.id).localeCompare(String(right.id));
+  });
+}
+
+function dependencyStatusLabel(item) {
+  if (item.status === "completed") return "completed";
+  if (item.status === "running") return "running";
+  if (item.status === "failed") return "failed";
+  if (item.status === "blocked") {
+    return item.metadata?.dependency?.state === "review_needed" ? "review_needed" : "blocked";
+  }
+  return item.status || "pending";
+}
+
+function buildDependencyReason(item, blockers, advisoryWarnings) {
+  if (blockers.length > 0) {
+    const primary = blockers[0];
+    if (primary.reasonCode === "dependency_failed") {
+      return `Waiting for a dependency decision because ${primary.dependencyTitle} failed.`;
+    }
+    if (primary.reasonCode === "dependency_running") {
+      return `${primary.dependencyTitle} is running; wait for it to settle before continuing.`;
+    }
+    return `Waiting for ${primary.dependencyTitle} to complete before ${item.title} can run.`;
+  }
+  if (advisoryWarnings.length > 0) {
+    return `Advisory dependency warning${advisoryWarnings.length === 1 ? "" : "s"} noted for ${item.title}.`;
+  }
+  return "Ready to run.";
+}
+
+function buildNextActionHint(blockers, advisoryWarnings) {
+  if (blockers.length > 0) {
+    const primary = blockers[0];
+    if (primary.reasonCode === "dependency_failed") {
+      return `Retry or resolve ${primary.dependencyTitle}, then re-check downstream readiness.`;
+    }
+    if (primary.reasonCode === "dependency_running") {
+      return `Wait for ${primary.dependencyTitle} to settle, then refresh the group detail.`;
+    }
+    return `Complete ${primary.dependencyTitle} before running the blocked item.`;
+  }
+  if (advisoryWarnings.length > 0) {
+    return "Review the advisory dependency warnings, then run when appropriate.";
+  }
+  return "Ready to run.";
+}
+
+function dependencyTransitionForState(item, state, blockers, advisoryWarnings, previousState, reason) {
+  if (reason === "dependency_graph_updated") {
+    return {
+      type: "dependency_graph_updated",
+      state,
+      reasonCode: blockers[0]?.reasonCode ?? (advisoryWarnings.length > 0 ? "advisory_warning" : "graph_updated"),
+      reason: blockers[0]?.reason ?? (advisoryWarnings[0]?.reason ?? "Dependency graph updated."),
+      blockerId: blockers[0]?.id ?? null,
+      dependencyItemId: blockers[0]?.dependencyItemId ?? advisoryWarnings[0]?.dependencyItemId ?? null,
+      strictness: blockers[0]?.strictness ?? advisoryWarnings[0]?.strictness ?? null,
+      nextActionHint: buildNextActionHint(blockers, advisoryWarnings)
+    };
+  }
+  if (advisoryWarnings.length > 0 && (previousState !== "ready" || reason === "group_run")) {
+    return {
+      type: "dependency_auto_relaxed",
+      state,
+      reasonCode: advisoryWarnings[0].reasonCode,
+      reason: advisoryWarnings[0].reason,
+      blockerId: advisoryWarnings[0].id,
+      dependencyItemId: advisoryWarnings[0].dependencyItemId,
+      strictness: advisoryWarnings[0].strictness,
+      nextActionHint: buildNextActionHint(blockers, advisoryWarnings)
+    };
+  }
+  if (state === previousState) {
+    return null;
+  }
+  if (state === "review_needed") {
+    return {
+      type: "dependency_review_needed",
+      state,
+      reasonCode: blockers[0]?.reasonCode ?? "dependency_failed",
+      reason: blockers[0]?.reason ?? `A dependency failed for ${item.title}.`,
+      blockerId: blockers[0]?.id ?? null,
+      dependencyItemId: blockers[0]?.dependencyItemId ?? null,
+      strictness: blockers[0]?.strictness ?? null,
+      nextActionHint: buildNextActionHint(blockers, advisoryWarnings)
+    };
+  }
+  if (state === "blocked") {
+    return {
+      type: blockers[0]?.reasonCode === "dependency_running" ? "dependency_retry_pending" : "dependency_blocked",
+      state,
+      reasonCode: blockers[0]?.reasonCode ?? "dependency_pending",
+      reason: blockers[0]?.reason ?? `A dependency is still pending for ${item.title}.`,
+      blockerId: blockers[0]?.id ?? null,
+      dependencyItemId: blockers[0]?.dependencyItemId ?? null,
+      strictness: blockers[0]?.strictness ?? null,
+      nextActionHint: buildNextActionHint(blockers, advisoryWarnings)
+    };
+  }
+  if (state === "ready" && previousState && previousState !== "ready") {
+    return {
+      type: "dependency_ready",
+      state,
+      reasonCode: "dependencies_satisfied",
+      reason: `${item.title} is ready because required dependencies are now satisfied.`,
+      nextActionHint: buildNextActionHint(blockers, advisoryWarnings)
+    };
+  }
+  return null;
+}
+
+function detectDependencyCycles(edgesByItemId, availableItemIds) {
+  const visiting = new Set();
+  const visited = new Set();
+
+  function visit(itemId) {
+    if (visiting.has(itemId)) {
+      throw new Error(`dependency cycle detected involving ${itemId}`);
+    }
+    if (visited.has(itemId)) {
+      return;
+    }
+    visiting.add(itemId);
+    for (const edge of edgesByItemId.get(itemId) ?? []) {
+      if (availableItemIds.has(edge.dependencyItemId)) {
+        visit(edge.dependencyItemId);
+      }
+    }
+    visiting.delete(itemId);
+    visited.add(itemId);
+  }
+
+  for (const itemId of availableItemIds) {
+    visit(itemId);
+  }
+}
+
+function evaluateGroupDependencies(items = []) {
+  const sortedItems = sortByGroupOrder(items);
+  const availableItemIds = new Set(sortedItems.map((item) => item.id));
+  const itemMap = new Map(sortedItems.map((item) => [item.id, item]));
+  const edgesByItemId = new Map();
+  const outgoingByItemId = new Map();
+  const allEdges = [];
+
+  for (const item of sortedItems) {
+    const edges = getStoredDependencyEdges(item, availableItemIds);
+    edgesByItemId.set(item.id, edges);
+    for (const edge of edges) {
+      allEdges.push(edge);
+      const outgoing = outgoingByItemId.get(edge.dependencyItemId) ?? [];
+      outgoing.push(edge);
+      outgoingByItemId.set(edge.dependencyItemId, outgoing);
+    }
+  }
+
+  detectDependencyCycles(edgesByItemId, availableItemIds);
+
+  const derivedItems = sortedItems.map((item) => {
+    const incomingEdges = edgesByItemId.get(item.id) ?? [];
+    const outgoingEdges = outgoingByItemId.get(item.id) ?? [];
+    const blockers = [];
+    const advisoryWarnings = [];
+
+    for (const edge of incomingEdges) {
+      const dependencyItem = itemMap.get(edge.dependencyItemId);
+      const dependencyState = dependencyStatusLabel(dependencyItem);
+      const title = dependencyItem?.title ?? edge.dependencyItemId;
+
+      if (edge.strictness === "advisory") {
+        if (dependencyState !== "completed") {
+          advisoryWarnings.push({
+            id: blockerId(edge.id, edge.autoRelaxation.enabled ? "advisory_auto_relaxed" : "advisory_warning"),
+            edgeId: edge.id,
+            itemId: item.id,
+            dependencyItemId: edge.dependencyItemId,
+            dependencyTitle: title,
+            strictness: edge.strictness,
+            autoRelaxed: edge.autoRelaxation.enabled,
+            reasonCode: edge.autoRelaxation.enabled ? "advisory_auto_relaxed" : "advisory_warning",
+            reason: edge.autoRelaxation.enabled
+              ? `${title} is not settled, but the advisory dependency auto-relaxed so work can continue.`
+              : `${title} is not settled. This dependency is advisory, so work can continue with caution.`
+          });
+        }
+        continue;
+      }
+
+      if (dependencyState === "completed") {
+        continue;
+      }
+
+      const reasonCode = dependencyState === "failed"
+        ? "dependency_failed"
+        : dependencyState === "running"
+        ? "dependency_running"
+        : "dependency_pending";
+      const reason = dependencyState === "failed"
+        ? `${title} failed and requires review before downstream work can proceed.`
+        : dependencyState === "running"
+        ? `${title} is retrying or still running.`
+        : `${title} has not completed yet.`;
+      blockers.push({
+        id: blockerId(edge.id, reasonCode),
+        edgeId: edge.id,
+        itemId: item.id,
+        dependencyItemId: edge.dependencyItemId,
+        dependencyTitle: title,
+        strictness: edge.strictness,
+        reasonCode,
+        reason,
+        nextActionHint:
+          dependencyState === "failed"
+            ? `Retry or resolve ${title}, then re-check downstream readiness.`
+            : dependencyState === "running"
+            ? `Wait for ${title} to settle before starting this work item.`
+            : `Complete ${title} before starting this work item.`
+      });
+    }
+
+    const storedDependencyState = item.metadata?.dependency?.state ?? null;
+    let state = dependencyStatusLabel(item);
+    if (!["completed", "running", "failed"].includes(state)) {
+      if (blockers.some((blocker) => blocker.reasonCode === "dependency_failed")) {
+        state = "review_needed";
+      } else if (blockers.length > 0) {
+        state = "blocked";
+      } else {
+        state = "ready";
+      }
+    }
+
+    const reason = buildDependencyReason(item, blockers, advisoryWarnings);
+    const nextActionHint = buildNextActionHint(blockers, advisoryWarnings);
+    const transition = dependencyTransitionForState(item, state, blockers, advisoryWarnings, storedDependencyState, null);
+
+    return {
+      ...item,
+      blockedReason: state === "blocked" || state === "review_needed" ? reason : null,
+      blockerIds: blockers.map((blocker) => blocker.id),
+      nextActionHint,
+      dependencyState: {
+        state,
+        readyToRun: state === "ready",
+        reason,
+        blockerIds: blockers.map((blocker) => blocker.id),
+        blockers,
+        advisoryWarnings,
+        incomingEdges,
+        outgoingEdges,
+        counts: {
+          total: incomingEdges.length,
+          hard: incomingEdges.filter((edge) => edge.strictness === "hard").length,
+          advisory: incomingEdges.filter((edge) => edge.strictness === "advisory").length,
+          blocked: blockers.length,
+          advisoryWarnings: advisoryWarnings.length
+        },
+        nextActionHint,
+        transition,
+        compactSummary: {
+          label:
+            state === "review_needed"
+              ? "dependency review needed"
+              : state === "blocked"
+              ? "blocked by dependencies"
+              : advisoryWarnings.length > 0
+              ? "ready with advisory warning"
+              : state,
+          blockerCount: blockers.length,
+          advisoryWarningCount: advisoryWarnings.length
+        }
+      },
+      dependencySummary: {
+        totalIncoming: incomingEdges.length,
+        totalOutgoing: outgoingEdges.length,
+        blockerCount: blockers.length,
+        advisoryWarningCount: advisoryWarnings.length,
+        nextActionHint,
+        reason
+      }
+    };
+  });
+
+  const counts = derivedItems.reduce(
+    (accumulator, item) => {
+      const state = item.dependencyState.state;
+      accumulator.total += 1;
+      accumulator[state] = (accumulator[state] ?? 0) + 1;
+      accumulator.advisoryWarnings += item.dependencyState.advisoryWarnings.length;
+      return accumulator;
+    },
+    { total: 0, ready: 0, blocked: 0, review_needed: 0, running: 0, completed: 0, failed: 0, pending: 0, advisoryWarnings: 0 }
+  );
+
+  let headlineState = "pending";
+  if (counts.total === 0) {
+    headlineState = "pending";
+  } else if (counts.completed === counts.total) {
+    headlineState = "completed";
+  } else if (counts.failed > 0) {
+    headlineState = "failed";
+  } else if (counts.running > 0) {
+    headlineState = "running";
+  } else if (counts.ready > 0) {
+    headlineState = "ready";
+  } else if (counts.review_needed > 0 || counts.blocked > 0) {
+    headlineState = "blocked";
+  }
+
+  const transitionLog = derivedItems
+    .flatMap((item) => asArray(item.metadata?.dependencyTransitionLog))
+    .sort((left, right) => new Date(right.timestamp ?? 0) - new Date(left.timestamp ?? 0));
+
+  const dependencyGraph = {
+    edges: allEdges.map((edge) => ({
+      ...edge,
+      itemTitle: itemMap.get(edge.itemId)?.title ?? edge.itemId,
+      dependencyTitle: itemMap.get(edge.dependencyItemId)?.title ?? edge.dependencyItemId
+    })),
+    transitionLog,
+    strictnessCounts: {
+      hard: allEdges.filter((edge) => edge.strictness === "hard").length,
+      advisory: allEdges.filter((edge) => edge.strictness === "advisory").length
+    }
+  };
+
+  return {
+    items: derivedItems,
+    dependencyGraph,
+    readiness: {
+      headlineState,
+      counts: {
+        total: counts.total,
+        ready: counts.ready,
+        blocked: counts.blocked,
+        reviewNeeded: counts.review_needed,
+        running: counts.running,
+        completed: counts.completed,
+        failed: counts.failed,
+        advisoryWarnings: counts.advisoryWarnings
+      },
+      blockerIds: derivedItems.flatMap((item) => item.blockerIds ?? []),
+      readyItemIds: derivedItems.filter((item) => item.dependencyState.readyToRun).map((item) => item.id),
+      blockedItemIds: derivedItems.filter((item) => ["blocked", "review_needed"].includes(item.dependencyState.state)).map((item) => item.id),
+      nextActionHint:
+        headlineState === "failed"
+          ? "Investigate failed work items and retry or resolve their dependents."
+          : headlineState === "blocked"
+          ? "Resolve blockers or wait for upstream work before running the group."
+          : headlineState === "ready"
+          ? "Run ready work items or inspect remaining blockers before launch."
+          : headlineState === "completed"
+          ? "All grouped work items are complete."
+          : "Materialize or queue additional work before running the group.",
+      preRunSummary: {
+        label:
+          headlineState === "ready"
+            ? `${counts.ready} ready, ${counts.blocked + counts.review_needed} blocked/review-needed`
+            : `${counts.completed}/${counts.total} complete`,
+        totalEdges: allEdges.length,
+        affectedDownstreamCount: derivedItems.filter((item) => item.dependencyState.counts.total > 0).length
+      }
+    }
+  };
+}
+
+function persistGroupDependencyState(group, evaluated, reason, dbPath) {
+  const rawItems = new Map(group.items.map((item) => [item.id, item]));
+  for (const item of evaluated.items) {
+    const current = rawItems.get(item.id) ?? item;
+    const existingState = current.metadata?.dependency?.state ?? null;
+    const transition = dependencyTransitionForState(
+      item,
+      item.dependencyState.state,
+      item.dependencyState.blockers,
+      item.dependencyState.advisoryWarnings,
+      existingState,
+      reason
+    );
+    const status = ["completed", "running", "failed"].includes(current.status)
+      ? current.status
+      : ["blocked", "review_needed"].includes(item.dependencyState.state)
+      ? "blocked"
+      : "pending";
+    setManagedWorkItemDependencyState(
+      item.id,
+      {
+        status,
+        state: item.dependencyState.state,
+        reasonCode: item.dependencyState.blockers[0]?.reasonCode ?? (item.dependencyState.advisoryWarnings[0]?.reasonCode ?? null),
+        reason: item.dependencyState.reason,
+        nextActionHint: item.dependencyState.nextActionHint,
+        blockerIds: item.blockerIds,
+        blockers: item.dependencyState.blockers,
+        advisoryWarnings: item.dependencyState.advisoryWarnings,
+        incomingEdges: item.dependencyState.incomingEdges,
+        outgoingEdges: item.dependencyState.outgoingEdges,
+        readyToRun: item.dependencyState.readyToRun,
+        transition,
+        updatedAt: nowIso()
+      },
+      dbPath
+    );
+  }
+
+  const refreshedGroup = withDatabase(dbPath, (db) => getWorkItemGroup(db, group.id));
+  const updatedGroup = {
+    ...refreshedGroup,
+    status: evaluated.readiness.headlineState,
+    summary: {
+      ...(refreshedGroup?.summary ?? {}),
+      dependencyReadiness: evaluated.readiness,
+      dependencyEdgeCount: evaluated.dependencyGraph.edges.length
+    },
+    metadata: {
+      ...(refreshedGroup?.metadata ?? {}),
+      dependencyGraph: {
+        strictnessCounts: evaluated.dependencyGraph.strictnessCounts,
+        lastEvaluatedAt: nowIso(),
+        lastEvaluationReason: reason ?? "read"
+      }
+    },
+    updatedAt: nowIso(),
+    lastRunAt: refreshedGroup?.lastRunAt ?? null
+  };
+  withDatabase(dbPath, (db) => updateWorkItemGroup(db, updatedGroup));
 }
 
 function workItemKindRequiresProposal(item) {
@@ -292,7 +796,8 @@ function buildGroupSummary(group, items = [], runs = []) {
     accumulator[run.status] = (accumulator[run.status] ?? 0) + 1;
     return accumulator;
   }, {});
-  const itemsWithLinks = items.map((item) => ({
+  const evaluated = evaluateGroupDependencies(items);
+  const itemsWithLinks = evaluated.items.map((item) => ({
     ...item,
     links: {
       self: `/work-items/${encodeURIComponent(item.id)}`,
@@ -309,11 +814,14 @@ function buildGroupSummary(group, items = [], runs = []) {
   
   return {
     ...group,
+    status: evaluated.readiness.headlineState,
     itemCount: items.length,
     latestRunAt,
     runCountsByStatus: counts,
     items: itemsWithLinks,
     recentRuns: runsWithLinks,
+    dependencyGraph: evaluated.dependencyGraph,
+    readiness: evaluated.readiness,
     links: groupLinks(group.id)
   };
 }
@@ -485,10 +993,14 @@ export function getSelfBuildWorkItem(itemId, dbPath = DEFAULT_ORCHESTRATOR_DB_PA
   const latestProposal = recentRuns.length > 0 
     ? withDatabase(dbPath, (db) => getProposalArtifactByRunId(db, recentRuns[0].id))
     : null;
+  const groupItems = group ? listManagedWorkItems({ limit: 500 }, dbPath).filter((entry) => entry.metadata?.groupId === group.id) : [];
+  const groupRuns = groupItems.flatMap((entry) => entry.runs ?? []);
+  const groupSummary = group ? buildGroupSummary(group, groupItems, groupRuns) : null;
+  const derivedItem = groupSummary?.items?.find((entry) => entry.id === itemId) ?? item;
   
   return {
-    ...item,
-    workItemGroup: group ? buildGroupSummary(group) : null,
+    ...derivedItem,
+    workItemGroup: groupSummary,
     goalPlan: goalPlan ? buildGoalPlanSummary(goalPlan) : null,
     recentRuns: recentRuns.slice(0, 5).map((run) => ({
       ...run,
@@ -644,7 +1156,11 @@ export function getGoalPlanSummary(planId, dbPath = DEFAULT_ORCHESTRATOR_DB_PATH
   }
   const items = listManagedWorkItems({}, dbPath).filter((item) => item.metadata?.goalPlanId === plan.id);
   const group = withDatabase(dbPath, (db) => listWorkItemGroups(db, null, 100)).find((entry) => entry.goalPlanId === plan.id) ?? null;
-  return buildGoalPlanSummary(plan, items, group ? buildGroupSummary(group) : null);
+  return buildGoalPlanSummary(
+    plan,
+    items,
+    group ? buildGroupSummary(group, items.filter((item) => item.metadata?.groupId === group.id), items.flatMap((item) => item.runs ?? [])) : null
+  );
 }
 
 export async function materializeGoalPlan(planId, options = {}, dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
@@ -724,6 +1240,64 @@ export async function materializeGoalPlan(planId, options = {}, dbPath = DEFAULT
   return buildGoalPlanSummary(updatedPlan, refreshedItems, buildGroupSummary(group, refreshedItems));
 }
 
+export function setWorkItemGroupDependencies(groupId, payload = {}, dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
+  const group = withDatabase(dbPath, (db) => getWorkItemGroup(db, groupId));
+  if (!group) {
+    return null;
+  }
+  const items = listManagedWorkItems({ limit: 500 }, dbPath).filter((item) => item.metadata?.groupId === group.id);
+  const availableItemIds = new Set(items.map((item) => item.id));
+  const replace = payload.replace !== false;
+  const requestedEdges = asArray(payload.edges).map((edge) => {
+    const itemId = String(edge?.itemId ?? "").trim();
+    if (!itemId) {
+      throw new Error("dependency edges require itemId");
+    }
+    return normalizeDependencyEdge(edge, itemId, availableItemIds);
+  });
+
+  const edgesByItemId = new Map(items.map((item) => [item.id, replace ? [] : getStoredDependencyEdges(item, availableItemIds)]));
+  for (const edge of requestedEdges) {
+    const existing = edgesByItemId.get(edge.itemId) ?? [];
+    edgesByItemId.set(edge.itemId, [...existing.filter((entry) => entry.id !== edge.id), edge]);
+  }
+  detectDependencyCycles(edgesByItemId, availableItemIds);
+
+  for (const item of items) {
+    const edges = edgesByItemId.get(item.id) ?? [];
+    const updated = {
+      ...item,
+      metadata: {
+        ...item.metadata,
+        dependsOn: edges.map((edge) => edge.dependencyItemId),
+        dependencies: edges.map((edge) => ({
+          dependencyItemId: edge.dependencyItemId,
+          strictness: edge.strictness,
+          autoRelaxation: edge.autoRelaxation
+        }))
+      },
+      updatedAt: nowIso()
+    };
+    withDatabase(dbPath, (db) => updateWorkItem(db, updated));
+  }
+
+  const reconciledGroup = getWorkItemGroupSummary(groupId, dbPath);
+  persistGroupDependencyState(reconciledGroup, evaluateGroupDependencies(reconciledGroup.items), "dependency_graph_updated", dbPath);
+  const detail = getWorkItemGroupSummary(groupId, dbPath);
+  return {
+    detail,
+    impactSummary: {
+      totalEdges: detail.dependencyGraph.edges.length,
+      strictnessCounts: detail.dependencyGraph.strictnessCounts,
+      headlineState: detail.readiness.headlineState,
+      readinessCounts: detail.readiness.counts,
+      blockerIds: detail.readiness.blockerIds,
+      affectedItemIds: Array.from(new Set(detail.dependencyGraph.edges.map((edge) => edge.itemId))),
+      nextActionHint: detail.readiness.nextActionHint
+    }
+  };
+}
+
 export function listWorkItemGroupsSummary(options = {}, dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
   const status = options.status ? String(options.status).trim() : null;
   const limit = Number.parseInt(String(options.limit ?? "50"), 10) || 50;
@@ -746,54 +1320,85 @@ export function getWorkItemGroupSummary(groupId, dbPath = DEFAULT_ORCHESTRATOR_D
   return buildGroupSummary(group, items, runs);
 }
 
-function itemDependenciesSatisfied(item, completedIds) {
-  const dependsOn = dedupe(item.metadata?.dependsOn ?? []);
-  return dependsOn.every((dependencyId) => completedIds.has(dependencyId) || completedIds.has(`item:${dependencyId}`));
-}
-
 export async function runWorkItemGroup(groupId, options = {}, dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
-  const group = getWorkItemGroupSummary(groupId, dbPath);
+  let group = getWorkItemGroupSummary(groupId, dbPath);
   if (!group) {
     return null;
   }
-  const items = [...group.items].sort((left, right) => (left.metadata?.groupOrder ?? 0) - (right.metadata?.groupOrder ?? 0));
-  const completed = new Set();
+  persistGroupDependencyState(group, evaluateGroupDependencies(group.items), "group_run", dbPath);
+  group = getWorkItemGroupSummary(groupId, dbPath);
+  const items = sortByGroupOrder(group.items);
   const results = [];
-  let groupStatus = "completed";
+
   for (const item of items) {
-    if (!itemDependenciesSatisfied(item, completed)) {
-      groupStatus = "blocked";
+    group = getWorkItemGroupSummary(groupId, dbPath);
+    const current = group.items.find((entry) => entry.id === item.id);
+    if (!current) {
+      continue;
+    }
+
+    if (["blocked", "review_needed"].includes(current.dependencyState?.state)) {
       results.push({
-        itemId: item.id,
+        itemId: current.id,
         status: "blocked",
-        reason: "dependencies_not_satisfied"
+        reason: current.dependencyState.reason,
+        blockerIds: current.blockerIds,
+        blockers: current.dependencyState.blockers,
+        nextActionHint: current.nextActionHint,
+        dependencyState: current.dependencyState.state
       });
       continue;
     }
-    const result = await runSelfBuildWorkItem(item.id, options, dbPath);
-    results.push(result);
-    if (result.run.status === "completed") {
-      completed.add(item.id);
-    } else if (["blocked", "failed"].includes(result.run.status)) {
-      groupStatus = result.run.status === "failed" ? "failed" : "blocked";
-      if (groupStatus === "failed") {
-        break;
-      }
+
+    if (current.status === "completed") {
+      results.push({
+        itemId: current.id,
+        status: "completed",
+        reason: "already_completed"
+      });
+      continue;
     }
+
+    let result;
+    try {
+      result = await runSelfBuildWorkItem(current.id, options, dbPath);
+    } catch (error) {
+      const failedItem = getSelfBuildWorkItem(current.id, dbPath);
+      const failedRun = failedItem?.metadata?.lastRunId ? getManagedWorkItemRun(failedItem.metadata.lastRunId, dbPath) : null;
+      result = {
+        item: failedItem,
+        run: failedRun,
+        error: error.message
+      };
+    }
+    results.push(result);
+    const refreshed = getWorkItemGroupSummary(groupId, dbPath);
+    persistGroupDependencyState(refreshed, evaluateGroupDependencies(refreshed.items), "group_run", dbPath);
   }
+
+  group = getWorkItemGroupSummary(groupId, dbPath);
   const updatedGroup = {
-    ...group,
-    status: groupStatus,
+    ...withDatabase(dbPath, (db) => getWorkItemGroup(db, groupId)),
+    status: group.readiness.headlineState,
     summary: {
-      ...group.summary,
+      ...(group.summary ?? {}),
       resultCount: results.length,
-      completedCount: results.filter((entry) => entry?.run?.status === "completed").length,
-      blockedCount: results.filter((entry) => entry?.run?.status === "blocked").length,
-      failedCount: results.filter((entry) => entry?.run?.status === "failed").length
+      completedCount: results.filter((entry) => entry?.run?.status === "completed" || entry?.status === "completed").length,
+      blockedCount: results.filter((entry) => entry?.status === "blocked").length,
+      failedCount: results.filter((entry) => entry?.run?.status === "failed").length,
+      dependencyReadiness: group.readiness
+    },
+    metadata: {
+      ...(group.metadata ?? {}),
+      dependencyGraph: {
+        ...(group.metadata?.dependencyGraph ?? {}),
+        strictnessCounts: group.dependencyGraph.strictnessCounts,
+        lastEvaluatedAt: nowIso(),
+        lastEvaluationReason: "group_run"
+      }
     },
     updatedAt: nowIso(),
-    lastRunAt: nowIso(),
-    metadata: group.metadata
+    lastRunAt: nowIso()
   };
   withDatabase(dbPath, (db) => updateWorkItemGroup(db, updatedGroup));
   return {
@@ -933,13 +1538,14 @@ export function getDocSuggestionsForRun(runId, dbPath = DEFAULT_ORCHESTRATOR_DB_
 
 export function getSelfBuildSummary(dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
   const now = nowIso();
-  const workItems = listManagedWorkItems({ limit: 100 }, dbPath);
   const groups = listWorkItemGroupsSummary({ limit: 50 }, dbPath);
+  const groupItemMap = new Map(groups.flatMap((group) => group.items.map((item) => [item.id, item])));
+  const workItems = listManagedWorkItems({ limit: 100 }, dbPath).map((item) => groupItemMap.get(item.id) ?? item);
   const proposals = withDatabase(dbPath, (db) => listProposalArtifacts(db, null, 100)).map(buildProposalSummary);
   const learnings = withDatabase(dbPath, (db) => listLearningRecords(db, null, 100)).map(buildLearningSummary);
   const allRuns = workItems.flatMap((item) => (item.runs ?? []).map((run) => ({ ...run, itemTitle: item.title, itemId: item.id })));
 
-  const blockedItems = workItems.filter((item) => item.status === "blocked");
+  const blockedItems = workItems.filter((item) => item.status === "blocked" || ["blocked", "review_needed"].includes(item.dependencyState?.state));
   const failedItems = workItems.filter((item) => item.status === "failed");
   const waitingReviewProposals = proposals.filter((proposal) => proposal.status === "ready_for_review");
   const waitingApprovalProposals = proposals.filter((proposal) => ["reviewed", "waiting_approval"].includes(proposal.status));
@@ -957,8 +1563,10 @@ export function getSelfBuildSummary(dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
       priority: "high",
       itemId: item.id,
       title: item.title,
-      reason: "Work item blocked and requires operator intervention",
+      reason: item.blockedReason ?? item.dependencyState?.reason ?? "Work item blocked and requires operator intervention",
       httpHint: `/work-items/${encodeURIComponent(item.id)}`,
+      blockerIds: item.blockerIds ?? [],
+      nextActionHint: item.nextActionHint ?? item.dependencyState?.nextActionHint ?? null,
       timestamp: item.updatedAt
     })),
     ...failedItems.map((item) => ({

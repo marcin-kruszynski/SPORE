@@ -33,6 +33,55 @@ function asArray(value) {
   return Array.isArray(value) ? value.filter(Boolean) : [];
 }
 
+function compactObject(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+  return Object.fromEntries(
+    Object.entries(value).filter(([, entry]) => entry !== undefined && entry !== null && entry !== "")
+  );
+}
+
+function toText(value, fallback = "") {
+  const text = String(value ?? "").trim();
+  return text || fallback;
+}
+
+function dedupe(values) {
+  return Array.from(new Set(asArray(values).map((value) => String(value).trim()).filter(Boolean)));
+}
+
+function appendDependencyTransition(transitions = [], entry = {}) {
+  const normalized = compactObject({
+    id: entry.id ?? createId("dependency-transition"),
+    type: entry.type ?? "dependency_state_updated",
+    timestamp: entry.timestamp ?? new Date().toISOString(),
+    state: entry.state ?? null,
+    reasonCode: entry.reasonCode ?? null,
+    reason: entry.reason ?? null,
+    itemId: entry.itemId ?? null,
+    dependencyItemId: entry.dependencyItemId ?? null,
+    blockerId: entry.blockerId ?? null,
+    strictness: entry.strictness ?? null,
+    nextActionHint: entry.nextActionHint ?? null,
+    notes: entry.notes ?? null
+  });
+  const existing = asArray(transitions);
+  const previous = existing[existing.length - 1];
+  if (
+    previous &&
+    previous.type === normalized.type &&
+    previous.state === normalized.state &&
+    previous.reasonCode === normalized.reasonCode &&
+    previous.itemId === normalized.itemId &&
+    previous.dependencyItemId === normalized.dependencyItemId &&
+    previous.blockerId === normalized.blockerId
+  ) {
+    return existing;
+  }
+  return [...existing.slice(-24), normalized];
+}
+
 function mapWorkItemState(state) {
   if (["completed", "passed"].includes(state)) {
     return "completed";
@@ -107,6 +156,61 @@ export function getManagedWorkItem(itemId, dbPath = DEFAULT_ORCHESTRATOR_DB_PATH
     return {
       ...buildWorkItemSummary(item, runs),
       runs
+    };
+  });
+}
+
+export function setManagedWorkItemDependencyState(itemId, dependency = {}, dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
+  return withDatabase(dbPath, (db) => {
+    const item = getWorkItem(db, itemId);
+    if (!item) {
+      return null;
+    }
+
+    const now = dependency.updatedAt ?? new Date().toISOString();
+    const currentDependency = item.metadata?.dependency ?? {};
+    const blockers = asArray(dependency.blockers ?? currentDependency.blockers ?? []).map((blocker) => compactObject(blocker));
+    const blockerIds = dedupe(dependency.blockerIds ?? blockers.map((blocker) => blocker.id));
+    const transitionLog = dependency.transition
+      ? appendDependencyTransition(item.metadata?.dependencyTransitionLog, {
+          ...dependency.transition,
+          itemId,
+          state: dependency.state ?? dependency.transition.state ?? currentDependency.state ?? null,
+          nextActionHint: dependency.nextActionHint ?? dependency.transition.nextActionHint ?? currentDependency.nextActionHint ?? null
+        })
+      : asArray(item.metadata?.dependencyTransitionLog);
+
+    const nextDependency = compactObject({
+      ...currentDependency,
+      state: dependency.state ?? currentDependency.state ?? null,
+      reasonCode: dependency.reasonCode ?? currentDependency.reasonCode ?? null,
+      reason: toText(dependency.reason, currentDependency.reason ?? ""),
+      nextActionHint: toText(dependency.nextActionHint, currentDependency.nextActionHint ?? ""),
+      blockerIds,
+      blockers,
+      advisoryWarnings: asArray(dependency.advisoryWarnings ?? currentDependency.advisoryWarnings ?? []),
+      incomingEdges: asArray(dependency.incomingEdges ?? currentDependency.incomingEdges ?? []),
+      outgoingEdges: asArray(dependency.outgoingEdges ?? currentDependency.outgoingEdges ?? []),
+      readyToRun: dependency.readyToRun ?? currentDependency.readyToRun ?? false,
+      updatedAt: now
+    });
+
+    const nextStatus = dependency.status ?? item.status;
+    const updated = {
+      ...item,
+      status: nextStatus,
+      updatedAt: now,
+      metadata: {
+        ...item.metadata,
+        dependency: nextDependency,
+        dependencyTransitionLog: transitionLog
+      }
+    };
+
+    updateWorkItem(db, updated);
+    return {
+      ...buildWorkItemSummary(updated, listWorkItemRuns(db, itemId, 20)),
+      runs: listWorkItemRuns(db, itemId, 20)
     };
   });
 }
@@ -190,7 +294,42 @@ export async function runManagedWorkItem(itemId, options = {}, dbPath = DEFAULT_
     startedAt,
     endedAt: null
   };
-  withDatabase(dbPath, (db) => insertWorkItemRun(db, run));
+  const runningItem = {
+    ...item,
+    status: "running",
+    updatedAt: startedAt,
+    lastRunAt: startedAt,
+    metadata: {
+      ...item.metadata,
+      lastRunId: run.id,
+      dependency: compactObject({
+        ...(item.metadata?.dependency ?? {}),
+        state: "running",
+        blockerIds: [],
+        blockers: [],
+        reason: null,
+        reasonCode: null,
+        nextActionHint: null,
+        readyToRun: false,
+        updatedAt: startedAt
+      }),
+      dependencyTransitionLog:
+        item.metadata?.status === "failed" || item.status === "failed"
+          ? appendDependencyTransition(item.metadata?.dependencyTransitionLog, {
+              type: "dependency_retry_started",
+              state: "running",
+              timestamp: startedAt,
+              reason: "A new run started for a previously failed work item.",
+              reasonCode: "retry_started",
+              itemId: item.id
+            })
+          : asArray(item.metadata?.dependencyTransitionLog)
+    }
+  };
+  withDatabase(dbPath, (db) => {
+    insertWorkItemRun(db, run);
+    updateWorkItem(db, runningItem);
+  });
 
   try {
     let result;
@@ -248,14 +387,19 @@ export async function runManagedWorkItem(itemId, options = {}, dbPath = DEFAULT_
       endedAt: new Date().toISOString()
     };
     const settledItem = {
-      ...item,
+      ...runningItem,
       status: mapWorkItemState(settledRun.status),
       updatedAt: settledRun.endedAt,
       lastRunAt: settledRun.endedAt,
       metadata: {
-        ...item.metadata,
+        ...runningItem.metadata,
         lastRunId: settledRun.id,
-        lastResult: normalizedResult
+        lastResult: normalizedResult,
+        dependency: compactObject({
+          ...(runningItem.metadata?.dependency ?? {}),
+          state: mapWorkItemState(settledRun.status),
+          updatedAt: settledRun.endedAt
+        })
       }
     };
     withDatabase(dbPath, (db) => {
@@ -280,14 +424,21 @@ export async function runManagedWorkItem(itemId, options = {}, dbPath = DEFAULT_
       endedAt: new Date().toISOString()
     };
     const failedItem = {
-      ...item,
+      ...runningItem,
       status: "failed",
       updatedAt: failedRun.endedAt,
       lastRunAt: failedRun.endedAt,
       metadata: {
-        ...item.metadata,
+        ...runningItem.metadata,
         lastRunId: failedRun.id,
-        lastError: error.message
+        lastError: error.message,
+        dependency: compactObject({
+          ...(runningItem.metadata?.dependency ?? {}),
+          state: "failed",
+          reason: error.message,
+          reasonCode: "run_failed",
+          updatedAt: failedRun.endedAt
+        })
       }
     };
     withDatabase(dbPath, (db) => {

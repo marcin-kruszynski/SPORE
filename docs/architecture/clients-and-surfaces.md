@@ -126,7 +126,7 @@ The preferred validation-history surfaces are now:
 - `GET /regressions/:id/trends`
 - `GET /work-item-templates` and `GET /work-item-templates/:id`
 - `GET /goal-plans`, `GET /goal-plans/:id`, and `POST /goal-plans/:id/materialize`
-- `GET /work-item-groups`, `GET /work-item-groups/:id`, and `POST /work-item-groups/:id/run`
+- `GET /work-item-groups`, `GET /work-item-groups/:id`, `POST /work-item-groups/:id/dependencies`, and `POST /work-item-groups/:id/run`
 - `GET /work-items`, `GET /work-items/:id`, and `GET /work-items/:id/runs`
 - `GET /work-item-runs/:runId`
 - `GET /work-item-runs/:runId/proposal`
@@ -148,6 +148,22 @@ For self-build flows, clients should treat:
 - validate/doc-suggestion routes as operator quality loops.
 
 That separation keeps planning, execution, and governance inspectable across all client surfaces.
+
+## Dependency-Aware Work-Item Groups
+
+Grouped self-build execution now treats dependency authoring and readiness as orchestrator-owned contracts:
+
+- `POST /work-item-groups/:id/dependencies` is the shared write surface for replacing or updating hard and advisory dependency edges inside one group.
+- `GET /work-item-groups/:id` and `GET /work-items/:id` return normalized `dependencyGraph`, `readiness`, `dependencyState`, `blockerIds`, and `nextActionHint` fields so web, TUI, and CLI surfaces do not compute graph semantics locally.
+- Advisory dependencies remain visible through server-authored warning payloads and auto-relaxation metadata instead of silently disappearing.
+- Downstream dependency blocking, review-needed recovery, and group headline status are derived from child state and persisted metadata rather than manual client heuristics.
+
+Clients should therefore:
+
+- use the dependency authoring route instead of mutating `metadata.dependsOn` ad hoc,
+- render blocker ids, plain-language reasons, and next-step hints directly from the server payload,
+- trust `readiness.headlineState` and readiness counts for group badges and queue ordering,
+- treat `dependencyGraph.transitionLog` as the audit trail for advisory relaxation and dependency recovery decisions.
 
 ## Self-Build Summary Contract
 

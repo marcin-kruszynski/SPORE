@@ -28,6 +28,7 @@ import {
   getSelfBuildWorkItem,
   getSelfBuildWorkItemRun,
   getWorkItemGroupSummary,
+  setWorkItemGroupDependencies,
   getWorkItemTemplate,
   listGoalPlansSummary,
   listSelfBuildWorkItemRuns,
@@ -692,6 +693,17 @@ const server = http.createServer(async (request, response) => {
         return;
       }
       json(response, 200, { ok: true, detail });
+      return;
+    }
+
+    if (request.method === "POST" && parts.length === 3 && parts[0] === "work-item-groups" && parts[2] === "dependencies") {
+      const body = await readJsonBody(request);
+      const detail = setWorkItemGroupDependencies(parts[1], body);
+      if (!detail) {
+        json(response, 404, { ok: false, error: "not_found", message: `work item group not found: ${parts[1]}` });
+        return;
+      }
+      json(response, 200, { ok: true, ...detail });
       return;
     }
 

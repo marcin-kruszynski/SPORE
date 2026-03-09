@@ -64,6 +64,7 @@ import {
   getSelfBuildWorkItem,
   getSelfBuildWorkItemRun,
   getWorkItemGroupSummary,
+  setWorkItemGroupDependencies,
   getWorkItemTemplate,
   listGoalPlansSummary,
   listSelfBuildWorkItemRuns,
@@ -688,6 +689,21 @@ async function main() {
       throw new Error(`work item group not found: ${flags.group}`);
     }
     console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
+  if (command === "work-item-group-dependencies") {
+    if (!flags.group || !flags["edges-json"]) {
+      throw new Error("use work-item-group-dependencies --group <id> --edges-json '[...]'");
+    }
+    const detail = setWorkItemGroupDependencies(flags.group, {
+      edges: JSON.parse(String(flags["edges-json"] ?? "[]")),
+      replace: flags.replace !== false
+    });
+    if (!detail) {
+      throw new Error(`work item group not found: ${flags.group}`);
+    }
+    console.log(JSON.stringify({ ok: true, ...detail }, null, 2));
     return;
   }
 
