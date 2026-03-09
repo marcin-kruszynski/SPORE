@@ -12,7 +12,7 @@ This roadmap turns SPORE's existing self-build primitives into a supervised prod
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Self-Build Visibility** - Establish a dedicated dashboard and linked self-build read models over existing orchestrator surfaces.
+- [x] **Phase 1: Self-Build Visibility** - Establish a dedicated dashboard and linked self-build read models over existing orchestrator surfaces. ✅ 2026-03-09
 - [ ] **Phase 2: Dependency-Aware Work Graphs** - Make grouped self-build execution respect prerequisites and expose blocked readiness clearly.
 - [ ] **Phase 3: Guided Goal-to-Run Flow** - Let operators plan, materialize, template, and launch self-build work from one conservative flow.
 - [ ] **Phase 4: Proposal Review Hub** - Turn proposal artifacts into the durable governance package for code-oriented self-build work.
@@ -35,8 +35,8 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 Plans:
 - [x] `01-01-PLAN.md` - Establish the shared self-build read-model contract, lineage wiring, and validation scaffolding. ✅ 2026-03-09 (17 min, 3 tasks, 3 commits)
-- [ ] `01-02-PLAN.md` - Build the dedicated web self-build dashboard and hub-and-drilldown flow.
-- [ ] `01-03-PLAN.md` - Add terminal self-build triage and parity coverage over the shared read model.
+- [x] `01-02-PLAN.md` - Build the dedicated web self-build dashboard and hub-and-drilldown flow. ✅ 2026-03-09 (9 min, 3 tasks, 3 commits)
+- [x] `01-03-PLAN.md` - Add terminal self-build triage and parity coverage over the shared read model. ✅ 2026-03-09 (4 min, 2 tasks, 2 commits)
 
 ### Phase 2: Dependency-Aware Work Graphs
 **Goal**: Operators can run grouped self-build work safely because prerequisites and blocked downstream work are explicit.

@@ -10,28 +10,29 @@ See: `.planning/PROJECT.md` (updated 2026-03-09)
 ## Current Position
 
 Phase: 1 of 7 (Self-Build Visibility)
-Plan: 1 of 3 in current phase
+Plan: 3 of 3 in current phase
 Status: In progress
-Last activity: 2026-03-09 - Plan 01 completed: self-build visibility foundation established
+Last activity: 2026-03-09 - Plan 03 completed: TUI self-build triage and drilldown
 
-Progress: [███░░░░░░░] 33%
+Progress: [█████████░░] 100%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 1
-- Average duration: 17 min
-- Total execution time: 0.3 hours
+- Total plans completed: 3
+- Average duration: 10 min
+- Total execution time: 0.5 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| 01 | 1 | 17 min | 17 min |
+| 01 | 3 | 30 min | 10 min |
 
 **Recent Trend:**
-- Last 5 plans: 17 min
-- Trend: Establishing baseline
+- Last 5 plans: 17 min, 9 min, 4 min
+- Trend: Accelerating
+| Phase 01-self-build-visibility P02 | 4 | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -46,6 +47,16 @@ Recent decisions affecting current work:
 - [Plan 01] Exposed operator-first summary structure with urgentWork and followUpWork queues so dashboard and TUI clients stay thin
 - [Plan 01] Added server-computed display labels and status badge hints instead of client-side heuristics
 - [Plan 01] Enriched detail routes with lineage chains, recent activity, and comprehensive navigation links
+- [Phase 01-self-build-visibility-02]: Added view navigation toggle to keep self-build dashboard distinct from Run Center
+- [Phase 01-self-build-visibility-02]: Implemented detail overlay instead of new pages to preserve dashboard context and lineage
+- [Phase 01-self-build-visibility-02]: Used compact operator-first rows with calm status styling to avoid alert fatigue
+- [Plan 02] Built self-build dashboard as the top-level web entrypoint for supervised work visibility
+- [Plan 02] Preserved shared HTTP contracts and operator-first mental models across web and TUI surfaces
+- [Plan 03] Added terminal-native triage view with formatted output while preserving JSON-only backward compatibility
+- [Plan 03] Implemented drilldown support through flags to stay within TUI mental model
+- [Phase 01-self-build-visibility-02]: Added view navigation toggle to keep self-build dashboard distinct from Run Center
+- [Phase 01-self-build-visibility-02]: Implemented detail overlay instead of new pages to preserve dashboard context and lineage
+- [Phase 01-self-build-visibility-02]: Used compact operator-first rows with calm status styling to avoid alert fatigue
 
 ### Pending Todos
 
@@ -58,6 +69,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-09 04:38
-Stopped at: Completed 01-self-build-visibility-01-PLAN.md
-Resume file: .planning/phases/01-self-build-visibility/01-self-build-visibility-01-SUMMARY.md
+Last session: 2026-03-09 04:46
+Stopped at: Completed 01-self-build-visibility-03-PLAN.md
+Resume file: .planning/phases/01-self-build-visibility/01-self-build-visibility-03-SUMMARY.md
