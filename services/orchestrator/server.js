@@ -17,12 +17,29 @@ import {
   getScenarioTrends
 } from "../../packages/orchestrator/src/scenarios/run-history.js";
 import {
-  createWorkItem,
-  getManagedWorkItem,
-  getManagedWorkItemRun,
-  listManagedWorkItems,
-  runManagedWorkItem
-} from "../../packages/orchestrator/src/work-items/work-items.js";
+  approveProposalArtifact,
+  createGoalPlan,
+  createManagedWorkItem,
+  getDocSuggestionsForRun,
+  getGoalPlanSummary,
+  getProposalByRun,
+  getProposalSummary,
+  getSelfBuildSummary,
+  getSelfBuildWorkItem,
+  getSelfBuildWorkItemRun,
+  getWorkItemGroupSummary,
+  getWorkItemTemplate,
+  listGoalPlansSummary,
+  listSelfBuildWorkItemRuns,
+  listSelfBuildWorkItems,
+  listWorkItemGroupsSummary,
+  listWorkItemTemplates,
+  materializeGoalPlan,
+  reviewProposalArtifact,
+  runSelfBuildWorkItem,
+  runWorkItemGroup,
+  validateWorkItemRun
+} from "../../packages/orchestrator/src/self-build/self-build.js";
 
 function json(response, statusCode, payload) {
   response.writeHead(statusCode, {
@@ -225,6 +242,14 @@ const server = http.createServer(async (request, response) => {
         detail: await getRunCenterSummary(undefined, Number.parseInt(url.searchParams.get("limit")?.trim() || "10", 10))
       };
       json(response, 200, payload);
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/self-build/summary") {
+      json(response, 200, {
+        ok: true,
+        detail: getSelfBuildSummary()
+      });
       return;
     }
 
@@ -590,8 +615,99 @@ const server = http.createServer(async (request, response) => {
       return;
     }
 
+    if (request.method === "GET" && url.pathname === "/work-item-templates") {
+      json(response, 200, {
+        ok: true,
+        detail: await listWorkItemTemplates()
+      });
+      return;
+    }
+
+    if (request.method === "GET" && parts.length === 2 && parts[0] === "work-item-templates") {
+      const detail = await getWorkItemTemplate(parts[1]);
+      if (!detail) {
+        json(response, 404, { ok: false, error: "not_found", message: `work item template not found: ${parts[1]}` });
+        return;
+      }
+      json(response, 200, { ok: true, detail });
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/goal-plans") {
+      json(response, 200, {
+        ok: true,
+        detail: listGoalPlansSummary({
+          status: url.searchParams.get("status")?.trim() || null,
+          limit: url.searchParams.get("limit")?.trim() || "50"
+        })
+      });
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/goals/plan") {
+      const body = await readJsonBody(request);
+      json(response, 200, {
+        ok: true,
+        detail: await createGoalPlan(body)
+      });
+      return;
+    }
+
+    if (request.method === "GET" && parts.length === 2 && parts[0] === "goal-plans") {
+      const detail = getGoalPlanSummary(parts[1]);
+      if (!detail) {
+        json(response, 404, { ok: false, error: "not_found", message: `goal plan not found: ${parts[1]}` });
+        return;
+      }
+      json(response, 200, { ok: true, detail });
+      return;
+    }
+
+    if (request.method === "POST" && parts.length === 3 && parts[0] === "goal-plans" && parts[2] === "materialize") {
+      const body = await readJsonBody(request);
+      const detail = await materializeGoalPlan(parts[1], body);
+      if (!detail) {
+        json(response, 404, { ok: false, error: "not_found", message: `goal plan not found: ${parts[1]}` });
+        return;
+      }
+      json(response, 200, { ok: true, detail });
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/work-item-groups") {
+      json(response, 200, {
+        ok: true,
+        detail: listWorkItemGroupsSummary({
+          status: url.searchParams.get("status")?.trim() || null,
+          limit: url.searchParams.get("limit")?.trim() || "50"
+        })
+      });
+      return;
+    }
+
+    if (request.method === "GET" && parts.length === 2 && parts[0] === "work-item-groups") {
+      const detail = getWorkItemGroupSummary(parts[1]);
+      if (!detail) {
+        json(response, 404, { ok: false, error: "not_found", message: `work item group not found: ${parts[1]}` });
+        return;
+      }
+      json(response, 200, { ok: true, detail });
+      return;
+    }
+
+    if (request.method === "POST" && parts.length === 3 && parts[0] === "work-item-groups" && parts[2] === "run") {
+      const body = await readJsonBody(request);
+      const detail = await runWorkItemGroup(parts[1], body);
+      if (!detail) {
+        json(response, 404, { ok: false, error: "not_found", message: `work item group not found: ${parts[1]}` });
+        return;
+      }
+      json(response, 200, { ok: true, detail });
+      return;
+    }
+
     if (request.method === "GET" && url.pathname === "/work-items") {
-      const detail = listManagedWorkItems({
+      const detail = listSelfBuildWorkItems({
         status: url.searchParams.get("status")?.trim() || null,
         limit: url.searchParams.get("limit")?.trim() || "50"
       });
@@ -601,13 +717,13 @@ const server = http.createServer(async (request, response) => {
 
     if (request.method === "POST" && url.pathname === "/work-items") {
       const body = await readJsonBody(request);
-      const detail = createWorkItem(body);
+      const detail = await createManagedWorkItem(body);
       json(response, 200, { ok: true, detail });
       return;
     }
 
     if (request.method === "GET" && parts.length === 2 && parts[0] === "work-items") {
-      const detail = getManagedWorkItem(parts[1]);
+      const detail = getSelfBuildWorkItem(parts[1]);
       if (!detail) {
         json(response, 404, { ok: false, error: "not_found", message: `work item not found: ${parts[1]}` });
         return;
@@ -616,9 +732,22 @@ const server = http.createServer(async (request, response) => {
       return;
     }
 
+    if (request.method === "GET" && parts.length === 3 && parts[0] === "work-items" && parts[2] === "runs") {
+      json(response, 200, {
+        ok: true,
+        detail: {
+          item: getSelfBuildWorkItem(parts[1]),
+          runs: listSelfBuildWorkItemRuns(parts[1], {
+            limit: url.searchParams.get("limit")?.trim() || "20"
+          })
+        }
+      });
+      return;
+    }
+
     if (request.method === "POST" && parts.length === 3 && parts[0] === "work-items" && parts[2] === "run") {
       const body = await readJsonBody(request);
-      const detail = await runManagedWorkItem(parts[1], body);
+      const detail = await runSelfBuildWorkItem(parts[1], body);
       if (!detail) {
         json(response, 404, { ok: false, error: "not_found", message: `work item not found: ${parts[1]}` });
         return;
@@ -628,9 +757,72 @@ const server = http.createServer(async (request, response) => {
     }
 
     if (request.method === "GET" && parts.length === 2 && parts[0] === "work-item-runs") {
-      const detail = getManagedWorkItemRun(parts[1]);
+      const detail = getSelfBuildWorkItemRun(parts[1]);
       if (!detail) {
         json(response, 404, { ok: false, error: "not_found", message: `work item run not found: ${parts[1]}` });
+        return;
+      }
+      json(response, 200, { ok: true, detail });
+      return;
+    }
+
+    if (request.method === "GET" && parts.length === 3 && parts[0] === "work-item-runs" && parts[2] === "proposal") {
+      const detail = getProposalByRun(parts[1]);
+      if (!detail) {
+        json(response, 404, { ok: false, error: "not_found", message: `proposal not found for work item run: ${parts[1]}` });
+        return;
+      }
+      json(response, 200, { ok: true, detail });
+      return;
+    }
+
+    if (request.method === "POST" && parts.length === 3 && parts[0] === "work-item-runs" && parts[2] === "validate") {
+      const body = await readJsonBody(request);
+      const detail = await validateWorkItemRun(parts[1], body);
+      if (!detail) {
+        json(response, 404, { ok: false, error: "not_found", message: `work item run not found: ${parts[1]}` });
+        return;
+      }
+      json(response, 200, { ok: true, detail });
+      return;
+    }
+
+    if (request.method === "GET" && parts.length === 3 && parts[0] === "work-item-runs" && parts[2] === "doc-suggestions") {
+      const detail = getDocSuggestionsForRun(parts[1]);
+      if (!detail) {
+        json(response, 404, { ok: false, error: "not_found", message: `work item run not found: ${parts[1]}` });
+        return;
+      }
+      json(response, 200, { ok: true, detail });
+      return;
+    }
+
+    if (request.method === "GET" && parts.length === 2 && parts[0] === "proposal-artifacts") {
+      const detail = getProposalSummary(parts[1]);
+      if (!detail) {
+        json(response, 404, { ok: false, error: "not_found", message: `proposal artifact not found: ${parts[1]}` });
+        return;
+      }
+      json(response, 200, { ok: true, detail });
+      return;
+    }
+
+    if (request.method === "POST" && parts.length === 3 && parts[0] === "proposal-artifacts" && parts[2] === "review") {
+      const body = await readJsonBody(request);
+      const detail = await reviewProposalArtifact(parts[1], body);
+      if (!detail) {
+        json(response, 404, { ok: false, error: "not_found", message: `proposal artifact not found: ${parts[1]}` });
+        return;
+      }
+      json(response, 200, { ok: true, detail });
+      return;
+    }
+
+    if (request.method === "POST" && parts.length === 3 && parts[0] === "proposal-artifacts" && parts[2] === "approval") {
+      const body = await readJsonBody(request);
+      const detail = await approveProposalArtifact(parts[1], body);
+      if (!detail) {
+        json(response, 404, { ok: false, error: "not_found", message: `proposal artifact not found: ${parts[1]}` });
         return;
       }
       json(response, 200, { ok: true, detail });

@@ -53,12 +53,29 @@ import {
   runScenarioById
 } from "../scenarios/run-history.js";
 import {
-  createWorkItem,
-  getManagedWorkItem,
-  getManagedWorkItemRun,
-  listManagedWorkItems,
-  runManagedWorkItem
-} from "../work-items/work-items.js";
+  approveProposalArtifact,
+  createGoalPlan,
+  createManagedWorkItem,
+  getDocSuggestionsForRun,
+  getGoalPlanSummary,
+  getProposalByRun,
+  getProposalSummary,
+  getSelfBuildSummary,
+  getSelfBuildWorkItem,
+  getSelfBuildWorkItemRun,
+  getWorkItemGroupSummary,
+  getWorkItemTemplate,
+  listGoalPlansSummary,
+  listSelfBuildWorkItemRuns,
+  listSelfBuildWorkItems,
+  listWorkItemGroupsSummary,
+  listWorkItemTemplates,
+  materializeGoalPlan,
+  reviewProposalArtifact,
+  runSelfBuildWorkItem,
+  runWorkItemGroup,
+  validateWorkItemRun
+} from "../self-build/self-build.js";
 
 function parseArgs(argv) {
   const positional = [];
@@ -574,6 +591,128 @@ async function main() {
     return;
   }
 
+  if (command === "self-build-summary") {
+    const detail = getSelfBuildSummary();
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
+  if (command === "work-item-template-list") {
+    const detail = await listWorkItemTemplates();
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
+  if (command === "work-item-template-show") {
+    if (!flags.template) {
+      throw new Error("use work-item-template-show --template <id>");
+    }
+    const detail = await getWorkItemTemplate(flags.template);
+    if (!detail) {
+      throw new Error(`work item template not found: ${flags.template}`);
+    }
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
+  if (command === "goal-plan-create") {
+    if (!flags.goal) {
+      throw new Error("use goal-plan-create --goal <text>");
+    }
+    const detail = await createGoalPlan({
+      title: flags.title ?? null,
+      goal: flags.goal,
+      projectId: flags.project ?? "spore",
+      domainId: flags.domain ?? null,
+      mode: flags.mode ?? "supervised",
+      safeMode: flags["safe-mode"] !== false,
+      constraints: flags.constraints ? JSON.parse(String(flags.constraints)) : {},
+      by: flags.by ?? "operator",
+      source: flags.source ?? "cli"
+    });
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
+  if (command === "goal-plan-list") {
+    const detail = listGoalPlansSummary({
+      status: flags.status ?? null,
+      limit: flags.limit ?? "50"
+    });
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
+  if (command === "goal-plan-show") {
+    if (!flags.plan) {
+      throw new Error("use goal-plan-show --plan <id>");
+    }
+    const detail = getGoalPlanSummary(flags.plan);
+    if (!detail) {
+      throw new Error(`goal plan not found: ${flags.plan}`);
+    }
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
+  if (command === "goal-plan-materialize") {
+    if (!flags.plan) {
+      throw new Error("use goal-plan-materialize --plan <id>");
+    }
+    const detail = await materializeGoalPlan(flags.plan, {
+      by: flags.by ?? "operator",
+      source: flags.source ?? "cli"
+    });
+    if (!detail) {
+      throw new Error(`goal plan not found: ${flags.plan}`);
+    }
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
+  if (command === "work-item-group-list") {
+    const detail = listWorkItemGroupsSummary({
+      status: flags.status ?? null,
+      limit: flags.limit ?? "50"
+    });
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
+  if (command === "work-item-group-show") {
+    if (!flags.group) {
+      throw new Error("use work-item-group-show --group <id>");
+    }
+    const detail = getWorkItemGroupSummary(flags.group);
+    if (!detail) {
+      throw new Error(`work item group not found: ${flags.group}`);
+    }
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
+  if (command === "work-item-group-run") {
+    if (!flags.group) {
+      throw new Error("use work-item-group-run --group <id>");
+    }
+    const detail = await runWorkItemGroup(flags.group, {
+      project: flags.project ?? null,
+      wait: flags.wait !== false,
+      timeout: flags.timeout ?? "180000",
+      interval: flags.interval ?? "1500",
+      noMonitor: flags["no-monitor"] === true,
+      stub: flags.stub === true,
+      launcher: flags.launcher ?? null,
+      by: flags.by ?? "operator",
+      source: flags.source ?? "cli"
+    });
+    if (!detail) {
+      throw new Error(`work item group not found: ${flags.group}`);
+    }
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
   if (command === "regression-trends") {
     if (!flags.regression) {
       throw new Error("use regression-trends --regression <id>");
@@ -632,7 +771,7 @@ async function main() {
   }
 
   if (command === "work-item-list") {
-    const detail = listManagedWorkItems({
+    const detail = listSelfBuildWorkItems({
       status: flags.status ?? null,
       limit: flags.limit ?? "50"
     });
@@ -644,7 +783,7 @@ async function main() {
     if (!flags.item) {
       throw new Error("use work-item-show --item <id>");
     }
-    const detail = getManagedWorkItem(flags.item);
+    const detail = getSelfBuildWorkItem(flags.item);
     if (!detail) {
       throw new Error(`work item not found: ${flags.item}`);
     }
@@ -652,11 +791,26 @@ async function main() {
     return;
   }
 
-  if (command === "work-item-create") {
-    if (!flags.title || !flags.kind) {
-      throw new Error("use work-item-create --title <text> --kind <scenario|regression|workflow>");
+  if (command === "work-item-runs") {
+    if (!flags.item) {
+      throw new Error("use work-item-runs --item <id>");
     }
-    const detail = createWorkItem({
+    const detail = {
+      item: getSelfBuildWorkItem(flags.item),
+      runs: listSelfBuildWorkItemRuns(flags.item, {
+        limit: flags.limit ?? "20"
+      })
+    };
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
+  if (command === "work-item-create") {
+    if ((!flags.title || !flags.kind) && !flags.template) {
+      throw new Error("use work-item-create --title <text> --kind <scenario|regression|workflow> or --template <id>");
+    }
+    const detail = await createManagedWorkItem({
+      templateId: flags.template ?? null,
       title: flags.title,
       kind: flags.kind,
       source: flags.source ?? "cli",
@@ -674,7 +828,11 @@ async function main() {
         workflowPath: flags.workflow ?? null,
         domainId: flags.domain ?? null,
         roles: flags.roles ? String(flags.roles).split(",").map((item) => item.trim()).filter(Boolean) : null,
-        projectPath: flags.project ?? null
+        projectPath: flags.project ?? null,
+        safeMode: flags["safe-mode"] !== false,
+        mutationScope: flags["mutation-scope"]
+          ? String(flags["mutation-scope"]).split(",").map((item) => item.trim()).filter(Boolean)
+          : null
       }
     });
     console.log(JSON.stringify({ ok: true, detail }, null, 2));
@@ -685,7 +843,7 @@ async function main() {
     if (!flags.item) {
       throw new Error("use work-item-run --item <id>");
     }
-    const detail = await runManagedWorkItem(flags.item, {
+    const detail = await runSelfBuildWorkItem(flags.item, {
       project: flags.project ?? null,
       wait: flags.wait !== false,
       timeout: flags.timeout ?? "180000",
@@ -709,9 +867,85 @@ async function main() {
     if (!flags.run) {
       throw new Error("use work-item-run-show --run <id>");
     }
-    const detail = getManagedWorkItemRun(flags.run);
+    const detail = getSelfBuildWorkItemRun(flags.run);
     if (!detail) {
       throw new Error(`work item run not found: ${flags.run}`);
+    }
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
+  if (command === "work-item-validate") {
+    if (!flags.run) {
+      throw new Error("use work-item-validate --run <id>");
+    }
+    const detail = await validateWorkItemRun(flags.run, {
+      timeout: flags.timeout ?? "180000",
+      interval: flags.interval ?? "1500",
+      noMonitor: flags["no-monitor"] === true,
+      stub: flags.stub !== false,
+      launcher: flags.launcher ?? null,
+      by: flags.by ?? "operator",
+      source: flags.source ?? "cli"
+    });
+    if (!detail) {
+      throw new Error(`work item run not found: ${flags.run}`);
+    }
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
+  if (command === "work-item-doc-suggestions") {
+    if (!flags.run) {
+      throw new Error("use work-item-doc-suggestions --run <id>");
+    }
+    const detail = getDocSuggestionsForRun(flags.run);
+    if (!detail) {
+      throw new Error(`work item run not found: ${flags.run}`);
+    }
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
+  if (command === "proposal-show") {
+    if (!flags.proposal && !flags.run) {
+      throw new Error("use proposal-show --proposal <id> or --run <work-item-run-id>");
+    }
+    const detail = flags.proposal ? getProposalSummary(flags.proposal) : getProposalByRun(flags.run);
+    if (!detail) {
+      throw new Error("proposal artifact not found");
+    }
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
+  if (command === "proposal-review") {
+    if (!flags.proposal || !flags.status) {
+      throw new Error("use proposal-review --proposal <id> --status <ready_for_review|reviewed|rejected>");
+    }
+    const detail = await reviewProposalArtifact(flags.proposal, {
+      status: flags.status,
+      by: flags.by ?? "operator",
+      comments: flags.comments ?? ""
+    });
+    if (!detail) {
+      throw new Error(`proposal artifact not found: ${flags.proposal}`);
+    }
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
+  if (command === "proposal-approve") {
+    if (!flags.proposal || !flags.status) {
+      throw new Error("use proposal-approve --proposal <id> --status <approved|rejected>");
+    }
+    const detail = await approveProposalArtifact(flags.proposal, {
+      status: flags.status,
+      by: flags.by ?? "operator",
+      comments: flags.comments ?? ""
+    });
+    if (!detail) {
+      throw new Error(`proposal artifact not found: ${flags.proposal}`);
     }
     console.log(JSON.stringify({ ok: true, detail }, null, 2));
     return;

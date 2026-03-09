@@ -931,13 +931,35 @@ npm run orchestrator:scenario-run-artifacts -- --run <run-id>
 npm run orchestrator:scenario-rerun -- --run <run-id>
 npm run orchestrator:scenario-trends -- --scenario backend-service-delivery
 npm run orchestrator:run-center
+npm run orchestrator:self-build-summary
 npm run orchestrator:regression-list
 npm run orchestrator:regression-show -- --regression local-fast
 npm run orchestrator:regression-run -- --regression local-fast --stub
 npm run orchestrator:regression-run-show -- --run <run-id>
 npm run orchestrator:regression-report -- --run <run-id>
+npm run orchestrator:regression-latest-report -- --regression local-fast
 npm run orchestrator:regression-rerun -- --run <run-id>
 npm run orchestrator:regression-trends -- --regression local-fast
+npm run orchestrator:work-item-template-list
+npm run orchestrator:work-item-template-show -- --template scenario-hardening
+npm run orchestrator:goal-plan-create -- --goal "Stabilize CLI verification and docs follow-up"
+npm run orchestrator:goal-plan-list
+npm run orchestrator:goal-plan-show -- --plan <goal-plan-id>
+npm run orchestrator:goal-plan-materialize -- --plan <goal-plan-id>
+npm run orchestrator:work-item-group-list
+npm run orchestrator:work-item-group-show -- --group <group-id>
+npm run orchestrator:work-item-group-run -- --group <group-id> --stub
+npm run orchestrator:work-item-create -- --template scenario-hardening
+npm run orchestrator:work-item-list
+npm run orchestrator:work-item-show -- --item <work-item-id>
+npm run orchestrator:work-item-runs -- --item <work-item-id>
+npm run orchestrator:work-item-run -- --item <work-item-id> --stub
+npm run orchestrator:work-item-run-show -- --run <work-item-run-id>
+npm run orchestrator:work-item-validate -- --run <work-item-run-id> --stub
+npm run orchestrator:work-item-doc-suggestions -- --run <work-item-run-id>
+npm run orchestrator:proposal-show -- --run <work-item-run-id>
+npm run orchestrator:proposal-review -- --proposal <proposal-id> --status reviewed
+npm run orchestrator:proposal-approve -- --proposal <proposal-id> --status approved
 ```
 
 ### Shared HTTP Surfaces
@@ -946,6 +968,7 @@ npm run orchestrator:regression-trends -- --regression local-fast
 |---|---|---|
 | `GET` | `/executions/:id/history` | Combined ordered execution history with governance, audit, waves, and policy diff |
 | `GET` | `/run-center/summary` | Aggregate operator summary for scenarios, regressions, and recent runs |
+| `GET` | `/self-build/summary` | Aggregate self-build state across plans, groups, work items, runs, and proposals |
 | `GET` | `/scenarios` | Scenario catalog with latest run summary |
 | `GET` | `/scenarios/:id` | One scenario definition with latest run |
 | `GET` | `/scenarios/:id/runs` | Durable scenario run history |
@@ -967,9 +990,25 @@ npm run orchestrator:regression-trends -- --regression local-fast
 | `POST` | `/regression-runs/:runId/rerun` | Rerun one prior regression run with optional overrides |
 | `GET` | `/work-items` | Durable managed work-item list for supervised self-work |
 | `GET` | `/work-items/:id` | One durable work item with recent runs |
+| `GET` | `/work-items/:id/runs` | Durable run history for one work item |
 | `POST` | `/work-items` | Create one managed work item |
 | `POST` | `/work-items/:id/run` | Execute one managed work item through scenario, regression, or workflow paths |
 | `GET` | `/work-item-runs/:runId` | One durable work-item run result |
+| `GET` | `/work-item-runs/:runId/proposal` | Proposal artifact summary linked to one work-item run |
+| `POST` | `/work-item-runs/:runId/validate` | Validation pass over one work-item run with durable evaluation output |
+| `GET` | `/work-item-runs/:runId/doc-suggestions` | Suggested documentation follow-up actions for one run |
+| `GET` | `/work-item-templates` | Work-item template catalog for repeatable self-build tasks |
+| `GET` | `/work-item-templates/:id` | One work-item template detail |
+| `GET` | `/goal-plans` | Durable goal-plan list for planning before execution |
+| `POST` | `/goals/plan` | Create one goal plan |
+| `GET` | `/goal-plans/:id` | One goal-plan detail |
+| `POST` | `/goal-plans/:id/materialize` | Materialize a goal plan into a work-item group and managed items |
+| `GET` | `/work-item-groups` | Durable work-item group list |
+| `GET` | `/work-item-groups/:id` | One work-item group detail |
+| `POST` | `/work-item-groups/:id/run` | Execute one work-item group through managed child work items |
+| `GET` | `/proposal-artifacts/:id` | One proposal artifact with review/approval status |
+| `POST` | `/proposal-artifacts/:id/review` | Review transition for one proposal artifact |
+| `POST` | `/proposal-artifacts/:id/approval` | Approval transition for one proposal artifact |
 | `GET` | `/sessions/:id/live` | Combined live session metadata, events, artifacts, control history, diagnostics, and operator suggestions |
 | `GET` | `/sessions/:id/control-history` | Durable control request history for one session |
 | `GET` | `/sessions/:id/control-status/:requestId` | One durable control request with ack/result status |
@@ -1078,7 +1117,7 @@ SPORE/
 ├── .pi/                    PI agent context (system prompt, settings, role overlays)
 ├── AGENTS.md               Agent work rules and governance contract
 ├── README.md               This file
-└── package.json            Root scripts (30 commands), zero dependencies
+└── package.json            Root scripts (expanded operator command surface), zero dependencies
 ```
 
 ---

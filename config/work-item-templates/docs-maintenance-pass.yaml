@@ -1,0 +1,22 @@
+id: docs-maintenance-pass
+label: Docs Maintenance Pass
+kind: scenario
+defaultGoal: Review and update documentation-facing project surfaces.
+priority: medium
+defaultMetadata:
+  scenarioId: docs-adr-pass
+  domainId: docs
+  projectPath: config/projects/spore.yaml
+  safeMode: true
+  mutationScope: [docs, runbooks]
+acceptanceCriteria:
+  - Produce a durable documentation-oriented run.
+  - Stop for review instead of making silent assumptions.
+relatedDocs:
+  - docs/runbooks/local-dev.md
+  - README.md
+recommendedScenarios: [docs-adr-pass]
+recommendedRegressions: [local-fast]
+allowedDomains: [docs]
+safeModeEligible: true
+selfBuildEligible: true

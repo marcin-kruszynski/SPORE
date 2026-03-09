@@ -1,0 +1,19 @@
+id: self-build-safe
+name: Self Build Safe
+description: Restrict SPORE self-work to reviewed safe-mode changes.
+workflowPolicy:
+  reviewRequired: true
+  approvalRequired: true
+runtimePolicy:
+  sessionModeByRole:
+    builder: artifact-plus-summary
+coordinationPolicy:
+  maxHeldMs: 120000
+selfWorkPolicy:
+  allowedPaths: [docs, config, apps/web, docs/runbooks, config/scenarios, config/regressions]
+  forbiddenPaths: [packages/runtime-pi, packages/session-manager, services/session-gateway, services/orchestrator]
+  allowedWorkKinds: [scenario, regression, workflow]
+  requiresProposalArtifacts: true
+  requiresReview: true
+  requiresHumanApproval: true
+  safeModeDefault: true

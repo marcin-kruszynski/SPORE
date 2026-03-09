@@ -1,0 +1,24 @@
+id: config-schema-maintenance
+label: Config and Schema Maintenance
+kind: workflow
+defaultGoal: Propose changes to config, schemas, and related docs for SPORE.
+priority: high
+defaultMetadata:
+  workflowPath: config/workflows/docs-adr-pass.yaml
+  domainId: docs
+  projectPath: config/projects/spore.yaml
+  roles: [lead, scout, reviewer]
+  safeMode: true
+  mutationScope: [config, docs]
+  requiresProposal: true
+  codeOriented: true
+acceptanceCriteria:
+  - Produce a proposal artifact before approval.
+  - Attach validation guidance for local-fast regression.
+relatedDocs:
+  - docs/architecture/config-model.md
+recommendedScenarios: [docs-adr-pass]
+recommendedRegressions: [local-fast]
+allowedDomains: [docs, backend]
+safeModeEligible: true
+selfBuildEligible: true

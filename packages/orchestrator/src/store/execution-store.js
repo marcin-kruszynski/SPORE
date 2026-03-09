@@ -242,6 +242,58 @@ export function openOrchestratorDatabase(dbPath) {
       started_at TEXT NOT NULL,
       ended_at TEXT
     );
+    CREATE TABLE IF NOT EXISTS goal_plans (
+      id TEXT PRIMARY KEY,
+      title TEXT,
+      goal TEXT NOT NULL,
+      project_id TEXT,
+      domain_id TEXT,
+      mode TEXT,
+      status TEXT NOT NULL,
+      constraints_json TEXT,
+      recommendations_json TEXT,
+      metadata_json TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      materialized_at TEXT
+    );
+    CREATE TABLE IF NOT EXISTS work_item_groups (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      goal_plan_id TEXT,
+      status TEXT NOT NULL,
+      summary_json TEXT,
+      metadata_json TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      last_run_at TEXT
+    );
+    CREATE TABLE IF NOT EXISTS proposal_artifacts (
+      id TEXT PRIMARY KEY,
+      work_item_run_id TEXT NOT NULL,
+      work_item_id TEXT NOT NULL,
+      status TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      summary_json TEXT,
+      artifacts_json TEXT,
+      metadata_json TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      reviewed_at TEXT,
+      approved_at TEXT
+    );
+    CREATE TABLE IF NOT EXISTS learning_records (
+      id TEXT PRIMARY KEY,
+      source_type TEXT NOT NULL,
+      source_id TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      status TEXT NOT NULL,
+      summary TEXT NOT NULL,
+      details_json TEXT,
+      metadata_json TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
     CREATE INDEX IF NOT EXISTS idx_workflow_executions_state ON workflow_executions(state);
     CREATE INDEX IF NOT EXISTS idx_workflow_steps_execution_id ON workflow_steps(execution_id);
     CREATE INDEX IF NOT EXISTS idx_workflow_reviews_execution_id ON workflow_reviews(execution_id);
@@ -256,6 +308,10 @@ export function openOrchestratorDatabase(dbPath) {
     CREATE INDEX IF NOT EXISTS idx_scheduler_evaluations_regression_id ON scheduler_evaluations(regression_id, started_at DESC);
     CREATE INDEX IF NOT EXISTS idx_work_items_status ON work_items(status, updated_at DESC);
     CREATE INDEX IF NOT EXISTS idx_work_item_runs_item_id ON work_item_runs(work_item_id, started_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_goal_plans_status ON goal_plans(status, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_work_item_groups_status ON work_item_groups(status, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_proposal_artifacts_run_id ON proposal_artifacts(work_item_run_id, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_learning_records_source ON learning_records(source_type, source_id, updated_at DESC);
   `);
   ensureColumn(db, "workflow_steps", "attempt_count", "INTEGER NOT NULL DEFAULT 1");
   ensureColumn(db, "workflow_steps", "max_attempts", "INTEGER NOT NULL DEFAULT 1");
@@ -1652,6 +1708,452 @@ export function listWorkItemRuns(db, workItemId, limit = 20) {
   `).all(workItemId, limit).map((record) => ({
     ...record,
     result: parseJsonField(record.resultJson, {}),
+    metadata: parseJsonField(record.metadataJson, {})
+  }));
+}
+
+export function insertGoalPlan(db, plan) {
+  db.prepare(`
+    INSERT INTO goal_plans (
+      id, title, goal, project_id, domain_id, mode, status,
+      constraints_json, recommendations_json, metadata_json,
+      created_at, updated_at, materialized_at
+    ) VALUES (
+      @id, @title, @goal, @projectId, @domainId, @mode, @status,
+      @constraintsJson, @recommendationsJson, @metadataJson,
+      @createdAt, @updatedAt, @materializedAt
+    )
+  `).run({
+    id: plan.id,
+    title: plan.title ?? null,
+    goal: plan.goal,
+    projectId: plan.projectId ?? null,
+    domainId: plan.domainId ?? null,
+    mode: plan.mode ?? null,
+    status: plan.status,
+    constraintsJson: JSON.stringify(plan.constraints ?? {}),
+    recommendationsJson: JSON.stringify(plan.recommendations ?? []),
+    metadataJson: JSON.stringify(plan.metadata ?? {}),
+    createdAt: plan.createdAt,
+    updatedAt: plan.updatedAt,
+    materializedAt: plan.materializedAt ?? null
+  });
+}
+
+export function updateGoalPlan(db, plan) {
+  db.prepare(`
+    UPDATE goal_plans SET
+      title = @title,
+      goal = @goal,
+      project_id = @projectId,
+      domain_id = @domainId,
+      mode = @mode,
+      status = @status,
+      constraints_json = @constraintsJson,
+      recommendations_json = @recommendationsJson,
+      metadata_json = @metadataJson,
+      updated_at = @updatedAt,
+      materialized_at = @materializedAt
+    WHERE id = @id
+  `).run({
+    id: plan.id,
+    title: plan.title ?? null,
+    goal: plan.goal,
+    projectId: plan.projectId ?? null,
+    domainId: plan.domainId ?? null,
+    mode: plan.mode ?? null,
+    status: plan.status,
+    constraintsJson: JSON.stringify(plan.constraints ?? {}),
+    recommendationsJson: JSON.stringify(plan.recommendations ?? []),
+    metadataJson: JSON.stringify(plan.metadata ?? {}),
+    updatedAt: plan.updatedAt,
+    materializedAt: plan.materializedAt ?? null
+  });
+}
+
+export function getGoalPlan(db, planId) {
+  const record = db.prepare(`
+    SELECT
+      id,
+      title,
+      goal,
+      project_id AS projectId,
+      domain_id AS domainId,
+      mode,
+      status,
+      constraints_json AS constraintsJson,
+      recommendations_json AS recommendationsJson,
+      metadata_json AS metadataJson,
+      created_at AS createdAt,
+      updated_at AS updatedAt,
+      materialized_at AS materializedAt
+    FROM goal_plans
+    WHERE id = ?
+  `).get(planId);
+  return record ? {
+    ...record,
+    constraints: parseJsonField(record.constraintsJson, {}),
+    recommendations: parseJsonField(record.recommendationsJson, []),
+    metadata: parseJsonField(record.metadataJson, {})
+  } : null;
+}
+
+export function listGoalPlans(db, status = null, limit = 50) {
+  const sql = `
+    SELECT
+      id,
+      title,
+      goal,
+      project_id AS projectId,
+      domain_id AS domainId,
+      mode,
+      status,
+      constraints_json AS constraintsJson,
+      recommendations_json AS recommendationsJson,
+      metadata_json AS metadataJson,
+      created_at AS createdAt,
+      updated_at AS updatedAt,
+      materialized_at AS materializedAt
+    FROM goal_plans
+    ${status ? "WHERE status = ?" : ""}
+    ORDER BY updated_at DESC
+    LIMIT ?
+  `;
+  const statement = db.prepare(sql);
+  const rows = status ? statement.all(status, limit) : statement.all(limit);
+  return rows.map((record) => ({
+    ...record,
+    constraints: parseJsonField(record.constraintsJson, {}),
+    recommendations: parseJsonField(record.recommendationsJson, []),
+    metadata: parseJsonField(record.metadataJson, {})
+  }));
+}
+
+export function insertWorkItemGroup(db, group) {
+  db.prepare(`
+    INSERT INTO work_item_groups (
+      id, title, goal_plan_id, status, summary_json, metadata_json,
+      created_at, updated_at, last_run_at
+    ) VALUES (
+      @id, @title, @goalPlanId, @status, @summaryJson, @metadataJson,
+      @createdAt, @updatedAt, @lastRunAt
+    )
+  `).run({
+    id: group.id,
+    title: group.title,
+    goalPlanId: group.goalPlanId ?? null,
+    status: group.status,
+    summaryJson: JSON.stringify(group.summary ?? {}),
+    metadataJson: JSON.stringify(group.metadata ?? {}),
+    createdAt: group.createdAt,
+    updatedAt: group.updatedAt,
+    lastRunAt: group.lastRunAt ?? null
+  });
+}
+
+export function updateWorkItemGroup(db, group) {
+  db.prepare(`
+    UPDATE work_item_groups SET
+      title = @title,
+      goal_plan_id = @goalPlanId,
+      status = @status,
+      summary_json = @summaryJson,
+      metadata_json = @metadataJson,
+      updated_at = @updatedAt,
+      last_run_at = @lastRunAt
+    WHERE id = @id
+  `).run({
+    id: group.id,
+    title: group.title,
+    goalPlanId: group.goalPlanId ?? null,
+    status: group.status,
+    summaryJson: JSON.stringify(group.summary ?? {}),
+    metadataJson: JSON.stringify(group.metadata ?? {}),
+    updatedAt: group.updatedAt,
+    lastRunAt: group.lastRunAt ?? null
+  });
+}
+
+export function getWorkItemGroup(db, groupId) {
+  const record = db.prepare(`
+    SELECT
+      id,
+      title,
+      goal_plan_id AS goalPlanId,
+      status,
+      summary_json AS summaryJson,
+      metadata_json AS metadataJson,
+      created_at AS createdAt,
+      updated_at AS updatedAt,
+      last_run_at AS lastRunAt
+    FROM work_item_groups
+    WHERE id = ?
+  `).get(groupId);
+  return record ? {
+    ...record,
+    summary: parseJsonField(record.summaryJson, {}),
+    metadata: parseJsonField(record.metadataJson, {})
+  } : null;
+}
+
+export function listWorkItemGroups(db, status = null, limit = 50) {
+  const sql = `
+    SELECT
+      id,
+      title,
+      goal_plan_id AS goalPlanId,
+      status,
+      summary_json AS summaryJson,
+      metadata_json AS metadataJson,
+      created_at AS createdAt,
+      updated_at AS updatedAt,
+      last_run_at AS lastRunAt
+    FROM work_item_groups
+    ${status ? "WHERE status = ?" : ""}
+    ORDER BY updated_at DESC
+    LIMIT ?
+  `;
+  const statement = db.prepare(sql);
+  const rows = status ? statement.all(status, limit) : statement.all(limit);
+  return rows.map((record) => ({
+    ...record,
+    summary: parseJsonField(record.summaryJson, {}),
+    metadata: parseJsonField(record.metadataJson, {})
+  }));
+}
+
+export function insertProposalArtifact(db, artifact) {
+  db.prepare(`
+    INSERT INTO proposal_artifacts (
+      id, work_item_run_id, work_item_id, status, kind, summary_json,
+      artifacts_json, metadata_json, created_at, updated_at, reviewed_at, approved_at
+    ) VALUES (
+      @id, @workItemRunId, @workItemId, @status, @kind, @summaryJson,
+      @artifactsJson, @metadataJson, @createdAt, @updatedAt, @reviewedAt, @approvedAt
+    )
+  `).run({
+    id: artifact.id,
+    workItemRunId: artifact.workItemRunId,
+    workItemId: artifact.workItemId,
+    status: artifact.status,
+    kind: artifact.kind,
+    summaryJson: JSON.stringify(artifact.summary ?? {}),
+    artifactsJson: JSON.stringify(artifact.artifacts ?? {}),
+    metadataJson: JSON.stringify(artifact.metadata ?? {}),
+    createdAt: artifact.createdAt,
+    updatedAt: artifact.updatedAt,
+    reviewedAt: artifact.reviewedAt ?? null,
+    approvedAt: artifact.approvedAt ?? null
+  });
+}
+
+export function updateProposalArtifact(db, artifact) {
+  db.prepare(`
+    UPDATE proposal_artifacts SET
+      work_item_run_id = @workItemRunId,
+      work_item_id = @workItemId,
+      status = @status,
+      kind = @kind,
+      summary_json = @summaryJson,
+      artifacts_json = @artifactsJson,
+      metadata_json = @metadataJson,
+      updated_at = @updatedAt,
+      reviewed_at = @reviewedAt,
+      approved_at = @approvedAt
+    WHERE id = @id
+  `).run({
+    id: artifact.id,
+    workItemRunId: artifact.workItemRunId,
+    workItemId: artifact.workItemId,
+    status: artifact.status,
+    kind: artifact.kind,
+    summaryJson: JSON.stringify(artifact.summary ?? {}),
+    artifactsJson: JSON.stringify(artifact.artifacts ?? {}),
+    metadataJson: JSON.stringify(artifact.metadata ?? {}),
+    updatedAt: artifact.updatedAt,
+    reviewedAt: artifact.reviewedAt ?? null,
+    approvedAt: artifact.approvedAt ?? null
+  });
+}
+
+export function getProposalArtifact(db, artifactId) {
+  const record = db.prepare(`
+    SELECT
+      id,
+      work_item_run_id AS workItemRunId,
+      work_item_id AS workItemId,
+      status,
+      kind,
+      summary_json AS summaryJson,
+      artifacts_json AS artifactsJson,
+      metadata_json AS metadataJson,
+      created_at AS createdAt,
+      updated_at AS updatedAt,
+      reviewed_at AS reviewedAt,
+      approved_at AS approvedAt
+    FROM proposal_artifacts
+    WHERE id = ?
+  `).get(artifactId);
+  return record ? {
+    ...record,
+    summary: parseJsonField(record.summaryJson, {}),
+    artifacts: parseJsonField(record.artifactsJson, {}),
+    metadata: parseJsonField(record.metadataJson, {})
+  } : null;
+}
+
+export function getProposalArtifactByRunId(db, runId) {
+  const record = db.prepare(`
+    SELECT
+      id,
+      work_item_run_id AS workItemRunId,
+      work_item_id AS workItemId,
+      status,
+      kind,
+      summary_json AS summaryJson,
+      artifacts_json AS artifactsJson,
+      metadata_json AS metadataJson,
+      created_at AS createdAt,
+      updated_at AS updatedAt,
+      reviewed_at AS reviewedAt,
+      approved_at AS approvedAt
+    FROM proposal_artifacts
+    WHERE work_item_run_id = ?
+    ORDER BY updated_at DESC
+    LIMIT 1
+  `).get(runId);
+  return record ? {
+    ...record,
+    summary: parseJsonField(record.summaryJson, {}),
+    artifacts: parseJsonField(record.artifactsJson, {}),
+    metadata: parseJsonField(record.metadataJson, {})
+  } : null;
+}
+
+export function listProposalArtifacts(db, workItemId = null, limit = 50) {
+  const sql = `
+    SELECT
+      id,
+      work_item_run_id AS workItemRunId,
+      work_item_id AS workItemId,
+      status,
+      kind,
+      summary_json AS summaryJson,
+      artifacts_json AS artifactsJson,
+      metadata_json AS metadataJson,
+      created_at AS createdAt,
+      updated_at AS updatedAt,
+      reviewed_at AS reviewedAt,
+      approved_at AS approvedAt
+    FROM proposal_artifacts
+    ${workItemId ? "WHERE work_item_id = ?" : ""}
+    ORDER BY updated_at DESC
+    LIMIT ?
+  `;
+  const statement = db.prepare(sql);
+  const rows = workItemId ? statement.all(workItemId, limit) : statement.all(limit);
+  return rows.map((record) => ({
+    ...record,
+    summary: parseJsonField(record.summaryJson, {}),
+    artifacts: parseJsonField(record.artifactsJson, {}),
+    metadata: parseJsonField(record.metadataJson, {})
+  }));
+}
+
+export function insertLearningRecord(db, record) {
+  db.prepare(`
+    INSERT INTO learning_records (
+      id, source_type, source_id, kind, status, summary, details_json, metadata_json,
+      created_at, updated_at
+    ) VALUES (
+      @id, @sourceType, @sourceId, @kind, @status, @summary, @detailsJson, @metadataJson,
+      @createdAt, @updatedAt
+    )
+  `).run({
+    id: record.id,
+    sourceType: record.sourceType,
+    sourceId: record.sourceId,
+    kind: record.kind,
+    status: record.status,
+    summary: record.summary,
+    detailsJson: JSON.stringify(record.details ?? {}),
+    metadataJson: JSON.stringify(record.metadata ?? {}),
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt
+  });
+}
+
+export function updateLearningRecord(db, record) {
+  db.prepare(`
+    UPDATE learning_records SET
+      source_type = @sourceType,
+      source_id = @sourceId,
+      kind = @kind,
+      status = @status,
+      summary = @summary,
+      details_json = @detailsJson,
+      metadata_json = @metadataJson,
+      updated_at = @updatedAt
+    WHERE id = @id
+  `).run({
+    id: record.id,
+    sourceType: record.sourceType,
+    sourceId: record.sourceId,
+    kind: record.kind,
+    status: record.status,
+    summary: record.summary,
+    detailsJson: JSON.stringify(record.details ?? {}),
+    metadataJson: JSON.stringify(record.metadata ?? {}),
+    updatedAt: record.updatedAt
+  });
+}
+
+export function getLearningRecord(db, recordId) {
+  const record = db.prepare(`
+    SELECT
+      id,
+      source_type AS sourceType,
+      source_id AS sourceId,
+      kind,
+      status,
+      summary,
+      details_json AS detailsJson,
+      metadata_json AS metadataJson,
+      created_at AS createdAt,
+      updated_at AS updatedAt
+    FROM learning_records
+    WHERE id = ?
+  `).get(recordId);
+  return record ? {
+    ...record,
+    details: parseJsonField(record.detailsJson, {}),
+    metadata: parseJsonField(record.metadataJson, {})
+  } : null;
+}
+
+export function listLearningRecords(db, sourceType = null, limit = 50) {
+  const sql = `
+    SELECT
+      id,
+      source_type AS sourceType,
+      source_id AS sourceId,
+      kind,
+      status,
+      summary,
+      details_json AS detailsJson,
+      metadata_json AS metadataJson,
+      created_at AS createdAt,
+      updated_at AS updatedAt
+    FROM learning_records
+    ${sourceType ? "WHERE source_type = ?" : ""}
+    ORDER BY updated_at DESC
+    LIMIT ?
+  `;
+  const statement = db.prepare(sql);
+  const rows = sourceType ? statement.all(sourceType, limit) : statement.all(limit);
+  return rows.map((record) => ({
+    ...record,
+    details: parseJsonField(record.detailsJson, {}),
     metadata: parseJsonField(record.metadataJson, {})
   }));
 }

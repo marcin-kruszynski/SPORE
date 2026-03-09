@@ -24,6 +24,7 @@ Workflow templates may also define `stepSets`, which the service exposes back th
 - `GET /executions/:id/events`
 - `GET /executions/:id/escalations`
 - `GET /run-center/summary`
+- `GET /self-build/summary`
 - `GET /scenarios/:id/trends`
 - `GET /scenario-runs/:runId`
 - `GET /scenario-runs/:runId/artifacts`
@@ -32,9 +33,25 @@ Workflow templates may also define `stepSets`, which the service exposes back th
 - `GET /regressions/scheduler/status`
 - `GET /regression-runs/:runId`
 - `GET /regression-runs/:runId/report`
+- `GET /work-item-templates`
+- `GET /work-item-templates/:id`
+- `GET /goal-plans`
+- `POST /goals/plan`
+- `GET /goal-plans/:id`
+- `POST /goal-plans/:id/materialize`
+- `GET /work-item-groups`
+- `GET /work-item-groups/:id`
+- `POST /work-item-groups/:id/run`
 - `GET /work-items`
 - `GET /work-items/:id`
+- `GET /work-items/:id/runs`
 - `GET /work-item-runs/:runId`
+- `GET /work-item-runs/:runId/proposal`
+- `POST /work-item-runs/:runId/validate`
+- `GET /work-item-runs/:runId/doc-suggestions`
+- `GET /proposal-artifacts/:id`
+- `POST /proposal-artifacts/:id/review`
+- `POST /proposal-artifacts/:id/approval`
 - `GET /stream/executions?execution=:id`
 - `POST /workflows/plan`
 - `POST /workflows/invoke`
@@ -94,6 +111,20 @@ curl http://127.0.0.1:8789/executions/branch-review-001/escalations
 curl -N http://127.0.0.1:8789/stream/executions?execution=branch-approval-001
 
 curl http://127.0.0.1:8789/run-center/summary
+curl http://127.0.0.1:8789/self-build/summary
+curl http://127.0.0.1:8789/work-item-templates
+curl http://127.0.0.1:8789/work-item-templates/scenario-hardening
+curl -X POST http://127.0.0.1:8789/goals/plan \
+  -H 'content-type: application/json' \
+  -d '{"goal":"Stabilize CLI verification and proposal quality","projectId":"spore","mode":"supervised","safeMode":true}'
+curl http://127.0.0.1:8789/goal-plans
+curl -X POST http://127.0.0.1:8789/goal-plans/<plan-id>/materialize \
+  -H 'content-type: application/json' \
+  -d '{"by":"operator","source":"curl"}'
+curl http://127.0.0.1:8789/work-item-groups
+curl -X POST http://127.0.0.1:8789/work-item-groups/<group-id>/run \
+  -H 'content-type: application/json' \
+  -d '{"stub":true,"wait":true}'
 
 curl http://127.0.0.1:8789/regressions/scheduler/status
 
@@ -103,9 +134,29 @@ curl -X POST http://127.0.0.1:8789/work-items \
 
 curl http://127.0.0.1:8789/work-items
 
+curl http://127.0.0.1:8789/work-items/<id>/runs
+
 curl -X POST http://127.0.0.1:8789/work-items/<id>/run \
   -H 'content-type: application/json' \
   -d '{"stub":true,"wait":true}'
+
+curl -X POST http://127.0.0.1:8789/work-item-runs/<run-id>/validate \
+  -H 'content-type: application/json' \
+  -d '{"stub":true,"source":"curl"}'
+
+curl http://127.0.0.1:8789/work-item-runs/<run-id>/doc-suggestions
+
+curl http://127.0.0.1:8789/work-item-runs/<run-id>/proposal
+
+curl http://127.0.0.1:8789/proposal-artifacts/<proposal-id>
+
+curl -X POST http://127.0.0.1:8789/proposal-artifacts/<proposal-id>/review \
+  -H 'content-type: application/json' \
+  -d '{"status":"reviewed","by":"operator","comments":"Reviewed in operator loop."}'
+
+curl -X POST http://127.0.0.1:8789/proposal-artifacts/<proposal-id>/approval \
+  -H 'content-type: application/json' \
+  -d '{"status":"approved","by":"operator","comments":"Approved for merge."}'
 
 curl -X POST http://127.0.0.1:8789/coordination-groups/branch-review-001/drive \
   -H 'content-type: application/json' \

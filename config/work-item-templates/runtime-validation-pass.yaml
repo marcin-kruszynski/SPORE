@@ -1,0 +1,18 @@
+id: runtime-validation-pass
+label: Runtime Validation Pass
+kind: regression
+defaultGoal: Run SPORE runtime validation through named regressions.
+priority: medium
+defaultMetadata:
+  regressionId: local-fast
+  domainId: backend
+  projectPath: config/projects/spore.yaml
+  safeMode: true
+  mutationScope: [config, docs]
+acceptanceCriteria:
+  - Produce durable regression history.
+  - Recommend next action based on regression outcome.
+recommendedRegressions: [local-fast]
+allowedDomains: [backend, cli, docs]
+safeModeEligible: true
+selfBuildEligible: true

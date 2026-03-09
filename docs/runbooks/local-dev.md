@@ -153,6 +153,20 @@ curl http://127.0.0.1:8789/executions/branch-approval-001/events
 curl http://127.0.0.1:8789/executions/branch-review-001/escalations
 curl -N http://127.0.0.1:8789/stream/executions?execution=branch-approval-001
 curl http://127.0.0.1:8789/run-center/summary
+curl http://127.0.0.1:8789/self-build/summary
+curl http://127.0.0.1:8789/work-item-templates
+curl http://127.0.0.1:8789/work-item-templates/scenario-hardening
+curl -X POST http://127.0.0.1:8789/goals/plan \
+  -H 'content-type: application/json' \
+  -d '{"goal":"Stabilize CLI verification and proposal quality","projectId":"spore","mode":"supervised","safeMode":true}'
+curl http://127.0.0.1:8789/goal-plans
+curl -X POST http://127.0.0.1:8789/goal-plans/<plan-id>/materialize \
+  -H 'content-type: application/json' \
+  -d '{"by":"operator","source":"runbook"}'
+curl http://127.0.0.1:8789/work-item-groups
+curl -X POST http://127.0.0.1:8789/work-item-groups/<group-id>/run \
+  -H 'content-type: application/json' \
+  -d '{"stub":true,"wait":true}'
 
 curl -X POST http://127.0.0.1:8789/workflows/invoke \
   -H 'content-type: application/json' \
@@ -225,6 +239,7 @@ npm run orchestrator:scenario-rerun -- --run <run-id>
 npm run orchestrator:scenario-trends -- --scenario backend-service-delivery
 npm run orchestrator:run-center
 curl http://127.0.0.1:8789/run-center/summary | jq '.detail | {alerts, recommendations}'
+npm run orchestrator:self-build-summary
 npm run orchestrator:regression-list
 npm run orchestrator:regression-show -- --regression local-fast
 npm run orchestrator:regression-run -- --regression local-fast --stub
@@ -234,10 +249,26 @@ npm run orchestrator:regression-latest-report -- --regression local-fast
 npm run orchestrator:regression-rerun -- --run <run-id>
 npm run orchestrator:regression-trends -- --regression local-fast
 curl http://127.0.0.1:8789/regressions/scheduler/status | jq '.detail.profiles[] | {id, scheduleStatus, latestScheduledRun}'
+npm run orchestrator:work-item-template-list
+npm run orchestrator:work-item-template-show -- --template scenario-hardening
+npm run orchestrator:goal-plan-create -- --goal "Stabilize CLI verification and docs follow-up"
+npm run orchestrator:goal-plan-list
+npm run orchestrator:goal-plan-show -- --plan <goal-plan-id>
+npm run orchestrator:goal-plan-materialize -- --plan <goal-plan-id>
+npm run orchestrator:work-item-group-list
+npm run orchestrator:work-item-group-show -- --group <group-id>
+npm run orchestrator:work-item-group-run -- --group <group-id> --stub
 npm run orchestrator:work-item-create -- --title "CLI verification work item" --kind scenario --scenario cli-verification-pass
 npm run orchestrator:work-item-list
+npm run orchestrator:work-item-show -- --item <work-item-id>
+npm run orchestrator:work-item-runs -- --item <work-item-id>
 npm run orchestrator:work-item-run -- --item <work-item-id> --stub
 npm run orchestrator:work-item-run-show -- --run <work-item-run-id>
+npm run orchestrator:work-item-validate -- --run <work-item-run-id> --stub
+npm run orchestrator:work-item-doc-suggestions -- --run <work-item-run-id>
+npm run orchestrator:proposal-show -- --run <work-item-run-id>
+npm run orchestrator:proposal-review -- --proposal <proposal-id> --status reviewed
+npm run orchestrator:proposal-approve -- --proposal <proposal-id> --status approved
 ```
 
 Live control inspection:

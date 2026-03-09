@@ -103,6 +103,8 @@ test("scenario, regression, and execution history routes work through orchestrat
   assert.ok(Array.isArray(runCenterProxy.json.detail.recentScenarioRuns));
   assert.ok(Array.isArray(runCenterProxy.json.detail.alerts));
   assert.ok(Array.isArray(runCenterProxy.json.detail.recommendations));
+  assert.ok(typeof runCenterProxy.json.detail.selfBuild === "object");
+  assert.ok(Array.isArray(runCenterProxy.json.detail.selfBuild.workItems));
   if (runCenterProxy.json.detail.recentScenarioRuns[0]) {
     assert.ok("trendHealth" in runCenterProxy.json.detail.recentScenarioRuns[0]);
     assert.ok("suggestedActions" in runCenterProxy.json.detail.recentScenarioRuns[0]);
@@ -295,4 +297,139 @@ test("scenario, regression, and execution history routes work through orchestrat
   );
   assert.equal(workItemRunDetail.status, 200);
   assert.equal(workItemRunDetail.json.detail.workItemId, workItem.json.detail.id);
+
+  const workItemRuns = await getJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/work-items/${encodeURIComponent(workItem.json.detail.id)}/runs`
+  );
+  assert.equal(workItemRuns.status, 200);
+  assert.equal(workItemRuns.json.detail.item.id, workItem.json.detail.id);
+  assert.ok(Array.isArray(workItemRuns.json.detail.runs));
+
+  const workItemTemplates = await getJson(`http://127.0.0.1:${ORCHESTRATOR_PORT}/work-item-templates`);
+  assert.equal(workItemTemplates.status, 200);
+  assert.ok(Array.isArray(workItemTemplates.json.detail));
+  assert.ok(workItemTemplates.json.detail.some((item) => item.id === "operator-ui-pass"));
+
+  const goalPlan = await postJson(`http://127.0.0.1:${ORCHESTRATOR_PORT}/goals/plan`, {
+    goal: "Improve the operator dashboard docs and config surfaces.",
+    projectId: "spore",
+    domainId: "docs",
+    safeMode: true
+  });
+  assert.equal(goalPlan.status, 200);
+  assert.equal(goalPlan.json.detail.projectId, "spore");
+  assert.ok(Array.isArray(goalPlan.json.detail.recommendedWorkItems));
+
+  const goalPlanShow = await getJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/goal-plans/${encodeURIComponent(goalPlan.json.detail.id)}`
+  );
+  assert.equal(goalPlanShow.status, 200);
+  assert.equal(goalPlanShow.json.detail.id, goalPlan.json.detail.id);
+
+  const materializedPlan = await postJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/goal-plans/${encodeURIComponent(goalPlan.json.detail.id)}/materialize`,
+    {}
+  );
+  assert.equal(materializedPlan.status, 200);
+  assert.equal(materializedPlan.json.detail.status, "materialized");
+  assert.ok(materializedPlan.json.detail.materializedGroup);
+  assert.ok(materializedPlan.json.detail.materializedItems.length >= 1);
+
+  const workItemGroups = await getJson(`http://127.0.0.1:${ORCHESTRATOR_PORT}/work-item-groups`);
+  assert.equal(workItemGroups.status, 200);
+  assert.ok(Array.isArray(workItemGroups.json.detail));
+  assert.ok(workItemGroups.json.detail.some((item) => item.id === materializedPlan.json.detail.materializedGroup.id));
+
+  const templateWorkItem = await postJson(`http://127.0.0.1:${ORCHESTRATOR_PORT}/work-items`, {
+    templateId: "operator-ui-pass",
+    title: "Operator UI self-work",
+    goal: "Tighten the operator web surface.",
+    metadata: {
+      projectPath: "config/projects/spore.yaml"
+    }
+  });
+  assert.equal(templateWorkItem.status, 200);
+  assert.equal(templateWorkItem.json.detail.kind, "workflow");
+
+  const templateWorkItemRun = await postJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/work-items/${encodeURIComponent(templateWorkItem.json.detail.id)}/run`,
+    {
+      stub: true,
+      wait: true,
+      by: "test-self-build",
+      timeout: 6000,
+      interval: 250
+    }
+  );
+  assert.equal(templateWorkItemRun.status, 200);
+  assert.equal(templateWorkItemRun.json.detail.item.id, templateWorkItem.json.detail.id);
+  assert.ok(templateWorkItemRun.json.detail.proposal?.id);
+
+  const proposal = await getJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/work-item-runs/${encodeURIComponent(templateWorkItemRun.json.detail.run.id)}/proposal`
+  );
+  assert.equal(proposal.status, 200);
+  assert.equal(proposal.json.detail.workItemRunId, templateWorkItemRun.json.detail.run.id);
+
+  const proposalReviewed = await postJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/proposal-artifacts/${encodeURIComponent(proposal.json.detail.id)}/review`,
+    {
+      status: "reviewed",
+      by: "test-reviewer",
+      comments: "Looks coherent."
+    }
+  );
+  assert.equal(proposalReviewed.status, 200);
+  assert.equal(proposalReviewed.json.detail.status, "reviewed");
+
+  const proposalApproved = await postJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/proposal-artifacts/${encodeURIComponent(proposal.json.detail.id)}/approval`,
+    {
+      status: "approved",
+      by: "test-approver",
+      comments: "Approved."
+    }
+  );
+  assert.equal(proposalApproved.status, 200);
+  assert.equal(proposalApproved.json.detail.status, "approved");
+
+  const validation = await postJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/work-item-runs/${encodeURIComponent(templateWorkItemRun.json.detail.run.id)}/validate`,
+    {
+      stub: true,
+      by: "test-validator",
+      timeout: 6000,
+      interval: 250
+    }
+  );
+  assert.equal(validation.status, 200);
+  assert.ok(validation.json.detail.validation);
+
+  const docSuggestions = await getJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/work-item-runs/${encodeURIComponent(templateWorkItemRun.json.detail.run.id)}/doc-suggestions`
+  );
+  assert.equal(docSuggestions.status, 200);
+  assert.ok(Array.isArray(docSuggestions.json.detail.suggestions));
+
+  const selfBuildSummary = await getJson(`http://127.0.0.1:${ORCHESTRATOR_PORT}/self-build/summary`);
+  assert.equal(selfBuildSummary.status, 200);
+  assert.ok(Array.isArray(selfBuildSummary.json.detail.workItems));
+  assert.ok(Array.isArray(selfBuildSummary.json.detail.proposals));
+  assert.ok(Array.isArray(selfBuildSummary.json.detail.learningRecords));
+
+  const selfBuildSummaryProxy = await getJson(`http://127.0.0.1:${WEB_PORT}/api/orchestrator/self-build/summary`);
+  assert.equal(selfBuildSummaryProxy.status, 200);
+  assert.ok(Array.isArray(selfBuildSummaryProxy.json.detail.workItems));
+
+  const workItemRunProxy = await getJson(
+    `http://127.0.0.1:${WEB_PORT}/api/orchestrator/work-item-runs/${encodeURIComponent(templateWorkItemRun.json.detail.run.id)}`
+  );
+  assert.equal(workItemRunProxy.status, 200);
+  assert.equal(workItemRunProxy.json.detail.id, templateWorkItemRun.json.detail.run.id);
+
+  const proposalProxy = await getJson(
+    `http://127.0.0.1:${WEB_PORT}/api/orchestrator/proposal-artifacts/${encodeURIComponent(proposal.json.detail.id)}`
+  );
+  assert.equal(proposalProxy.status, 200);
+  assert.equal(proposalProxy.json.detail.id, proposal.json.detail.id);
 });

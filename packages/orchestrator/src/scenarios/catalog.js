@@ -45,3 +45,12 @@ export async function getRegressionDefinition(regressionId) {
   const regressions = await listRegressionDefinitions();
   return regressions.find((regression) => regression.id === regressionId) ?? null;
 }
+
+export async function listWorkItemTemplateDefinitions() {
+  return readConfigDirectory('config/work-item-templates');
+}
+
+export async function getWorkItemTemplateDefinition(templateId) {
+  const templates = await listWorkItemTemplateDefinitions();
+  return templates.find((template) => template.id === templateId) ?? null;
+}

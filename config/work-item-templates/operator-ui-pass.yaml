@@ -1,0 +1,24 @@
+id: operator-ui-pass
+label: Operator UI Pass
+kind: workflow
+defaultGoal: Propose a focused update to the SPORE operator web surface.
+priority: high
+defaultMetadata:
+  workflowPath: config/workflows/frontend-ui-pass.yaml
+  domainId: frontend
+  projectPath: config/projects/spore.yaml
+  roles: [lead, scout, builder, tester, reviewer]
+  safeMode: true
+  mutationScope: [apps/web, docs]
+  requiresProposal: true
+  codeOriented: true
+acceptanceCriteria:
+  - Produce a reviewable proposal artifact for UI changes.
+  - Recommend validation through frontend-ui-pass.
+relatedDocs:
+  - apps/web/README.md
+recommendedScenarios: [frontend-ui-pass]
+recommendedRegressions: [local-fast]
+allowedDomains: [frontend]
+safeModeEligible: true
+selfBuildEligible: true

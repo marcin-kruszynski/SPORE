@@ -25,6 +25,13 @@ The repository also includes:
 
 - `services/orchestrator/` for workflow planning and invocation entrypoints,
 - `apps/web/`, a thin browser client that consumes gateway and orchestrator APIs through local proxies.
+- `services/orchestrator/` self-build management surfaces for:
+  - work-item templates,
+  - goal plans,
+  - work-item groups,
+  - managed work items and runs,
+  - proposal artifacts,
+  - validation and documentation follow-up suggestions.
 
 The current browser surface now renders:
 
@@ -110,14 +117,37 @@ When a client needs durable control acknowledgement or idempotency state, the pr
 The preferred validation-history surfaces are now:
 
 - `GET /run-center/summary`
+- `GET /self-build/summary`
 - `GET /scenario-runs/:runId`
 - `GET /scenario-runs/:runId/artifacts`
 - `GET /regression-runs/:runId`
 - `GET /regression-runs/:runId/report`
 - `GET /scenarios/:id/trends`
 - `GET /regressions/:id/trends`
+- `GET /work-item-templates` and `GET /work-item-templates/:id`
+- `GET /goal-plans`, `GET /goal-plans/:id`, and `POST /goal-plans/:id/materialize`
+- `GET /work-item-groups`, `GET /work-item-groups/:id`, and `POST /work-item-groups/:id/run`
+- `GET /work-items`, `GET /work-items/:id`, and `GET /work-items/:id/runs`
+- `GET /work-item-runs/:runId`
+- `GET /work-item-runs/:runId/proposal`
+- `POST /work-item-runs/:runId/validate`
+- `GET /work-item-runs/:runId/doc-suggestions`
+- `GET /proposal-artifacts/:id`
+- `POST /proposal-artifacts/:id/review`
+- `POST /proposal-artifacts/:id/approval`
 
 Those routes should be preferred over reconstructing scenario or regression history from shell output, temporary logs, or raw SQLite inspection.
+
+For self-build flows, clients should treat:
+
+- templates as catalog inputs,
+- goal plans as planning records,
+- work-item groups as batch execution records,
+- work-item runs as execution records,
+- proposals as governed output artifacts,
+- validate/doc-suggestion routes as operator quality loops.
+
+That separation keeps planning, execution, and governance inspectable across all client surfaces.
 
 Clients should also treat the following additive fields as first-class operator inputs when they are present:
 

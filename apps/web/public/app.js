@@ -55,9 +55,19 @@ const state = {
   regressionTrend: null,
   regressionTrendState: "idle",
   regressionTrendError: null,
+  selfBuildSummary: null,
+  selfBuildSummaryState: "idle",
+  selfBuildSummaryError: null,
+  workItemRunDetail: null,
+  workItemRunDetailState: "idle",
+  workItemRunDetailError: null,
+  proposalDetail: null,
+  proposalDetailState: "idle",
+  proposalDetailError: null,
   selectedRegressionRunId: null,
   selectedRunCenterScenarioRunId: null,
   selectedRunCenterRegressionRunId: null,
+  selectedRunCenterWorkItemRunId: null,
   selectedExecutionHistoryRowKey: null,
   workflowPreview: null,
   workflowPreviewError: null,
@@ -975,6 +985,7 @@ function normalizeRunCenterCollections(payload = {}) {
     regressions: normalizeRouteArray(root, ["regressions", "regressionSummaries", "regressionStatus", "regressionItems"]),
     recentScenarioRuns: normalizeRouteArray(root, ["recentScenarioRuns", "latestScenarioRuns", "scenarioRuns"]),
     recentRegressionRuns: normalizeRouteArray(root, ["recentRegressionRuns", "latestRegressionRuns", "regressionRuns"]),
+    selfBuild: readFirstObjectField(root, ["selfBuild", "managedWork", "work"]) ?? {},
     latestReports: normalizeRouteArray(root, ["latestReports", "reportCards", "reports"]),
     alerts: readFirstArrayField(root, ["alerts", "activeAlerts", "warnings", "issues"]),
     recommendations: readFirstArrayField(root, ["recommendations", "suggestedActions", "operatorRecommendations", "guidance"])
@@ -2042,6 +2053,30 @@ function buildRegressionRunsHref(regressionId) {
   return `/api/orchestrator/regressions/${encodeURIComponent(regressionId)}/runs`;
 }
 
+function buildSelfBuildSummaryHref() {
+  return "/api/orchestrator/self-build/summary";
+}
+
+function buildWorkItemHref(itemId) {
+  return `/api/orchestrator/work-items/${encodeURIComponent(itemId)}`;
+}
+
+function buildWorkItemRunsHref(itemId) {
+  return `/api/orchestrator/work-items/${encodeURIComponent(itemId)}/runs`;
+}
+
+function buildWorkItemRunHref(runId) {
+  return `/api/orchestrator/work-item-runs/${encodeURIComponent(runId)}`;
+}
+
+function buildWorkItemRunProposalHref(runId) {
+  return `/api/orchestrator/work-item-runs/${encodeURIComponent(runId)}/proposal`;
+}
+
+function buildProposalHref(proposalId) {
+  return `/api/orchestrator/proposal-artifacts/${encodeURIComponent(proposalId)}`;
+}
+
 function buildSessionArtifactHref(sessionId, artifactName) {
   return `/api/sessions/${encodeURIComponent(sessionId)}/artifacts/${encodeURIComponent(artifactName)}`;
 }
@@ -2694,6 +2729,37 @@ function renderRunCenter() {
       readFirstField(item, ["suggestedActions", "latestSuggestedActions", "recommendations"])
     )
   }));
+  const selfBuildRoot = hasDisplayValue(runCenter.selfBuild) ? runCenter.selfBuild : (state.selfBuildSummary ?? {});
+  const selfBuildWorkItems = normalizeRouteArray(selfBuildRoot, ["workItems", "items"]).map((item, index) => ({
+    id: normalizeText(readFirstField(item, ["id", "workItemId"]), `work-item-${index + 1}`),
+    title: normalizeText(readFirstField(item, ["title", "label", "name"]), `work-item-${index + 1}`),
+    kind: normalizeText(readFirstField(item, ["kind", "type"]), "work"),
+    status: normalizeText(readFirstField(item, ["status", "state", "result"]), "unknown"),
+    priority: normalizeText(readFirstField(item, ["priority"]), "-"),
+    lastRunAt: normalizeText(readFirstField(item, ["lastRunAt", "updatedAt"]), "-"),
+    links: readFirstObjectField(item, ["links"]) ?? {}
+  }));
+  const recentWorkItemRuns = normalizeRouteArray(selfBuildRoot, ["recentWorkItemRuns", "runs"]).map((item, index) => ({
+    runId: normalizeText(readFirstField(item, ["runId", "id"]), `work-item-run-${index + 1}`),
+    workItemId: normalizeText(readFirstField(item, ["workItemId", "id"]), ""),
+    title: normalizeText(readFirstField(item, ["title", "label", "name"]), `work-item-run-${index + 1}`),
+    kind: normalizeText(readFirstField(item, ["kind", "type"]), "work"),
+    status: normalizeText(readFirstField(item, ["status", "state", "result"]), "unknown"),
+    startedAt: normalizeText(readFirstField(item, ["startedAt", "createdAt"]), "-"),
+    endedAt: normalizeText(readFirstField(item, ["endedAt", "updatedAt"]), "-"),
+    links: readFirstObjectField(item, ["links"]) ?? {},
+    suggestedActions: normalizeSuggestedActions(
+      readFirstField(item, ["suggestedActions", "latestSuggestedActions", "recommendations"])
+    )
+  }));
+  const proposalSummaries = normalizeRouteArray(selfBuildRoot, ["proposals", "proposalArtifacts"]).map((item, index) => ({
+    id: normalizeText(readFirstField(item, ["id", "proposalArtifactId"]), `proposal-${index + 1}`),
+    workItemId: normalizeText(readFirstField(item, ["workItemId"]), ""),
+    workItemRunId: normalizeText(readFirstField(item, ["workItemRunId", "runId"]), ""),
+    kind: normalizeText(readFirstField(item, ["kind", "type"]), "proposal"),
+    status: normalizeText(readFirstField(item, ["status", "state", "result"]), "unknown"),
+    links: readFirstObjectField(item, ["links"]) ?? {}
+  }));
 
   if (state.selectedRunCenterScenarioRunId && !recentScenarioRuns.some((item) => item.runId === state.selectedRunCenterScenarioRunId)) {
     state.selectedRunCenterScenarioRunId = null;
@@ -2707,9 +2773,16 @@ function renderRunCenter() {
   if (!state.selectedRunCenterRegressionRunId && recentRegressionRuns[0]?.runId) {
     state.selectedRunCenterRegressionRunId = recentRegressionRuns[0].runId;
   }
+  if (state.selectedRunCenterWorkItemRunId && !recentWorkItemRuns.some((item) => item.runId === state.selectedRunCenterWorkItemRunId)) {
+    state.selectedRunCenterWorkItemRunId = null;
+  }
+  if (!state.selectedRunCenterWorkItemRunId && recentWorkItemRuns[0]?.runId) {
+    state.selectedRunCenterWorkItemRunId = recentWorkItemRuns[0].runId;
+  }
 
   const selectedScenarioRun = recentScenarioRuns.find((item) => item.runId === state.selectedRunCenterScenarioRunId) ?? null;
   const selectedRegressionRun = recentRegressionRuns.find((item) => item.runId === state.selectedRunCenterRegressionRunId) ?? null;
+  const selectedWorkItemRun = recentWorkItemRuns.find((item) => item.runId === state.selectedRunCenterWorkItemRunId) ?? null;
   const selectedScenarioRunCatalog =
     selectedScenarioRun && state.selectedScenarioRunId === selectedScenarioRun.runId
       ? state.scenarioRuns.find((run) => run.id === selectedScenarioRun.runId) ?? null
@@ -2751,17 +2824,32 @@ function renderRunCenter() {
   const selectedScenarioTrendPayload = state.scenarioTrend?.trend ?? state.scenarioTrend?.summary ?? state.scenarioTrend;
   const selectedRegressionTrendPayload = state.regressionTrend?.trend ?? state.regressionTrend?.summary ?? state.regressionTrend;
   const selectedRegressionReportPayload = state.regressionRunReport?.report ?? state.regressionRunReport?.detail ?? state.regressionRunReport;
+  const selectedWorkItemRunFailure = pickFailureRecord(
+    state.workItemRunDetail?.failure,
+    state.workItemRunDetail?.metadata?.failure,
+    state.workItemRunDetail?.validation?.failure
+  );
+  const selectedWorkItemRunSuggestedActions = normalizeSuggestedActions(
+    state.workItemRunDetail?.suggestedActions ??
+      selectedWorkItemRun?.suggestedActions ??
+      state.selfBuildSummary?.recommendations
+  );
 
   const scenarioCount = coerceCount(runCenter.counts?.scenarios) ?? scenarioSummaries.length;
   const regressionCount = coerceCount(runCenter.counts?.regressions) ?? regressionSummaries.length;
   const recentScenarioCount = coerceCount(runCenter.counts?.recentScenarioRuns) ?? recentScenarioRuns.length;
   const recentRegressionCount = coerceCount(runCenter.counts?.recentRegressionRuns) ?? recentRegressionRuns.length;
+  const workItemCount = coerceCount(runCenter.counts?.workItems) ?? selfBuildWorkItems.length;
+  const recentWorkItemCount = coerceCount(runCenter.counts?.recentWorkItemRuns) ?? recentWorkItemRuns.length;
+  const pendingProposalCount =
+    coerceCount(runCenter.counts?.pendingProposalArtifacts) ??
+    proposalSummaries.filter((item) => item.status !== "approved").length;
   const flakyCount =
     coerceCount(runCenter.flaky?.count) ??
     coerceCount(runCenter.flaky?.total) ??
     scenarioSummaries.filter((item) => item.trendSnapshot?.flaky || item.trendSnapshot?.possiblyFlaky).length;
 
-  els.runCenterState.textContent = `route: ready · scenarios:${scenarioCount} regressions:${regressionCount} alerts:${alerts.length} recommendations:${recommendations.length}`;
+  els.runCenterState.textContent = `route: ready · scenarios:${scenarioCount} regressions:${regressionCount} work-items:${workItemCount} alerts:${alerts.length} recommendations:${recommendations.length}`;
   els.runCenterSummary.className = "detail-card run-center-card";
   els.runCenterSummary.innerHTML = `
     <div class="run-center-grid">
@@ -2780,6 +2868,18 @@ function renderRunCenter() {
       <article class="run-center-stat">
         <span class="muted">Recent Regression Runs</span>
         <strong>${escapeHtml(String(recentRegressionCount))}</strong>
+      </article>
+      <article class="run-center-stat">
+        <span class="muted">Work Items</span>
+        <strong>${escapeHtml(String(workItemCount))}</strong>
+      </article>
+      <article class="run-center-stat">
+        <span class="muted">Recent Work Item Runs</span>
+        <strong>${escapeHtml(String(recentWorkItemCount))}</strong>
+      </article>
+      <article class="run-center-stat">
+        <span class="muted">Pending Proposals</span>
+        <strong>${escapeHtml(String(pendingProposalCount))}</strong>
       </article>
       <article class="run-center-stat">
         <span class="muted">Operator Signals</span>
@@ -2890,6 +2990,151 @@ function renderRunCenter() {
               `
             )
             .join("") || `<div class="detail-card empty-state compact-empty">No latest report cards returned in run-center payload.</div>`
+        }
+      </div>
+    </section>
+    <section class="run-center-section">
+      <div class="panel-header nested">
+        <h3>Managed Self-Build Work</h3>
+        <span class="muted">${escapeHtml(`items:${workItemCount} runs:${recentWorkItemCount} proposals:${pendingProposalCount}`)}</span>
+      </div>
+      <div class="run-center-list">
+        ${
+          selfBuildWorkItems
+            .slice(0, 8)
+            .map(
+              (item) => `
+                <article class="run-center-item">
+                  <div class="event-title">
+                    <strong>${escapeHtml(item.title)}</strong>
+                    ${renderStatePill(item.status)}
+                  </div>
+                  <div class="event-meta">
+                    <code>id=${escapeHtml(item.id)}</code>
+                    <code>kind=${escapeHtml(item.kind)}</code>
+                    <code>priority=${escapeHtml(item.priority)}</code>
+                    <code>lastRun=${escapeHtml(item.lastRunAt)}</code>
+                  </div>
+                  <div class="lineage-meta">
+                    <a class="inline-link" href="${escapeHtml(item.links.self || buildWorkItemHref(item.id))}" target="_blank" rel="noreferrer">work item json</a>
+                    <a class="inline-link" href="${escapeHtml(buildWorkItemRunsHref(item.id))}" target="_blank" rel="noreferrer">runs json</a>
+                  </div>
+                </article>
+              `
+            )
+            .join("") || `<div class="detail-card empty-state compact-empty">No managed work items surfaced in run-center payload.</div>`
+        }
+      </div>
+      <div class="run-center-list">
+        ${
+          recentWorkItemRuns
+            .slice(0, 10)
+            .map(
+              (item) => `
+                <article class="run-center-item run-history-item ${item.runId === state.selectedRunCenterWorkItemRunId ? "active" : ""}" data-run-center-work-item-run-id="${escapeHtml(item.runId)}">
+                  <div class="event-title">
+                    <strong>${escapeHtml(item.title)}</strong>
+                    ${renderStatePill(item.status)}
+                  </div>
+                  <div class="event-meta">
+                    <code>run=${escapeHtml(item.runId)}</code>
+                    <code>item=${escapeHtml(item.workItemId)}</code>
+                    <code>kind=${escapeHtml(item.kind)}</code>
+                    <code>started=${escapeHtml(item.startedAt)}</code>
+                  </div>
+                  <div class="lineage-meta">
+                    ${
+                      item.suggestedActions.length > 0
+                        ? renderMetaPill("actions", item.suggestedActions.length, "changed")
+                        : ""
+                    }
+                    ${
+                      item.links.proposal
+                        ? renderMetaPill("proposal", "ready", "governance")
+                        : ""
+                    }
+                  </div>
+                </article>
+              `
+            )
+            .join("") || `<div class="detail-card empty-state compact-empty">No recent managed work item runs in run-center payload.</div>`
+        }
+      </div>
+      ${
+        selectedWorkItemRun
+          ? `
+            <article class="detail-card run-center-drilldown">
+              <div class="event-title">
+                <strong>Work Item Run Drilldown</strong>
+                ${renderStatePill(selectedWorkItemRun.status)}
+              </div>
+              <div class="event-meta">
+                <code>run=${escapeHtml(selectedWorkItemRun.runId)}</code>
+                <code>item=${escapeHtml(selectedWorkItemRun.workItemId || "-")}</code>
+                <code>kind=${escapeHtml(selectedWorkItemRun.kind)}</code>
+                <code>started=${escapeHtml(selectedWorkItemRun.startedAt)}</code>
+                <code>ended=${escapeHtml(selectedWorkItemRun.endedAt)}</code>
+              </div>
+              <div class="lineage-meta">
+                <a class="inline-link" href="${escapeHtml(buildWorkItemRunHref(selectedWorkItemRun.runId))}" target="_blank" rel="noreferrer">run json</a>
+                ${
+                  selectedWorkItemRun.workItemId
+                    ? `<a class="inline-link" href="${escapeHtml(buildWorkItemHref(selectedWorkItemRun.workItemId))}" target="_blank" rel="noreferrer">work item json</a>`
+                    : ""
+                }
+                ${
+                  state.workItemRunDetail?.proposal?.id
+                    ? `<a class="inline-link" href="${escapeHtml(buildProposalHref(state.workItemRunDetail.proposal.id))}" target="_blank" rel="noreferrer">proposal json</a>`
+                    : `<a class="inline-link" href="${escapeHtml(buildWorkItemRunProposalHref(selectedWorkItemRun.runId))}" target="_blank" rel="noreferrer">proposal route</a>`
+                }
+                ${
+                  selectedWorkItemRun.workItemId
+                    ? `<a class="inline-link" href="${escapeHtml(buildWorkItemRunsHref(selectedWorkItemRun.workItemId))}" target="_blank" rel="noreferrer">all runs</a>`
+                    : ""
+                }
+                ${
+                  state.workItemRunDetail?.validation?.scenarioRunIds?.[0]
+                    ? `<a class="inline-link" href="${escapeHtml(buildScenarioRunByIdHref(state.workItemRunDetail.validation.scenarioRunIds[0]))}" target="_blank" rel="noreferrer">scenario validation</a>`
+                    : ""
+                }
+                ${
+                  state.workItemRunDetail?.validation?.regressionRunIds?.[0]
+                    ? `<a class="inline-link" href="${escapeHtml(buildRegressionRunByIdHref(state.workItemRunDetail.validation.regressionRunIds[0]))}" target="_blank" rel="noreferrer">regression validation</a>`
+                    : ""
+                }
+              </div>
+              ${renderFailureCard(selectedWorkItemRunFailure, "Failure Classification", "No failure classification returned for this work-item run.")}
+              ${renderSuggestedActionsCard(selectedWorkItemRunSuggestedActions, "Suggested Actions", "No suggested actions returned for this work-item run.")}
+              ${renderSummaryObjectCard(state.workItemRunDetail?.validation, "Validation Summary", state.workItemRunDetailState === "error" ? `Failed to load work-item run detail: ${state.workItemRunDetailError}` : "No validation summary returned for this work-item run.")}
+              ${renderSummaryObjectCard(state.proposalDetail, "Proposal Detail", state.proposalDetailState === "error" ? `Failed to load proposal detail: ${state.proposalDetailError}` : "No route-backed proposal detail returned.")}
+              ${renderSummaryObjectCard(state.workItemRunDetail?.docSuggestions, "Documentation Suggestions", "No documentation suggestions returned for this work-item run.")}
+            </article>
+          `
+          : `<div class="detail-card empty-state compact-empty">Select a recent work-item run to inspect proposal, validation, and suggestion details.</div>`
+      }
+      <div class="run-center-list">
+        ${
+          proposalSummaries
+            .slice(0, 8)
+            .map(
+              (item) => `
+                <article class="run-center-item">
+                  <div class="event-title">
+                    <strong>${escapeHtml(item.id)}</strong>
+                    ${renderStatePill(item.status)}
+                  </div>
+                  <div class="event-meta">
+                    <code>run=${escapeHtml(item.workItemRunId || "-")}</code>
+                    <code>item=${escapeHtml(item.workItemId || "-")}</code>
+                    <code>kind=${escapeHtml(item.kind)}</code>
+                  </div>
+                  <div class="lineage-meta">
+                    <a class="inline-link" href="${escapeHtml(item.links.self || buildProposalHref(item.id))}" target="_blank" rel="noreferrer">proposal json</a>
+                  </div>
+                </article>
+              `
+            )
+            .join("") || `<div class="detail-card empty-state compact-empty">No proposal artifacts surfaced in run-center payload.</div>`
         }
       </div>
     </section>
@@ -3247,6 +3492,16 @@ function renderRunCenter() {
         return;
       }
       renderRunCenter();
+    });
+  }
+
+  for (const item of els.runCenterSummary.querySelectorAll("[data-run-center-work-item-run-id]")) {
+    item.addEventListener("click", (event) => {
+      event.stopPropagation();
+      state.selectedRunCenterWorkItemRunId = item.dataset.runCenterWorkItemRunId;
+      loadWorkItemRunDrilldown()
+        .then(() => renderRunCenter())
+        .catch((error) => console.error(error));
     });
   }
 
@@ -5327,6 +5582,56 @@ async function loadRunCenterSummary() {
   state.runCenterState = result.state;
   state.runCenterError = result.error;
   state.runCenter = result.payload ?? null;
+  if (result.state === "ready") {
+    const summary = normalizeRunCenterCollections(result.payload ?? {});
+    const firstWorkItemRun = normalizeRouteArray(summary.selfBuild ?? {}, ["recentWorkItemRuns", "runs"])[0];
+    const nextRunId = normalizeText(readFirstField(firstWorkItemRun, ["runId", "id"]), "");
+    if (nextRunId && !state.selectedRunCenterWorkItemRunId) {
+      state.selectedRunCenterWorkItemRunId = nextRunId;
+    }
+  }
+}
+
+async function loadSelfBuildSummary() {
+  const result = await optionalApi("/orchestrator/self-build/summary");
+  state.selfBuildSummaryState = result.state;
+  state.selfBuildSummaryError = result.error;
+  state.selfBuildSummary = result.payload?.detail ?? result.payload ?? null;
+}
+
+async function loadWorkItemRunDrilldown() {
+  if (!state.selectedRunCenterWorkItemRunId) {
+    state.workItemRunDetail = null;
+    state.workItemRunDetailState = "idle";
+    state.workItemRunDetailError = null;
+    state.proposalDetail = null;
+    state.proposalDetailState = "idle";
+    state.proposalDetailError = null;
+    return;
+  }
+
+  const runResult = await optionalApi(`/orchestrator/work-item-runs/${encodeURIComponent(state.selectedRunCenterWorkItemRunId)}`);
+  state.workItemRunDetailState = runResult.state;
+  state.workItemRunDetailError = runResult.error;
+  state.workItemRunDetail = runResult.payload?.detail ?? runResult.payload ?? null;
+
+  const proposalId =
+    state.workItemRunDetail?.proposal?.id ??
+    state.workItemRunDetail?.proposalArtifactId ??
+    state.workItemRunDetail?.metadata?.proposalArtifactId ??
+    null;
+
+  if (!proposalId) {
+    state.proposalDetail = null;
+    state.proposalDetailState = "idle";
+    state.proposalDetailError = null;
+    return;
+  }
+
+  const proposalResult = await optionalApi(`/orchestrator/proposal-artifacts/${encodeURIComponent(proposalId)}`);
+  state.proposalDetailState = proposalResult.state;
+  state.proposalDetailError = proposalResult.error;
+  state.proposalDetail = proposalResult.payload?.detail ?? proposalResult.payload ?? null;
 }
 
 async function loadScenarioDetail() {
@@ -5531,6 +5836,7 @@ async function refresh() {
   await loadExecutionSummaries();
   await Promise.all([
     loadRunCenterSummary(),
+    loadSelfBuildSummary(),
     loadScenarioCatalog(),
     loadRegressionCatalog()
   ]);
@@ -5553,6 +5859,7 @@ async function refresh() {
   detailPromises.push(loadExecutionDetail());
   detailPromises.push(loadScenarioDetail());
   detailPromises.push(loadRegressionDetail());
+  detailPromises.push(loadWorkItemRunDrilldown());
   const results = await Promise.all(detailPromises);
   if (state.selectedSessionId) {
     state.detail = results[0];

@@ -92,7 +92,17 @@ Recommended interpretation:
 - `regression-rerun --run <id>` creates a new durable regression run linked back to the original run.
 - `regression-trends --regression <id>` returns pass-rate, duration, and streak summaries across durable regression runs.
 - `regression-scheduler-status` returns the read-only scheduler status summary and latest scheduled-run pointers without abusing the scheduler run mutation route as a status check.
+- `self-build-summary` returns one top-level summary of goal plans, groups, work items, runs, proposals, and evaluation/doc-suggestion readiness.
+- `work-item-template-list` and `work-item-template-show --template <id>` expose reusable work-item creation templates from `config/work-item-templates/`.
+- `goal-plan-create`, `goal-plan-list`, `goal-plan-show --plan <id>`, and `goal-plan-materialize --plan <id>` expose durable goal planning and plan-to-group materialization.
+- `work-item-group-list`, `work-item-group-show --group <id>`, and `work-item-group-run --group <id>` expose grouped managed-work execution.
 - `work-item-list`, `work-item-show`, `work-item-create`, `work-item-run`, and `work-item-run-show` expose the first durable managed self-work surface for SPORE itself.
+- `work-item-runs --item <id>` exposes durable run history for one managed work item.
+- `work-item-validate --run <id>` records durable validation/evaluation artifacts for one managed run.
+- `work-item-doc-suggestions --run <id>` returns persisted documentation follow-up suggestions for one managed run.
+- `proposal-show --proposal <id>` (or `--run <work-item-run-id>`) exposes durable proposal artifact summary.
+- `proposal-review --proposal <id> --status <ready_for_review|reviewed|rejected>` records proposal review state transitions.
+- `proposal-approve --proposal <id> --status <approved|rejected>` records proposal approval state transitions.
 - `scenario-run-artifacts --run <id>` returns a normalized execution/session artifact summary for one scenario run.
 - `drive-group --group <id>` reconciles grouped executions until they settle or reach a governance/blocked stop.
 - `drive-tree --execution <id>` resolves the execution root and drives the whole family through its coordination group.
@@ -140,11 +150,33 @@ npm run orchestrator:scenario-run-artifacts -- --run <run-id>
 npm run orchestrator:scenario-rerun -- --run <run-id>
 npm run orchestrator:scenario-trends -- --scenario backend-service-delivery
 npm run orchestrator:run-center
+npm run orchestrator:self-build-summary
 npm run orchestrator:regression-run -- --regression local-fast --stub
 npm run orchestrator:regression-run-show -- --run <run-id>
 npm run orchestrator:regression-report -- --run <run-id>
+npm run orchestrator:regression-latest-report -- --regression local-fast
 npm run orchestrator:regression-rerun -- --run <run-id>
 npm run orchestrator:regression-trends -- --regression local-fast
+npm run orchestrator:work-item-template-list
+npm run orchestrator:work-item-template-show -- --template scenario-hardening
+npm run orchestrator:goal-plan-create -- --goal "Stabilize CLI verification and proposal quality"
+npm run orchestrator:goal-plan-list
+npm run orchestrator:goal-plan-show -- --plan <goal-plan-id>
+npm run orchestrator:goal-plan-materialize -- --plan <goal-plan-id>
+npm run orchestrator:work-item-group-list
+npm run orchestrator:work-item-group-show -- --group <group-id>
+npm run orchestrator:work-item-group-run -- --group <group-id> --stub
+npm run orchestrator:work-item-create -- --template scenario-hardening
+npm run orchestrator:work-item-list
+npm run orchestrator:work-item-show -- --item <work-item-id>
+npm run orchestrator:work-item-runs -- --item <work-item-id>
+npm run orchestrator:work-item-run -- --item <work-item-id> --stub
+npm run orchestrator:work-item-run-show -- --run <work-item-run-id>
+npm run orchestrator:work-item-validate -- --run <work-item-run-id> --stub
+npm run orchestrator:work-item-doc-suggestions -- --run <work-item-run-id>
+npm run orchestrator:proposal-show -- --run <work-item-run-id>
+npm run orchestrator:proposal-review -- --proposal <proposal-id> --status reviewed
+npm run orchestrator:proposal-approve -- --proposal <proposal-id> --status approved
 ```
 
 Planning without `--roles` is the easiest way to inspect domain-policy defaults in the returned `effectivePolicy` and `launches[]`.

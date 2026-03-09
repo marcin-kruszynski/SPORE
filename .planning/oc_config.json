@@ -1,0 +1,12 @@
+{
+  "profiles": {
+    "presets": {
+      "simple": {
+        "planning": "openai/gpt-5.4",
+        "execution": "openai/gpt-5.4",
+        "verification": "openai/gpt-5.4"
+      }
+    }
+  },
+  "current_oc_profile": "simple"
+}

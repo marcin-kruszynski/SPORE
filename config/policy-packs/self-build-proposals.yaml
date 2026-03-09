@@ -1,0 +1,16 @@
+id: self-build-proposals
+name: Self Build Proposals
+description: Require proposal artifacts and validation bundles for code-oriented SPORE self-work.
+workflowPolicy:
+  reviewRequired: true
+  approvalRequired: true
+coordinationPolicy:
+  maxHeldMs: 180000
+selfWorkPolicy:
+  allowedPaths: [docs, config, apps/web]
+  forbiddenPaths: [packages/runtime-pi, services/session-gateway]
+  allowedWorkKinds: [workflow]
+  requiresProposalArtifacts: true
+  requiresReview: true
+  requiresHumanApproval: true
+  safeModeDefault: true

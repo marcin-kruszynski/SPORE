@@ -16,9 +16,12 @@ import {
   insertScenarioRunExecution,
   listRegressionRunItems,
   listRegressionRuns,
+  listProposalArtifacts,
   listSchedulerEvaluations,
   listScenarioRunExecutions,
   listScenarioRuns,
+  listWorkItemRuns,
+  listWorkItems,
   openOrchestratorDatabase,
   updateSchedulerEvaluation,
   updateRegressionRun,
@@ -1948,7 +1951,12 @@ export async function getRunCenterSummary(dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
 
   const recent = withDatabase(dbPath, (db) => ({
     recentScenarioRuns: listScenarioRuns(db, null, limit),
-    recentRegressionRuns: listRegressionRuns(db, null, limit)
+    recentRegressionRuns: listRegressionRuns(db, null, limit),
+    workItems: listWorkItems(db, null, limit * 2),
+    proposals: listProposalArtifacts(db, null, limit),
+    workItemRunsByItem: Object.fromEntries(
+      listWorkItems(db, null, limit * 2).map((item) => [item.id, listWorkItemRuns(db, item.id, 5)])
+    )
   }));
   const scenarioById = new Map(scenarios.map((item) => [item.scenarioId, item]));
   const regressionById = new Map(regressions.map((item) => [item.regressionId, item]));
@@ -2121,12 +2129,72 @@ export async function getRunCenterSummary(dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
     };
   });
 
+  const recentWorkItemRuns = recent.workItems
+    .flatMap((item) => (recent.workItemRunsByItem[item.id] ?? []).map((run) => ({ item, run })))
+    .sort((left, right) => String(right.run.startedAt ?? "").localeCompare(String(left.run.startedAt ?? "")))
+    .slice(0, limit)
+    .map(({ item, run }) => ({
+      workItemId: item.id,
+      runId: run.id,
+      title: item.title,
+      kind: item.kind,
+      status: run.status,
+      startedAt: run.startedAt,
+      endedAt: run.endedAt,
+      suggestedActions: run.metadata?.validation?.status === "completed"
+        ? []
+        : [
+            buildSuggestion("inspect-work-item", {
+              reason: `Inspect managed work item ${item.title}.`,
+              expectedOutcome: "The operator can review the latest work-item run, proposal, and validation state.",
+              targetType: "work-item",
+              targetId: item.id,
+              commandHint: `npm run orchestrator:work-item-show -- --item ${item.id}`,
+              httpHint: `/work-items/${encodeURIComponent(item.id)}`,
+              priority: run.status === "blocked" ? "high" : "medium"
+            })
+          ],
+      links: {
+        item: `/work-items/${encodeURIComponent(item.id)}`,
+        run: `/work-item-runs/${encodeURIComponent(run.id)}`,
+        proposal: run.metadata?.proposalArtifactId ? `/proposal-artifacts/${encodeURIComponent(run.metadata.proposalArtifactId)}` : null
+      }
+    }));
+
+  const selfBuild = {
+    workItems: recent.workItems.map((item) => ({
+      id: item.id,
+      title: item.title,
+      kind: item.kind,
+      status: item.status,
+      lastRunAt: item.lastRunAt,
+      priority: item.priority,
+      links: {
+        self: `/work-items/${encodeURIComponent(item.id)}`
+      }
+    })),
+    recentWorkItemRuns,
+    proposals: recent.proposals.map((artifact) => ({
+      id: artifact.id,
+      workItemId: artifact.workItemId,
+      workItemRunId: artifact.workItemRunId,
+      status: artifact.status,
+      kind: artifact.kind,
+      links: {
+        self: `/proposal-artifacts/${encodeURIComponent(artifact.id)}`
+      }
+    }))
+  };
+
   return {
     counts: {
       scenarios: scenarios.length,
       regressions: regressions.length,
       recentScenarioRuns: recent.recentScenarioRuns.length,
       recentRegressionRuns: recent.recentRegressionRuns.length,
+      workItems: recent.workItems.length,
+      recentWorkItemRuns: recentWorkItemRuns.length,
+      pendingProposalArtifacts: selfBuild.proposals.filter((artifact) => artifact.status !== "approved").length,
       failingScenarios: scenarios.filter((item) => item.latestRun && !isSuccessfulState(item.latestRun.status)).length,
       failingRegressions: regressions.filter((item) => item.latestRun && item.latestRun.status !== "passed").length,
       flakyScenarios: flaky.scenarios.length,
@@ -2144,6 +2212,7 @@ export async function getRunCenterSummary(dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
     scenarios,
     regressions,
     recentScenarioRuns,
-    recentRegressionRuns
+    recentRegressionRuns,
+    selfBuild
   };
 }

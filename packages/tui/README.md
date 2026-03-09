@@ -15,6 +15,7 @@ node packages/tui/src/cli/spore-ops.js audit --execution e2e-review-001
 node packages/tui/src/cli/spore-ops.js policy-diff --execution e2e-review-001
 node packages/tui/src/cli/spore-ops.js history --execution e2e-review-001
 node packages/tui/src/cli/spore-ops.js run-center
+node packages/tui/src/cli/spore-ops.js self-build-summary
 node packages/tui/src/cli/spore-ops.js scenario-list
 node packages/tui/src/cli/spore-ops.js scenario-run --scenario cli-verification-pass
 node packages/tui/src/cli/spore-ops.js scenario-run-show --run <run-id>
@@ -28,10 +29,26 @@ node packages/tui/src/cli/spore-ops.js regression-report --run <run-id>
 node packages/tui/src/cli/spore-ops.js regression-rerun --run <run-id>
 node packages/tui/src/cli/spore-ops.js regression-trends --regression local-fast
 node packages/tui/src/cli/spore-ops.js regression-scheduler-status
+node packages/tui/src/cli/spore-ops.js work-item-template-list
+node packages/tui/src/cli/spore-ops.js work-item-template-show --template scenario-hardening
+node packages/tui/src/cli/spore-ops.js goal-plan-create --goal "Stabilize CLI verification and proposal quality"
+node packages/tui/src/cli/spore-ops.js goal-plan-list
+node packages/tui/src/cli/spore-ops.js goal-plan-show --plan <goal-plan-id>
+node packages/tui/src/cli/spore-ops.js goal-plan-materialize --plan <goal-plan-id>
+node packages/tui/src/cli/spore-ops.js work-item-group-list
+node packages/tui/src/cli/spore-ops.js work-item-group-show --group <group-id>
+node packages/tui/src/cli/spore-ops.js work-item-group-run --group <group-id> --stub
 node packages/tui/src/cli/spore-ops.js work-item-create --title "CLI verification work item" --kind scenario --scenario cli-verification-pass
 node packages/tui/src/cli/spore-ops.js work-item-list
+node packages/tui/src/cli/spore-ops.js work-item-show --item <work-item-id>
+node packages/tui/src/cli/spore-ops.js work-item-runs --item <work-item-id>
 node packages/tui/src/cli/spore-ops.js work-item-run --item <work-item-id> --stub
 node packages/tui/src/cli/spore-ops.js work-item-run-show --run <work-item-run-id>
+node packages/tui/src/cli/spore-ops.js work-item-validate --run <work-item-run-id> --stub
+node packages/tui/src/cli/spore-ops.js work-item-doc-suggestions --run <work-item-run-id>
+node packages/tui/src/cli/spore-ops.js proposal-show --run <work-item-run-id>
+node packages/tui/src/cli/spore-ops.js proposal-review --proposal <proposal-id> --status reviewed
+node packages/tui/src/cli/spore-ops.js proposal-approve --proposal <proposal-id> --status approved
 node packages/tui/src/cli/spore-ops.js hold --execution e2e-review-001 --reason "Operator hold"
 node packages/tui/src/cli/spore-ops.js review --execution e2e-review-001 --status approved --comments "Ready"
 ```
@@ -52,6 +69,11 @@ The TUI/CLI operator surface now provides:
 - scenario and regression run inspection by durable run id,
 - scenario and regression rerun and trend inspection over orchestrator HTTP surfaces,
 - scenario and regression launch actions over orchestrator HTTP surfaces,
+- self-build summary inspection for plan/group/work-item/proposal progress snapshots,
+- work-item template and goal-plan management from the same orchestrator API contract,
+- grouped managed-work inspection and grouped run execution controls,
+- work-item run validation and documentation-suggestion drilldowns,
+- proposal artifact inspection plus review/approval transitions,
 - family-level actions over `/executions/:id/tree/*` for:
   - `drive`
   - `pause`

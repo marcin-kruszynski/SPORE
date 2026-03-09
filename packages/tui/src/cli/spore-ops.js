@@ -586,6 +586,114 @@ async function regressionSchedulerStatus(flags) {
   console.log(formatJson(payload));
 }
 
+async function selfBuildSummary(flags) {
+  const payload = await orchestratorRequest(flags, "/self-build/summary");
+  console.log(formatJson(payload));
+}
+
+async function workItemTemplateList(flags) {
+  const payload = await orchestratorRequest(flags, "/work-item-templates");
+  console.log(formatJson(payload));
+}
+
+async function workItemTemplateShow(flags) {
+  if (!flags.template) {
+    throw new Error("use work-item-template-show --template <id>");
+  }
+  const payload = await orchestratorRequest(flags, `/work-item-templates/${encodeURIComponent(flags.template)}`);
+  console.log(formatJson(payload));
+}
+
+async function goalPlanCreate(flags) {
+  if (!flags.goal) {
+    throw new Error("use goal-plan-create --goal <text>");
+  }
+  const payload = await orchestratorRequest(flags, "/goals/plan", {
+    method: "POST",
+    body: JSON.stringify({
+      title: flags.title ?? null,
+      goal: flags.goal,
+      projectId: flags.project ?? "spore",
+      domainId: flags.domain ?? null,
+      mode: flags.mode ?? "supervised",
+      safeMode: flags["safe-mode"] !== false,
+      constraints: flags.constraints ? JSON.parse(String(flags.constraints)) : {},
+      by: flags.by ?? "operator",
+      source: "tui"
+    })
+  });
+  console.log(formatJson(payload));
+}
+
+async function goalPlanList(flags) {
+  const search = new URLSearchParams();
+  if (flags.status) search.set("status", flags.status);
+  if (flags.limit) search.set("limit", String(flags.limit));
+  const suffix = search.toString() ? `?${search.toString()}` : "";
+  const payload = await orchestratorRequest(flags, `/goal-plans${suffix}`);
+  console.log(formatJson(payload));
+}
+
+async function goalPlanShow(flags) {
+  if (!flags.plan) {
+    throw new Error("use goal-plan-show --plan <id>");
+  }
+  const payload = await orchestratorRequest(flags, `/goal-plans/${encodeURIComponent(flags.plan)}`);
+  console.log(formatJson(payload));
+}
+
+async function goalPlanMaterialize(flags) {
+  if (!flags.plan) {
+    throw new Error("use goal-plan-materialize --plan <id>");
+  }
+  const payload = await orchestratorRequest(flags, `/goal-plans/${encodeURIComponent(flags.plan)}/materialize`, {
+    method: "POST",
+    body: JSON.stringify({
+      by: flags.by ?? "operator",
+      source: "tui"
+    })
+  });
+  console.log(formatJson(payload));
+}
+
+async function workItemGroupList(flags) {
+  const search = new URLSearchParams();
+  if (flags.status) search.set("status", flags.status);
+  if (flags.limit) search.set("limit", String(flags.limit));
+  const suffix = search.toString() ? `?${search.toString()}` : "";
+  const payload = await orchestratorRequest(flags, `/work-item-groups${suffix}`);
+  console.log(formatJson(payload));
+}
+
+async function workItemGroupShow(flags) {
+  if (!flags.group) {
+    throw new Error("use work-item-group-show --group <id>");
+  }
+  const payload = await orchestratorRequest(flags, `/work-item-groups/${encodeURIComponent(flags.group)}`);
+  console.log(formatJson(payload));
+}
+
+async function workItemGroupRun(flags) {
+  if (!flags.group) {
+    throw new Error("use work-item-group-run --group <id>");
+  }
+  const payload = await orchestratorRequest(flags, `/work-item-groups/${encodeURIComponent(flags.group)}/run`, {
+    method: "POST",
+    body: JSON.stringify({
+      project: flags.project,
+      wait: flags.wait !== false,
+      timeout: flags.timeout ? toNumber(flags.timeout, null) : undefined,
+      interval: flags.interval ? toNumber(flags.interval, null) : undefined,
+      noMonitor: flags["no-monitor"] === true,
+      stub: flags.stub === true,
+      launcher: flags.launcher,
+      by: flags.by ?? "operator",
+      source: "tui"
+    })
+  });
+  console.log(formatJson(payload));
+}
+
 async function workItemList(flags) {
   const search = new URLSearchParams();
   if (flags.status) search.set("status", flags.status);
@@ -603,11 +711,20 @@ async function workItemShow(flags) {
   console.log(formatJson(payload));
 }
 
+async function workItemRuns(flags) {
+  if (!flags.item) {
+    throw new Error("use work-item-runs --item <id>");
+  }
+  const payload = await orchestratorRequest(flags, `/work-items/${encodeURIComponent(flags.item)}/runs`);
+  console.log(formatJson(payload));
+}
+
 async function workItemCreate(flags) {
-  if (!flags.title || !flags.kind) {
-    throw new Error("use work-item-create --title <text> --kind <scenario|regression|workflow>");
+  if ((!flags.title || !flags.kind) && !flags.template) {
+    throw new Error("use work-item-create --title <text> --kind <scenario|regression|workflow> or --template <id>");
   }
   const body = {
+    templateId: flags.template ?? null,
     title: flags.title,
     kind: flags.kind,
     source: flags.source ?? "tui",
@@ -623,7 +740,11 @@ async function workItemCreate(flags) {
       workflowPath: flags.workflow ?? null,
       domainId: flags.domain ?? null,
       roles: flags.roles ? String(flags.roles).split(",").map((item) => item.trim()).filter(Boolean) : null,
-      projectPath: flags.project ?? null
+      projectPath: flags.project ?? null,
+      safeMode: flags["safe-mode"] !== false,
+      mutationScope: flags["mutation-scope"]
+        ? String(flags["mutation-scope"]).split(",").map((item) => item.trim()).filter(Boolean)
+        : null
     }
   };
   const payload = await orchestratorRequest(flags, "/work-items", {
@@ -661,6 +782,74 @@ async function workItemRunShow(flags) {
     throw new Error("use work-item-run-show --run <id>");
   }
   const payload = await orchestratorRequest(flags, `/work-item-runs/${encodeURIComponent(flags.run)}`);
+  console.log(formatJson(payload));
+}
+
+async function workItemValidate(flags) {
+  if (!flags.run) {
+    throw new Error("use work-item-validate --run <id>");
+  }
+  const payload = await orchestratorRequest(flags, `/work-item-runs/${encodeURIComponent(flags.run)}/validate`, {
+    method: "POST",
+    body: JSON.stringify({
+      timeout: flags.timeout ? toNumber(flags.timeout, null) : undefined,
+      interval: flags.interval ? toNumber(flags.interval, null) : undefined,
+      noMonitor: flags["no-monitor"] === true,
+      stub: flags.stub !== false,
+      launcher: flags.launcher,
+      by: flags.by ?? "operator",
+      source: "tui"
+    })
+  });
+  console.log(formatJson(payload));
+}
+
+async function workItemDocSuggestions(flags) {
+  if (!flags.run) {
+    throw new Error("use work-item-doc-suggestions --run <id>");
+  }
+  const payload = await orchestratorRequest(flags, `/work-item-runs/${encodeURIComponent(flags.run)}/doc-suggestions`);
+  console.log(formatJson(payload));
+}
+
+async function proposalShow(flags) {
+  if (!flags.proposal && !flags.run) {
+    throw new Error("use proposal-show --proposal <id> or --run <work-item-run-id>");
+  }
+  const target = flags.proposal
+    ? `/proposal-artifacts/${encodeURIComponent(flags.proposal)}`
+    : `/work-item-runs/${encodeURIComponent(flags.run)}/proposal`;
+  const payload = await orchestratorRequest(flags, target);
+  console.log(formatJson(payload));
+}
+
+async function proposalReview(flags) {
+  if (!flags.proposal || !flags.status) {
+    throw new Error("use proposal-review --proposal <id> --status <ready_for_review|reviewed|rejected>");
+  }
+  const payload = await orchestratorRequest(flags, `/proposal-artifacts/${encodeURIComponent(flags.proposal)}/review`, {
+    method: "POST",
+    body: JSON.stringify({
+      status: flags.status,
+      by: flags.by ?? "operator",
+      comments: flags.comments ?? ""
+    })
+  });
+  console.log(formatJson(payload));
+}
+
+async function proposalApprove(flags) {
+  if (!flags.proposal || !flags.status) {
+    throw new Error("use proposal-approve --proposal <id> --status <approved|rejected>");
+  }
+  const payload = await orchestratorRequest(flags, `/proposal-artifacts/${encodeURIComponent(flags.proposal)}/approval`, {
+    method: "POST",
+    body: JSON.stringify({
+      status: flags.status,
+      by: flags.by ?? "operator",
+      comments: flags.comments ?? ""
+    })
+  });
   console.log(formatJson(payload));
 }
 
@@ -779,12 +968,56 @@ async function main() {
     await regressionSchedulerStatus(flags);
     return;
   }
+  if (command === "self-build-summary") {
+    await selfBuildSummary(flags);
+    return;
+  }
+  if (command === "work-item-template-list") {
+    await workItemTemplateList(flags);
+    return;
+  }
+  if (command === "work-item-template-show") {
+    await workItemTemplateShow(flags);
+    return;
+  }
+  if (command === "goal-plan-create") {
+    await goalPlanCreate(flags);
+    return;
+  }
+  if (command === "goal-plan-list") {
+    await goalPlanList(flags);
+    return;
+  }
+  if (command === "goal-plan-show") {
+    await goalPlanShow(flags);
+    return;
+  }
+  if (command === "goal-plan-materialize") {
+    await goalPlanMaterialize(flags);
+    return;
+  }
+  if (command === "work-item-group-list") {
+    await workItemGroupList(flags);
+    return;
+  }
+  if (command === "work-item-group-show") {
+    await workItemGroupShow(flags);
+    return;
+  }
+  if (command === "work-item-group-run") {
+    await workItemGroupRun(flags);
+    return;
+  }
   if (command === "work-item-list") {
     await workItemList(flags);
     return;
   }
   if (command === "work-item-show") {
     await workItemShow(flags);
+    return;
+  }
+  if (command === "work-item-runs") {
+    await workItemRuns(flags);
     return;
   }
   if (command === "work-item-create") {
@@ -799,11 +1032,31 @@ async function main() {
     await workItemRunShow(flags);
     return;
   }
+  if (command === "work-item-validate") {
+    await workItemValidate(flags);
+    return;
+  }
+  if (command === "work-item-doc-suggestions") {
+    await workItemDocSuggestions(flags);
+    return;
+  }
+  if (command === "proposal-show") {
+    await proposalShow(flags);
+    return;
+  }
+  if (command === "proposal-review") {
+    await proposalReview(flags);
+    return;
+  }
+  if (command === "proposal-approve") {
+    await proposalApprove(flags);
+    return;
+  }
   if (["pause", "hold", "resume", "review", "approval", "drive"].includes(command)) {
     await treeAction(flags, command);
     return;
   }
-  throw new Error("commands: dashboard | inspect | execution | tree | family | audit | policy-diff | history | run-center | scenario-list | scenario-show | scenario-runs | scenario-run | scenario-run-show | scenario-run-artifacts | scenario-rerun | scenario-trends | regression-list | regression-show | regression-runs | regression-run | regression-run-show | regression-report | regression-latest-report | regression-rerun | regression-trends | regression-scheduler | regression-scheduler-status | work-item-list | work-item-show | work-item-create | work-item-run | work-item-run-show | drive | pause | hold | resume | review | approval");
+  throw new Error("commands: dashboard | inspect | execution | tree | family | audit | policy-diff | history | run-center | self-build-summary | scenario-list | scenario-show | scenario-runs | scenario-run | scenario-run-show | scenario-run-artifacts | scenario-rerun | scenario-trends | regression-list | regression-show | regression-runs | regression-run | regression-run-show | regression-report | regression-latest-report | regression-rerun | regression-trends | regression-scheduler | regression-scheduler-status | work-item-template-list | work-item-template-show | goal-plan-create | goal-plan-list | goal-plan-show | goal-plan-materialize | work-item-group-list | work-item-group-show | work-item-group-run | work-item-list | work-item-show | work-item-runs | work-item-create | work-item-run | work-item-run-show | work-item-validate | work-item-doc-suggestions | proposal-show | proposal-review | proposal-approve | drive | pause | hold | resume | review | approval");
 }
 
 main().catch((error) => {

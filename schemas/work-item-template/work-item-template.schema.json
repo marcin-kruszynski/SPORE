@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["id", "label", "kind", "defaultGoal"],
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "label": { "type": "string", "minLength": 1 },
+    "kind": { "type": "string", "enum": ["scenario", "regression", "workflow"] },
+    "defaultGoal": { "type": "string", "minLength": 1 },
+    "priority": { "type": "string" },
+    "defaultMetadata": { "type": "object" },
+    "acceptanceCriteria": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "relatedDocs": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "recommendedScenarios": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "recommendedRegressions": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "allowedDomains": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "safeModeEligible": { "type": "boolean" },
+    "selfBuildEligible": { "type": "boolean" }
+  },
+  "additionalProperties": true
+}

@@ -56,12 +56,30 @@ activeDomains:
       resultLimit: 6
     coordinationPolicy:
       maxHeldMs: 90000
+  - id: frontend
+    policyPacks: [ui-core]
+    leadProfile: lead
+    scoutProfile: scout
+    builderProfile: builder
+    testerProfile: tester
+    reviewerProfile: reviewer
+    tools: [docs-kb, shell]
+    skills: [design-implementation, browser-validation]
+    workflowPreferences: [frontend-ui-pass, review-pass]
+    workflowPolicy:
+      defaultRoles: [lead, scout, builder, tester, reviewer]
+    docsKbPolicy:
+      queryTerms: [spore, web, dashboard, operator]
+      resultLimit: 8
+    coordinationPolicy:
+      maxHeldMs: 120000
 attachedTeams: [web-app-team, service-team]
 profileVariants:
   - builder
   - tester
   - reviewer
-workflowDefaults: [backend-service-delivery, cli-verification-pass, docs-adr-pass]
+workflowDefaults: [backend-service-delivery, frontend-ui-pass, cli-verification-pass, docs-adr-pass]
+policyPacks: [self-build-safe, self-build-proposals]
 docsLocation: docs/
 embeddingIndex:
   provider: local-bootstrap
@@ -71,3 +89,10 @@ uiSettings:
 runtimePolicies:
   runtime: pi
   liveInspectionRequired: true
+selfWorkDefaults:
+  safeMode: true
+  defaultGoalPlannerPolicy: supervised
+  defaultValidationBundle:
+    scenarios: [docs-adr-pass, cli-verification-pass]
+    regressions: [local-fast]
+  allowedMutationScope: [docs, config, apps/web]

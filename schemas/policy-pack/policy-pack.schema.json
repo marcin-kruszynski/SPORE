@@ -58,6 +58,27 @@
         "maxHeldMs": { "type": "integer" },
         "escalateOnFamilyStallMs": { "type": "integer" }
       }
+    },
+    "selfWorkPolicy": {
+      "type": "object",
+      "properties": {
+        "allowedPaths": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "forbiddenPaths": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "allowedWorkKinds": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "requiresProposalArtifacts": { "type": "boolean" },
+        "requiresReview": { "type": "boolean" },
+        "requiresHumanApproval": { "type": "boolean" },
+        "safeModeDefault": { "type": "boolean" }
+      }
     }
   }
 }

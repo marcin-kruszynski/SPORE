@@ -197,6 +197,13 @@ test('tui execution and family commands consume orchestrator HTTP surfaces', asy
   assert.ok(Array.isArray(regressionSchedulerStatusPayload.detail.evaluations));
   assert.ok(regressionSchedulerStatusPayload.detail.profiles.some((item) => item.id === 'local-fast' && item.links));
 
+  const selfBuildSummaryOutput = await runCli([
+    'self-build-summary',
+    '--api', `http://127.0.0.1:${ORCHESTRATOR_PORT}`
+  ]);
+  const selfBuildSummaryPayload = JSON.parse(selfBuildSummaryOutput.stdout);
+  assert.ok(typeof selfBuildSummaryPayload.detail.counts === 'object');
+
   const workItemCreateOutput = await runCli([
     'work-item-create',
     '--title', 'CLI work item',
@@ -230,6 +237,14 @@ test('tui execution and family commands consume orchestrator HTTP surfaces', asy
   assert.equal(workItemShowPayload.detail.id, workItemCreatePayload.detail.id);
   assert.ok(Array.isArray(workItemShowPayload.detail.runs));
 
+  const workItemRunsOutput = await runCli([
+    'work-item-runs',
+    '--item', workItemCreatePayload.detail.id,
+    '--api', `http://127.0.0.1:${ORCHESTRATOR_PORT}`
+  ]);
+  const workItemRunsPayload = JSON.parse(workItemRunsOutput.stdout);
+  assert.ok(Array.isArray(workItemRunsPayload.detail.runs));
+
   const workItemRunShowOutput = await runCli([
     'work-item-run-show',
     '--run', workItemRunPayload.detail.run.id,
@@ -237,4 +252,69 @@ test('tui execution and family commands consume orchestrator HTTP surfaces', asy
   ]);
   const workItemRunShowPayload = JSON.parse(workItemRunShowOutput.stdout);
   assert.equal(workItemRunShowPayload.detail.workItemId, workItemCreatePayload.detail.id);
+
+  const workItemTemplateListOutput = await runCli([
+    'work-item-template-list',
+    '--api', `http://127.0.0.1:${ORCHESTRATOR_PORT}`
+  ]);
+  const workItemTemplateListPayload = JSON.parse(workItemTemplateListOutput.stdout);
+  assert.ok(Array.isArray(workItemTemplateListPayload.detail));
+  assert.ok(workItemTemplateListPayload.detail.some((item) => item.id === 'operator-ui-pass'));
+
+  const goalPlanCreateOutput = await runCli([
+    'goal-plan-create',
+    '--goal', 'Improve operator dashboard docs and config surfaces.',
+    '--api', `http://127.0.0.1:${ORCHESTRATOR_PORT}`
+  ]);
+  const goalPlanCreatePayload = JSON.parse(goalPlanCreateOutput.stdout);
+  assert.ok(goalPlanCreatePayload.detail.id);
+
+  const goalPlanMaterializeOutput = await runCli([
+    'goal-plan-materialize',
+    '--plan', goalPlanCreatePayload.detail.id,
+    '--api', `http://127.0.0.1:${ORCHESTRATOR_PORT}`
+  ]);
+  const goalPlanMaterializePayload = JSON.parse(goalPlanMaterializeOutput.stdout);
+  assert.equal(goalPlanMaterializePayload.detail.status, 'materialized');
+
+  const groupShowOutput = await runCli([
+    'work-item-group-show',
+    '--group', goalPlanMaterializePayload.detail.materializedGroup.id,
+    '--api', `http://127.0.0.1:${ORCHESTRATOR_PORT}`
+  ]);
+  const groupShowPayload = JSON.parse(groupShowOutput.stdout);
+  assert.ok(Array.isArray(groupShowPayload.detail.items));
+
+  const proposalWorkItemCreateOutput = await runCli([
+    'work-item-create',
+    '--template', 'operator-ui-pass',
+    '--title', 'Proposal work item',
+    '--api', `http://127.0.0.1:${ORCHESTRATOR_PORT}`
+  ]);
+  const proposalWorkItemCreatePayload = JSON.parse(proposalWorkItemCreateOutput.stdout);
+  const proposalWorkItemRunOutput = await runCli([
+    'work-item-run',
+    '--item', proposalWorkItemCreatePayload.detail.id,
+    '--api', `http://127.0.0.1:${ORCHESTRATOR_PORT}`,
+    '--stub'
+  ]);
+  const proposalWorkItemRunPayload = JSON.parse(proposalWorkItemRunOutput.stdout);
+  assert.ok(proposalWorkItemRunPayload.detail.proposal?.id);
+
+  const proposalShowOutput = await runCli([
+    'proposal-show',
+    '--proposal', proposalWorkItemRunPayload.detail.proposal.id,
+    '--api', `http://127.0.0.1:${ORCHESTRATOR_PORT}`
+  ]);
+  const proposalShowPayload = JSON.parse(proposalShowOutput.stdout);
+  assert.equal(proposalShowPayload.detail.id, proposalWorkItemRunPayload.detail.proposal.id);
+
+  const proposalApproveOutput = await runCli([
+    'proposal-approve',
+    '--proposal', proposalWorkItemRunPayload.detail.proposal.id,
+    '--status', 'approved',
+    '--api', `http://127.0.0.1:${ORCHESTRATOR_PORT}`
+  ]);
+  const proposalApprovePayload = JSON.parse(proposalApproveOutput.stdout);
+  assert.equal(proposalApprovePayload.detail.status, 'approved');
 });
