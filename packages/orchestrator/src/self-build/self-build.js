@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
+import path from "node:path";
 
-import { DEFAULT_ORCHESTRATOR_DB_PATH } from "../metadata/constants.js";
+import { DEFAULT_ORCHESTRATOR_DB_PATH, PROJECT_ROOT } from "../metadata/constants.js";
 import { getRegressionDefinition, getScenarioDefinition, getWorkItemTemplateDefinition, listWorkItemTemplateDefinitions } from "../scenarios/catalog.js";
 import { getRegressionRunSummaryById, getScenarioRunSummaryById, runRegressionById, runScenarioById } from "../scenarios/run-history.js";
 import {
@@ -8,16 +9,20 @@ import {
   getLearningRecord,
   getProposalArtifact,
   getProposalArtifactByRunId,
+  getWorkspaceAllocation,
+  getWorkspaceAllocationByRunId,
   getWorkItem,
   getWorkItemGroup,
   getWorkItemRun,
   insertGoalPlan,
   insertLearningRecord,
   insertProposalArtifact,
+  insertWorkspaceAllocation,
   insertWorkItemGroup,
   listGoalPlans,
   listLearningRecords,
   listProposalArtifacts,
+  listWorkspaceAllocations,
   listWorkItemGroups,
   listWorkItemRuns,
   listWorkItems,
@@ -25,6 +30,7 @@ import {
   updateGoalPlan,
   updateLearningRecord,
   updateProposalArtifact,
+  updateWorkspaceAllocation,
   updateWorkItem,
   updateWorkItemGroup,
   updateWorkItemRun
@@ -37,6 +43,11 @@ import {
   runManagedWorkItem,
   setManagedWorkItemDependencyState
 } from "../work-items/work-items.js";
+import {
+  createWorkspace,
+  inspectWorkspace,
+  writeWorkspacePatchArtifact
+} from "../../../workspace-manager/src/manager.js";
 
 function withDatabase(dbPath, fn) {
   const db = openOrchestratorDatabase(dbPath);
@@ -101,6 +112,12 @@ function proposalLinks(artifactId) {
     self: `/proposal-artifacts/${encodeURIComponent(artifactId)}`,
     review: `/proposal-artifacts/${encodeURIComponent(artifactId)}/review`,
     approval: `/proposal-artifacts/${encodeURIComponent(artifactId)}/approval`
+  };
+}
+
+function workspaceLinks(workspaceId) {
+  return {
+    self: `/workspaces/${encodeURIComponent(workspaceId)}`
   };
 }
 
@@ -649,6 +666,10 @@ function workItemKindRequiresProposal(item) {
   return item.kind === "workflow" || item.metadata?.requiresProposal === true || item.metadata?.codeOriented === true;
 }
 
+function workItemRequiresWorkspace(item) {
+  return item.metadata?.requiresWorkspace === true || workItemKindRequiresProposal(item);
+}
+
 function buildTemplatePayload(template, payload = {}) {
   const templateMetadata = template.defaultMetadata ?? template.metadata ?? {};
   const payloadMetadata = compactObject(payload.metadata ?? {});
@@ -911,6 +932,135 @@ function ensureSafeMode(item, projectId = null) {
   return { safeMode, mutationScope };
 }
 
+function buildWorkspaceSummary(allocation) {
+  return allocation ? {
+    ...allocation,
+    links: workspaceLinks(allocation.id),
+    commandHint: `cd '${allocation.worktreePath}' && git status --short && git branch --show-current`
+  } : null;
+}
+
+async function provisionWorkspaceForWorkItemRun(item, run, options = {}, dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
+  if (!workItemRequiresWorkspace(item)) {
+    return null;
+  }
+
+  const now = nowIso();
+  const mutationScope = dedupe(item.metadata?.mutationScope ?? []);
+  const repoRoot = process.env.SPORE_WORKSPACE_REPO_ROOT
+    ? path.resolve(process.env.SPORE_WORKSPACE_REPO_ROOT)
+    : PROJECT_ROOT;
+  const worktreeRoot = process.env.SPORE_WORKTREE_ROOT
+    ? path.resolve(process.env.SPORE_WORKTREE_ROOT)
+    : null;
+  const allocation = {
+    id: createId("workspace"),
+    projectId: item.metadata?.projectId ?? "spore",
+    ownerType: "work-item-run",
+    ownerId: run.id,
+    executionId: run.result?.executionId ?? null,
+    stepId: null,
+    workItemId: item.id,
+    workItemRunId: run.id,
+    proposalArtifactId: null,
+    worktreePath: path.join(PROJECT_ROOT, ".spore", "worktrees", item.metadata?.projectId ?? "spore", createId("pending")),
+    branchName: `pending/${run.id}`,
+    baseRef: item.metadata?.baseRef ?? "HEAD",
+    integrationBranch: item.metadata?.integrationBranch ?? null,
+    mode: "git-worktree",
+    safeMode: item.metadata?.safeMode !== false,
+    mutationScope,
+    status: "provisioning",
+    metadata: {
+      source: options.source ?? "work-item-run",
+      requestedBy: options.by ?? "operator",
+      itemKind: item.kind,
+      repoRoot
+    },
+    createdAt: now,
+    updatedAt: now,
+    cleanedAt: null
+  };
+  withDatabase(dbPath, (db) => insertWorkspaceAllocation(db, allocation));
+
+  try {
+    const created = await createWorkspace({
+      repoRoot,
+      workspaceId: allocation.id,
+      projectId: allocation.projectId,
+      ownerType: allocation.ownerType,
+      ownerId: allocation.ownerId,
+      baseRef: allocation.baseRef,
+      worktreeRoot,
+      safeMode: allocation.safeMode,
+      mutationScope
+    });
+    const inspected = await inspectWorkspace({
+      repoRoot,
+      worktreePath: created.worktreePath,
+      branchName: created.branchName
+    });
+    const updated = {
+      ...allocation,
+      worktreePath: created.worktreePath,
+      branchName: created.branchName,
+      status: inspected.clean ? "provisioned" : "active",
+      metadata: {
+        ...allocation.metadata,
+        inspection: inspected
+      },
+      updatedAt: nowIso()
+    };
+    withDatabase(dbPath, (db) => updateWorkspaceAllocation(db, updated));
+    return updated;
+  } catch (error) {
+    const failed = {
+      ...allocation,
+      status: "failed",
+      metadata: {
+        ...allocation.metadata,
+        error: error.message
+      },
+      updatedAt: nowIso()
+    };
+    withDatabase(dbPath, (db) => updateWorkspaceAllocation(db, failed));
+    throw error;
+  }
+}
+
+async function attachWorkspacePatchArtifact(proposal, workspace) {
+  if (!proposal || !workspace?.worktreePath) {
+    return proposal;
+  }
+  const patchPath = path.join(PROJECT_ROOT, "artifacts", "proposals", `${proposal.id}.patch`);
+  const patchArtifact = await writeWorkspacePatchArtifact({
+    worktreePath: workspace.worktreePath,
+    outputPath: patchPath
+  });
+  return {
+    ...proposal,
+    artifacts: {
+      ...(proposal.artifacts ?? {}),
+      workspace: {
+        workspaceId: workspace.id,
+        worktreePath: workspace.worktreePath,
+        branchName: workspace.branchName,
+        baseRef: workspace.baseRef,
+        status: workspace.status
+      },
+      patchArtifact: {
+        path: path.relative(PROJECT_ROOT, patchArtifact.outputPath),
+        byteLength: patchArtifact.byteLength
+      }
+    },
+    metadata: {
+      ...(proposal.metadata ?? {}),
+      workspaceId: workspace.id
+    },
+    updatedAt: nowIso()
+  };
+}
+
 function buildProposalArtifacts(item, run, validation = null) {
   const changeSummary = item.goal || `Proposal generated for ${item.title}`;
   return {
@@ -1043,6 +1193,9 @@ export function getSelfBuildWorkItem(itemId, dbPath = DEFAULT_ORCHESTRATOR_DB_PA
   const latestProposal = recentRuns.length > 0 
     ? withDatabase(dbPath, (db) => getProposalArtifactByRunId(db, recentRuns[0].id))
     : null;
+  const latestWorkspace = recentRuns.length > 0
+    ? withDatabase(dbPath, (db) => getWorkspaceAllocationByRunId(db, recentRuns[0].id))
+    : null;
   const groupItems = group ? listManagedWorkItems({ limit: 500 }, dbPath).filter((entry) => entry.metadata?.groupId === group.id) : [];
   const groupRuns = groupItems.flatMap((entry) => entry.runs ?? []);
   const groupSummary = group ? buildGroupSummary(group, groupItems, groupRuns) : null;
@@ -1056,12 +1209,14 @@ export function getSelfBuildWorkItem(itemId, dbPath = DEFAULT_ORCHESTRATOR_DB_PA
       ...run,
       links: {
         self: `/work-item-runs/${encodeURIComponent(run.id)}`,
+        workspace: `/work-item-runs/${encodeURIComponent(run.id)}/workspace`,
         proposal: run.id ? `/work-item-runs/${encodeURIComponent(run.id)}/proposal` : null,
         validate: `/work-item-runs/${encodeURIComponent(run.id)}/validate`,
         docSuggestions: `/work-item-runs/${encodeURIComponent(run.id)}/doc-suggestions`
       }
     })),
     latestProposal: latestProposal ? buildProposalSummary(latestProposal) : null,
+    latestWorkspace: buildWorkspaceSummary(latestWorkspace),
     links: {
       self: `/work-items/${encodeURIComponent(itemId)}`,
       runs: `/work-items/${encodeURIComponent(itemId)}/runs`,
@@ -1079,6 +1234,7 @@ export function getSelfBuildWorkItemRun(runId, dbPath = DEFAULT_ORCHESTRATOR_DB_
   }
   const item = withDatabase(dbPath, (db) => getWorkItem(db, run.workItemId));
   const proposal = withDatabase(dbPath, (db) => getProposalArtifactByRunId(db, run.id));
+  const workspace = withDatabase(dbPath, (db) => getWorkspaceAllocationByRunId(db, run.id));
   const learningRecords = withDatabase(dbPath, (db) =>
     listLearningRecords(db, "work-item-run", 50).filter((record) => record.sourceId === run.id)
   );
@@ -1090,6 +1246,7 @@ export function getSelfBuildWorkItemRun(runId, dbPath = DEFAULT_ORCHESTRATOR_DB_
     ...run,
     item,
     proposal: buildProposalSummary(proposal),
+    workspace: buildWorkspaceSummary(workspace),
     validation: run.metadata?.validation ?? null,
     docSuggestions,
     learningRecords: learningRecords.map(buildLearningSummary),
@@ -1101,6 +1258,7 @@ export function getSelfBuildWorkItemRun(runId, dbPath = DEFAULT_ORCHESTRATOR_DB_
       self: `/work-item-runs/${encodeURIComponent(runId)}`,
       item: `/work-items/${encodeURIComponent(run.workItemId)}`,
       proposal: proposal ? `/proposal-artifacts/${encodeURIComponent(proposal.id)}` : null,
+      workspace: workspace ? `/workspaces/${encodeURIComponent(workspace.id)}` : `/work-item-runs/${encodeURIComponent(runId)}/workspace`,
       validate: `/work-item-runs/${encodeURIComponent(runId)}/validate`,
       docSuggestions: `/work-item-runs/${encodeURIComponent(runId)}/doc-suggestions`,
       group: group ? `/work-item-groups/${encodeURIComponent(group.id)}` : null,
@@ -1115,17 +1273,91 @@ export async function runSelfBuildWorkItem(itemId, options = {}, dbPath = DEFAUL
     return null;
   }
   ensureSafeMode(item, item.metadata?.projectId ?? "spore");
+  let provisionedWorkspace = null;
   let result;
   try {
-    result = await runManagedWorkItem(itemId, options, dbPath);
+    result = await runManagedWorkItem(itemId, {
+      ...options,
+      beforeExecute: async ({ run, runningItem }) => {
+        if (!workItemRequiresWorkspace(runningItem)) {
+          return { run, item: runningItem };
+        }
+        provisionedWorkspace = await provisionWorkspaceForWorkItemRun(runningItem, run, options, dbPath);
+        return {
+          run: {
+            ...run,
+            metadata: {
+              ...run.metadata,
+              workspaceId: provisionedWorkspace.id,
+              workspacePath: provisionedWorkspace.worktreePath,
+              workspaceBranch: provisionedWorkspace.branchName
+            }
+          },
+          item: {
+            ...runningItem,
+            metadata: {
+              ...runningItem.metadata,
+              lastWorkspaceId: provisionedWorkspace.id
+            }
+          }
+        };
+      }
+    }, dbPath);
   } catch (error) {
     const failedItem = withDatabase(dbPath, (db) => getWorkItem(db, itemId));
     const failedRun = failedItem?.metadata?.lastRunId ? getManagedWorkItemRun(failedItem.metadata.lastRunId, dbPath) : null;
+    let proposal = null;
+    if (failedItem && failedRun && workItemKindRequiresProposal(failedItem)) {
+      const now = nowIso();
+      proposal = {
+        id: createId("proposal"),
+        workItemRunId: failedRun.id,
+        workItemId: failedItem.id,
+        status: "ready_for_review",
+        kind: failedItem.kind,
+        summary: {
+          title: `${failedItem.title} proposal`,
+          goal: failedItem.goal,
+          runStatus: failedRun.status,
+          safeMode: failedItem.metadata?.safeMode !== false
+        },
+        artifacts: buildProposalArtifacts(failedItem, failedRun, failedRun.metadata?.validation ?? null),
+        metadata: {
+          source: options.source ?? "work-item-run",
+          requiresHumanApproval: failedItem.metadata?.requiresHumanApproval ?? false,
+          workspaceId: failedRun.metadata?.workspaceId ?? provisionedWorkspace?.id ?? null
+        },
+        createdAt: now,
+        updatedAt: now,
+        reviewedAt: null,
+        approvedAt: null
+      };
+      proposal = await attachWorkspacePatchArtifact(proposal, provisionedWorkspace ?? getWorkspaceByRun(failedRun.id, dbPath));
+      withDatabase(dbPath, (db) => insertProposalArtifact(db, proposal));
+      if (provisionedWorkspace) {
+        const updatedWorkspace = {
+          ...provisionedWorkspace,
+          executionId: failedRun.result?.executionId ?? provisionedWorkspace.executionId ?? null,
+          proposalArtifactId: proposal.id,
+          status: "active",
+          updatedAt: nowIso()
+        };
+        withDatabase(dbPath, (db) => updateWorkspaceAllocation(db, updatedWorkspace));
+        provisionedWorkspace = updatedWorkspace;
+      }
+      failedRun.metadata = {
+        ...failedRun.metadata,
+        proposalArtifactId: proposal.id,
+        docSuggestions: buildDocSuggestions(failedItem, failedRun, proposal)
+      };
+      withDatabase(dbPath, (db) => updateWorkItemRun(db, failedRun));
+    }
+    const learningRecord = failedItem && failedRun ? await maybeCreateLearningRecord(failedItem, failedRun, proposal, dbPath) : null;
     return {
       item: failedItem,
       run: failedRun,
-      proposal: null,
-      learningRecord: null,
+      proposal: buildProposalSummary(proposal),
+      learningRecord: buildLearningSummary(learningRecord),
       error: error.message
     };
   }
@@ -1149,14 +1381,27 @@ export async function runSelfBuildWorkItem(itemId, options = {}, dbPath = DEFAUL
       artifacts: buildProposalArtifacts(settledItem, runDetail, runDetail.metadata?.validation ?? null),
       metadata: {
         source: options.source ?? "work-item-run",
-        requiresHumanApproval: settledItem.metadata?.requiresHumanApproval ?? false
+        requiresHumanApproval: settledItem.metadata?.requiresHumanApproval ?? false,
+        workspaceId: runDetail.metadata?.workspaceId ?? provisionedWorkspace?.id ?? null
       },
       createdAt: now,
       updatedAt: now,
       reviewedAt: null,
       approvedAt: null
     };
+    proposal = await attachWorkspacePatchArtifact(proposal, provisionedWorkspace ?? getWorkspaceByRun(runDetail.id, dbPath));
     withDatabase(dbPath, (db) => insertProposalArtifact(db, proposal));
+    if (provisionedWorkspace) {
+      const updatedWorkspace = {
+        ...provisionedWorkspace,
+        executionId: runDetail.result?.executionId ?? provisionedWorkspace.executionId ?? null,
+        proposalArtifactId: proposal.id,
+        status: "settled",
+        updatedAt: nowIso()
+      };
+      withDatabase(dbPath, (db) => updateWorkspaceAllocation(db, updatedWorkspace));
+      provisionedWorkspace = updatedWorkspace;
+    }
     runDetail.metadata = {
       ...runDetail.metadata,
       proposalArtifactId: proposal.id,
@@ -1515,6 +1760,23 @@ export function getProposalByRun(runId, dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
   return buildProposalSummary(artifact);
 }
 
+export function listWorkspaceSummaries(options = {}, dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
+  return withDatabase(dbPath, (db) => listWorkspaceAllocations(db, options)).map((allocation) => buildWorkspaceSummary(allocation));
+}
+
+export function getWorkspaceSummary(workspaceId, dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
+  const allocation = withDatabase(dbPath, (db) => getWorkspaceAllocation(db, workspaceId));
+  if (!allocation) {
+    return null;
+  }
+  return buildWorkspaceSummary(allocation);
+}
+
+export function getWorkspaceByRun(runId, dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
+  const allocation = withDatabase(dbPath, (db) => getWorkspaceAllocationByRunId(db, runId));
+  return buildWorkspaceSummary(allocation);
+}
+
 export async function reviewProposalArtifact(artifactId, decision = {}, dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
   const artifact = withDatabase(dbPath, (db) => getProposalArtifact(db, artifactId));
   if (!artifact) {
@@ -1573,41 +1835,64 @@ export async function validateWorkItemRun(runId, options = {}, dbPath = DEFAULT_
   const regressionIds = dedupe(item.metadata?.recommendedRegressions ?? item.relatedRegressions ?? []);
   const scenarioRuns = [];
   const regressionRuns = [];
+  const validationErrors = [];
   for (const scenarioId of scenarioIds) {
     const definition = await getScenarioDefinition(scenarioId);
     if (!definition) continue;
-    const result = await runScenarioById(scenarioId, {
-      project: item.metadata?.projectPath ?? "config/projects/spore.yaml",
-      wait: true,
-      timeout: options.timeout ?? "180000",
-      interval: options.interval ?? "1500",
-      noMonitor: options.noMonitor === true,
-      stub: options.stub !== false,
-      launcher: options.launcher ?? null,
-      source: options.source ?? "work-item-validation",
-      by: options.by ?? "operator"
-    }, dbPath);
-    scenarioRuns.push(result.run.id);
+    try {
+      const result = await runScenarioById(scenarioId, {
+        project: item.metadata?.projectPath ?? "config/projects/spore.yaml",
+        wait: true,
+        timeout: options.timeout ?? "180000",
+        interval: options.interval ?? "1500",
+        noMonitor: options.noMonitor === true,
+        stub: options.stub !== false,
+        launcher: options.launcher ?? null,
+        source: options.source ?? "work-item-validation",
+        by: options.by ?? "operator"
+      }, dbPath);
+      scenarioRuns.push(result.run.id);
+    } catch (error) {
+      validationErrors.push({
+        kind: "scenario",
+        id: scenarioId,
+        message: error.message
+      });
+    }
   }
   for (const regressionId of regressionIds) {
     const definition = await getRegressionDefinition(regressionId);
     if (!definition) continue;
-    const result = await runRegressionById(regressionId, {
-      project: item.metadata?.projectPath ?? "config/projects/spore.yaml",
-      timeout: options.timeout ?? "180000",
-      interval: options.interval ?? "1500",
-      noMonitor: options.noMonitor === true,
-      stub: options.stub !== false,
-      launcher: options.launcher ?? null,
-      source: options.source ?? "work-item-validation",
-      by: options.by ?? "operator"
-    }, dbPath);
-    regressionRuns.push(result.run.id);
+    try {
+      const result = await runRegressionById(regressionId, {
+        project: item.metadata?.projectPath ?? "config/projects/spore.yaml",
+        timeout: options.timeout ?? "180000",
+        interval: options.interval ?? "1500",
+        noMonitor: options.noMonitor === true,
+        stub: options.stub !== false,
+        launcher: options.launcher ?? null,
+        source: options.source ?? "work-item-validation",
+        by: options.by ?? "operator"
+      }, dbPath);
+      regressionRuns.push(result.run.id);
+    } catch (error) {
+      validationErrors.push({
+        kind: "regression",
+        id: regressionId,
+        message: error.message
+      });
+    }
   }
   const validation = {
-    status: regressionRuns.length === 0 && scenarioRuns.length === 0 ? "not_configured" : "completed",
+    status:
+      validationErrors.length > 0
+        ? "failed"
+        : regressionRuns.length === 0 && scenarioRuns.length === 0
+        ? "not_configured"
+        : "completed",
     scenarioRunIds: scenarioRuns,
     regressionRunIds: regressionRuns,
+    errors: validationErrors,
     validatedAt: nowIso()
   };
   const updatedRun = {
@@ -1640,6 +1925,7 @@ export function getSelfBuildSummary(dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
   const groupItemMap = new Map(groups.flatMap((group) => group.items.map((item) => [item.id, item])));
   const workItems = listManagedWorkItems({ limit: 100 }, dbPath).map((item) => groupItemMap.get(item.id) ?? item);
   const proposals = withDatabase(dbPath, (db) => listProposalArtifacts(db, null, 100)).map(buildProposalSummary);
+  const workspaces = withDatabase(dbPath, (db) => listWorkspaceAllocations(db, { limit: 200 })).map(buildWorkspaceSummary);
   const learnings = withDatabase(dbPath, (db) => listLearningRecords(db, null, 100)).map(buildLearningSummary);
   const allRuns = workItems.flatMap((item) => (item.runs ?? []).map((run) => ({ ...run, itemTitle: item.title, itemId: item.id })));
 
@@ -1647,6 +1933,8 @@ export function getSelfBuildSummary(dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
   const failedItems = workItems.filter((item) => item.status === "failed");
   const waitingReviewProposals = proposals.filter((proposal) => proposal.status === "ready_for_review");
   const waitingApprovalProposals = proposals.filter((proposal) => ["reviewed", "waiting_approval"].includes(proposal.status));
+  const orphanedWorkspaces = workspaces.filter((workspace) => ["orphaned", "failed"].includes(workspace.status));
+  const activeWorkspaces = workspaces.filter((workspace) => ["provisioned", "active", "settled"].includes(workspace.status));
   const pendingValidationRuns = allRuns.filter((run) => 
     run.status === "completed" && (!run.metadata?.validation || run.metadata.validation.status !== "completed")
   );
@@ -1693,6 +1981,16 @@ export function getSelfBuildSummary(dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
       reason: "Proposal reviewed and waiting for approval",
       httpHint: `/proposal-artifacts/${encodeURIComponent(proposal.id)}`,
       timestamp: proposal.reviewedAt ?? proposal.createdAt
+    })),
+    ...orphanedWorkspaces.map((workspace) => ({
+      kind: "orphaned-workspace",
+      priority: "high",
+      workspaceId: workspace.id,
+      title: workspace.branchName,
+      reason: `Workspace ${workspace.id} is ${workspace.status} and may require cleanup or recovery.`,
+      httpHint: `/workspaces/${encodeURIComponent(workspace.id)}`,
+      nextActionHint: "Inspect the workspace and reconcile or remove it if the owner run is already settled.",
+      timestamp: workspace.updatedAt
     }))
   ].sort((left, right) => {
     const priorityOrder = { high: 0, medium: 1, low: 2 };
@@ -1738,6 +2036,7 @@ export function getSelfBuildSummary(dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
       totalWorkItems: workItems.length,
       totalGroups: groups.length,
       totalProposals: proposals.length,
+      totalWorkspaces: workspaces.length,
       urgentCount: urgentQueue.length,
       followUpCount: followUpQueue.length,
       lastActivity: mostRecentActivity?.timestamp ?? null,
@@ -1749,6 +2048,9 @@ export function getSelfBuildSummary(dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
       blockedItems: blockedItems.length,
       failedItems: failedItems.length,
       proposals: proposals.length,
+      workspaces: workspaces.length,
+      orphanedWorkspaces: orphanedWorkspaces.length,
+      activeWorkspaces: activeWorkspaces.length,
       waitingReviewProposals: waitingReviewProposals.length,
       waitingApprovalProposals: waitingApprovalProposals.length,
       pendingValidationRuns: pendingValidationRuns.length,
@@ -1761,6 +2063,8 @@ export function getSelfBuildSummary(dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
     blockedItems,
     failedItems,
     proposals,
+    workspaces: workspaces.slice(0, 50),
+    orphanedWorkspaces,
     waitingReviewProposals,
     waitingApprovalProposals,
     learningRecords: recentLearnings,
@@ -1775,18 +2079,27 @@ export function getSelfBuildSummary(dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
       statusBadge: urgentQueue.length > 0 ? "needs-attention" : "healthy"
     },
     recommendations: urgentQueue.slice(0, 5).map((item) => ({
-      action: item.kind === "blocked-work-item" || item.kind === "failed-work-item" ? "inspect-work-item" : "review-proposal",
-      targetType: item.itemId ? "work-item" : "proposal",
-      targetId: item.itemId ?? item.proposalId,
+      action:
+        item.kind === "blocked-work-item" || item.kind === "failed-work-item"
+          ? "inspect-work-item"
+          : item.kind === "orphaned-workspace"
+            ? "inspect-workspace"
+            : "review-proposal",
+      targetType: item.itemId ? "work-item" : item.workspaceId ? "workspace" : "proposal",
+      targetId: item.itemId ?? item.workspaceId ?? item.proposalId,
       priority: item.priority,
       reason: item.reason,
       expectedOutcome: item.kind === "waiting-review" 
         ? "Operator reviews proposal and provides feedback or approval"
         : item.kind === "waiting-approval"
         ? "Operator approves or rejects proposal"
+        : item.kind === "orphaned-workspace"
+        ? "Operator reconciles or cleans up a workspace that no longer matches a healthy owner run."
         : "Operator investigates work item status and decides next action",
       commandHint: item.itemId 
         ? `npm run orchestrator:work-item-show -- --item ${item.itemId}`
+        : item.workspaceId
+        ? `npm run orchestrator:workspace-show -- --workspace ${item.workspaceId}`
         : `npm run orchestrator:proposal-show -- --proposal ${item.proposalId}`,
       httpHint: item.httpHint
     }))
