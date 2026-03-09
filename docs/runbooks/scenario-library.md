@@ -120,6 +120,27 @@ npm run orchestrator:scenario-show -- --scenario self-build-visibility-validatio
 node --test services/orchestrator/test/http-self-build.test.js
 ```
 
+### Self-Build Dependency Graph Validation
+
+- Workflow: `config/workflows/cli-verification-pass.yaml`
+- Domain: `cli`
+- Policy packs: `cli-core`
+- Typical roles: `lead,builder,tester,reviewer`
+- Expected topology:
+  - Wave 1: lead
+  - Wave 2: builder + tester
+  - Wave 3: reviewer
+- Expected governance:
+  - validation of dependency authoring and readiness semantics
+  - no approval requirement by default
+- Purpose: Validate Phase 2 dependency graph authoring, blocked/review-needed recovery, and advisory auto-relaxation behavior before web/TUI visibility work lands
+
+```bash
+npm run orchestrator:scenario-run -- --scenario self-build-dependency-graph-validation --stub
+npm run orchestrator:scenario-show -- --scenario self-build-dependency-graph-validation
+node --test services/orchestrator/test/http-self-build-dependencies.test.js
+```
+
 ## Local Regression Flow
 
 Use this order when validating the local orchestration stack:

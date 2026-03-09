@@ -1,0 +1,18 @@
+id: self-build-dependency-graph-validation
+label: Self-Build Dependency Graph Validation
+workflow: config/workflows/cli-verification-pass.yaml
+domain: cli
+roles: [lead, builder, tester, reviewer]
+objectiveTemplate: "Validate dependency authoring, readiness summaries, blocked/review-needed recovery, and advisory auto-relaxation across self-build work-item groups"
+policyPackExpectation: [cli-core]
+expectedGovernance:
+  reviewRequired: false
+  approvalRequired: false
+  reworkCapable: false
+expectedWaveTopology:
+  waveCount: 3
+  labels: [lead, implementation, review]
+  allowsBranching: false
+realPiEligible: false
+regressionProfiles: [local-fast]
+tags: [self-build, dependency-graph, validation, phase-02]
