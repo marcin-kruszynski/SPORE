@@ -282,6 +282,29 @@ export function openOrchestratorDatabase(dbPath) {
       reviewed_at TEXT,
       approved_at TEXT
     );
+    CREATE TABLE IF NOT EXISTS workspace_allocations (
+      id TEXT PRIMARY KEY,
+      project_id TEXT,
+      owner_type TEXT NOT NULL,
+      owner_id TEXT NOT NULL,
+      execution_id TEXT,
+      step_id TEXT,
+      work_item_id TEXT,
+      work_item_run_id TEXT,
+      proposal_artifact_id TEXT,
+      worktree_path TEXT NOT NULL,
+      branch_name TEXT NOT NULL,
+      base_ref TEXT,
+      integration_branch TEXT,
+      mode TEXT NOT NULL,
+      safe_mode INTEGER NOT NULL DEFAULT 1,
+      mutation_scope_json TEXT,
+      status TEXT NOT NULL,
+      metadata_json TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      cleaned_at TEXT
+    );
     CREATE TABLE IF NOT EXISTS learning_records (
       id TEXT PRIMARY KEY,
       source_type TEXT NOT NULL,
@@ -311,6 +334,14 @@ export function openOrchestratorDatabase(dbPath) {
     CREATE INDEX IF NOT EXISTS idx_goal_plans_status ON goal_plans(status, updated_at DESC);
     CREATE INDEX IF NOT EXISTS idx_work_item_groups_status ON work_item_groups(status, updated_at DESC);
     CREATE INDEX IF NOT EXISTS idx_proposal_artifacts_run_id ON proposal_artifacts(work_item_run_id, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_workspace_allocations_work_item_run_id
+      ON workspace_allocations(work_item_run_id, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_workspace_allocations_execution_id
+      ON workspace_allocations(execution_id, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_workspace_allocations_owner
+      ON workspace_allocations(owner_type, owner_id, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_workspace_allocations_status
+      ON workspace_allocations(status, updated_at DESC);
     CREATE INDEX IF NOT EXISTS idx_learning_records_source ON learning_records(source_type, source_id, updated_at DESC);
   `);
   ensureColumn(db, "workflow_steps", "attempt_count", "INTEGER NOT NULL DEFAULT 1");
@@ -2058,6 +2089,216 @@ export function listProposalArtifacts(db, workItemId = null, limit = 50) {
     artifacts: parseJsonField(record.artifactsJson, {}),
     metadata: parseJsonField(record.metadataJson, {})
   }));
+}
+
+export function insertWorkspaceAllocation(db, allocation) {
+  db.prepare(`
+    INSERT INTO workspace_allocations (
+      id, project_id, owner_type, owner_id, execution_id, step_id, work_item_id, work_item_run_id,
+      proposal_artifact_id, worktree_path, branch_name, base_ref, integration_branch, mode, safe_mode,
+      mutation_scope_json, status, metadata_json, created_at, updated_at, cleaned_at
+    ) VALUES (
+      @id, @projectId, @ownerType, @ownerId, @executionId, @stepId, @workItemId, @workItemRunId,
+      @proposalArtifactId, @worktreePath, @branchName, @baseRef, @integrationBranch, @mode, @safeMode,
+      @mutationScopeJson, @status, @metadataJson, @createdAt, @updatedAt, @cleanedAt
+    )
+  `).run({
+    id: allocation.id,
+    projectId: allocation.projectId ?? null,
+    ownerType: allocation.ownerType,
+    ownerId: allocation.ownerId,
+    executionId: allocation.executionId ?? null,
+    stepId: allocation.stepId ?? null,
+    workItemId: allocation.workItemId ?? null,
+    workItemRunId: allocation.workItemRunId ?? null,
+    proposalArtifactId: allocation.proposalArtifactId ?? null,
+    worktreePath: allocation.worktreePath,
+    branchName: allocation.branchName,
+    baseRef: allocation.baseRef ?? null,
+    integrationBranch: allocation.integrationBranch ?? null,
+    mode: allocation.mode ?? "git-worktree",
+    safeMode: allocation.safeMode === false ? 0 : 1,
+    mutationScopeJson: JSON.stringify(allocation.mutationScope ?? []),
+    status: allocation.status,
+    metadataJson: JSON.stringify(allocation.metadata ?? {}),
+    createdAt: allocation.createdAt,
+    updatedAt: allocation.updatedAt,
+    cleanedAt: allocation.cleanedAt ?? null
+  });
+}
+
+export function updateWorkspaceAllocation(db, allocation) {
+  db.prepare(`
+    UPDATE workspace_allocations SET
+      project_id = @projectId,
+      owner_type = @ownerType,
+      owner_id = @ownerId,
+      execution_id = @executionId,
+      step_id = @stepId,
+      work_item_id = @workItemId,
+      work_item_run_id = @workItemRunId,
+      proposal_artifact_id = @proposalArtifactId,
+      worktree_path = @worktreePath,
+      branch_name = @branchName,
+      base_ref = @baseRef,
+      integration_branch = @integrationBranch,
+      mode = @mode,
+      safe_mode = @safeMode,
+      mutation_scope_json = @mutationScopeJson,
+      status = @status,
+      metadata_json = @metadataJson,
+      updated_at = @updatedAt,
+      cleaned_at = @cleanedAt
+    WHERE id = @id
+  `).run({
+    id: allocation.id,
+    projectId: allocation.projectId ?? null,
+    ownerType: allocation.ownerType,
+    ownerId: allocation.ownerId,
+    executionId: allocation.executionId ?? null,
+    stepId: allocation.stepId ?? null,
+    workItemId: allocation.workItemId ?? null,
+    workItemRunId: allocation.workItemRunId ?? null,
+    proposalArtifactId: allocation.proposalArtifactId ?? null,
+    worktreePath: allocation.worktreePath,
+    branchName: allocation.branchName,
+    baseRef: allocation.baseRef ?? null,
+    integrationBranch: allocation.integrationBranch ?? null,
+    mode: allocation.mode ?? "git-worktree",
+    safeMode: allocation.safeMode === false ? 0 : 1,
+    mutationScopeJson: JSON.stringify(allocation.mutationScope ?? []),
+    status: allocation.status,
+    metadataJson: JSON.stringify(allocation.metadata ?? {}),
+    updatedAt: allocation.updatedAt,
+    cleanedAt: allocation.cleanedAt ?? null
+  });
+}
+
+function mapWorkspaceAllocation(record) {
+  return record ? {
+    ...record,
+    safeMode: Number(record.safeMode) !== 0,
+    mutationScope: parseJsonField(record.mutationScopeJson, []),
+    metadata: parseJsonField(record.metadataJson, {})
+  } : null;
+}
+
+export function getWorkspaceAllocation(db, allocationId) {
+  const record = db.prepare(`
+    SELECT
+      id,
+      project_id AS projectId,
+      owner_type AS ownerType,
+      owner_id AS ownerId,
+      execution_id AS executionId,
+      step_id AS stepId,
+      work_item_id AS workItemId,
+      work_item_run_id AS workItemRunId,
+      proposal_artifact_id AS proposalArtifactId,
+      worktree_path AS worktreePath,
+      branch_name AS branchName,
+      base_ref AS baseRef,
+      integration_branch AS integrationBranch,
+      mode,
+      safe_mode AS safeMode,
+      mutation_scope_json AS mutationScopeJson,
+      status,
+      metadata_json AS metadataJson,
+      created_at AS createdAt,
+      updated_at AS updatedAt,
+      cleaned_at AS cleanedAt
+    FROM workspace_allocations
+    WHERE id = ?
+  `).get(allocationId);
+  return mapWorkspaceAllocation(record);
+}
+
+export function getWorkspaceAllocationByRunId(db, workItemRunId) {
+  const record = db.prepare(`
+    SELECT
+      id,
+      project_id AS projectId,
+      owner_type AS ownerType,
+      owner_id AS ownerId,
+      execution_id AS executionId,
+      step_id AS stepId,
+      work_item_id AS workItemId,
+      work_item_run_id AS workItemRunId,
+      proposal_artifact_id AS proposalArtifactId,
+      worktree_path AS worktreePath,
+      branch_name AS branchName,
+      base_ref AS baseRef,
+      integration_branch AS integrationBranch,
+      mode,
+      safe_mode AS safeMode,
+      mutation_scope_json AS mutationScopeJson,
+      status,
+      metadata_json AS metadataJson,
+      created_at AS createdAt,
+      updated_at AS updatedAt,
+      cleaned_at AS cleanedAt
+    FROM workspace_allocations
+    WHERE work_item_run_id = ?
+    ORDER BY updated_at DESC
+    LIMIT 1
+  `).get(workItemRunId);
+  return mapWorkspaceAllocation(record);
+}
+
+export function listWorkspaceAllocations(db, options = {}) {
+  const clauses = [];
+  const params = [];
+  if (options.status) {
+    clauses.push("status = ?");
+    params.push(options.status);
+  }
+  if (options.ownerType) {
+    clauses.push("owner_type = ?");
+    params.push(options.ownerType);
+  }
+  if (options.workItemId) {
+    clauses.push("work_item_id = ?");
+    params.push(options.workItemId);
+  }
+  if (options.workItemRunId) {
+    clauses.push("work_item_run_id = ?");
+    params.push(options.workItemRunId);
+  }
+  if (options.executionId) {
+    clauses.push("execution_id = ?");
+    params.push(options.executionId);
+  }
+  const limit = Number.parseInt(String(options.limit ?? "50"), 10) || 50;
+  const sql = `
+    SELECT
+      id,
+      project_id AS projectId,
+      owner_type AS ownerType,
+      owner_id AS ownerId,
+      execution_id AS executionId,
+      step_id AS stepId,
+      work_item_id AS workItemId,
+      work_item_run_id AS workItemRunId,
+      proposal_artifact_id AS proposalArtifactId,
+      worktree_path AS worktreePath,
+      branch_name AS branchName,
+      base_ref AS baseRef,
+      integration_branch AS integrationBranch,
+      mode,
+      safe_mode AS safeMode,
+      mutation_scope_json AS mutationScopeJson,
+      status,
+      metadata_json AS metadataJson,
+      created_at AS createdAt,
+      updated_at AS updatedAt,
+      cleaned_at AS cleanedAt
+    FROM workspace_allocations
+    ${clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : ""}
+    ORDER BY updated_at DESC
+    LIMIT ?
+  `;
+  const rows = db.prepare(sql).all(...params, limit);
+  return rows.map((record) => mapWorkspaceAllocation(record));
 }
 
 export function insertLearningRecord(db, record) {

@@ -1,6 +1,8 @@
 {
+  "mode": "yolo",
+  "depth": "comprehensive",
   "model_profile": "simple",
-  "commit_docs": true,
+  "commit_docs": false,
   "search_gitignored": false,
   "branching_strategy": "none",
   "phase_branch_template": "gsd/phase-{phase}-{slug}",

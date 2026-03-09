@@ -279,7 +279,7 @@ export async function runManagedWorkItem(itemId, options = {}, dbPath = DEFAULT_
   }
 
   const startedAt = new Date().toISOString();
-  const run = {
+  let run = {
     id: options.runId ?? createId("work-item-run"),
     workItemId: item.id,
     status: "running",
@@ -294,7 +294,7 @@ export async function runManagedWorkItem(itemId, options = {}, dbPath = DEFAULT_
     startedAt,
     endedAt: null
   };
-  const runningItem = {
+  let runningItem = {
     ...item,
     status: "running",
     updatedAt: startedAt,
@@ -332,6 +332,22 @@ export async function runManagedWorkItem(itemId, options = {}, dbPath = DEFAULT_
   });
 
   try {
+    if (typeof options.beforeExecute === "function") {
+      const prepared = await options.beforeExecute({
+        item,
+        run,
+        runningItem,
+        dbPath
+      });
+      if (prepared?.run || prepared?.item) {
+        run = prepared?.run ?? run;
+        runningItem = prepared?.item ?? runningItem;
+        withDatabase(dbPath, (db) => {
+          updateWorkItemRun(db, run);
+          updateWorkItem(db, runningItem);
+        });
+      }
+    }
     let result;
     if (item.kind === "scenario") {
       const scenarioId = item.metadata?.scenarioId ?? item.relatedScenarios?.[0];

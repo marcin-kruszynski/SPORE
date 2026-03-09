@@ -1,5 +1,5 @@
 version: 1
-updated_at: 2026-03-08
+updated_at: 2026-03-09
 owner: bootstrap-agent
 documents:
   - id: docs-index
@@ -100,6 +100,13 @@ documents:
     owner: bootstrap-agent
     tags: [phases, waves, execution]
     path: docs/roadmap/IMPLEMENTATION_ROADMAP.md
+  - id: self-build-status
+    type: plan
+    domain: shared
+    status: active
+    owner: bootstrap-agent
+    tags: [status, self-build, next-steps]
+    path: docs/plans/self-build-status-and-next-steps.md
   - id: bootstrap-status
     type: operations
     domain: shared
@@ -114,3 +121,11 @@ documents:
     owner: bootstrap-agent
     tags: [scenarios, validation, canonical]
     path: docs/runbooks/scenario-library.md
+
+  - id: worktree-workspace-isolation
+    type: spec
+    domain: shared
+    status: active
+    owner: future-architect
+    tags: [worktree, workspace, isolation, self-build]
+    path: docs/specs/worktree-and-workspace-isolation.md

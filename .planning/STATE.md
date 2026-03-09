@@ -9,10 +9,10 @@ See: `.planning/PROJECT.md` (updated 2026-03-09)
 
 ## Current Position
 
-Phase: 2 of 7 (Dependency-Aware Work Graphs)
-Plan: 2 of 2 in current phase
-Status: Complete
-Last activity: 2026-03-09 - Completed Phase 2 Plan 02 dependency-aware operator surfaces.
+Phase: 3 of 7 (Guided Goal-to-Run Flow)
+Plan: 0 of 3 in current phase
+Status: Ready to plan
+Last activity: 2026-03-09 - Phase 2 complete and ready to discuss Phase 3.
 
 Progress: [███░░░░░░░] 28%
 
@@ -44,25 +44,11 @@ Progress: [███░░░░░░░] 28%
 Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
 
-- [Roadmap] Build the milestone as a supervised self-build product loop over existing orchestrator, gateway, web, and TUI boundaries.
-- [Phase 1] Start with dedicated self-build visibility and shared read models before deeper execution behavior changes.
-- [Safety] Keep safe mode, review gates, and shared HTTP contracts central before declaring loop v1 ready.
-- [Plan 01] Exposed operator-first summary structure with urgentWork and followUpWork queues so dashboard and TUI clients stay thin
-- [Plan 01] Added server-computed display labels and status badge hints instead of client-side heuristics
-- [Plan 01] Enriched detail routes with lineage chains, recent activity, and comprehensive navigation links
-- [Phase 01-self-build-visibility-02]: Added view navigation toggle to keep self-build dashboard distinct from Run Center
-- [Phase 01-self-build-visibility-02]: Implemented detail overlay instead of new pages to preserve dashboard context and lineage
-- [Phase 01-self-build-visibility-02]: Used compact operator-first rows with calm status styling to avoid alert fatigue
-- [Plan 02] Built self-build dashboard as the top-level web entrypoint for supervised work visibility
-- [Plan 02] Preserved shared HTTP contracts and operator-first mental models across web and TUI surfaces
-- [Plan 03] Added terminal-native triage view with formatted output while preserving JSON-only backward compatibility
-- [Plan 03] Implemented drilldown support through flags to stay within TUI mental model
-- [Phase 02-dependency-aware-work-graphs]: Kept dependency edges metadata-backed on work items and exposed one normalized dependencyGraph/readiness contract from orchestrator helpers.
-- [Phase 02-dependency-aware-work-graphs]: Reused the existing top-level work-item status model and layered dependencyState, blockerIds, nextActionHint, and transition logs on top.
-- [Phase 02-dependency-aware-work-graphs]: Returned durable failed work-item run and validation detail instead of surfacing HTTP 500s on execution or validation failure.
-- [Phase 02]: Added a dedicated Group Readiness section before urgent queues so operators see ready-vs-blocked context first.
-- [Phase 02]: Kept browser dependency authoring thin over /work-item-groups/:id/dependencies and reflected the returned impact summary immediately.
-- [Phase 02]: Rendered work-item-group detail as formatted TUI output by default while preserving JSON access behind --json.
+- [Phase 2] Keep dependency edges metadata-backed and expose one normalized dependency/readiness contract from orchestrator helpers.
+- [Phase 2] Reuse existing top-level work-item statuses and layer dependency-specific metadata instead of adding a new global enum.
+- [Phase 2] Keep browser dependency authoring thin over shared orchestrator routes with immediate impact feedback.
+- [Phase 2] Lead operator dependency views with readiness-vs-blocked context before deeper queue and item detail.
+- [Phase 2] Preserve TUI/web parity in dependency language while tailoring presentation to each surface.
 
 ### Pending Todos
 
@@ -70,11 +56,11 @@ None yet.
 
 ### Blockers/Concerns
 
-- Validation bundle schema and compatibility need exact definition during phase planning.
-- Proposal review event history and rework linkage need detailed store and API decisions during phase planning.
+- [Phase 3] Goal-to-run flow still needs exact operator handoff rules for materialize, launch, and guided progression.
+- [Phase 4/5] Validation bundle schema and proposal review event history still need exact store and API decisions.
 
 ## Session Continuity
 
-Last session: 2026-03-09 15:58
-Stopped at: Completed 02-02-PLAN.md
+Last session: 2026-03-09 16:31
+Stopped at: Phase 2 complete, ready to discuss Phase 3.
 Resume file: None

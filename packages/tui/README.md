@@ -30,7 +30,7 @@ node packages/tui/src/cli/spore-ops.js regression-rerun --run <run-id>
 node packages/tui/src/cli/spore-ops.js regression-trends --regression local-fast
 node packages/tui/src/cli/spore-ops.js regression-scheduler-status
 node packages/tui/src/cli/spore-ops.js work-item-template-list
-node packages/tui/src/cli/spore-ops.js work-item-template-show --template scenario-hardening
+node packages/tui/src/cli/spore-ops.js work-item-template-show --template operator-ui-pass
 node packages/tui/src/cli/spore-ops.js goal-plan-create --goal "Stabilize CLI verification and proposal quality"
 node packages/tui/src/cli/spore-ops.js goal-plan-list
 node packages/tui/src/cli/spore-ops.js goal-plan-show --plan <goal-plan-id>

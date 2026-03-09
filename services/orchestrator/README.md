@@ -46,12 +46,15 @@ Workflow templates may also define `stepSets`, which the service exposes back th
 - `GET /work-items/:id`
 - `GET /work-items/:id/runs`
 - `GET /work-item-runs/:runId`
+- `GET /work-item-runs/:runId/workspace`
 - `GET /work-item-runs/:runId/proposal`
 - `POST /work-item-runs/:runId/validate`
 - `GET /work-item-runs/:runId/doc-suggestions`
 - `GET /proposal-artifacts/:id`
 - `POST /proposal-artifacts/:id/review`
 - `POST /proposal-artifacts/:id/approval`
+- `GET /workspaces`
+- `GET /workspaces/:id`
 - `GET /stream/executions?execution=:id`
 - `POST /workflows/plan`
 - `POST /workflows/invoke`
@@ -113,7 +116,7 @@ curl -N http://127.0.0.1:8789/stream/executions?execution=branch-approval-001
 curl http://127.0.0.1:8789/run-center/summary
 curl http://127.0.0.1:8789/self-build/summary
 curl http://127.0.0.1:8789/work-item-templates
-curl http://127.0.0.1:8789/work-item-templates/scenario-hardening
+curl http://127.0.0.1:8789/work-item-templates/operator-ui-pass
 curl -X POST http://127.0.0.1:8789/goals/plan \
   -H 'content-type: application/json' \
   -d '{"goal":"Stabilize CLI verification and proposal quality","projectId":"spore","mode":"supervised","safeMode":true}'
@@ -139,6 +142,10 @@ curl http://127.0.0.1:8789/work-items/<id>/runs
 curl -X POST http://127.0.0.1:8789/work-items/<id>/run \
   -H 'content-type: application/json' \
   -d '{"stub":true,"wait":true}'
+
+curl http://127.0.0.1:8789/work-item-runs/<run-id>/workspace
+
+curl http://127.0.0.1:8789/workspaces
 
 curl -X POST http://127.0.0.1:8789/work-item-runs/<run-id>/validate \
   -H 'content-type: application/json' \

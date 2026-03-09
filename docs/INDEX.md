@@ -23,8 +23,10 @@ The docs system is the operational backbone of the project. It organizes vision,
 - Local development runbook: [runbooks/local-dev.md](runbooks/local-dev.md)
 - Scenario library: [runbooks/scenario-library.md](runbooks/scenario-library.md)
 - Bootstrap architect instruction: [specs/bootstrap-architect-instruction.md](specs/bootstrap-architect-instruction.md)
+- Worktree and workspace isolation: [specs/worktree-and-workspace-isolation.md](specs/worktree-and-workspace-isolation.md)
 - Bootstrap roadmap: [plans/roadmap.md](plans/roadmap.md)
 - Completion summary: [plans/bootstrap-completion-summary.md](plans/bootstrap-completion-summary.md)
+- Current self-build status: [plans/self-build-status-and-next-steps.md](plans/self-build-status-and-next-steps.md)
 
 ## Top-Level Map
 

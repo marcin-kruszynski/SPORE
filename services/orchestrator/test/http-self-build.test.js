@@ -1,19 +1,24 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs/promises";
 
 import { makeTempPaths } from "../../../packages/orchestrator/test/helpers/scenario-fixtures.js";
+import { removeWorkspace } from "../../../packages/workspace-manager/src/manager.js";
 import { findFreePort, getJson, postJson, startProcess, waitForHealth } from "./helpers/http-harness.js";
 
 test("self-build summary and lineage routes expose operator-first visibility", async (t) => {
   const ORCHESTRATOR_PORT = await findFreePort();
   const WEB_PORT = await findFreePort();
   const { dbPath, sessionDbPath, eventLogPath } = await makeTempPaths("spore-http-self-build-");
+  const worktreeRoot = `${dbPath}.worktrees`;
+  const createdWorkspaces = [];
 
   const orchestrator = startProcess("node", ["services/orchestrator/server.js"], {
     SPORE_ORCHESTRATOR_PORT: String(ORCHESTRATOR_PORT),
     SPORE_ORCHESTRATOR_DB_PATH: dbPath,
     SPORE_SESSION_DB_PATH: sessionDbPath,
-    SPORE_EVENT_LOG_PATH: eventLogPath
+    SPORE_EVENT_LOG_PATH: eventLogPath,
+    SPORE_WORKTREE_ROOT: worktreeRoot
   });
   const web = startProcess("node", ["apps/web/server.js"], {
     SPORE_WEB_PORT: String(WEB_PORT),
@@ -24,6 +29,16 @@ test("self-build summary and lineage routes expose operator-first visibility", a
   t.after(() => {
     orchestrator.kill("SIGTERM");
     web.kill("SIGTERM");
+  });
+  t.after(async () => {
+    for (const workspace of createdWorkspaces) {
+      try {
+        await removeWorkspace({ worktreePath: workspace.worktreePath, branchName: workspace.branchName, force: true });
+      } catch {
+        // best-effort cleanup for test-owned worktrees
+      }
+    }
+    await fs.rm(worktreeRoot, { recursive: true, force: true });
   });
 
   await waitForHealth(`http://127.0.0.1:${ORCHESTRATOR_PORT}/health`);
@@ -194,6 +209,25 @@ test("self-build summary and lineage routes expose operator-first visibility", a
   assert.ok(runDetail.json.detail.item);
   assert.ok(Array.isArray(runDetail.json.detail.docSuggestions));
   assert.ok(Array.isArray(runDetail.json.detail.learningRecords));
+  assert.ok(runDetail.json.detail.workspace);
+
+  const workspaceDetail = await getJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/work-item-runs/${encodeURIComponent(runId)}/workspace`
+  );
+  assert.equal(workspaceDetail.status, 200);
+  assert.ok(workspaceDetail.json.ok);
+  assert.ok(workspaceDetail.json.detail);
+  assert.ok(workspaceDetail.json.detail.worktreePath);
+  createdWorkspaces.push({
+    worktreePath: workspaceDetail.json.detail.worktreePath,
+    branchName: workspaceDetail.json.detail.branchName
+  });
+
+  const workspaceList = await getJson(`http://127.0.0.1:${ORCHESTRATOR_PORT}/workspaces`);
+  assert.equal(workspaceList.status, 200);
+  assert.ok(workspaceList.json.ok);
+  assert.ok(Array.isArray(workspaceList.json.detail));
+  assert.ok(workspaceList.json.detail.some((entry) => entry.id === workspaceDetail.json.detail.id));
 
   // Test 10: check if proposal was created for workflow items
   if (runResult.json.detail.proposal) {
@@ -208,6 +242,7 @@ test("self-build summary and lineage routes expose operator-first visibility", a
     assert.ok(proposal.json.detail.links.review);
     assert.ok(proposal.json.detail.links.approval);
     assert.ok(proposal.json.detail.artifacts);
+    assert.ok(proposal.json.detail.artifacts.workspace);
   }
 
   // Test 11: validate work-item run (triggers scenario/regression runs)

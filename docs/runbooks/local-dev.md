@@ -167,6 +167,8 @@ curl http://127.0.0.1:8789/work-item-groups
 curl -X POST http://127.0.0.1:8789/work-item-groups/<group-id>/run \
   -H 'content-type: application/json' \
   -d '{"stub":true,"wait":true}'
+curl http://127.0.0.1:8789/workspaces
+curl http://127.0.0.1:8789/work-item-runs/<run-id>/workspace
 
 curl -X POST http://127.0.0.1:8789/workflows/invoke \
   -H 'content-type: application/json' \
@@ -296,6 +298,9 @@ npm run orchestrator:regression-trends -- --regression local-fast
 curl http://127.0.0.1:8789/regressions/scheduler/status | jq '.detail.profiles[] | {id, scheduleStatus, latestScheduledRun}'
 npm run orchestrator:work-item-template-list
 npm run orchestrator:work-item-template-show -- --template operator-ui-pass
+npm run orchestrator:workspace-list
+npm run orchestrator:workspace-show -- --run <work-item-run-id>
+npm run workspace:list
 npm run orchestrator:goal-plan-create -- --goal "Stabilize CLI verification and docs follow-up"
 npm run orchestrator:goal-plan-list
 npm run orchestrator:goal-plan-show -- --plan <goal-plan-id>
@@ -376,6 +381,7 @@ For dependency-aware self-build verification, also confirm that:
 - embeddings: `data/embeddings/`
 - cache/state: `data/cache/`, `data/state/`
 - runtime artifacts: `tmp/sessions/`
+- worktree isolation root: `.spore/worktrees/`
 
 ## Operational Notes
 

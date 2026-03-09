@@ -27,12 +27,15 @@ import {
   getSelfBuildSummary,
   getSelfBuildWorkItem,
   getSelfBuildWorkItemRun,
+  getWorkspaceByRun,
+  getWorkspaceSummary,
   getWorkItemGroupSummary,
   setWorkItemGroupDependencies,
   getWorkItemTemplate,
   listGoalPlansSummary,
   listSelfBuildWorkItemRuns,
   listSelfBuildWorkItems,
+  listWorkspaceSummaries,
   listWorkItemGroupsSummary,
   listWorkItemTemplates,
   materializeGoalPlan,
@@ -778,6 +781,16 @@ const server = http.createServer(async (request, response) => {
       return;
     }
 
+    if (request.method === "GET" && parts.length === 3 && parts[0] === "work-item-runs" && parts[2] === "workspace") {
+      const detail = getWorkspaceByRun(parts[1]);
+      if (!detail) {
+        json(response, 404, { ok: false, error: "not_found", message: `workspace not found for work item run: ${parts[1]}` });
+        return;
+      }
+      json(response, 200, { ok: true, detail });
+      return;
+    }
+
     if (request.method === "GET" && parts.length === 3 && parts[0] === "work-item-runs" && parts[2] === "proposal") {
       const detail = getProposalByRun(parts[1]);
       if (!detail) {
@@ -835,6 +848,30 @@ const server = http.createServer(async (request, response) => {
       const detail = await approveProposalArtifact(parts[1], body);
       if (!detail) {
         json(response, 404, { ok: false, error: "not_found", message: `proposal artifact not found: ${parts[1]}` });
+        return;
+      }
+      json(response, 200, { ok: true, detail });
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/workspaces") {
+      json(response, 200, {
+        ok: true,
+        detail: listWorkspaceSummaries({
+          status: url.searchParams.get("status")?.trim() || null,
+          workItemId: url.searchParams.get("workItemId")?.trim() || null,
+          workItemRunId: url.searchParams.get("workItemRunId")?.trim() || null,
+          executionId: url.searchParams.get("executionId")?.trim() || null,
+          limit: url.searchParams.get("limit")?.trim() || "50"
+        })
+      });
+      return;
+    }
+
+    if (request.method === "GET" && parts.length === 2 && parts[0] === "workspaces") {
+      const detail = getWorkspaceSummary(parts[1]);
+      if (!detail) {
+        json(response, 404, { ok: false, error: "not_found", message: `workspace not found: ${parts[1]}` });
         return;
       }
       json(response, 200, { ok: true, detail });

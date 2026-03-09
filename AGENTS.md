@@ -75,6 +75,7 @@ Useful local overrides for isolated runs and tests:
 - Treat `packages/runtime-pi/` as the authoritative PI integration boundary.
 - Prefer `pi-rpc` for real runtime validation; only use `pi-json` or stub mode when isolating launcher behavior.
 - Treat `packages/session-manager/` as the authoritative session state and lifecycle boundary.
+- Treat `packages/workspace-manager/` as the authoritative git worktree isolation boundary for mutating self-work.
 - Treat `services/session-gateway/` as the shared HTTP surface for clients; do not build new clients against ad hoc file reads when gateway data is sufficient.
 - Treat `packages/orchestrator/` and `services/orchestrator/` as the workflow planning and invocation boundary.
 - Treat merged domain policy as execution input, not as passive metadata.
@@ -108,6 +109,7 @@ Useful local overrides for isolated runs and tests:
 - Treat `goal plans` as durable planning artifacts that should be materialized into work-item groups; prefer `/goals/plan`, `/goal-plans*`, and `/goal-plans/:id/materialize`.
 - Treat `work-item groups` as the execution unit for multi-item rollout. Prefer `/work-item-groups*` and `/work-item-groups/:id/run` over manually running each child item when grouped execution is intended.
 - Treat proposal artifacts as governed outputs for work-item runs. Prefer `/work-item-runs/:runId/proposal`, `/proposal-artifacts/:id/review`, and `/proposal-artifacts/:id/approval` for proposal lifecycle transitions.
+- Treat workspace allocations as durable self-work infrastructure. Prefer `/workspaces*` and `/work-item-runs/:runId/workspace` over inferring worktree state from filesystem paths alone.
 - Treat run validation and docs follow-up as first-class read/write surfaces. Prefer `/work-item-runs/:runId/validate` and `/work-item-runs/:runId/doc-suggestions` for operator quality loops.
 - Use `/self-build/summary` (or `self-build-summary`) for top-level self-build state snapshots before stitching ad hoc summary views.
 
@@ -219,8 +221,9 @@ Current CLI contract: `docs-kb index|search|status|rebuild`.
   - `GET /goal-plans`, `POST /goals/plan`, `GET /goal-plans/:id`, `POST /goal-plans/:id/materialize`
   - `GET /work-item-groups`, `GET /work-item-groups/:id`, `POST /work-item-groups/:id/run`
   - `GET /work-items`, `POST /work-items`, `GET /work-items/:id`, `GET /work-items/:id/runs`, `POST /work-items/:id/run`
-  - `GET /work-item-runs/:runId`, `GET /work-item-runs/:runId/proposal`, `POST /work-item-runs/:runId/validate`, `GET /work-item-runs/:runId/doc-suggestions`
+  - `GET /work-item-runs/:runId`, `GET /work-item-runs/:runId/workspace`, `GET /work-item-runs/:runId/proposal`, `POST /work-item-runs/:runId/validate`, `GET /work-item-runs/:runId/doc-suggestions`
   - `GET /proposal-artifacts/:id`, `POST /proposal-artifacts/:id/review`, `POST /proposal-artifacts/:id/approval`
+  - `GET /workspaces`, `GET /workspaces/:id`
 - `GET /run-center/summary` should be treated as the preferred aggregate route for operator alerts and recommendations across named validation flows.
 - Treat additive operator drilldown helpers such as `links.*`, `trendSnapshot`, `latestReports[]`, `recentRuns[]`, and `failureBreakdown` as first-class read-surface fields when they are present; clients should not reconstruct equivalent links heuristically.
 - `services/orchestrator/` now also exposes `/work-items`, `/work-items/:id`, `/work-items/:id/run`, and `/work-item-runs/:runId` for supervised self-work tracking.

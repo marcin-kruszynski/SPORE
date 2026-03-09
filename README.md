@@ -454,6 +454,7 @@ packages/
 ├── runtime-pi/         PI runtime integration (plan, launch, steer)
 ├── session-manager/    Session lifecycle, metadata store, event log
 ├── orchestrator/       Workflow planning, execution, review gates
+├── workspace-manager/  Git worktree provisioning, inspection, cleanup
 ├── tui/                Terminal operator dashboard & session inspector
 ├── core/               [scaffold] Shared orchestration contracts
 ├── shared/             [scaffold] Shared utilities
@@ -941,7 +942,7 @@ npm run orchestrator:regression-latest-report -- --regression local-fast
 npm run orchestrator:regression-rerun -- --run <run-id>
 npm run orchestrator:regression-trends -- --regression local-fast
 npm run orchestrator:work-item-template-list
-npm run orchestrator:work-item-template-show -- --template scenario-hardening
+npm run orchestrator:work-item-template-show -- --template operator-ui-pass
 npm run orchestrator:goal-plan-create -- --goal "Stabilize CLI verification and docs follow-up"
 npm run orchestrator:goal-plan-list
 npm run orchestrator:goal-plan-show -- --plan <goal-plan-id>
@@ -949,15 +950,17 @@ npm run orchestrator:goal-plan-materialize -- --plan <goal-plan-id>
 npm run orchestrator:work-item-group-list
 npm run orchestrator:work-item-group-show -- --group <group-id>
 npm run orchestrator:work-item-group-run -- --group <group-id> --stub
-npm run orchestrator:work-item-create -- --template scenario-hardening
+npm run orchestrator:work-item-create -- --template operator-ui-pass
 npm run orchestrator:work-item-list
 npm run orchestrator:work-item-show -- --item <work-item-id>
 npm run orchestrator:work-item-runs -- --item <work-item-id>
 npm run orchestrator:work-item-run -- --item <work-item-id> --stub
 npm run orchestrator:work-item-run-show -- --run <work-item-run-id>
+npm run orchestrator:workspace-show -- --run <work-item-run-id>
 npm run orchestrator:work-item-validate -- --run <work-item-run-id> --stub
 npm run orchestrator:work-item-doc-suggestions -- --run <work-item-run-id>
 npm run orchestrator:proposal-show -- --run <work-item-run-id>
+npm run workspace:list
 npm run orchestrator:proposal-review -- --proposal <proposal-id> --status reviewed
 npm run orchestrator:proposal-approve -- --proposal <proposal-id> --status approved
 ```
@@ -994,6 +997,7 @@ npm run orchestrator:proposal-approve -- --proposal <proposal-id> --status appro
 | `POST` | `/work-items` | Create one managed work item |
 | `POST` | `/work-items/:id/run` | Execute one managed work item through scenario, regression, or workflow paths |
 | `GET` | `/work-item-runs/:runId` | One durable work-item run result |
+| `GET` | `/work-item-runs/:runId/workspace` | Workspace allocation linked to one work-item run |
 | `GET` | `/work-item-runs/:runId/proposal` | Proposal artifact summary linked to one work-item run |
 | `POST` | `/work-item-runs/:runId/validate` | Validation pass over one work-item run with durable evaluation output |
 | `GET` | `/work-item-runs/:runId/doc-suggestions` | Suggested documentation follow-up actions for one run |
@@ -1009,6 +1013,8 @@ npm run orchestrator:proposal-approve -- --proposal <proposal-id> --status appro
 | `GET` | `/proposal-artifacts/:id` | One proposal artifact with review/approval status |
 | `POST` | `/proposal-artifacts/:id/review` | Review transition for one proposal artifact |
 | `POST` | `/proposal-artifacts/:id/approval` | Approval transition for one proposal artifact |
+| `GET` | `/workspaces` | Durable workspace allocation list for mutating self-work |
+| `GET` | `/workspaces/:id` | One workspace allocation with worktree metadata |
 | `GET` | `/sessions/:id/live` | Combined live session metadata, events, artifacts, control history, diagnostics, and operator suggestions |
 | `GET` | `/sessions/:id/control-history` | Durable control request history for one session |
 | `GET` | `/sessions/:id/control-status/:requestId` | One durable control request with ack/result status |

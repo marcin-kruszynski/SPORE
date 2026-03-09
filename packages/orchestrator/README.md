@@ -98,6 +98,7 @@ Recommended interpretation:
 - `work-item-group-list`, `work-item-group-show --group <id>`, and `work-item-group-run --group <id>` expose grouped managed-work execution.
 - `work-item-list`, `work-item-show`, `work-item-create`, `work-item-run`, and `work-item-run-show` expose the first durable managed self-work surface for SPORE itself.
 - `work-item-runs --item <id>` exposes durable run history for one managed work item.
+- `workspace-list` and `workspace-show --workspace <id>` (or `--run <work-item-run-id>`) expose durable worktree allocation state for mutating self-work.
 - `work-item-validate --run <id>` records durable validation/evaluation artifacts for one managed run.
 - `work-item-doc-suggestions --run <id>` returns persisted documentation follow-up suggestions for one managed run.
 - `proposal-show --proposal <id>` (or `--run <work-item-run-id>`) exposes durable proposal artifact summary.
@@ -158,7 +159,7 @@ npm run orchestrator:regression-latest-report -- --regression local-fast
 npm run orchestrator:regression-rerun -- --run <run-id>
 npm run orchestrator:regression-trends -- --regression local-fast
 npm run orchestrator:work-item-template-list
-npm run orchestrator:work-item-template-show -- --template scenario-hardening
+npm run orchestrator:work-item-template-show -- --template operator-ui-pass
 npm run orchestrator:goal-plan-create -- --goal "Stabilize CLI verification and proposal quality"
 npm run orchestrator:goal-plan-list
 npm run orchestrator:goal-plan-show -- --plan <goal-plan-id>
@@ -166,12 +167,13 @@ npm run orchestrator:goal-plan-materialize -- --plan <goal-plan-id>
 npm run orchestrator:work-item-group-list
 npm run orchestrator:work-item-group-show -- --group <group-id>
 npm run orchestrator:work-item-group-run -- --group <group-id> --stub
-npm run orchestrator:work-item-create -- --template scenario-hardening
+npm run orchestrator:work-item-create -- --template operator-ui-pass
 npm run orchestrator:work-item-list
 npm run orchestrator:work-item-show -- --item <work-item-id>
 npm run orchestrator:work-item-runs -- --item <work-item-id>
 npm run orchestrator:work-item-run -- --item <work-item-id> --stub
 npm run orchestrator:work-item-run-show -- --run <work-item-run-id>
+npm run orchestrator:workspace-show -- --run <work-item-run-id>
 npm run orchestrator:work-item-validate -- --run <work-item-run-id> --stub
 npm run orchestrator:work-item-doc-suggestions -- --run <work-item-run-id>
 npm run orchestrator:proposal-show -- --run <work-item-run-id>

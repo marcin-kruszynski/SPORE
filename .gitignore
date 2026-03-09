@@ -39,8 +39,12 @@ data/docs-index/*
 !data/docs-index/README.md
 tmp/*
 !tmp/README.md
+.spore/
 
 # References are local study mirrors. Track only repository-level guidance.
 references/*
 !references/README.md
 !references/REFERENCE_MANIFEST.md
+
+# Local planning artifacts
+.planning/

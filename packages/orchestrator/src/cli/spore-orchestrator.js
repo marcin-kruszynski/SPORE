@@ -63,12 +63,15 @@ import {
   getSelfBuildSummary,
   getSelfBuildWorkItem,
   getSelfBuildWorkItemRun,
+  getWorkspaceByRun,
+  getWorkspaceSummary,
   getWorkItemGroupSummary,
   setWorkItemGroupDependencies,
   getWorkItemTemplate,
   listGoalPlansSummary,
   listSelfBuildWorkItemRuns,
   listSelfBuildWorkItems,
+  listWorkspaceSummaries,
   listWorkItemGroupsSummary,
   listWorkItemTemplates,
   materializeGoalPlan,
@@ -932,6 +935,29 @@ async function main() {
       throw new Error("proposal artifact not found");
     }
     console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
+  if (command === "workspace-list") {
+    console.log(JSON.stringify(listWorkspaceSummaries({
+      status: flags.status ?? null,
+      workItemId: flags.item ?? null,
+      workItemRunId: flags.run ?? null,
+      executionId: flags.execution ?? null,
+      limit: flags.limit ?? "50"
+    }), null, 2));
+    return;
+  }
+
+  if (command === "workspace-show") {
+    if (!flags.workspace && !flags.run) {
+      throw new Error("use workspace-show --workspace <id> or --run <work-item-run-id>");
+    }
+    const detail = flags.workspace ? getWorkspaceSummary(flags.workspace) : getWorkspaceByRun(flags.run);
+    if (!detail) {
+      throw new Error(`workspace not found: ${flags.workspace ?? flags.run}`);
+    }
+    console.log(JSON.stringify(detail, null, 2));
     return;
   }
 

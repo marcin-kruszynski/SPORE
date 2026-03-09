@@ -29,6 +29,7 @@
 - `docs/plans/implementation-waves.md`
 - `docs/plans/backlog.md`
 - `docs/plans/bootstrap-completion-summary.md`
+- `docs/plans/self-build-status-and-next-steps.md`
 - `docs/roadmap/IMPLEMENTATION_ROADMAP.md`
 - `docs/operations/WORKSPACE_OPERATING_MODEL.md`
 - `docs/operations/BOOTSTRAP_STATUS.md`
@@ -48,6 +49,7 @@
 - `docs/specs/environment-bootstrap.md`
 - `docs/specs/docs-search-tool.md`
 - `docs/specs/bootstrap-architect-instruction.md`
+- `docs/specs/worktree-and-workspace-isolation.md`
 
 ### References and Research
 - `references/README.md`
