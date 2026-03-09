@@ -267,12 +267,22 @@ function buildGoalRecommendations({ goal, domainId, safeMode = true }) {
 }
 
 function buildGoalPlanSummary(plan, items = [], group = null) {
+  const recentActivity = items.length > 0 
+    ? items.map((item) => ({ timestamp: item.updatedAt, kind: "work-item", id: item.id }))
+        .sort((left, right) => new Date(right.timestamp) - new Date(left.timestamp))[0]
+    : null;
+  
   return {
     ...plan,
     links: goalPlanLinks(plan.id),
     recommendedWorkItems: plan.recommendations,
     materializedGroup: group,
-    materializedItems: items
+    materializedItems: items,
+    recentActivity: recentActivity ? {
+      timestamp: recentActivity.timestamp,
+      kind: recentActivity.kind,
+      targetId: recentActivity.id
+    } : null
   };
 }
 
@@ -282,13 +292,28 @@ function buildGroupSummary(group, items = [], runs = []) {
     accumulator[run.status] = (accumulator[run.status] ?? 0) + 1;
     return accumulator;
   }, {});
+  const itemsWithLinks = items.map((item) => ({
+    ...item,
+    links: {
+      self: `/work-items/${encodeURIComponent(item.id)}`,
+      runs: `/work-items/${encodeURIComponent(item.id)}/runs`
+    }
+  }));
+  const runsWithLinks = runs.slice(0, 10).map((run) => ({
+    ...run,
+    links: {
+      self: `/work-item-runs/${encodeURIComponent(run.id)}`,
+      item: `/work-items/${encodeURIComponent(run.workItemId)}`
+    }
+  }));
+  
   return {
     ...group,
     itemCount: items.length,
     latestRunAt,
     runCountsByStatus: counts,
-    items,
-    recentRuns: runs.slice(0, 10),
+    items: itemsWithLinks,
+    recentRuns: runsWithLinks,
     links: groupLinks(group.id)
   };
 }
@@ -456,10 +481,32 @@ export function getSelfBuildWorkItem(itemId, dbPath = DEFAULT_ORCHESTRATOR_DB_PA
   }
   const group = item.metadata?.groupId ? withDatabase(dbPath, (db) => getWorkItemGroup(db, item.metadata.groupId)) : null;
   const goalPlan = item.metadata?.goalPlanId ? withDatabase(dbPath, (db) => getGoalPlan(db, item.metadata.goalPlanId)) : null;
+  const recentRuns = listSelfBuildWorkItemRuns(itemId, { limit: 10 }, dbPath);
+  const latestProposal = recentRuns.length > 0 
+    ? withDatabase(dbPath, (db) => getProposalArtifactByRunId(db, recentRuns[0].id))
+    : null;
+  
   return {
     ...item,
     workItemGroup: group ? buildGroupSummary(group) : null,
-    goalPlan: goalPlan ? buildGoalPlanSummary(goalPlan) : null
+    goalPlan: goalPlan ? buildGoalPlanSummary(goalPlan) : null,
+    recentRuns: recentRuns.slice(0, 5).map((run) => ({
+      ...run,
+      links: {
+        self: `/work-item-runs/${encodeURIComponent(run.id)}`,
+        proposal: run.id ? `/work-item-runs/${encodeURIComponent(run.id)}/proposal` : null,
+        validate: `/work-item-runs/${encodeURIComponent(run.id)}/validate`,
+        docSuggestions: `/work-item-runs/${encodeURIComponent(run.id)}/doc-suggestions`
+      }
+    })),
+    latestProposal: latestProposal ? buildProposalSummary(latestProposal) : null,
+    links: {
+      self: `/work-items/${encodeURIComponent(itemId)}`,
+      runs: `/work-items/${encodeURIComponent(itemId)}/runs`,
+      run: `/work-items/${encodeURIComponent(itemId)}/run`,
+      group: group ? `/work-item-groups/${encodeURIComponent(group.id)}` : null,
+      goalPlan: goalPlan ? `/goal-plans/${encodeURIComponent(goalPlan.id)}` : null
+    }
   };
 }
 
@@ -474,13 +521,29 @@ export function getSelfBuildWorkItemRun(runId, dbPath = DEFAULT_ORCHESTRATOR_DB_
     listLearningRecords(db, "work-item-run", 50).filter((record) => record.sourceId === run.id)
   );
   const docSuggestions = run.metadata?.docSuggestions ?? buildDocSuggestions(item ?? { relatedDocs: [] }, run, proposal);
+  const group = item?.metadata?.groupId ? withDatabase(dbPath, (db) => getWorkItemGroup(db, item.metadata.groupId)) : null;
+  const goalPlan = item?.metadata?.goalPlanId ? withDatabase(dbPath, (db) => getGoalPlan(db, item.metadata.goalPlanId)) : null;
+  
   return {
     ...run,
     item,
     proposal: buildProposalSummary(proposal),
     validation: run.metadata?.validation ?? null,
     docSuggestions,
-    learningRecords: learningRecords.map(buildLearningSummary)
+    learningRecords: learningRecords.map(buildLearningSummary),
+    lineage: {
+      workItemGroup: group ? { id: group.id, title: group.title } : null,
+      goalPlan: goalPlan ? { id: goalPlan.id, title: goalPlan.title, goal: goalPlan.goal } : null
+    },
+    links: {
+      self: `/work-item-runs/${encodeURIComponent(runId)}`,
+      item: `/work-items/${encodeURIComponent(run.workItemId)}`,
+      proposal: proposal ? `/proposal-artifacts/${encodeURIComponent(proposal.id)}` : null,
+      validate: `/work-item-runs/${encodeURIComponent(runId)}/validate`,
+      docSuggestions: `/work-item-runs/${encodeURIComponent(runId)}/doc-suggestions`,
+      group: group ? `/work-item-groups/${encodeURIComponent(group.id)}` : null,
+      goalPlan: goalPlan ? `/goal-plans/${encodeURIComponent(goalPlan.id)}` : null
+    }
   };
 }
 
