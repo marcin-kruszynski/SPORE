@@ -18,6 +18,10 @@
           </p>
         </div>
         <div class="hero-actions">
+          <nav class="view-nav">
+            <button id="view-run-center" class="view-button active" data-view="run-center">Run Center</button>
+            <button id="view-self-build" class="view-button" data-view="self-build">Self-Build</button>
+          </nav>
           <button id="refresh-button" class="primary-button">Refresh</button>
           <label class="toggle">
             <input id="auto-refresh" type="checkbox" checked />
@@ -57,7 +61,46 @@
         </article>
       </section>
 
-      <section class="layout">
+      <!-- Self-Build Dashboard View -->
+      <section id="self-build-view" class="view-container" style="display: none;">
+        <div class="self-build-dashboard">
+          <section class="dashboard-section">
+            <div class="panel-header">
+              <h2>Overview</h2>
+              <span id="self-build-freshness" class="muted">Last updated: -</span>
+            </div>
+            <div id="self-build-overview" class="overview-cards"></div>
+          </section>
+
+          <section class="dashboard-section">
+            <div class="panel-header">
+              <h2>Urgent Work</h2>
+              <span id="urgent-work-count" class="muted">0 items</span>
+            </div>
+            <div id="urgent-work-queue" class="work-queue"></div>
+          </section>
+
+          <section class="dashboard-section">
+            <div class="panel-header">
+              <h2>Follow-Up</h2>
+              <span id="follow-up-count" class="muted">0 items</span>
+            </div>
+            <div id="follow-up-queue" class="work-queue"></div>
+          </section>
+
+          <!-- Drilldown Detail View -->
+          <div id="self-build-detail-overlay" class="detail-overlay" style="display: none;">
+            <div class="detail-overlay-header">
+              <button id="self-build-back-button" class="secondary-button">← Back to Dashboard</button>
+              <h2 id="self-build-detail-title">Detail View</h2>
+            </div>
+            <div id="self-build-detail-content" class="detail-content"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Run Center View -->
+      <section id="run-center-view" class="view-container layout">
         <section class="panel left-stack">
           <div class="panel-header">
             <h2>Executions</h2>
@@ -374,6 +417,7 @@
           </section>
         </section>
       </section>
+      <!-- End Run Center View -->
     </main>
 
     <script type="module" src="/app.js"></script>

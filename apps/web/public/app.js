@@ -76,7 +76,19 @@ const state = {
   autoRefreshTimer: null,
   eventSource: null,
   executionEventSource: null,
-  activeTab: "events"
+  activeTab: "events",
+  // Self-build dashboard state
+  activeView: "run-center",
+  selfBuildWorkItems: [],
+  selfBuildGroups: [],
+  selectedWorkItemId: null,
+  selectedWorkItemGroupId: null,
+  workItemDetail: null,
+  workItemDetailState: "idle",
+  workItemDetailError: null,
+  workItemGroupDetail: null,
+  workItemGroupDetailState: "idle",
+  workItemGroupDetailError: null
 };
 
 const els = {
@@ -170,7 +182,22 @@ const els = {
   workflowButton: document.getElementById("workflow-button"),
   executionStreamState: document.getElementById("execution-stream-state"),
   tabButtons: Array.from(document.querySelectorAll("[data-tab]")),
-  tabPanels: Array.from(document.querySelectorAll(".tab-panel"))
+  tabPanels: Array.from(document.querySelectorAll(".tab-panel")),
+  // Self-build dashboard elements
+  viewRunCenterButton: document.getElementById("view-run-center"),
+  viewSelfBuildButton: document.getElementById("view-self-build"),
+  runCenterView: document.getElementById("run-center-view"),
+  selfBuildView: document.getElementById("self-build-view"),
+  selfBuildOverview: document.getElementById("self-build-overview"),
+  selfBuildFreshness: document.getElementById("self-build-freshness"),
+  urgentWorkQueue: document.getElementById("urgent-work-queue"),
+  urgentWorkCount: document.getElementById("urgent-work-count"),
+  followUpQueue: document.getElementById("follow-up-queue"),
+  followUpCount: document.getElementById("follow-up-count"),
+  selfBuildDetailOverlay: document.getElementById("self-build-detail-overlay"),
+  selfBuildBackButton: document.getElementById("self-build-back-button"),
+  selfBuildDetailTitle: document.getElementById("self-build-detail-title"),
+  selfBuildDetailContent: document.getElementById("self-build-detail-content")
 };
 
 function escapeHtml(value) {
@@ -6403,3 +6430,308 @@ refresh().catch((error) => {
   els.sessionDetail.className = "detail-card empty-state";
   els.sessionDetail.textContent = `Failed to load gateway data: ${error.message}`;
 });
+
+// Self-Build Dashboard Functions
+
+function switchView(viewName) {
+  state.activeView = viewName;
+  
+  // Update view button states
+  if (els.viewRunCenterButton) {
+    els.viewRunCenterButton.classList.toggle("active", viewName === "run-center");
+  }
+  if (els.viewSelfBuildButton) {
+    els.viewSelfBuildButton.classList.toggle("active", viewName === "self-build");
+  }
+  
+  // Toggle view visibility
+  if (els.runCenterView) {
+    els.runCenterView.style.display = viewName === "run-center" ? "" : "none";
+  }
+  if (els.selfBuildView) {
+    els.selfBuildView.style.display = viewName === "self-build" ? "" : "none";
+  }
+  
+  // Hide detail overlay when switching views
+  if (els.selfBuildDetailOverlay) {
+    els.selfBuildDetailOverlay.style.display = "none";
+  }
+  
+  // Refresh data for the active view
+  if (viewName === "self-build") {
+    refreshSelfBuildDashboard();
+  }
+}
+
+async function refreshSelfBuildDashboard() {
+  try {
+    const response = await fetch("/api/orchestrator/self-build/summary");
+    const data = await response.json();
+    
+    if (data.ok && data.detail) {
+      state.selfBuildSummary = data.detail;
+      state.selfBuildSummaryState = "loaded";
+      state.selfBuildSummaryError = null;
+      renderSelfBuildDashboard();
+    } else {
+      state.selfBuildSummaryState = "error";
+      state.selfBuildSummaryError = data.error || "Failed to load self-build summary";
+    }
+  } catch (error) {
+    state.selfBuildSummaryState = "error";
+    state.selfBuildSummaryError = error.message;
+    console.error("Failed to load self-build summary:", error);
+  }
+}
+
+function renderSelfBuildDashboard() {
+  if (!state.selfBuildSummary) {
+    return;
+  }
+  
+  const summary = state.selfBuildSummary;
+  
+  // Render overview cards
+  renderSelfBuildOverview(summary);
+  
+  // Render urgent work queue
+  renderWorkQueue(summary.urgentWork || [], els.urgentWorkQueue, els.urgentWorkCount, "urgent");
+  
+  // Render follow-up queue
+  renderWorkQueue(summary.followUpWork || [], els.followUpQueue, els.followUpCount, "follow-up");
+  
+  // Update freshness indicator
+  if (els.selfBuildFreshness && summary.freshness) {
+    const lastRefresh = summary.freshness.lastRefresh || summary.overview?.generatedAt;
+    els.selfBuildFreshness.textContent = `Last updated: ${formatTimestamp(lastRefresh)}`;
+  }
+}
+
+function renderSelfBuildOverview(summary) {
+  if (!els.selfBuildOverview) return;
+  
+  const overview = summary.overview || {};
+  const counts = summary.counts || {};
+  
+  const cards = [
+    { label: "Total Work Items", value: counts.workItems || 0 },
+    { label: "Groups", value: counts.groups || 0 },
+    { label: "Urgent Items", value: overview.urgentCount || 0, highlight: overview.urgentCount > 0 },
+    { label: "Follow-Up Items", value: overview.followUpCount || 0 },
+    { label: "Proposals", value: counts.proposals || 0 },
+    { label: "Blocked", value: counts.blockedItems || 0, highlight: counts.blockedItems > 0 },
+    { label: "Failed", value: counts.failedItems || 0, highlight: counts.failedItems > 0 },
+    { label: "Waiting Review", value: counts.waitingReviewProposals || 0, highlight: counts.waitingReviewProposals > 0 }
+  ];
+  
+  els.selfBuildOverview.innerHTML = cards
+    .map(
+      (card) => `
+      <div class="overview-card ${card.highlight ? "highlight" : ""}">
+        <span class="label">${escapeHtml(card.label)}</span>
+        <span class="value">${escapeHtml(String(card.value))}</span>
+      </div>
+    `
+    )
+    .join("");
+}
+
+function renderWorkQueue(items, container, countElement, queueType) {
+  if (!container) return;
+  
+  if (countElement) {
+    countElement.textContent = `${items.length} ${items.length === 1 ? "item" : "items"}`;
+  }
+  
+  if (items.length === 0) {
+    const emptyClass = queueType === "urgent" ? "quiet" : "";
+    const emptyMessage =
+      queueType === "urgent"
+        ? "No urgent work requiring immediate attention."
+        : "No follow-up items at this time.";
+    container.innerHTML = `<div class="empty-work-queue ${emptyClass}">${emptyMessage}</div>`;
+    return;
+  }
+  
+  container.innerHTML = items
+    .map((item) => {
+      const itemType = item.itemType || item.type || "work-item";
+      const itemId = item.id || item.workItemId || item.proposalId || "";
+      const title = item.title || item.label || item.name || itemId;
+      const status = item.status || item.state || "unknown";
+      const meta = [];
+      
+      if (item.kind) meta.push(item.kind);
+      if (item.priority) meta.push(`priority: ${item.priority}`);
+      if (item.lastRunAt) meta.push(`last run: ${formatTimestamp(item.lastRunAt)}`);
+      if (item.blockedReason) meta.push(`blocked: ${item.blockedReason}`);
+      
+      return `
+        <div class="work-item-row" data-item-type="${escapeHtml(itemType)}" data-item-id="${escapeHtml(itemId)}" onclick="openSelfBuildDetail('${escapeHtml(itemType)}', '${escapeHtml(itemId)}')">
+          <div class="work-item-status ${stateClass(status)}"></div>
+          <div class="work-item-info">
+            <div class="work-item-title">${escapeHtml(title)}</div>
+            <div class="work-item-meta">${escapeHtml(meta.join(" • "))}</div>
+          </div>
+          <span class="work-item-badge ${queueType}">${escapeHtml(status)}</span>
+          <span class="work-item-arrow">→</span>
+        </div>
+      `;
+    })
+    .join("");
+}
+
+async function openSelfBuildDetail(itemType, itemId) {
+  if (!els.selfBuildDetailOverlay || !els.selfBuildDetailContent) return;
+  
+  // Show overlay
+  els.selfBuildDetailOverlay.style.display = "block";
+  els.selfBuildDetailContent.innerHTML = '<div class="loading">Loading detail...</div>';
+  
+  try {
+    let detailData = null;
+    let endpoint = "";
+    
+    if (itemType === "work-item") {
+      endpoint = `/api/orchestrator/work-items/${encodeURIComponent(itemId)}`;
+      state.selectedWorkItemId = itemId;
+    } else if (itemType === "work-item-group") {
+      endpoint = `/api/orchestrator/work-item-groups/${encodeURIComponent(itemId)}`;
+      state.selectedWorkItemGroupId = itemId;
+    } else if (itemType === "proposal") {
+      endpoint = `/api/orchestrator/proposal-artifacts/${encodeURIComponent(itemId)}`;
+    } else {
+      throw new Error(`Unknown item type: ${itemType}`);
+    }
+    
+    const response = await fetch(endpoint);
+    const data = await response.json();
+    
+    if (data.ok && data.detail) {
+      detailData = data.detail;
+      renderSelfBuildDetailView(itemType, detailData);
+    } else {
+      els.selfBuildDetailContent.innerHTML = `<div class="error">Failed to load detail: ${escapeHtml(data.error || "Unknown error")}</div>`;
+    }
+  } catch (error) {
+    els.selfBuildDetailContent.innerHTML = `<div class="error">Error loading detail: ${escapeHtml(error.message)}</div>`;
+    console.error("Failed to load self-build detail:", error);
+  }
+}
+
+function renderSelfBuildDetailView(itemType, detail) {
+  if (!els.selfBuildDetailContent || !els.selfBuildDetailTitle) return;
+  
+  const title = detail.title || detail.label || detail.name || detail.id;
+  els.selfBuildDetailTitle.textContent = title;
+  
+  // Render lineage chain
+  let lineageHTML = "";
+  if (itemType === "work-item" && detail.goalPlan && detail.workItemGroup) {
+    lineageHTML = `
+      <div class="lineage-chain">
+        <span>Goal: ${escapeHtml(detail.goalPlan.goal || detail.goalPlan.id)}</span>
+        <span class="lineage-separator">→</span>
+        <span>Group: ${escapeHtml(detail.workItemGroup.label || detail.workItemGroup.id)}</span>
+        <span class="lineage-separator">→</span>
+        <span>Item: ${escapeHtml(title)}</span>
+      </div>
+    `;
+  } else if (itemType === "work-item-group" && detail.goalPlan) {
+    lineageHTML = `
+      <div class="lineage-chain">
+        <span>Goal: ${escapeHtml(detail.goalPlan.goal || detail.goalPlan.id)}</span>
+        <span class="lineage-separator">→</span>
+        <span>Group: ${escapeHtml(title)}</span>
+      </div>
+    `;
+  }
+  
+  // Render detail sections
+  const statusSection = `
+    <div class="detail-section">
+      <h3>Status & Information</h3>
+      <div class="detail-row">
+        <div class="detail-label">Status</div>
+        <div class="detail-value"><span class="status-badge ${stateClass(detail.status || detail.state)}">${escapeHtml(detail.status || detail.state || "unknown")}</span></div>
+      </div>
+      <div class="detail-row">
+        <div class="detail-label">ID</div>
+        <div class="detail-value"><code>${escapeHtml(detail.id)}</code></div>
+      </div>
+      ${detail.kind ? `<div class="detail-row"><div class="detail-label">Kind</div><div class="detail-value">${escapeHtml(detail.kind)}</div></div>` : ""}
+      ${detail.priority ? `<div class="detail-row"><div class="detail-label">Priority</div><div class="detail-value">${escapeHtml(detail.priority)}</div></div>` : ""}
+      ${detail.createdAt ? `<div class="detail-row"><div class="detail-label">Created</div><div class="detail-value">${formatTimestamp(detail.createdAt)}</div></div>` : ""}
+      ${detail.updatedAt ? `<div class="detail-row"><div class="detail-label">Updated</div><div class="detail-value">${formatTimestamp(detail.updatedAt)}</div></div>` : ""}
+    </div>
+  `;
+  
+  let recentActivitySection = "";
+  if (itemType === "work-item" && Array.isArray(detail.runs)) {
+    const recentRuns = detail.runs.slice(0, 5);
+    recentActivitySection = `
+      <div class="detail-section">
+        <h3>Recent Runs</h3>
+        ${recentRuns.length === 0 ? "<p>No runs yet.</p>" : ""}
+        ${recentRuns
+          .map(
+            (run) => `
+          <div class="detail-row">
+            <div class="detail-label">${formatTimestamp(run.startedAt || run.createdAt)}</div>
+            <div class="detail-value"><span class="status-badge ${stateClass(run.status || run.state)}">${escapeHtml(run.status || run.state || "unknown")}</span></div>
+          </div>
+        `
+          )
+          .join("")}
+      </div>
+    `;
+  } else if (itemType === "work-item-group" && Array.isArray(detail.items)) {
+    recentActivitySection = `
+      <div class="detail-section">
+        <h3>Child Items (${detail.items.length})</h3>
+        ${detail.items
+          .map(
+            (item) => `
+          <div class="detail-row">
+            <div class="detail-label">${escapeHtml(item.title || item.label || item.id)}</div>
+            <div class="detail-value"><span class="status-badge ${stateClass(item.status || item.state)}">${escapeHtml(item.status || item.state || "unknown")}</span></div>
+          </div>
+        `
+          )
+          .join("")}
+      </div>
+    `;
+  }
+  
+  els.selfBuildDetailContent.innerHTML = lineageHTML + statusSection + recentActivitySection;
+}
+
+function formatTimestamp(timestamp) {
+  if (!timestamp) return "-";
+  try {
+    const date = new Date(timestamp);
+    return date.toLocaleString();
+  } catch {
+    return timestamp;
+  }
+}
+
+// Wire up view navigation
+if (els.viewRunCenterButton) {
+  els.viewRunCenterButton.addEventListener("click", () => switchView("run-center"));
+}
+
+if (els.viewSelfBuildButton) {
+  els.viewSelfBuildButton.addEventListener("click", () => switchView("self-build"));
+}
+
+if (els.selfBuildBackButton) {
+  els.selfBuildBackButton.addEventListener("click", () => {
+    if (els.selfBuildDetailOverlay) {
+      els.selfBuildDetailOverlay.style.display = "none";
+    }
+  });
+}
+
+// Initialize view (default to run-center)
+switchView("run-center");
