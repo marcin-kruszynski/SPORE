@@ -869,36 +869,157 @@ export function getDocSuggestionsForRun(runId, dbPath = DEFAULT_ORCHESTRATOR_DB_
 }
 
 export function getSelfBuildSummary(dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
+  const now = nowIso();
   const workItems = listManagedWorkItems({ limit: 100 }, dbPath);
   const groups = listWorkItemGroupsSummary({ limit: 50 }, dbPath);
   const proposals = withDatabase(dbPath, (db) => listProposalArtifacts(db, null, 100)).map(buildProposalSummary);
   const learnings = withDatabase(dbPath, (db) => listLearningRecords(db, null, 100)).map(buildLearningSummary);
+  const allRuns = workItems.flatMap((item) => (item.runs ?? []).map((run) => ({ ...run, itemTitle: item.title, itemId: item.id })));
+
   const blockedItems = workItems.filter((item) => item.status === "blocked");
-  const pendingReviewProposals = proposals.filter((proposal) => ["ready_for_review", "reviewed", "waiting_approval"].includes(proposal.status));
+  const failedItems = workItems.filter((item) => item.status === "failed");
+  const waitingReviewProposals = proposals.filter((proposal) => proposal.status === "ready_for_review");
+  const waitingApprovalProposals = proposals.filter((proposal) => ["reviewed", "waiting_approval"].includes(proposal.status));
+  const pendingValidationRuns = allRuns.filter((run) => 
+    run.status === "completed" && (!run.metadata?.validation || run.metadata.validation.status !== "completed")
+  );
+  const needsDocFollowUpRuns = allRuns.filter((run) =>
+    run.metadata?.docSuggestions && run.metadata.docSuggestions.length > 0
+  );
+  const recentLearnings = learnings.filter((learning) => learning.status === "active").slice(0, 10);
+
+  const urgentQueue = [
+    ...blockedItems.map((item) => ({
+      kind: "blocked-work-item",
+      priority: "high",
+      itemId: item.id,
+      title: item.title,
+      reason: "Work item blocked and requires operator intervention",
+      httpHint: `/work-items/${encodeURIComponent(item.id)}`,
+      timestamp: item.updatedAt
+    })),
+    ...failedItems.map((item) => ({
+      kind: "failed-work-item",
+      priority: "high",
+      itemId: item.id,
+      title: item.title,
+      reason: "Work item failed and may need recovery or retry",
+      httpHint: `/work-items/${encodeURIComponent(item.id)}`,
+      timestamp: item.updatedAt
+    })),
+    ...waitingReviewProposals.map((proposal) => ({
+      kind: "waiting-review",
+      priority: "high",
+      proposalId: proposal.id,
+      title: proposal.summary?.title ?? "Untitled proposal",
+      reason: "Proposal ready for operator review",
+      httpHint: `/proposal-artifacts/${encodeURIComponent(proposal.id)}`,
+      timestamp: proposal.createdAt
+    })),
+    ...waitingApprovalProposals.map((proposal) => ({
+      kind: "waiting-approval",
+      priority: "medium",
+      proposalId: proposal.id,
+      title: proposal.summary?.title ?? "Untitled proposal",
+      reason: "Proposal reviewed and waiting for approval",
+      httpHint: `/proposal-artifacts/${encodeURIComponent(proposal.id)}`,
+      timestamp: proposal.reviewedAt ?? proposal.createdAt
+    }))
+  ].sort((left, right) => {
+    const priorityOrder = { high: 0, medium: 1, low: 2 };
+    const leftPriority = priorityOrder[left.priority] ?? 3;
+    const rightPriority = priorityOrder[right.priority] ?? 3;
+    if (leftPriority !== rightPriority) return leftPriority - rightPriority;
+    return new Date(right.timestamp) - new Date(left.timestamp);
+  });
+
+  const followUpQueue = [
+    ...pendingValidationRuns.slice(0, 10).map((run) => ({
+      kind: "pending-validation",
+      priority: "medium",
+      runId: run.id,
+      itemId: run.itemId,
+      title: `Validate ${run.itemTitle}`,
+      reason: "Work item run completed but validation not yet triggered",
+      httpHint: `/work-item-runs/${encodeURIComponent(run.id)}`,
+      actionHint: "POST /work-item-runs/:runId/validate",
+      timestamp: run.endedAt ?? run.startedAt
+    })),
+    ...needsDocFollowUpRuns.slice(0, 10).map((run) => ({
+      kind: "doc-suggestions",
+      priority: "low",
+      runId: run.id,
+      itemId: run.itemId,
+      title: `Doc follow-up for ${run.itemTitle}`,
+      reason: "Work item run has documentation suggestions",
+      httpHint: `/work-item-runs/${encodeURIComponent(run.id)}/doc-suggestions`,
+      timestamp: run.endedAt ?? run.startedAt
+    }))
+  ].sort((left, right) => new Date(right.timestamp) - new Date(left.timestamp));
+
+  const mostRecentActivity = [
+    ...workItems.map((item) => ({ kind: "work-item", timestamp: item.updatedAt })),
+    ...groups.map((group) => ({ kind: "group", timestamp: group.updatedAt })),
+    ...proposals.map((proposal) => ({ kind: "proposal", timestamp: proposal.updatedAt })),
+    ...learnings.map((learning) => ({ kind: "learning", timestamp: learning.updatedAt }))
+  ].sort((left, right) => new Date(right.timestamp) - new Date(left.timestamp))[0];
+
   return {
+    overview: {
+      totalWorkItems: workItems.length,
+      totalGroups: groups.length,
+      totalProposals: proposals.length,
+      urgentCount: urgentQueue.length,
+      followUpCount: followUpQueue.length,
+      lastActivity: mostRecentActivity?.timestamp ?? null,
+      generatedAt: now
+    },
     counts: {
       workItems: workItems.length,
       groups: groups.length,
       blockedItems: blockedItems.length,
+      failedItems: failedItems.length,
       proposals: proposals.length,
-      pendingReviewProposals: pendingReviewProposals.length,
+      waitingReviewProposals: waitingReviewProposals.length,
+      waitingApprovalProposals: waitingApprovalProposals.length,
+      pendingValidationRuns: pendingValidationRuns.length,
       learningRecords: learnings.length
     },
+    urgentWork: urgentQueue.slice(0, 20),
+    followUpWork: followUpQueue.slice(0, 20),
     workItems,
     groups,
     blockedItems,
+    failedItems,
     proposals,
-    pendingReviewProposals,
-    learningRecords: learnings,
-    recommendations: blockedItems.slice(0, 5).map((item) => ({
-      action: "inspect-work-item",
-      targetType: "work-item",
-      targetId: item.id,
-      priority: "medium",
-      reason: `Work item ${item.title} is blocked and may require operator review.`,
-      expectedOutcome: "The operator can review the latest run or proposal and decide whether to resume, validate, or rerun.",
-      commandHint: `npm run orchestrator:work-item-show -- --item ${item.id}`,
-      httpHint: `/work-items/${encodeURIComponent(item.id)}`
+    waitingReviewProposals,
+    waitingApprovalProposals,
+    learningRecords: recentLearnings,
+    freshness: {
+      lastRefresh: now,
+      staleAfter: new Date(Date.now() + 60000).toISOString(),
+      cacheHint: "client should poll every 30-60 seconds for live operator dashboards"
+    },
+    displayMetadata: {
+      urgentLabel: urgentQueue.length === 0 ? "No urgent work" : `${urgentQueue.length} urgent ${urgentQueue.length === 1 ? "item" : "items"}`,
+      followUpLabel: followUpQueue.length === 0 ? "No follow-up needed" : `${followUpQueue.length} follow-up ${followUpQueue.length === 1 ? "item" : "items"}`,
+      statusBadge: urgentQueue.length > 0 ? "needs-attention" : "healthy"
+    },
+    recommendations: urgentQueue.slice(0, 5).map((item) => ({
+      action: item.kind === "blocked-work-item" || item.kind === "failed-work-item" ? "inspect-work-item" : "review-proposal",
+      targetType: item.itemId ? "work-item" : "proposal",
+      targetId: item.itemId ?? item.proposalId,
+      priority: item.priority,
+      reason: item.reason,
+      expectedOutcome: item.kind === "waiting-review" 
+        ? "Operator reviews proposal and provides feedback or approval"
+        : item.kind === "waiting-approval"
+        ? "Operator approves or rejects proposal"
+        : "Operator investigates work item status and decides next action",
+      commandHint: item.itemId 
+        ? `npm run orchestrator:work-item-show -- --item ${item.itemId}`
+        : `npm run orchestrator:proposal-show -- --proposal ${item.proposalId}`,
+      httpHint: item.httpHint
     }))
   };
 }

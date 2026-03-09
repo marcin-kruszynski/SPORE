@@ -149,6 +149,27 @@ For self-build flows, clients should treat:
 
 That separation keeps planning, execution, and governance inspectable across all client surfaces.
 
+## Self-Build Summary Contract
+
+The `/self-build/summary` route is the operator-first home for Phase 1 dashboard and TUI views. It exposes:
+
+- **Overview metrics**: total counts, urgent/follow-up counts, last activity timestamp, generation time
+- **Urgent work queue**: blocked items, failed items, proposals waiting review/approval, ordered by priority and recency
+- **Follow-up work queue**: pending validation runs, doc suggestions, ordered by recency
+- **Freshness metadata**: last refresh timestamp, staleness hint, polling guidance for live dashboards
+- **Display metadata**: human-friendly labels, status badge hints computed server-side
+- **Recommendations**: top 5 urgent items with action hints, expected outcomes, CLI/HTTP links
+
+Clients should:
+
+- Poll `/self-build/summary` every 30-60 seconds for live dashboards
+- Use `urgentWork` and `followUpWork` arrays instead of reconstructing queues from flat lists
+- Render `displayMetadata.statusBadge` and labels directly instead of inventing client-side heuristics
+- Follow `recommendations[].httpHint` for drilldown navigation
+- Respect `freshness.staleAfter` when deciding whether cached data is acceptable
+
+The summary payload preserves canonical state values (e.g., `status`, `priority`) while also shipping human-friendly display fields from the server. This keeps both web and TUI clients thin over one orchestrator-owned source of truth.
+
 Clients should also treat the following additive fields as first-class operator inputs when they are present:
 
 - `alerts[]`

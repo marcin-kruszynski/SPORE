@@ -34,19 +34,52 @@ test("self-build summary and lineage routes expose operator-first visibility", a
   assert.equal(summary.status, 200);
   assert.ok(summary.json.ok);
   assert.ok(summary.json.detail);
+  
+  // Overview section
+  assert.ok(summary.json.detail.overview);
+  assert.ok(typeof summary.json.detail.overview.totalWorkItems === "number");
+  assert.ok(typeof summary.json.detail.overview.totalGroups === "number");
+  assert.ok(typeof summary.json.detail.overview.totalProposals === "number");
+  assert.ok(typeof summary.json.detail.overview.urgentCount === "number");
+  assert.ok(typeof summary.json.detail.overview.followUpCount === "number");
+  assert.ok(summary.json.detail.overview.generatedAt);
+  
+  // Counts section
   assert.ok(summary.json.detail.counts);
   assert.ok(typeof summary.json.detail.counts.workItems === "number");
   assert.ok(typeof summary.json.detail.counts.groups === "number");
   assert.ok(typeof summary.json.detail.counts.blockedItems === "number");
+  assert.ok(typeof summary.json.detail.counts.failedItems === "number");
   assert.ok(typeof summary.json.detail.counts.proposals === "number");
-  assert.ok(typeof summary.json.detail.counts.pendingReviewProposals === "number");
+  assert.ok(typeof summary.json.detail.counts.waitingReviewProposals === "number");
+  assert.ok(typeof summary.json.detail.counts.waitingApprovalProposals === "number");
+  assert.ok(typeof summary.json.detail.counts.pendingValidationRuns === "number");
   assert.ok(typeof summary.json.detail.counts.learningRecords === "number");
+  
+  // Urgent and follow-up queues
+  assert.ok(Array.isArray(summary.json.detail.urgentWork));
+  assert.ok(Array.isArray(summary.json.detail.followUpWork));
+  
+  // Legacy arrays
   assert.ok(Array.isArray(summary.json.detail.workItems));
   assert.ok(Array.isArray(summary.json.detail.groups));
   assert.ok(Array.isArray(summary.json.detail.blockedItems));
+  assert.ok(Array.isArray(summary.json.detail.failedItems));
   assert.ok(Array.isArray(summary.json.detail.proposals));
-  assert.ok(Array.isArray(summary.json.detail.pendingReviewProposals));
+  assert.ok(Array.isArray(summary.json.detail.waitingReviewProposals));
+  assert.ok(Array.isArray(summary.json.detail.waitingApprovalProposals));
   assert.ok(Array.isArray(summary.json.detail.learningRecords));
+  
+  // Freshness and display metadata
+  assert.ok(summary.json.detail.freshness);
+  assert.ok(summary.json.detail.freshness.lastRefresh);
+  assert.ok(summary.json.detail.freshness.staleAfter);
+  assert.ok(summary.json.detail.displayMetadata);
+  assert.ok(typeof summary.json.detail.displayMetadata.urgentLabel === "string");
+  assert.ok(typeof summary.json.detail.displayMetadata.followUpLabel === "string");
+  assert.ok(typeof summary.json.detail.displayMetadata.statusBadge === "string");
+  
+  // Recommendations
   assert.ok(Array.isArray(summary.json.detail.recommendations));
 
   // Test 2: work-item templates catalog
