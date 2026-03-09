@@ -23,6 +23,18 @@ Workflow templates may also define `stepSets`, which the service exposes back th
 - `GET /coordination-groups/:id`
 - `GET /executions/:id/events`
 - `GET /executions/:id/escalations`
+- `GET /run-center/summary`
+- `GET /scenarios/:id/trends`
+- `GET /scenario-runs/:runId`
+- `GET /scenario-runs/:runId/artifacts`
+- `GET /regressions/:id/trends`
+- `GET /regressions/:id/latest-report`
+- `GET /regressions/scheduler/status`
+- `GET /regression-runs/:runId`
+- `GET /regression-runs/:runId/report`
+- `GET /work-items`
+- `GET /work-items/:id`
+- `GET /work-item-runs/:runId`
 - `GET /stream/executions?execution=:id`
 - `POST /workflows/plan`
 - `POST /workflows/invoke`
@@ -41,6 +53,8 @@ Workflow templates may also define `stepSets`, which the service exposes back th
 - `POST /executions/:id/hold`
 - `POST /executions/:id/resume`
 - `POST /executions/:id/escalations/:escalationId/resolve`
+- `POST /work-items`
+- `POST /work-items/:id/run`
 
 ## Run
 
@@ -78,6 +92,20 @@ curl http://127.0.0.1:8789/executions/branch-approval-001/events
 curl http://127.0.0.1:8789/executions/branch-review-001/escalations
 
 curl -N http://127.0.0.1:8789/stream/executions?execution=branch-approval-001
+
+curl http://127.0.0.1:8789/run-center/summary
+
+curl http://127.0.0.1:8789/regressions/scheduler/status
+
+curl -X POST http://127.0.0.1:8789/work-items \
+  -H 'content-type: application/json' \
+  -d '{"title":"CLI verification work item","kind":"scenario","metadata":{"scenarioId":"cli-verification-pass","projectPath":"config/projects/spore.yaml"}}'
+
+curl http://127.0.0.1:8789/work-items
+
+curl -X POST http://127.0.0.1:8789/work-items/<id>/run \
+  -H 'content-type: application/json' \
+  -d '{"stub":true,"wait":true}'
 
 curl -X POST http://127.0.0.1:8789/coordination-groups/branch-review-001/drive \
   -H 'content-type: application/json' \
@@ -150,3 +178,5 @@ This remains a bootstrap orchestration surface, not the final durable orchestrat
 - workflow-level interruption/recovery actions.
 
 Clients should keep treating lineage and coordination metadata as additive fields while the grouped-execution contract continues to harden.
+
+The service also now carries the first durable `work-item` model for supervised self-work. A work item is a stable operator-managed unit that can launch a named scenario, regression, or workflow path while leaving a durable run trail in orchestrator state.

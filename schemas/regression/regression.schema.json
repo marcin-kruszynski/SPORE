@@ -11,6 +11,18 @@
     "concurrency": { "type": "integer", "minimum": 1 },
     "timeoutMs": { "type": "integer", "minimum": 1 },
     "artifactRetention": { "type": "string", "enum": ["minimal", "default", "full"] },
+    "historyRetentionDays": { "type": "integer", "minimum": 1 },
+    "retainFailedRuns": { "type": "boolean" },
+    "schedule": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "cronLike": { "type": "string", "minLength": 1 },
+        "maxParallelRuns": { "type": "integer", "minimum": 1 },
+        "skipIfRunActive": { "type": "boolean" }
+      },
+      "additionalProperties": true
+    },
     "tags": { "type": "array", "items": { "type": "string" } }
   },
   "additionalProperties": true

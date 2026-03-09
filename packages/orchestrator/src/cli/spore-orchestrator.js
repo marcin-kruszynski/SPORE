@@ -38,17 +38,27 @@ import { planWorkflowInvocation } from "../invocation/plan-workflow-invocation.j
 import { PROJECT_ROOT } from "../../../runtime-pi/src/metadata/constants.js";
 import {
   getRunCenterSummary,
-  getRegressionRunDetail,
+  getRegressionRunSummaryById,
   getRegressionRunReport,
+  getRegressionLatestReport,
+  getRegressionSchedulerStatus,
   getRegressionTrends,
   getScenarioRunSummaryById,
   getScenarioRunArtifacts,
   getScenarioTrends,
   rerunRegressionRun,
   rerunScenarioRun,
+  runRegressionScheduler,
   runRegressionById,
   runScenarioById
 } from "../scenarios/run-history.js";
+import {
+  createWorkItem,
+  getManagedWorkItem,
+  getManagedWorkItemRun,
+  listManagedWorkItems,
+  runManagedWorkItem
+} from "../work-items/work-items.js";
 
 function parseArgs(argv) {
   const positional = [];
@@ -526,7 +536,7 @@ async function main() {
     if (!flags.run) {
       throw new Error("use regression-run-show --run <id>");
     }
-    const detail = await getRegressionRunDetail(flags.run);
+    const detail = await getRegressionRunSummaryById(flags.run);
     if (!detail) {
       throw new Error(`regression run not found: ${flags.run}`);
     }
@@ -542,6 +552,24 @@ async function main() {
     if (!detail) {
       throw new Error(`regression run not found: ${flags.run}`);
     }
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
+  if (command === "regression-latest-report") {
+    if (!flags.regression) {
+      throw new Error("use regression-latest-report --regression <id>");
+    }
+    const detail = await getRegressionLatestReport(flags.regression);
+    if (!detail) {
+      throw new Error(`regression report not found: ${flags.regression}`);
+    }
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
+  if (command === "regression-scheduler-status") {
+    const detail = await getRegressionSchedulerStatus();
     console.log(JSON.stringify({ ok: true, detail }, null, 2));
     return;
   }
@@ -579,6 +607,113 @@ async function main() {
       throw new Error(`regression run not found: ${flags.run}`);
     }
     console.log(JSON.stringify({ ok: true, ...result }, null, 2));
+    return;
+  }
+
+  if (command === "regression-scheduler") {
+    const detail = await runRegressionScheduler({
+      regressionId: flags.regression ?? null,
+      dueOnly: flags.all ? false : true,
+      dryRun: flags["dry-run"] === true,
+      maxRuns: flags["max-runs"] ?? "1",
+      project: flags.project ?? null,
+      stub: flags.stub === true,
+      launcher: flags.launcher ?? null,
+      source: flags.source ?? "scheduler",
+      by: flags.by ?? "scheduler",
+      timeout: flags.timeout ?? null,
+      interval: flags.interval ?? null,
+      noMonitor: flags["no-monitor"] === true,
+      stepSoftTimeoutMs: flags["step-soft-timeout"] ?? null,
+      stepHardTimeoutMs: flags["step-hard-timeout"] ?? null
+    });
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
+  if (command === "work-item-list") {
+    const detail = listManagedWorkItems({
+      status: flags.status ?? null,
+      limit: flags.limit ?? "50"
+    });
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
+  if (command === "work-item-show") {
+    if (!flags.item) {
+      throw new Error("use work-item-show --item <id>");
+    }
+    const detail = getManagedWorkItem(flags.item);
+    if (!detail) {
+      throw new Error(`work item not found: ${flags.item}`);
+    }
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
+  if (command === "work-item-create") {
+    if (!flags.title || !flags.kind) {
+      throw new Error("use work-item-create --title <text> --kind <scenario|regression|workflow>");
+    }
+    const detail = createWorkItem({
+      title: flags.title,
+      kind: flags.kind,
+      source: flags.source ?? "cli",
+      goal: flags.goal ?? "",
+      priority: flags.priority ?? "medium",
+      acceptanceCriteria: flags.acceptance
+        ? String(flags.acceptance).split("|").map((item) => item.trim()).filter(Boolean)
+        : [],
+      relatedDocs: flags.docs ? String(flags.docs).split(",").map((item) => item.trim()).filter(Boolean) : [],
+      relatedScenarios: flags.scenarios ? String(flags.scenarios).split(",").map((item) => item.trim()).filter(Boolean) : [],
+      relatedRegressions: flags.regressions ? String(flags.regressions).split(",").map((item) => item.trim()).filter(Boolean) : [],
+      metadata: {
+        scenarioId: flags.scenario ?? null,
+        regressionId: flags.regression ?? null,
+        workflowPath: flags.workflow ?? null,
+        domainId: flags.domain ?? null,
+        roles: flags.roles ? String(flags.roles).split(",").map((item) => item.trim()).filter(Boolean) : null,
+        projectPath: flags.project ?? null
+      }
+    });
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
+  if (command === "work-item-run") {
+    if (!flags.item) {
+      throw new Error("use work-item-run --item <id>");
+    }
+    const detail = await runManagedWorkItem(flags.item, {
+      project: flags.project ?? null,
+      wait: flags.wait !== false,
+      timeout: flags.timeout ?? "180000",
+      interval: flags.interval ?? "1500",
+      noMonitor: flags["no-monitor"] === true,
+      stub: flags.stub === true,
+      launcher: flags.launcher ?? null,
+      by: flags.by ?? "operator",
+      source: flags.source ?? "cli",
+      stepSoftTimeoutMs: flags["step-soft-timeout"] ?? null,
+      stepHardTimeoutMs: flags["step-hard-timeout"] ?? null
+    });
+    if (!detail) {
+      throw new Error(`work item not found: ${flags.item}`);
+    }
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
+  if (command === "work-item-run-show") {
+    if (!flags.run) {
+      throw new Error("use work-item-run-show --run <id>");
+    }
+    const detail = getManagedWorkItemRun(flags.run);
+    if (!detail) {
+      throw new Error(`work item run not found: ${flags.run}`);
+    }
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
     return;
   }
 

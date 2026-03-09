@@ -119,6 +119,17 @@ The preferred validation-history surfaces are now:
 
 Those routes should be preferred over reconstructing scenario or regression history from shell output, temporary logs, or raw SQLite inspection.
 
+Clients should also treat the following additive fields as first-class operator inputs when they are present:
+
+- `alerts[]`
+- `recommendations[]`
+- `failure`
+- `failureClassification`
+- `failureReason`
+- `suggestedActions[]`
+
+The browser and TUI should prefer these server-computed contracts over inventing local failure heuristics or recovery suggestions from partial payloads.
+
 ## Operator Recovery Surface Expectations
 
 The current executable foundation already exposes operator recovery concepts through review, approval, escalation resolution, and resume flows.

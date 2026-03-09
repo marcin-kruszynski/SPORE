@@ -5,6 +5,24 @@ import { spawn } from "node:child_process";
 
 import { PROJECT_ROOT } from "../../packages/runtime-pi/src/metadata/constants.js";
 import { listExecutionEvents } from "../../packages/orchestrator/src/execution/workflow-execution.js";
+import {
+  getRegressionLatestReport,
+  getRegressionRunReport,
+  getRegressionRunSummaryById,
+  getRegressionSchedulerStatus,
+  getRegressionTrends,
+  getRunCenterSummary,
+  getScenarioRunArtifacts,
+  getScenarioRunSummaryById,
+  getScenarioTrends
+} from "../../packages/orchestrator/src/scenarios/run-history.js";
+import {
+  createWorkItem,
+  getManagedWorkItem,
+  getManagedWorkItemRun,
+  listManagedWorkItems,
+  runManagedWorkItem
+} from "../../packages/orchestrator/src/work-items/work-items.js";
 
 function json(response, statusCode, payload) {
   response.writeHead(statusCode, {
@@ -202,12 +220,10 @@ const server = http.createServer(async (request, response) => {
     }
 
     if (request.method === "GET" && url.pathname === "/run-center/summary") {
-      const payload = await runCli([
-        "packages/orchestrator/src/cli/spore-orchestrator.js",
-        "run-center",
-        "--limit",
-        url.searchParams.get("limit")?.trim() || "10"
-      ]);
+      const payload = {
+        ok: true,
+        detail: await getRunCenterSummary(undefined, Number.parseInt(url.searchParams.get("limit")?.trim() || "10", 10))
+      };
       json(response, 200, payload);
       return;
     }
@@ -398,47 +414,45 @@ const server = http.createServer(async (request, response) => {
     }
 
     if (request.method === "GET" && parts.length === 3 && parts[0] === "scenarios" && parts[2] === "trends") {
-      const payload = await runCli([
-        "packages/orchestrator/src/cli/spore-orchestrator.js",
-        "scenario-trends",
-        "--scenario",
-        parts[1],
-        "--limit",
-        url.searchParams.get("limit")?.trim() || "100"
-      ]);
+      const detail = await getScenarioTrends(parts[1], undefined, Number.parseInt(url.searchParams.get("limit")?.trim() || "100", 10));
+      if (!detail) {
+        json(response, 404, { ok: false, error: "not_found", message: `scenario not found: ${parts[1]}` });
+        return;
+      }
+      const payload = { ok: true, detail };
       json(response, 200, payload);
       return;
     }
 
     if (request.method === "GET" && parts.length === 5 && parts[0] === "scenarios" && parts[2] === "runs" && parts[4] === "artifacts") {
-      const payload = await runCli([
-        "packages/orchestrator/src/cli/spore-orchestrator.js",
-        "scenario-run-artifacts",
-        "--run",
-        parts[3]
-      ]);
+      const detail = await getScenarioRunArtifacts(parts[3]);
+      if (!detail) {
+        json(response, 404, { ok: false, error: "not_found", message: `scenario run not found: ${parts[3]}` });
+        return;
+      }
+      const payload = { ok: true, detail };
       json(response, 200, payload);
       return;
     }
 
     if (request.method === "GET" && parts.length === 2 && parts[0] === "scenario-runs") {
-      const payload = await runCli([
-        "packages/orchestrator/src/cli/spore-orchestrator.js",
-        "scenario-run-show",
-        "--run",
-        parts[1]
-      ]);
+      const detail = await getScenarioRunSummaryById(parts[1]);
+      if (!detail) {
+        json(response, 404, { ok: false, error: "not_found", message: `scenario run not found: ${parts[1]}` });
+        return;
+      }
+      const payload = { ok: true, detail };
       json(response, 200, payload);
       return;
     }
 
     if (request.method === "GET" && parts.length === 3 && parts[0] === "scenario-runs" && parts[2] === "artifacts") {
-      const payload = await runCli([
-        "packages/orchestrator/src/cli/spore-orchestrator.js",
-        "scenario-run-artifacts",
-        "--run",
-        parts[1]
-      ]);
+      const detail = await getScenarioRunArtifacts(parts[1]);
+      if (!detail) {
+        json(response, 404, { ok: false, error: "not_found", message: `scenario run not found: ${parts[1]}` });
+        return;
+      }
+      const payload = { ok: true, detail };
       json(response, 200, payload);
       return;
     }
@@ -488,36 +502,51 @@ const server = http.createServer(async (request, response) => {
     }
 
     if (request.method === "GET" && parts.length === 3 && parts[0] === "regressions" && parts[2] === "trends") {
-      const payload = await runCli([
-        "packages/orchestrator/src/cli/spore-orchestrator.js",
-        "regression-trends",
-        "--regression",
-        parts[1],
-        "--limit",
-        url.searchParams.get("limit")?.trim() || "100"
-      ]);
+      const detail = await getRegressionTrends(parts[1], undefined, Number.parseInt(url.searchParams.get("limit")?.trim() || "100", 10));
+      if (!detail) {
+        json(response, 404, { ok: false, error: "not_found", message: `regression not found: ${parts[1]}` });
+        return;
+      }
+      const payload = { ok: true, detail };
+      json(response, 200, payload);
+      return;
+    }
+
+    if (request.method === "GET" && parts.length === 3 && parts[0] === "regressions" && parts[2] === "latest-report") {
+      const detail = await getRegressionLatestReport(parts[1]);
+      if (!detail) {
+        json(response, 404, { ok: false, error: "not_found", message: `regression report not found: ${parts[1]}` });
+        return;
+      }
+      const payload = { ok: true, detail };
+      json(response, 200, payload);
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/regressions/scheduler/status") {
+      const payload = { ok: true, detail: await getRegressionSchedulerStatus() };
       json(response, 200, payload);
       return;
     }
 
     if (request.method === "GET" && parts.length === 2 && parts[0] === "regression-runs") {
-      const payload = await runCli([
-        "packages/orchestrator/src/cli/spore-orchestrator.js",
-        "regression-run-show",
-        "--run",
-        parts[1]
-      ]);
+      const detail = await getRegressionRunSummaryById(parts[1]);
+      if (!detail) {
+        json(response, 404, { ok: false, error: "not_found", message: `regression run not found: ${parts[1]}` });
+        return;
+      }
+      const payload = { ok: true, detail };
       json(response, 200, payload);
       return;
     }
 
     if (request.method === "GET" && parts.length === 3 && parts[0] === "regression-runs" && parts[2] === "report") {
-      const payload = await runCli([
-        "packages/orchestrator/src/cli/spore-orchestrator.js",
-        "regression-report",
-        "--run",
-        parts[1]
-      ]);
+      const detail = await getRegressionRunReport(parts[1]);
+      if (!detail) {
+        json(response, 404, { ok: false, error: "not_found", message: `regression run not found: ${parts[1]}` });
+        return;
+      }
+      const payload = { ok: true, detail };
       json(response, 200, payload);
       return;
     }
@@ -529,10 +558,82 @@ const server = http.createServer(async (request, response) => {
       return;
     }
 
+    if (request.method === "POST" && url.pathname === "/regressions/scheduler/run") {
+      const body = await readJsonBody(request);
+      const args = [
+        "packages/orchestrator/src/cli/spore-orchestrator.js",
+        "regression-scheduler"
+      ];
+      if (body.regression) args.push("--regression", body.regression);
+      if (body.all) args.push("--all");
+      if (body.dryRun) args.push("--dry-run");
+      if (body.maxRuns) args.push("--max-runs", String(body.maxRuns));
+      if (body.project) args.push("--project", body.project);
+      if (body.stub) args.push("--stub");
+      if (body.launcher) args.push("--launcher", body.launcher);
+      if (body.by) args.push("--by", body.by);
+      if (body.source) args.push("--source", body.source);
+      if (body.timeout) args.push("--timeout", String(body.timeout));
+      if (body.interval) args.push("--interval", String(body.interval));
+      if (body.noMonitor) args.push("--no-monitor");
+      if (body.stepSoftTimeout) args.push("--step-soft-timeout", String(body.stepSoftTimeout));
+      if (body.stepHardTimeout) args.push("--step-hard-timeout", String(body.stepHardTimeout));
+      const payload = await runCli(args);
+      json(response, 200, payload);
+      return;
+    }
+
     if (request.method === "POST" && parts.length === 3 && parts[0] === "regressions" && parts[2] === "run") {
       const body = await readJsonBody(request);
       const payload = await runCli(buildRegressionRunArgs(parts[1], body));
       json(response, 200, payload);
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/work-items") {
+      const detail = listManagedWorkItems({
+        status: url.searchParams.get("status")?.trim() || null,
+        limit: url.searchParams.get("limit")?.trim() || "50"
+      });
+      json(response, 200, { ok: true, detail });
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/work-items") {
+      const body = await readJsonBody(request);
+      const detail = createWorkItem(body);
+      json(response, 200, { ok: true, detail });
+      return;
+    }
+
+    if (request.method === "GET" && parts.length === 2 && parts[0] === "work-items") {
+      const detail = getManagedWorkItem(parts[1]);
+      if (!detail) {
+        json(response, 404, { ok: false, error: "not_found", message: `work item not found: ${parts[1]}` });
+        return;
+      }
+      json(response, 200, { ok: true, detail });
+      return;
+    }
+
+    if (request.method === "POST" && parts.length === 3 && parts[0] === "work-items" && parts[2] === "run") {
+      const body = await readJsonBody(request);
+      const detail = await runManagedWorkItem(parts[1], body);
+      if (!detail) {
+        json(response, 404, { ok: false, error: "not_found", message: `work item not found: ${parts[1]}` });
+        return;
+      }
+      json(response, 200, { ok: true, detail });
+      return;
+    }
+
+    if (request.method === "GET" && parts.length === 2 && parts[0] === "work-item-runs") {
+      const detail = getManagedWorkItemRun(parts[1]);
+      if (!detail) {
+        json(response, 404, { ok: false, error: "not_found", message: `work item run not found: ${parts[1]}` });
+        return;
+      }
+      json(response, 200, { ok: true, detail });
       return;
     }
 

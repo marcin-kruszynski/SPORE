@@ -73,6 +73,7 @@ SPORE addresses this by building a **structured orchestration protocol** where:
 | Coordinated execution families | Rooted execution trees, branch spawning, and lineage-aware group control |
 | Parallel work inside one execution | Workflow step sets become launch waves with multiple active steps |
 | Durable operator validation loops | Scenario and regression catalogs with rerun, trends, reports, run-center summaries, and live session diagnostics |
+| Actionable operator triage | Run-center alerts, explicit failure classification, and recovery suggestions on runs and live sessions |
 
 ---
 
@@ -948,7 +949,7 @@ npm run orchestrator:regression-trends -- --regression local-fast
 | `GET` | `/scenarios` | Scenario catalog with latest run summary |
 | `GET` | `/scenarios/:id` | One scenario definition with latest run |
 | `GET` | `/scenarios/:id/runs` | Durable scenario run history |
-| `GET` | `/scenario-runs/:runId` | One durable scenario run by run id |
+| `GET` | `/scenario-runs/:runId` | One durable scenario run by run id, including explicit failure and suggested actions |
 | `GET` | `/scenario-runs/:runId/artifacts` | Artifact summary for one durable scenario run |
 | `GET` | `/scenarios/:id/runs/:runId/artifacts` | Artifact summary for one scenario run |
 | `GET` | `/scenarios/:id/trends` | Trend summary for one scenario |
@@ -957,14 +958,31 @@ npm run orchestrator:regression-trends -- --regression local-fast
 | `GET` | `/regressions` | Regression catalog with latest run summary |
 | `GET` | `/regressions/:id` | One regression profile with latest run |
 | `GET` | `/regressions/:id/runs` | Durable regression run history |
-| `GET` | `/regression-runs/:runId` | One durable regression run by run id |
-| `GET` | `/regression-runs/:runId/report` | Report metadata for one durable regression run |
+| `GET` | `/regression-runs/:runId` | One durable regression run by run id, including explicit failure and suggested actions |
+| `GET` | `/regression-runs/:runId/report` | Report metadata, top failure reasons, and suggested actions for one durable regression run |
+| `GET` | `/regressions/:id/latest-report` | Latest durable report pointer for one regression profile |
+| `GET` | `/regressions/scheduler/status` | Read-only scheduler status, retention summary, and latest scheduled-run pointers |
 | `GET` | `/regressions/:id/trends` | Trend summary for one regression profile |
 | `POST` | `/regressions/:id/run` | Launch one named regression profile |
 | `POST` | `/regression-runs/:runId/rerun` | Rerun one prior regression run with optional overrides |
-| `GET` | `/sessions/:id/live` | Combined live session metadata, events, artifacts, control history, and diagnostics |
+| `GET` | `/work-items` | Durable managed work-item list for supervised self-work |
+| `GET` | `/work-items/:id` | One durable work item with recent runs |
+| `POST` | `/work-items` | Create one managed work item |
+| `POST` | `/work-items/:id/run` | Execute one managed work item through scenario, regression, or workflow paths |
+| `GET` | `/work-item-runs/:runId` | One durable work-item run result |
+| `GET` | `/sessions/:id/live` | Combined live session metadata, events, artifacts, control history, diagnostics, and operator suggestions |
 | `GET` | `/sessions/:id/control-history` | Durable control request history for one session |
 | `GET` | `/sessions/:id/control-status/:requestId` | One durable control request with ack/result status |
+
+Recent operator payloads also expose additive drilldown helpers where available:
+
+- `links.*` for report, trend, run, artifacts, and execution drilldowns
+- `trendSnapshot`
+- `latestReports[]`
+- `recentRuns[]`
+- `failureBreakdown`
+
+SPORE now also ships a first-class managed project profile in [spore.yaml](/home/antman/projects/SPORE/config/projects/spore.yaml), so new supervised self-work items can target the repository itself instead of the generic example project.
 
 ### Canonical Scenario Invocations
 

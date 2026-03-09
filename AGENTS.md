@@ -102,6 +102,8 @@ Useful local overrides for isolated runs and tests:
 - Treat `config/regressions/` as the execution-facing catalog for reusable regression profiles.
 - Treat `docs/runbooks/scenario-library.md` as human-facing guidance, not the machine source of truth.
 - Scenario and regression history are durable operator artifacts; do not reconstruct them from shell output when the orchestrator store already has the run records.
+- Treat failure classification as a first-class operator contract. Prefer `failure`, `failureClassification`, `failureReason`, and `suggestedActions` from orchestrator read surfaces over inventing local heuristics in clients.
+- Treat managed `work-items` as the durable unit of supervised self-work. Prefer creating or running work through `/work-items*` or the matching orchestrator CLI commands instead of ad hoc shell notes when the task should leave an execution trail.
 
 ## Minimum Verification Loop
 
@@ -205,8 +207,13 @@ Current CLI contract: `docs-kb index|search|status|rebuild`.
 - `services/orchestrator/` also exposes audit and policy-diff reads for durable operator and policy inspection.
 - `services/orchestrator/` also exposes durable scenario-run and regression-run reads by run id, rerun endpoints, and trend reads for operator validation loops.
 - `services/orchestrator/` also exposes `GET /run-center/summary` as the preferred aggregate operator summary for scenarios, regressions, and recent validation runs.
+- `GET /run-center/summary` should be treated as the preferred aggregate route for operator alerts and recommendations across named validation flows.
+- Treat additive operator drilldown helpers such as `links.*`, `trendSnapshot`, `latestReports[]`, `recentRuns[]`, and `failureBreakdown` as first-class read-surface fields when they are present; clients should not reconstruct equivalent links heuristically.
+- `services/orchestrator/` now also exposes `/work-items`, `/work-items/:id`, `/work-items/:id/run`, and `/work-item-runs/:runId` for supervised self-work tracking.
 - `apps/web/` renders grouped execution list/detail, rooted lineage tree, wave progression, coordination metadata, step/session tree, and review/approval history over those APIs.
 - `packages/tui/` consumes the same orchestrator HTTP surfaces for execution detail, rooted family summary, audit, policy diff, and run-center views.
 - `GET /sessions/:id/live` should be treated as the preferred combined live-session payload because it now includes diagnostics, launcher metadata, control acknowledgements, and suggested recovery actions in addition to events, artifacts, and control history.
+- Session suggestion payloads may now include `expectedOutcome`, `httpHint`, `targetType`, `targetId`, and `priority`; clients should preserve these additive fields.
 - `GET /sessions/:id/control-history` and `GET /sessions/:id/control-status/:requestId` are the preferred reads for durable control acknowledgement and idempotency inspection; do not reconstruct control state from transcript files when those routes are available.
+- `GET /regressions/scheduler/status` is the preferred read-only scheduler status route; do not use scheduler dry-run POST calls as pseudo-status reads when the dedicated route is sufficient.
 - UI and automation clients should treat `coordinationGroupId`, `parentExecutionId`, `childExecutionIds`, `branchKey`, `holdReason`, `pausedAt`, `heldAt`, and `resumedAt` as optional additive fields rather than guaranteed schema requirements.

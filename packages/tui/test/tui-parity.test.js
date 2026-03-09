@@ -87,6 +87,13 @@ test('tui execution and family commands consume orchestrator HTTP surfaces', asy
   const runCenterPayload = JSON.parse(runCenterOutput.stdout);
   assert.ok(Array.isArray(runCenterPayload.detail.scenarios));
   assert.ok(Array.isArray(runCenterPayload.detail.regressions));
+  assert.ok(Array.isArray(runCenterPayload.detail.alerts));
+  assert.ok(Array.isArray(runCenterPayload.detail.recommendations));
+  assert.ok(Array.isArray(runCenterPayload.detail.latestReports));
+  if (runCenterPayload.detail.recentScenarioRuns[0]) {
+    assert.ok('trendHealth' in runCenterPayload.detail.recentScenarioRuns[0]);
+    assert.ok('links' in runCenterPayload.detail.recentScenarioRuns[0]);
+  }
 
   const scenarioRunOutput = await runCli([
     'scenario-run',
@@ -104,6 +111,7 @@ test('tui execution and family commands consume orchestrator HTTP surfaces', asy
   ]);
   const scenarioRunShowPayload = JSON.parse(scenarioRunShowOutput.stdout);
   assert.equal(scenarioRunShowPayload.detail.run.id, scenarioRunPayload.run.id);
+  assert.ok(Array.isArray(scenarioRunShowPayload.detail.suggestedActions));
 
   const scenarioTrendsOutput = await runCli([
     'scenario-trends',
@@ -112,6 +120,7 @@ test('tui execution and family commands consume orchestrator HTTP surfaces', asy
   ]);
   const scenarioTrendsPayload = JSON.parse(scenarioTrendsOutput.stdout);
   assert.ok(typeof scenarioTrendsPayload.detail.windows.allTime.runCount === 'number');
+  assert.ok(typeof scenarioTrendsPayload.detail.windows.allTime.health === 'string');
 
   const reviewedOutput = await runCli([
     'family',
@@ -145,6 +154,7 @@ test('tui execution and family commands consume orchestrator HTTP surfaces', asy
   ]);
   const regressionRunShowPayload = JSON.parse(regressionRunShowOutput.stdout);
   assert.equal(regressionRunShowPayload.detail.run.id, regressionRunPayload.run.id);
+  assert.ok(Array.isArray(regressionRunShowPayload.detail.suggestedActions));
 
   const regressionTrendsOutput = await runCli([
     'regression-trends',
@@ -153,4 +163,78 @@ test('tui execution and family commands consume orchestrator HTTP surfaces', asy
   ]);
   const regressionTrendsPayload = JSON.parse(regressionTrendsOutput.stdout);
   assert.ok(typeof regressionTrendsPayload.detail.windows.allTime.runCount === 'number');
+  assert.ok(typeof regressionTrendsPayload.detail.windows.allTime.health === 'string');
+  assert.ok(typeof regressionTrendsPayload.detail.flaky === 'object');
+  assert.ok(typeof regressionTrendsPayload.detail.scheduleStatus === 'object');
+
+  const regressionLatestReportOutput = await runCli([
+    'regression-latest-report',
+    '--regression', 'local-fast',
+    '--api', `http://127.0.0.1:${ORCHESTRATOR_PORT}`
+  ]);
+  const regressionLatestReportPayload = JSON.parse(regressionLatestReportOutput.stdout);
+  assert.equal(regressionLatestReportPayload.detail.run.regressionId, 'local-fast');
+  assert.ok(typeof regressionLatestReportPayload.detail.durationSummary === 'object');
+  assert.ok(typeof regressionLatestReportPayload.detail.trendSnapshot === 'object');
+  assert.ok(typeof regressionLatestReportPayload.detail.links === 'object');
+
+  const regressionSchedulerOutput = await runCli([
+    'regression-scheduler',
+    '--regression', 'local-fast',
+    '--api', `http://127.0.0.1:${ORCHESTRATOR_PORT}`,
+    '--dry-run'
+  ]);
+  const regressionSchedulerPayload = JSON.parse(regressionSchedulerOutput.stdout);
+  assert.equal(regressionSchedulerPayload.detail.dryRun, true);
+  assert.ok(Array.isArray(regressionSchedulerPayload.detail.candidates));
+
+  const regressionSchedulerStatusOutput = await runCli([
+    'regression-scheduler-status',
+    '--api', `http://127.0.0.1:${ORCHESTRATOR_PORT}`
+  ]);
+  const regressionSchedulerStatusPayload = JSON.parse(regressionSchedulerStatusOutput.stdout);
+  assert.ok(Array.isArray(regressionSchedulerStatusPayload.detail.profiles));
+  assert.ok(Array.isArray(regressionSchedulerStatusPayload.detail.evaluations));
+  assert.ok(regressionSchedulerStatusPayload.detail.profiles.some((item) => item.id === 'local-fast' && item.links));
+
+  const workItemCreateOutput = await runCli([
+    'work-item-create',
+    '--title', 'CLI work item',
+    '--kind', 'scenario',
+    '--scenario', 'cli-verification-pass',
+    '--api', `http://127.0.0.1:${ORCHESTRATOR_PORT}`
+  ]);
+  const workItemCreatePayload = JSON.parse(workItemCreateOutput.stdout);
+  assert.equal(workItemCreatePayload.detail.kind, 'scenario');
+
+  const workItemListOutput = await runCli(['work-item-list', '--api', `http://127.0.0.1:${ORCHESTRATOR_PORT}`]);
+  const workItemListPayload = JSON.parse(workItemListOutput.stdout);
+  assert.ok(Array.isArray(workItemListPayload.detail));
+  assert.ok(workItemListPayload.detail.some((item) => item.id === workItemCreatePayload.detail.id));
+
+  const workItemRunOutput = await runCli([
+    'work-item-run',
+    '--item', workItemCreatePayload.detail.id,
+    '--api', `http://127.0.0.1:${ORCHESTRATOR_PORT}`,
+    '--stub'
+  ]);
+  const workItemRunPayload = JSON.parse(workItemRunOutput.stdout);
+  assert.equal(workItemRunPayload.detail.item.id, workItemCreatePayload.detail.id);
+
+  const workItemShowOutput = await runCli([
+    'work-item-show',
+    '--item', workItemCreatePayload.detail.id,
+    '--api', `http://127.0.0.1:${ORCHESTRATOR_PORT}`
+  ]);
+  const workItemShowPayload = JSON.parse(workItemShowOutput.stdout);
+  assert.equal(workItemShowPayload.detail.id, workItemCreatePayload.detail.id);
+  assert.ok(Array.isArray(workItemShowPayload.detail.runs));
+
+  const workItemRunShowOutput = await runCli([
+    'work-item-run-show',
+    '--run', workItemRunPayload.detail.run.id,
+    '--api', `http://127.0.0.1:${ORCHESTRATOR_PORT}`
+  ]);
+  const workItemRunShowPayload = JSON.parse(workItemRunShowOutput.stdout);
+  assert.equal(workItemRunShowPayload.detail.workItemId, workItemCreatePayload.detail.id);
 });

@@ -27,6 +27,11 @@ node packages/tui/src/cli/spore-ops.js regression-run-show --run <run-id>
 node packages/tui/src/cli/spore-ops.js regression-report --run <run-id>
 node packages/tui/src/cli/spore-ops.js regression-rerun --run <run-id>
 node packages/tui/src/cli/spore-ops.js regression-trends --regression local-fast
+node packages/tui/src/cli/spore-ops.js regression-scheduler-status
+node packages/tui/src/cli/spore-ops.js work-item-create --title "CLI verification work item" --kind scenario --scenario cli-verification-pass
+node packages/tui/src/cli/spore-ops.js work-item-list
+node packages/tui/src/cli/spore-ops.js work-item-run --item <work-item-id> --stub
+node packages/tui/src/cli/spore-ops.js work-item-run-show --run <work-item-run-id>
 node packages/tui/src/cli/spore-ops.js hold --execution e2e-review-001 --reason "Operator hold"
 node packages/tui/src/cli/spore-ops.js review --execution e2e-review-001 --status approved --comments "Ready"
 ```
@@ -60,3 +65,10 @@ The TUI/CLI operator surface now provides:
 Set `SPORE_ORCHESTRATOR_ORIGIN` when the orchestrator service is not running on `http://127.0.0.1:8789`, or pass `--api http://127.0.0.1:8789`.
 
 The terminal operator surface intentionally consumes orchestrator HTTP surfaces instead of reading workflow SQLite files directly. That keeps CLI/TUI behavior aligned with the web client and future automation clients.
+
+Recent operator commands also expose richer validation surfaces:
+
+- `run-center` now includes aggregate alerts, recommendations, latest reports, and trend/failure drilldown helpers when the backend provides them.
+- `regression-latest-report --regression <id>` returns the latest durable report pointer for one regression profile.
+- `regression-scheduler-status` returns the read-only scheduler status summary and latest scheduled-run pointers for all regression profiles.
+- `work-item-*` commands expose the same managed self-work model as the orchestrator HTTP surface, so terminal operators can create, inspect, and run durable work items without bypassing orchestration state.

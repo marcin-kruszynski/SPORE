@@ -77,16 +77,22 @@ Recommended interpretation:
 - `escalations --execution <id>` returns only escalation records for operator consumers.
 - `history --execution <id>` returns one combined execution history payload with timeline, governance, audit, wave summary, and policy diff.
 - `run-center` returns one aggregate operator summary for scenario catalog health, regression catalog health, and recent durable runs.
+- `run-center` now also carries additive `alerts[]` and `recommendations[]` so thin clients can render operator triage without reconstructing it locally.
 - `scenario-list`, `scenario-show`, `scenario-runs`, and `scenario-run` expose the machine-readable scenario catalog and durable scenario runs backed by `config/scenarios/`.
 - `scenario-run-show --run <id>` returns one durable scenario run by run id.
+- `scenario-run-show --run <id>` includes additive `failure` and `suggestedActions` fields for operator triage.
 - `scenario-run-artifacts --run <id>` returns normalized artifact summaries for that scenario run.
 - `scenario-rerun --run <id>` creates a new durable scenario run linked back to the original run.
 - `scenario-trends --scenario <id>` returns pass-rate, duration, and streak summaries across durable scenario runs.
 - `regression-list`, `regression-show`, `regression-runs`, and `regression-run` expose reusable regression profiles and durable run history backed by `config/regressions/`.
 - `regression-run-show --run <id>` returns one durable regression run by run id.
-- `regression-report --run <id>` returns report metadata and paths for one durable regression run.
+- `regression-run-show --run <id>` includes additive `failure` and `suggestedActions` fields for operator triage.
+- `regression-report --run <id>` returns report metadata, top failure reasons, and suggested actions for one durable regression run.
+- `regression-latest-report --regression <id>` returns the latest durable report pointer together with report/trend drilldown helpers for one regression profile.
 - `regression-rerun --run <id>` creates a new durable regression run linked back to the original run.
 - `regression-trends --regression <id>` returns pass-rate, duration, and streak summaries across durable regression runs.
+- `regression-scheduler-status` returns the read-only scheduler status summary and latest scheduled-run pointers without abusing the scheduler run mutation route as a status check.
+- `work-item-list`, `work-item-show`, `work-item-create`, `work-item-run`, and `work-item-run-show` expose the first durable managed self-work surface for SPORE itself.
 - `scenario-run-artifacts --run <id>` returns a normalized execution/session artifact summary for one scenario run.
 - `drive-group --group <id>` reconciles grouped executions until they settle or reach a governance/blocked stop.
 - `drive-tree --execution <id>` resolves the execution root and drives the whole family through its coordination group.

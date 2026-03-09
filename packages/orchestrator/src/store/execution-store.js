@@ -198,6 +198,50 @@ export function openOrchestratorDatabase(dbPath) {
       started_at TEXT NOT NULL,
       ended_at TEXT
     );
+    CREATE TABLE IF NOT EXISTS scheduler_evaluations (
+      id TEXT PRIMARY KEY,
+      regression_id TEXT,
+      requested_by TEXT,
+      trigger_source TEXT,
+      dry_run INTEGER NOT NULL DEFAULT 0,
+      due_only INTEGER NOT NULL DEFAULT 1,
+      max_runs INTEGER NOT NULL DEFAULT 1,
+      status TEXT NOT NULL,
+      summary_json TEXT,
+      metadata_json TEXT,
+      created_at TEXT NOT NULL,
+      started_at TEXT NOT NULL,
+      ended_at TEXT
+    );
+    CREATE TABLE IF NOT EXISTS work_items (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      source TEXT,
+      goal TEXT,
+      status TEXT NOT NULL,
+      priority TEXT,
+      acceptance_json TEXT,
+      related_docs_json TEXT,
+      related_scenarios_json TEXT,
+      related_regressions_json TEXT,
+      metadata_json TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      last_run_at TEXT
+    );
+    CREATE TABLE IF NOT EXISTS work_item_runs (
+      id TEXT PRIMARY KEY,
+      work_item_id TEXT NOT NULL,
+      status TEXT NOT NULL,
+      trigger_source TEXT,
+      requested_by TEXT,
+      result_json TEXT,
+      metadata_json TEXT,
+      created_at TEXT NOT NULL,
+      started_at TEXT NOT NULL,
+      ended_at TEXT
+    );
     CREATE INDEX IF NOT EXISTS idx_workflow_executions_state ON workflow_executions(state);
     CREATE INDEX IF NOT EXISTS idx_workflow_steps_execution_id ON workflow_steps(execution_id);
     CREATE INDEX IF NOT EXISTS idx_workflow_reviews_execution_id ON workflow_reviews(execution_id);
@@ -209,6 +253,9 @@ export function openOrchestratorDatabase(dbPath) {
     CREATE INDEX IF NOT EXISTS idx_scenario_run_executions_run_id ON scenario_run_executions(scenario_run_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_regression_runs_regression_id ON regression_runs(regression_id, started_at DESC);
     CREATE INDEX IF NOT EXISTS idx_regression_run_items_run_id ON regression_run_items(regression_run_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_scheduler_evaluations_regression_id ON scheduler_evaluations(regression_id, started_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_work_items_status ON work_items(status, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_work_item_runs_item_id ON work_item_runs(work_item_id, started_at DESC);
   `);
   ensureColumn(db, "workflow_steps", "attempt_count", "INTEGER NOT NULL DEFAULT 1");
   ensureColumn(db, "workflow_steps", "max_attempts", "INTEGER NOT NULL DEFAULT 1");
@@ -1264,6 +1311,347 @@ export function listRegressionRunItems(db, regressionRunId) {
     ORDER BY created_at ASC
   `).all(regressionRunId).map((record) => ({
     ...record,
+    metadata: parseJsonField(record.metadataJson, {})
+  }));
+}
+
+export function insertSchedulerEvaluation(db, evaluation) {
+  db.prepare(`
+    INSERT INTO scheduler_evaluations (
+      id, regression_id, requested_by, trigger_source, dry_run, due_only, max_runs,
+      status, summary_json, metadata_json, created_at, started_at, ended_at
+    ) VALUES (
+      @id, @regressionId, @requestedBy, @triggerSource, @dryRun, @dueOnly, @maxRuns,
+      @status, @summaryJson, @metadataJson, @createdAt, @startedAt, @endedAt
+    )
+  `).run({
+    id: evaluation.id,
+    regressionId: evaluation.regressionId ?? null,
+    requestedBy: evaluation.requestedBy ?? null,
+    triggerSource: evaluation.triggerSource ?? null,
+    dryRun: evaluation.dryRun ? 1 : 0,
+    dueOnly: evaluation.dueOnly ? 1 : 0,
+    maxRuns: evaluation.maxRuns ?? 1,
+    status: evaluation.status,
+    summaryJson: JSON.stringify(evaluation.summary ?? {}),
+    metadataJson: JSON.stringify(evaluation.metadata ?? {}),
+    createdAt: evaluation.createdAt,
+    startedAt: evaluation.startedAt,
+    endedAt: evaluation.endedAt ?? null
+  });
+}
+
+export function updateSchedulerEvaluation(db, evaluation) {
+  db.prepare(`
+    UPDATE scheduler_evaluations SET
+      regression_id = @regressionId,
+      requested_by = @requestedBy,
+      trigger_source = @triggerSource,
+      dry_run = @dryRun,
+      due_only = @dueOnly,
+      max_runs = @maxRuns,
+      status = @status,
+      summary_json = @summaryJson,
+      metadata_json = @metadataJson,
+      started_at = @startedAt,
+      ended_at = @endedAt
+    WHERE id = @id
+  `).run({
+    id: evaluation.id,
+    regressionId: evaluation.regressionId ?? null,
+    requestedBy: evaluation.requestedBy ?? null,
+    triggerSource: evaluation.triggerSource ?? null,
+    dryRun: evaluation.dryRun ? 1 : 0,
+    dueOnly: evaluation.dueOnly ? 1 : 0,
+    maxRuns: evaluation.maxRuns ?? 1,
+    status: evaluation.status,
+    summaryJson: JSON.stringify(evaluation.summary ?? {}),
+    metadataJson: JSON.stringify(evaluation.metadata ?? {}),
+    startedAt: evaluation.startedAt,
+    endedAt: evaluation.endedAt ?? null
+  });
+}
+
+export function getSchedulerEvaluation(db, evaluationId) {
+  const record = db.prepare(`
+    SELECT
+      id,
+      regression_id AS regressionId,
+      requested_by AS requestedBy,
+      trigger_source AS triggerSource,
+      dry_run AS dryRun,
+      due_only AS dueOnly,
+      max_runs AS maxRuns,
+      status,
+      summary_json AS summaryJson,
+      metadata_json AS metadataJson,
+      created_at AS createdAt,
+      started_at AS startedAt,
+      ended_at AS endedAt
+    FROM scheduler_evaluations
+    WHERE id = ?
+  `).get(evaluationId);
+  return record ? {
+    ...record,
+    dryRun: Boolean(record.dryRun),
+    dueOnly: Boolean(record.dueOnly),
+    summary: parseJsonField(record.summaryJson, {}),
+    metadata: parseJsonField(record.metadataJson, {})
+  } : null;
+}
+
+export function listSchedulerEvaluations(db, regressionId = null, limit = 20) {
+  const sql = `
+    SELECT
+      id,
+      regression_id AS regressionId,
+      requested_by AS requestedBy,
+      trigger_source AS triggerSource,
+      dry_run AS dryRun,
+      due_only AS dueOnly,
+      max_runs AS maxRuns,
+      status,
+      summary_json AS summaryJson,
+      metadata_json AS metadataJson,
+      created_at AS createdAt,
+      started_at AS startedAt,
+      ended_at AS endedAt
+    FROM scheduler_evaluations
+    ${regressionId ? "WHERE regression_id = ?" : ""}
+    ORDER BY started_at DESC
+    LIMIT ?
+  `;
+  const statement = db.prepare(sql);
+  const rows = regressionId ? statement.all(regressionId, limit) : statement.all(limit);
+  return rows.map((record) => ({
+    ...record,
+    dryRun: Boolean(record.dryRun),
+    dueOnly: Boolean(record.dueOnly),
+    summary: parseJsonField(record.summaryJson, {}),
+    metadata: parseJsonField(record.metadataJson, {})
+  }));
+}
+
+export function insertWorkItem(db, item) {
+  db.prepare(`
+    INSERT INTO work_items (
+      id, title, kind, source, goal, status, priority, acceptance_json,
+      related_docs_json, related_scenarios_json, related_regressions_json,
+      metadata_json, created_at, updated_at, last_run_at
+    ) VALUES (
+      @id, @title, @kind, @source, @goal, @status, @priority, @acceptanceJson,
+      @relatedDocsJson, @relatedScenariosJson, @relatedRegressionsJson,
+      @metadataJson, @createdAt, @updatedAt, @lastRunAt
+    )
+  `).run({
+    id: item.id,
+    title: item.title,
+    kind: item.kind,
+    source: item.source ?? null,
+    goal: item.goal ?? null,
+    status: item.status,
+    priority: item.priority ?? null,
+    acceptanceJson: JSON.stringify(item.acceptanceCriteria ?? []),
+    relatedDocsJson: JSON.stringify(item.relatedDocs ?? []),
+    relatedScenariosJson: JSON.stringify(item.relatedScenarios ?? []),
+    relatedRegressionsJson: JSON.stringify(item.relatedRegressions ?? []),
+    metadataJson: JSON.stringify(item.metadata ?? {}),
+    createdAt: item.createdAt,
+    updatedAt: item.updatedAt,
+    lastRunAt: item.lastRunAt ?? null
+  });
+}
+
+export function updateWorkItem(db, item) {
+  db.prepare(`
+    UPDATE work_items SET
+      title = @title,
+      kind = @kind,
+      source = @source,
+      goal = @goal,
+      status = @status,
+      priority = @priority,
+      acceptance_json = @acceptanceJson,
+      related_docs_json = @relatedDocsJson,
+      related_scenarios_json = @relatedScenariosJson,
+      related_regressions_json = @relatedRegressionsJson,
+      metadata_json = @metadataJson,
+      updated_at = @updatedAt,
+      last_run_at = @lastRunAt
+    WHERE id = @id
+  `).run({
+    id: item.id,
+    title: item.title,
+    kind: item.kind,
+    source: item.source ?? null,
+    goal: item.goal ?? null,
+    status: item.status,
+    priority: item.priority ?? null,
+    acceptanceJson: JSON.stringify(item.acceptanceCriteria ?? []),
+    relatedDocsJson: JSON.stringify(item.relatedDocs ?? []),
+    relatedScenariosJson: JSON.stringify(item.relatedScenarios ?? []),
+    relatedRegressionsJson: JSON.stringify(item.relatedRegressions ?? []),
+    metadataJson: JSON.stringify(item.metadata ?? {}),
+    updatedAt: item.updatedAt,
+    lastRunAt: item.lastRunAt ?? null
+  });
+}
+
+export function getWorkItem(db, itemId) {
+  const record = db.prepare(`
+    SELECT
+      id,
+      title,
+      kind,
+      source,
+      goal,
+      status,
+      priority,
+      acceptance_json AS acceptanceJson,
+      related_docs_json AS relatedDocsJson,
+      related_scenarios_json AS relatedScenariosJson,
+      related_regressions_json AS relatedRegressionsJson,
+      metadata_json AS metadataJson,
+      created_at AS createdAt,
+      updated_at AS updatedAt,
+      last_run_at AS lastRunAt
+    FROM work_items
+    WHERE id = ?
+  `).get(itemId);
+  return record ? {
+    ...record,
+    acceptanceCriteria: parseJsonField(record.acceptanceJson, []),
+    relatedDocs: parseJsonField(record.relatedDocsJson, []),
+    relatedScenarios: parseJsonField(record.relatedScenariosJson, []),
+    relatedRegressions: parseJsonField(record.relatedRegressionsJson, []),
+    metadata: parseJsonField(record.metadataJson, {})
+  } : null;
+}
+
+export function listWorkItems(db, status = null, limit = 50) {
+  const sql = `
+    SELECT
+      id,
+      title,
+      kind,
+      source,
+      goal,
+      status,
+      priority,
+      acceptance_json AS acceptanceJson,
+      related_docs_json AS relatedDocsJson,
+      related_scenarios_json AS relatedScenariosJson,
+      related_regressions_json AS relatedRegressionsJson,
+      metadata_json AS metadataJson,
+      created_at AS createdAt,
+      updated_at AS updatedAt,
+      last_run_at AS lastRunAt
+    FROM work_items
+    ${status ? "WHERE status = ?" : ""}
+    ORDER BY updated_at DESC
+    LIMIT ?
+  `;
+  const statement = db.prepare(sql);
+  const rows = status ? statement.all(status, limit) : statement.all(limit);
+  return rows.map((record) => ({
+    ...record,
+    acceptanceCriteria: parseJsonField(record.acceptanceJson, []),
+    relatedDocs: parseJsonField(record.relatedDocsJson, []),
+    relatedScenarios: parseJsonField(record.relatedScenariosJson, []),
+    relatedRegressions: parseJsonField(record.relatedRegressionsJson, []),
+    metadata: parseJsonField(record.metadataJson, {})
+  }));
+}
+
+export function insertWorkItemRun(db, run) {
+  db.prepare(`
+    INSERT INTO work_item_runs (
+      id, work_item_id, status, trigger_source, requested_by,
+      result_json, metadata_json, created_at, started_at, ended_at
+    ) VALUES (
+      @id, @workItemId, @status, @triggerSource, @requestedBy,
+      @resultJson, @metadataJson, @createdAt, @startedAt, @endedAt
+    )
+  `).run({
+    id: run.id,
+    workItemId: run.workItemId,
+    status: run.status,
+    triggerSource: run.triggerSource ?? null,
+    requestedBy: run.requestedBy ?? null,
+    resultJson: JSON.stringify(run.result ?? {}),
+    metadataJson: JSON.stringify(run.metadata ?? {}),
+    createdAt: run.createdAt,
+    startedAt: run.startedAt,
+    endedAt: run.endedAt ?? null
+  });
+}
+
+export function updateWorkItemRun(db, run) {
+  db.prepare(`
+    UPDATE work_item_runs SET
+      status = @status,
+      trigger_source = @triggerSource,
+      requested_by = @requestedBy,
+      result_json = @resultJson,
+      metadata_json = @metadataJson,
+      started_at = @startedAt,
+      ended_at = @endedAt
+    WHERE id = @id
+  `).run({
+    id: run.id,
+    status: run.status,
+    triggerSource: run.triggerSource ?? null,
+    requestedBy: run.requestedBy ?? null,
+    resultJson: JSON.stringify(run.result ?? {}),
+    metadataJson: JSON.stringify(run.metadata ?? {}),
+    startedAt: run.startedAt,
+    endedAt: run.endedAt ?? null
+  });
+}
+
+export function getWorkItemRun(db, runId) {
+  const record = db.prepare(`
+    SELECT
+      id,
+      work_item_id AS workItemId,
+      status,
+      trigger_source AS triggerSource,
+      requested_by AS requestedBy,
+      result_json AS resultJson,
+      metadata_json AS metadataJson,
+      created_at AS createdAt,
+      started_at AS startedAt,
+      ended_at AS endedAt
+    FROM work_item_runs
+    WHERE id = ?
+  `).get(runId);
+  return record ? {
+    ...record,
+    result: parseJsonField(record.resultJson, {}),
+    metadata: parseJsonField(record.metadataJson, {})
+  } : null;
+}
+
+export function listWorkItemRuns(db, workItemId, limit = 20) {
+  return db.prepare(`
+    SELECT
+      id,
+      work_item_id AS workItemId,
+      status,
+      trigger_source AS triggerSource,
+      requested_by AS requestedBy,
+      result_json AS resultJson,
+      metadata_json AS metadataJson,
+      created_at AS createdAt,
+      started_at AS startedAt,
+      ended_at AS endedAt
+    FROM work_item_runs
+    WHERE work_item_id = ?
+    ORDER BY started_at DESC
+    LIMIT ?
+  `).all(workItemId, limit).map((record) => ({
+    ...record,
+    result: parseJsonField(record.resultJson, {}),
     metadata: parseJsonField(record.metadataJson, {})
   }));
 }

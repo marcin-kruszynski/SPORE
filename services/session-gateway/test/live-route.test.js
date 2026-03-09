@@ -136,6 +136,14 @@ test("session live route returns diagnostics and control guidance", async (t) =>
   assert.ok(Array.isArray(response.json.diagnostics.suggestions));
   assert.ok(response.json.diagnostics.suggestions.some((item) => item.action === "steer"));
   assert.ok(response.json.diagnostics.suggestions.some((item) => item.action === "stop"));
+  assert.ok(
+    response.json.diagnostics.suggestions.every(
+      (item) =>
+        typeof item.expectedOutcome === "string" &&
+        typeof item.commandHint === "string" &&
+        typeof item.httpHint === "string"
+    )
+  );
   assert.equal(response.json.artifacts.transcript.exists, true);
   assert.equal(response.json.artifacts.rpcStatus.exists, true);
   assert.equal(response.json.controlHistory.length, 1);

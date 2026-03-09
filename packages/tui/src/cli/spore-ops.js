@@ -514,6 +514,17 @@ async function regressionReport(flags) {
   console.log(formatJson(payload));
 }
 
+async function regressionLatestReport(flags) {
+  if (!flags.regression) {
+    throw new Error("use regression-latest-report --regression <id>");
+  }
+  const payload = await orchestratorRequest(
+    flags,
+    `/regressions/${encodeURIComponent(flags.regression)}/latest-report`
+  );
+  console.log(formatJson(payload));
+}
+
 async function regressionRerun(flags) {
   if (!flags.run) {
     throw new Error("use regression-rerun --run <id>");
@@ -544,6 +555,112 @@ async function regressionTrends(flags) {
     flags,
     `/regressions/${encodeURIComponent(flags.regression)}/trends?limit=${encodeURIComponent(String(flags.limit ?? "100"))}`
   );
+  console.log(formatJson(payload));
+}
+
+async function regressionScheduler(flags) {
+  const body = {
+    regression: flags.regression,
+    all: flags.all === true,
+    dryRun: flags["dry-run"] === true,
+    maxRuns: flags["max-runs"] ? toNumber(flags["max-runs"], null) : undefined,
+    project: flags.project,
+    timeout: flags.timeout ? toNumber(flags.timeout, null) : undefined,
+    interval: flags.interval ? toNumber(flags.interval, null) : undefined,
+    stub: flags.stub === true,
+    launcher: flags.launcher,
+    by: flags.by ?? "scheduler",
+    source: "tui",
+    noMonitor: flags["no-monitor"] === true
+  };
+  Object.keys(body).forEach((key) => body[key] === undefined && delete body[key]);
+  const payload = await orchestratorRequest(flags, "/regressions/scheduler/run", {
+    method: "POST",
+    body: JSON.stringify(body)
+  });
+  console.log(formatJson(payload));
+}
+
+async function regressionSchedulerStatus(flags) {
+  const payload = await orchestratorRequest(flags, "/regressions/scheduler/status");
+  console.log(formatJson(payload));
+}
+
+async function workItemList(flags) {
+  const search = new URLSearchParams();
+  if (flags.status) search.set("status", flags.status);
+  if (flags.limit) search.set("limit", String(flags.limit));
+  const suffix = search.toString() ? `?${search.toString()}` : "";
+  const payload = await orchestratorRequest(flags, `/work-items${suffix}`);
+  console.log(formatJson(payload));
+}
+
+async function workItemShow(flags) {
+  if (!flags.item) {
+    throw new Error("use work-item-show --item <id>");
+  }
+  const payload = await orchestratorRequest(flags, `/work-items/${encodeURIComponent(flags.item)}`);
+  console.log(formatJson(payload));
+}
+
+async function workItemCreate(flags) {
+  if (!flags.title || !flags.kind) {
+    throw new Error("use work-item-create --title <text> --kind <scenario|regression|workflow>");
+  }
+  const body = {
+    title: flags.title,
+    kind: flags.kind,
+    source: flags.source ?? "tui",
+    goal: flags.goal ?? "",
+    priority: flags.priority ?? "medium",
+    acceptanceCriteria: flags.acceptance ? String(flags.acceptance).split("|").map((item) => item.trim()).filter(Boolean) : [],
+    relatedDocs: flags.docs ? String(flags.docs).split(",").map((item) => item.trim()).filter(Boolean) : [],
+    relatedScenarios: flags.scenarios ? String(flags.scenarios).split(",").map((item) => item.trim()).filter(Boolean) : [],
+    relatedRegressions: flags.regressions ? String(flags.regressions).split(",").map((item) => item.trim()).filter(Boolean) : [],
+    metadata: {
+      scenarioId: flags.scenario ?? null,
+      regressionId: flags.regression ?? null,
+      workflowPath: flags.workflow ?? null,
+      domainId: flags.domain ?? null,
+      roles: flags.roles ? String(flags.roles).split(",").map((item) => item.trim()).filter(Boolean) : null,
+      projectPath: flags.project ?? null
+    }
+  };
+  const payload = await orchestratorRequest(flags, "/work-items", {
+    method: "POST",
+    body: JSON.stringify(body)
+  });
+  console.log(formatJson(payload));
+}
+
+async function workItemRun(flags) {
+  if (!flags.item) {
+    throw new Error("use work-item-run --item <id>");
+  }
+  const body = {
+    project: flags.project,
+    wait: flags.wait !== false,
+    timeout: flags.timeout ? toNumber(flags.timeout, null) : undefined,
+    interval: flags.interval ? toNumber(flags.interval, null) : undefined,
+    noMonitor: flags["no-monitor"] === true,
+    stub: flags.stub === true,
+    launcher: flags.launcher,
+    by: flags.by ?? "operator",
+    source: "tui"
+  };
+  Object.keys(body).forEach((key) => body[key] === undefined && delete body[key]);
+  const payload = await orchestratorRequest(flags, `/work-items/${encodeURIComponent(flags.item)}/run`, {
+    method: "POST",
+    body: JSON.stringify(body)
+  });
+  console.log(formatJson(payload));
+}
+
+async function workItemRunShow(flags) {
+  if (!flags.run) {
+    throw new Error("use work-item-run-show --run <id>");
+  }
+  const payload = await orchestratorRequest(flags, `/work-item-runs/${encodeURIComponent(flags.run)}`);
   console.log(formatJson(payload));
 }
 
@@ -642,6 +759,10 @@ async function main() {
     await regressionReport(flags);
     return;
   }
+  if (command === "regression-latest-report") {
+    await regressionLatestReport(flags);
+    return;
+  }
   if (command === "regression-rerun") {
     await regressionRerun(flags);
     return;
@@ -650,11 +771,39 @@ async function main() {
     await regressionTrends(flags);
     return;
   }
+  if (command === "regression-scheduler") {
+    await regressionScheduler(flags);
+    return;
+  }
+  if (command === "regression-scheduler-status") {
+    await regressionSchedulerStatus(flags);
+    return;
+  }
+  if (command === "work-item-list") {
+    await workItemList(flags);
+    return;
+  }
+  if (command === "work-item-show") {
+    await workItemShow(flags);
+    return;
+  }
+  if (command === "work-item-create") {
+    await workItemCreate(flags);
+    return;
+  }
+  if (command === "work-item-run") {
+    await workItemRun(flags);
+    return;
+  }
+  if (command === "work-item-run-show") {
+    await workItemRunShow(flags);
+    return;
+  }
   if (["pause", "hold", "resume", "review", "approval", "drive"].includes(command)) {
     await treeAction(flags, command);
     return;
   }
-  throw new Error("commands: dashboard | inspect | execution | tree | family | audit | policy-diff | history | run-center | scenario-list | scenario-show | scenario-runs | scenario-run | scenario-run-show | scenario-run-artifacts | scenario-rerun | scenario-trends | regression-list | regression-show | regression-runs | regression-run | regression-run-show | regression-report | regression-rerun | regression-trends | drive | pause | hold | resume | review | approval");
+  throw new Error("commands: dashboard | inspect | execution | tree | family | audit | policy-diff | history | run-center | scenario-list | scenario-show | scenario-runs | scenario-run | scenario-run-show | scenario-run-artifacts | scenario-rerun | scenario-trends | regression-list | regression-show | regression-runs | regression-run | regression-run-show | regression-report | regression-latest-report | regression-rerun | regression-trends | regression-scheduler | regression-scheduler-status | work-item-list | work-item-show | work-item-create | work-item-run | work-item-run-show | drive | pause | hold | resume | review | approval");
 }
 
 main().catch((error) => {

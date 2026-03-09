@@ -27,6 +27,12 @@ const state = {
   scenarioRunArtifacts: null,
   scenarioRunArtifactsState: "idle",
   scenarioRunArtifactsError: null,
+  scenarioRunDetail: null,
+  scenarioRunDetailState: "idle",
+  scenarioRunDetailError: null,
+  scenarioTrend: null,
+  scenarioTrendState: "idle",
+  scenarioTrendError: null,
   regressions: [],
   runCenter: null,
   runCenterState: "idle",
@@ -40,6 +46,15 @@ const state = {
   regressionRuns: [],
   regressionRunsState: "idle",
   regressionRunsError: null,
+  regressionRunDetail: null,
+  regressionRunDetailState: "idle",
+  regressionRunDetailError: null,
+  regressionRunReport: null,
+  regressionRunReportState: "idle",
+  regressionRunReportError: null,
+  regressionTrend: null,
+  regressionTrendState: "idle",
+  regressionTrendError: null,
   selectedRegressionRunId: null,
   selectedRunCenterScenarioRunId: null,
   selectedRunCenterRegressionRunId: null,
@@ -953,11 +968,443 @@ function normalizeRunCenterCollections(payload = {}) {
   const root = payload?.summary ?? payload?.detail ?? payload ?? {};
   return {
     counts: readFirstObjectField(root, ["counts", "summary", "totals"]) ?? {},
+    trendBreakdown: readFirstObjectField(root, ["trendBreakdown", "trendSummary"]) ?? {},
+    failureBreakdown: readFirstObjectField(root, ["failureBreakdown", "failureSummary"]) ?? {},
+    flaky: readFirstObjectField(root, ["flaky", "flakySummary"]) ?? {},
     scenarios: normalizeRouteArray(root, ["scenarios", "scenarioSummaries", "scenarioStatus", "scenarioItems"]),
     regressions: normalizeRouteArray(root, ["regressions", "regressionSummaries", "regressionStatus", "regressionItems"]),
     recentScenarioRuns: normalizeRouteArray(root, ["recentScenarioRuns", "latestScenarioRuns", "scenarioRuns"]),
-    recentRegressionRuns: normalizeRouteArray(root, ["recentRegressionRuns", "latestRegressionRuns", "regressionRuns"])
+    recentRegressionRuns: normalizeRouteArray(root, ["recentRegressionRuns", "latestRegressionRuns", "regressionRuns"]),
+    latestReports: normalizeRouteArray(root, ["latestReports", "reportCards", "reports"]),
+    alerts: readFirstArrayField(root, ["alerts", "activeAlerts", "warnings", "issues"]),
+    recommendations: readFirstArrayField(root, ["recommendations", "suggestedActions", "operatorRecommendations", "guidance"])
   };
+}
+
+function normalizeSuggestedActions(value) {
+  const source = Array.isArray(value)
+    ? value
+    : isObject(value) && Array.isArray(value.actions)
+      ? value.actions
+      : isObject(value) && Array.isArray(value.items)
+        ? value.items
+        : hasDisplayValue(value)
+          ? [value]
+          : [];
+
+  return source
+    .map((item) => {
+      if (!hasDisplayValue(item)) {
+        return null;
+      }
+      if (typeof item === "string") {
+        return {
+          action: item,
+          reason: "",
+          commandHint: "",
+          expectedOutcome: "",
+          httpHint: ""
+        };
+      }
+      if (!isObject(item)) {
+        return {
+          action: String(item),
+          reason: "",
+          commandHint: "",
+          expectedOutcome: "",
+          httpHint: ""
+        };
+      }
+      return {
+        action: normalizeText(readFirstField(item, ["action", "label", "title", "name", "command"]), "action"),
+        reason: normalizeText(readFirstField(item, ["reason", "message", "detail", "description"]), ""),
+        commandHint: normalizeText(readFirstField(item, ["commandHint", "command", "hint", "cli"]), ""),
+        expectedOutcome: normalizeText(readFirstField(item, ["expectedOutcome", "expected", "outcome"]), ""),
+        httpHint: normalizeText(readFirstField(item, ["httpHint", "http", "endpoint", "route"]), "")
+      };
+    })
+    .filter((item) => item !== null);
+}
+
+function normalizeFailureRecord(value) {
+  if (!hasDisplayValue(value)) {
+    return null;
+  }
+
+  if (!isObject(value)) {
+    return {
+      classification: "",
+      reason: String(value),
+      code: "",
+      severity: "",
+      status: ""
+    };
+  }
+
+  const classification = normalizeText(
+    readFirstField(value, ["classification", "class", "category", "type", "kind", "failureClass"]),
+    ""
+  );
+  const reason = normalizeText(
+    readFirstField(value, ["reason", "message", "detail", "description", "summary", "failureReason", "error"]),
+    ""
+  );
+  const code = normalizeText(readFirstField(value, ["code", "errorCode", "reasonCode", "id"]), "");
+  const severity = normalizeText(readFirstField(value, ["severity", "level", "priority"]), "");
+  const status = normalizeText(readFirstField(value, ["status", "state", "outcome"]), "");
+
+  if (!classification && !reason && !code && !severity && !status) {
+    return {
+      classification: "",
+      reason: formatPolicyValue(value),
+      code: "",
+      severity: "",
+      status: ""
+    };
+  }
+
+  return {
+    classification,
+    reason,
+    code,
+    severity,
+    status
+  };
+}
+
+function pickFailureRecord(...values) {
+  for (const value of values) {
+    const normalized = normalizeFailureRecord(value);
+    if (normalized) {
+      return normalized;
+    }
+  }
+  return null;
+}
+
+function summarizeFailureLabel(failure) {
+  if (!failure) {
+    return "";
+  }
+  return normalizeText(failure.classification || failure.code || failure.reason, "");
+}
+
+function normalizeAdvisoryEntries(items = [], fallbackType = "advisory") {
+  if (!Array.isArray(items)) {
+    return [];
+  }
+
+  return items
+    .map((item, index) => {
+      if (!hasDisplayValue(item)) {
+        return null;
+      }
+
+      if (typeof item === "string") {
+        return {
+          id: `${fallbackType}-${index + 1}`,
+          type: fallbackType,
+          severity: fallbackType === "alert" ? "high" : "",
+          title: item,
+          detail: "",
+          source: "",
+          timestamp: ""
+        };
+      }
+
+      if (!isObject(item)) {
+        return {
+          id: `${fallbackType}-${index + 1}`,
+          type: fallbackType,
+          severity: "",
+          title: String(item),
+          detail: "",
+          source: "",
+          timestamp: ""
+        };
+      }
+
+      return {
+        id: normalizeText(readFirstField(item, ["id", "key", "slug"]), `${fallbackType}-${index + 1}`),
+        type: normalizeText(readFirstField(item, ["type", "kind"]), fallbackType),
+        severity: normalizeText(readFirstField(item, ["severity", "level", "priority"]), ""),
+        title: normalizeText(readFirstField(item, ["title", "label", "summary", "name"]), `${fallbackType}-${index + 1}`),
+        detail: normalizeText(readFirstField(item, ["detail", "message", "reason", "description"]), ""),
+        source: normalizeText(readFirstField(item, ["source", "owner", "area", "scope"]), ""),
+        timestamp: normalizeText(readFirstField(item, ["timestamp", "createdAt", "at", "detectedAt"]), "")
+      };
+    })
+    .filter((item) => item !== null);
+}
+
+function renderTrendSnapshotPills(snapshot) {
+  if (!isObject(snapshot)) {
+    return "";
+  }
+
+  const entries = Object.entries(snapshot).filter(([, value]) => hasDisplayValue(value)).slice(0, 4);
+  return entries
+    .map(([key, value]) => renderMetaPill(humanizeKey(key), formatPolicyValue(value)))
+    .join("");
+}
+
+function renderTrendSnapshotCard(snapshot, title = "Trend Snapshot", emptyText = "No trend snapshot available.") {
+  if (!hasDisplayValue(snapshot)) {
+    return `
+      <article class="detail-card compact-empty run-insight-card">
+        <div class="event-title"><strong>${escapeHtml(title)}</strong></div>
+        <p class="decision-summary">${escapeHtml(emptyText)}</p>
+      </article>
+    `;
+  }
+
+  if (!isObject(snapshot)) {
+    return `
+      <article class="detail-card compact-empty run-insight-card">
+        <div class="event-title"><strong>${escapeHtml(title)}</strong></div>
+        <code>${escapeHtml(formatPolicyValue(snapshot))}</code>
+      </article>
+    `;
+  }
+
+  const entries = Object.entries(snapshot).filter(([, value]) => hasDisplayValue(value));
+  return `
+    <article class="detail-card compact-empty run-insight-card">
+      <div class="event-title"><strong>${escapeHtml(title)}</strong></div>
+      <div class="trend-grid">
+        ${entries
+          .slice(0, 10)
+          .map(
+            ([key, value]) => `
+              <div class="trend-item">
+                <span class="muted">${escapeHtml(humanizeKey(key))}</span>
+                <code>${escapeHtml(formatPolicyValue(value))}</code>
+              </div>
+            `
+          )
+          .join("")}
+      </div>
+    </article>
+  `;
+}
+
+function renderFailureCard(failure, title = "Failure Classification", emptyText = "No failure details available.") {
+  if (!failure) {
+    return `
+      <article class="detail-card compact-empty run-insight-card">
+        <div class="event-title"><strong>${escapeHtml(title)}</strong></div>
+        <p class="decision-summary">${escapeHtml(emptyText)}</p>
+      </article>
+    `;
+  }
+
+  return `
+    <article class="detail-card compact-empty run-insight-card run-failure-card">
+      <div class="event-title">
+        <strong>${escapeHtml(title)}</strong>
+        ${failure.classification ? renderStatePill(failure.classification, "failed") : ""}
+      </div>
+      <div class="detail-grid">
+        <div><span class="muted">Classification</span><br /><code>${escapeHtml(normalizeText(failure.classification, "-"))}</code></div>
+        <div><span class="muted">Code</span><br /><code>${escapeHtml(normalizeText(failure.code, "-"))}</code></div>
+        <div><span class="muted">Severity</span><br /><code>${escapeHtml(normalizeText(failure.severity, "-"))}</code></div>
+        <div><span class="muted">Status</span><br /><code>${escapeHtml(normalizeText(failure.status, "-"))}</code></div>
+      </div>
+      <p class="decision-summary">${escapeHtml(normalizeText(failure.reason, "No failure reason provided."))}</p>
+    </article>
+  `;
+}
+
+function renderSuggestedActionsCard(actions, title = "Suggested Actions", emptyText = "No suggested actions available.") {
+  const normalized = normalizeSuggestedActions(actions);
+  if (!normalized.length) {
+    return `
+      <article class="detail-card compact-empty run-insight-card">
+        <div class="event-title"><strong>${escapeHtml(title)}</strong></div>
+        <p class="decision-summary">${escapeHtml(emptyText)}</p>
+      </article>
+    `;
+  }
+
+  return `
+    <article class="detail-card compact-empty run-insight-card">
+      <div class="event-title">
+        <strong>${escapeHtml(title)}</strong>
+        <span class="muted">${escapeHtml(String(normalized.length))}</span>
+      </div>
+      <div class="event-list suggested-actions-list">
+        ${normalized
+          .slice(0, 6)
+          .map(
+            (item) => `
+              <article class="detail-card compact-empty suggested-action-item">
+                <div class="event-title">
+                  <strong>${escapeHtml(normalizeText(item.action, "action"))}</strong>
+                  ${item.commandHint ? `<code>${escapeHtml(item.commandHint)}</code>` : ""}
+                </div>
+                ${item.reason ? `<p class="decision-summary">${escapeHtml(item.reason)}</p>` : ""}
+                ${
+                  item.expectedOutcome || item.httpHint
+                    ? `<div class="event-meta">
+                        ${
+                          item.expectedOutcome
+                            ? `<code>expected=${escapeHtml(item.expectedOutcome)}</code>`
+                            : ""
+                        }
+                        ${
+                          item.httpHint
+                            ? `<code>http=${escapeHtml(item.httpHint)}</code>`
+                            : ""
+                        }
+                      </div>`
+                    : ""
+                }
+              </article>
+            `
+          )
+          .join("")}
+      </div>
+    </article>
+  `;
+}
+
+function normalizeRunReportPayload(payload) {
+  const root = payload?.detail ?? payload?.summary ?? payload ?? {};
+  return {
+    topFailureReasons: normalizeRouteArray(root, ["topFailureReasons", "failureReasons", "topFailures"]),
+    linkedScenarioRunIds: normalizeRouteArray(root, ["linkedScenarioRunIds", "scenarioRunIds"]),
+    linkedExecutionIds: normalizeRouteArray(root, ["linkedExecutionIds", "executionIds"]),
+    linkedSessionIds: normalizeRouteArray(root, ["linkedSessionIds", "sessionIds"]),
+    artifactSummary: readFirstObjectField(root, ["artifactSummary", "artifacts", "artifactCounts"]) ?? {},
+    durationSummary: readFirstObjectField(root, ["durationSummary", "durations", "timings"]) ?? {},
+    failureSummary: readFirstObjectField(root, ["failureSummary", "failure", "summary"]) ?? {},
+    suggestedActions: normalizeSuggestedActions(
+      readFirstField(root, ["suggestedActions", "recommendations", "actions"]) ?? root?.suggestedActions
+    ),
+    realPiUsed: readFirstField(root, ["realPiUsed", "usesRealPi", "realPi"]),
+    reports: readFirstObjectField(root, ["reports", "paths", "reportPaths"]) ?? {}
+  };
+}
+
+function renderSummaryObjectCard(value, title, emptyText = "No structured summary available.") {
+  if (!hasDisplayValue(value)) {
+    return `
+      <article class="detail-card compact-empty run-insight-card">
+        <div class="event-title"><strong>${escapeHtml(title)}</strong></div>
+        <p class="decision-summary">${escapeHtml(emptyText)}</p>
+      </article>
+    `;
+  }
+
+  if (!isObject(value)) {
+    return `
+      <article class="detail-card compact-empty run-insight-card">
+        <div class="event-title"><strong>${escapeHtml(title)}</strong></div>
+        <code>${escapeHtml(formatPolicyValue(value))}</code>
+      </article>
+    `;
+  }
+
+  const entries = Object.entries(value).filter(([, item]) => hasDisplayValue(item)).slice(0, 10);
+  if (entries.length === 0) {
+    return `
+      <article class="detail-card compact-empty run-insight-card">
+        <div class="event-title"><strong>${escapeHtml(title)}</strong></div>
+        <p class="decision-summary">${escapeHtml(emptyText)}</p>
+      </article>
+    `;
+  }
+
+  return `
+    <article class="detail-card compact-empty run-insight-card">
+      <div class="event-title"><strong>${escapeHtml(title)}</strong></div>
+      <div class="detail-grid compact-grid">
+        ${entries
+          .map(
+            ([key, item]) => `
+              <div>
+                <span class="muted">${escapeHtml(humanizeKey(key))}</span><br />
+                <code>${escapeHtml(formatPolicyValue(item))}</code>
+              </div>
+            `
+          )
+          .join("")}
+      </div>
+    </article>
+  `;
+}
+
+function renderReportSummaryCard(reportPayload, emptyText = "No regression report payload available.") {
+  const report = normalizeRunReportPayload(reportPayload);
+  const reportPaths = Object.values(report.reports).filter((value) => hasDisplayValue(value));
+  const failureRows = report.topFailureReasons
+    .map((item) => {
+      if (!hasDisplayValue(item)) {
+        return null;
+      }
+      if (typeof item === "string") {
+        return {
+          label: item,
+          severity: "",
+          infrastructure: ""
+        };
+      }
+      return {
+        label: normalizeText(readFirstField(item, ["label", "reason", "classification", "code"]), "failure"),
+        severity: normalizeText(readFirstField(item, ["severity", "level"]), ""),
+        infrastructure: normalizeText(readFirstField(item, ["infrastructure", "infra", "isInfraFailure"]), "")
+      };
+    })
+    .filter((item) => item !== null)
+    .slice(0, 6);
+
+  if (
+    failureRows.length === 0 &&
+    !hasDisplayValue(report.artifactSummary) &&
+    !hasDisplayValue(report.durationSummary) &&
+    !report.suggestedActions.length &&
+    reportPaths.length === 0
+  ) {
+    return `
+      <article class="detail-card compact-empty run-insight-card">
+        <div class="event-title"><strong>Regression Report</strong></div>
+        <p class="decision-summary">${escapeHtml(emptyText)}</p>
+      </article>
+    `;
+  }
+
+  return `
+    <article class="detail-card compact-empty run-insight-card report-summary-card">
+      <div class="event-title">
+        <strong>Regression Report</strong>
+        ${hasDisplayValue(report.realPiUsed) ? renderMetaPill("real-pi", report.realPiUsed ? "yes" : "no", "root") : ""}
+      </div>
+      ${
+        failureRows.length
+          ? `<div class="event-list report-failure-list">
+              ${failureRows
+                .map(
+                  (item) => `
+                    <div class="report-failure-item">
+                      <strong>${escapeHtml(item.label)}</strong>
+                      <div class="lineage-meta">
+                        ${item.severity ? renderMetaPill("severity", item.severity, "failed") : ""}
+                        ${item.infrastructure ? renderMetaPill("infra", item.infrastructure, "paused") : ""}
+                      </div>
+                    </div>
+                  `
+                )
+                .join("")}
+            </div>`
+          : ""
+      }
+      ${renderSummaryObjectCard(report.durationSummary, "Duration Summary", "No duration summary in the report.")}
+      ${renderSummaryObjectCard(report.artifactSummary, "Artifact Summary", "No artifact summary in the report.")}
+      ${renderSummaryObjectCard(report.failureSummary, "Failure Summary", "No failure summary in the report.")}
+      ${renderSuggestedActionsCard(report.suggestedActions, "Report Recommendations", "No report recommendations returned.")}
+      ${renderPathReferenceList(reportPaths, "Report Paths")}
+    </article>
+  `;
 }
 
 function collectGuidanceItems(record = {}, policy = null) {
@@ -1583,6 +2030,14 @@ function buildRegressionReportByRunIdHref(runId) {
   return `/api/orchestrator/regression-runs/${encodeURIComponent(runId)}/report`;
 }
 
+function buildScenarioTrendHref(scenarioId) {
+  return `/api/orchestrator/scenarios/${encodeURIComponent(scenarioId)}/trends`;
+}
+
+function buildRegressionTrendHref(regressionId) {
+  return `/api/orchestrator/regressions/${encodeURIComponent(regressionId)}/trends`;
+}
+
 function buildRegressionRunsHref(regressionId) {
   return `/api/orchestrator/regressions/${encodeURIComponent(regressionId)}/runs`;
 }
@@ -1691,8 +2146,23 @@ function renderScenarioDetail() {
     scenarioRuns[0] ??
     scenario.latestRun ??
     null;
+  const latestRun = scenario.latestRun ?? scenarioRuns[0] ?? null;
   const runArtifacts = state.scenarioRunArtifacts?.executions ?? [];
   const runSummary = selectedRun?.assertionSummary ?? {};
+  const selectedRunTrendSnapshot =
+    readFirstField(selectedRun ?? {}, ["trendSnapshot", "trend", "latestTrend", "trendSummary"]) ??
+    readFirstField(runSummary ?? {}, ["trendSnapshot", "trend", "latestTrend", "trendSummary"]);
+  const selectedRunFailure = pickFailureRecord(
+    selectedRun?.failure,
+    selectedRun?.latestFailure,
+    selectedRun?.metadata?.failure,
+    runSummary?.failure
+  );
+  const selectedRunSuggestedActions = normalizeSuggestedActions(
+    readFirstField(selectedRun ?? {}, ["suggestedActions", "latestSuggestedActions", "recommendations"]) ??
+      selectedRun?.metadata?.suggestedActions ??
+      runSummary?.suggestedActions
+  );
   const runErrorMessage = state.scenarioRunsState === "error" ? `Failed to load runs: ${state.scenarioRunsError}` : null;
 
   els.scenarioDetail.className = "detail-card";
@@ -1759,7 +2229,21 @@ function renderScenarioDetail() {
               ${renderMetaPill("session-count", runSummary.sessionCount ?? 0)}
               ${renderMetaPill("success", runSummary.success ? "yes" : "no", runSummary.success ? "root" : "failed")}
               ${renderMetaPill("governance", runSummary.governanceState ? "yes" : "no", runSummary.governanceState ? "governance" : "")}
+              ${renderTrendSnapshotPills(selectedRunTrendSnapshot)}
+              ${
+                selectedRunFailure
+                  ? renderMetaPill("failure", summarizeFailureLabel(selectedRunFailure), "failed")
+                  : ""
+              }
+              ${
+                selectedRunSuggestedActions.length > 0
+                  ? renderMetaPill("actions", selectedRunSuggestedActions.length, "changed")
+                  : ""
+              }
             </div>
+            ${renderTrendSnapshotCard(selectedRunTrendSnapshot, "Trend Snapshot", "No trend snapshot recorded for this run.")}
+            ${renderFailureCard(selectedRunFailure, "Failure Classification", "No failure classification recorded for this run.")}
+            ${renderSuggestedActionsCard(selectedRunSuggestedActions, "Suggested Actions", "No suggested actions recorded for this run.")}
             <div class="event-list">
               ${(selectedRun.executions ?? []).map((item) => `
                 <article class="detail-card compact-empty">
@@ -1901,6 +2385,20 @@ function renderRegressions() {
     selectedRegressionRuns[0] ??
     selectedRegression?.latestRun ??
     null;
+  const selectedRegressionTrendSnapshot =
+    readFirstField(selectedRegressionRun ?? {}, ["trendSnapshot", "trend", "latestTrend", "trendSummary"]) ??
+    readFirstField(selectedRegressionRun?.summary ?? {}, ["trendSnapshot", "trend", "latestTrend", "trendSummary"]);
+  const selectedRegressionFailure = pickFailureRecord(
+    selectedRegressionRun?.failure,
+    selectedRegressionRun?.latestFailure,
+    selectedRegressionRun?.summary?.failure,
+    selectedRegressionRun?.metadata?.failure
+  );
+  const selectedRegressionSuggestedActions = normalizeSuggestedActions(
+    readFirstField(selectedRegressionRun ?? {}, ["suggestedActions", "latestSuggestedActions", "recommendations"]) ??
+      selectedRegressionRun?.summary?.suggestedActions ??
+      selectedRegressionRun?.metadata?.suggestedActions
+  );
   const reportPaths = Object.values(selectedRegressionRun?.metadata?.reports ?? {}).filter((value) => hasDisplayValue(value));
 
   els.regressionList.innerHTML = `
@@ -1993,7 +2491,21 @@ function renderRegressions() {
                     ${renderMetaPill("pass", selectedRegressionRun.summary?.passCount ?? 0, "root")}
                     ${renderMetaPill("fail", selectedRegressionRun.summary?.failCount ?? 0, (selectedRegressionRun.summary?.failCount ?? 0) > 0 ? "failed" : "")}
                     ${renderMetaPill("skipped", selectedRegressionRun.summary?.skippedCount ?? 0)}
+                    ${renderTrendSnapshotPills(selectedRegressionTrendSnapshot)}
+                    ${
+                      selectedRegressionFailure
+                        ? renderMetaPill("failure", summarizeFailureLabel(selectedRegressionFailure), "failed")
+                        : ""
+                    }
+                    ${
+                      selectedRegressionSuggestedActions.length > 0
+                        ? renderMetaPill("actions", selectedRegressionSuggestedActions.length, "changed")
+                        : ""
+                    }
                   </div>
+                  ${renderTrendSnapshotCard(selectedRegressionTrendSnapshot, "Trend Snapshot", "No trend snapshot recorded for this regression run.")}
+                  ${renderFailureCard(selectedRegressionFailure, "Failure Classification", "No failure classification recorded for this regression run.")}
+                  ${renderSuggestedActionsCard(selectedRegressionSuggestedActions, "Suggested Actions", "No suggested actions recorded for this regression run.")}
                   ${renderPathReferenceList(reportPaths, "Run Reports / Artifacts")}
                   <div class="event-list">
                     ${(selectedRegressionRun.items ?? [])
@@ -2112,13 +2624,34 @@ function renderRunCenter() {
   }
 
   const runCenter = normalizeRunCenterCollections(state.runCenter ?? {});
+  const alerts = normalizeAdvisoryEntries(runCenter.alerts, "alert");
+  const recommendations = normalizeAdvisoryEntries(runCenter.recommendations, "recommendation");
+  const latestReports = runCenter.latestReports.map((item, index) => ({
+    id: normalizeText(readFirstField(item, ["id", "runId", "reportId"]), `report-${index + 1}`),
+    title: normalizeText(readFirstField(item, ["title", "label", "name", "regressionId"]), `report-${index + 1}`),
+    runId: normalizeText(readFirstField(item, ["runId", "id"]), ""),
+    regressionId: normalizeText(readFirstField(item, ["regressionId", "profileId", "key"]), ""),
+    status: normalizeText(readFirstField(item, ["status", "state", "result"]), "unknown"),
+    startedAt: normalizeText(readFirstField(item, ["startedAt", "createdAt"]), "-"),
+    endedAt: normalizeText(readFirstField(item, ["endedAt", "updatedAt"]), "-"),
+    reportPaths: Object.values(readFirstObjectField(item, ["reports", "paths", "reportPaths"]) ?? {}).filter((value) => hasDisplayValue(value)),
+    failure: pickFailureRecord(readFirstField(item, ["failure", "latestFailure"]), item?.failure),
+    suggestedActions: normalizeSuggestedActions(
+      readFirstField(item, ["suggestedActions", "latestSuggestedActions", "recommendations"])
+    )
+  }));
   const scenarioSummaries = runCenter.scenarios.map((item, index) => ({
     id: normalizeText(readFirstField(item, ["id", "scenarioId", "key"]), `scenario-${index + 1}`),
     label: normalizeText(readFirstField(item, ["label", "name", "scenarioLabel", "title"]), getScenarioIdentifier(item, index)),
     latestStatus: normalizeText(readFirstField(item, ["latestStatus", "status", "state", "result"]), "unknown"),
     latestRunId: normalizeText(readFirstField(item, ["latestRunId", "latestRun", "runId"]), "-"),
     failCount: Number(readFirstField(item, ["failCount", "failed", "latestFailCount", "failingCount"]) ?? 0),
-    passRate: readFirstField(item, ["passRate", "latestPassRate", "successRate"])
+    passRate: readFirstField(item, ["passRate", "latestPassRate", "successRate"]),
+    trendSnapshot: readFirstField(item, ["trendSnapshot", "trend", "latestTrend", "trendSummary"]),
+    latestFailure: pickFailureRecord(readFirstField(item, ["latestFailure", "failure"]), item?.latestFailure, item?.failure),
+    latestSuggestedActions: normalizeSuggestedActions(
+      readFirstField(item, ["latestSuggestedActions", "suggestedActions", "recommendations"])
+    )
   }));
   const regressionSummaries = runCenter.regressions.map((item, index) => ({
     id: normalizeText(readFirstField(item, ["id", "regressionId", "key"]), `regression-${index + 1}`),
@@ -2126,7 +2659,12 @@ function renderRunCenter() {
     latestStatus: normalizeText(readFirstField(item, ["latestStatus", "status", "state", "result"]), "unknown"),
     latestRunId: normalizeText(readFirstField(item, ["latestRunId", "latestRun", "runId"]), "-"),
     failCount: Number(readFirstField(item, ["failCount", "failed", "latestFailCount", "failingCount"]) ?? 0),
-    passRate: readFirstField(item, ["passRate", "latestPassRate", "successRate"])
+    passRate: readFirstField(item, ["passRate", "latestPassRate", "successRate"]),
+    trendSnapshot: readFirstField(item, ["trendSnapshot", "trend", "latestTrend", "trendSummary"]),
+    latestFailure: pickFailureRecord(readFirstField(item, ["latestFailure", "failure"]), item?.latestFailure, item?.failure),
+    latestSuggestedActions: normalizeSuggestedActions(
+      readFirstField(item, ["latestSuggestedActions", "suggestedActions", "recommendations"])
+    )
   }));
   const recentScenarioRuns = runCenter.recentScenarioRuns.map((item, index) => ({
     runId: normalizeText(readFirstField(item, ["id", "runId"]), `scenario-run-${index + 1}`),
@@ -2135,7 +2673,12 @@ function renderRunCenter() {
     startedAt: normalizeText(readFirstField(item, ["startedAt", "createdAt"]), "-"),
     endedAt: normalizeText(readFirstField(item, ["endedAt", "updatedAt"]), "-"),
     executionId: normalizeText(readFirstField(item, ["executionId", "targetExecutionId", "latestExecutionId"]), ""),
-    launcher: normalizeText(readFirstField(item, ["launcher", "launcherType"]), "-")
+    launcher: normalizeText(readFirstField(item, ["launcher", "launcherType"]), "-"),
+    trendSnapshot: readFirstField(item, ["trendSnapshot", "trend", "latestTrend", "trendSummary"]),
+    failure: pickFailureRecord(readFirstField(item, ["failure", "latestFailure"]), item?.failure, item?.latestFailure),
+    suggestedActions: normalizeSuggestedActions(
+      readFirstField(item, ["suggestedActions", "latestSuggestedActions", "recommendations"])
+    )
   }));
   const recentRegressionRuns = runCenter.recentRegressionRuns.map((item, index) => ({
     runId: normalizeText(readFirstField(item, ["id", "runId"]), `regression-run-${index + 1}`),
@@ -2144,7 +2687,12 @@ function renderRunCenter() {
     startedAt: normalizeText(readFirstField(item, ["startedAt", "createdAt"]), "-"),
     endedAt: normalizeText(readFirstField(item, ["endedAt", "updatedAt"]), "-"),
     failCount: Number(readFirstField(item, ["failCount", "failed"]) ?? 0),
-    passCount: Number(readFirstField(item, ["passCount", "passed"]) ?? 0)
+    passCount: Number(readFirstField(item, ["passCount", "passed"]) ?? 0),
+    trendSnapshot: readFirstField(item, ["trendSnapshot", "trend", "latestTrend", "trendSummary"]),
+    failure: pickFailureRecord(readFirstField(item, ["failure", "latestFailure"]), item?.failure, item?.latestFailure),
+    suggestedActions: normalizeSuggestedActions(
+      readFirstField(item, ["suggestedActions", "latestSuggestedActions", "recommendations"])
+    )
   }));
 
   if (state.selectedRunCenterScenarioRunId && !recentScenarioRuns.some((item) => item.runId === state.selectedRunCenterScenarioRunId)) {
@@ -2170,13 +2718,50 @@ function renderRunCenter() {
     selectedRegressionRun && state.selectedRegressionRunId === selectedRegressionRun.runId
       ? state.regressionRuns.find((run) => run.id === selectedRegressionRun.runId) ?? null
       : null;
+  const selectedScenarioRunFailure = pickFailureRecord(
+    selectedScenarioRun?.failure,
+    selectedScenarioRunCatalog?.failure,
+    selectedScenarioRunCatalog?.latestFailure,
+    selectedScenarioRunCatalog?.metadata?.failure
+  );
+  const selectedScenarioRunSuggestedActions = normalizeSuggestedActions(
+    readFirstField(selectedScenarioRun ?? {}, ["suggestedActions", "latestSuggestedActions", "recommendations"]) ??
+      selectedScenarioRunCatalog?.suggestedActions ??
+      selectedScenarioRunCatalog?.latestSuggestedActions ??
+      selectedScenarioRunCatalog?.metadata?.suggestedActions
+  );
+  const selectedScenarioRunTrendSnapshot =
+    readFirstField(selectedScenarioRun ?? {}, ["trendSnapshot", "trend", "latestTrend", "trendSummary"]) ??
+    readFirstField(selectedScenarioRunCatalog ?? {}, ["trendSnapshot", "trend", "latestTrend", "trendSummary"]);
+  const selectedRegressionRunFailure = pickFailureRecord(
+    selectedRegressionRun?.failure,
+    selectedRegressionRunCatalog?.failure,
+    selectedRegressionRunCatalog?.latestFailure,
+    selectedRegressionRunCatalog?.metadata?.failure
+  );
+  const selectedRegressionRunSuggestedActions = normalizeSuggestedActions(
+    readFirstField(selectedRegressionRun ?? {}, ["suggestedActions", "latestSuggestedActions", "recommendations"]) ??
+      selectedRegressionRunCatalog?.suggestedActions ??
+      selectedRegressionRunCatalog?.latestSuggestedActions ??
+      selectedRegressionRunCatalog?.metadata?.suggestedActions
+  );
+  const selectedRegressionRunTrendSnapshot =
+    readFirstField(selectedRegressionRun ?? {}, ["trendSnapshot", "trend", "latestTrend", "trendSummary"]) ??
+    readFirstField(selectedRegressionRunCatalog ?? {}, ["trendSnapshot", "trend", "latestTrend", "trendSummary"]);
+  const selectedScenarioTrendPayload = state.scenarioTrend?.trend ?? state.scenarioTrend?.summary ?? state.scenarioTrend;
+  const selectedRegressionTrendPayload = state.regressionTrend?.trend ?? state.regressionTrend?.summary ?? state.regressionTrend;
+  const selectedRegressionReportPayload = state.regressionRunReport?.report ?? state.regressionRunReport?.detail ?? state.regressionRunReport;
 
   const scenarioCount = coerceCount(runCenter.counts?.scenarios) ?? scenarioSummaries.length;
   const regressionCount = coerceCount(runCenter.counts?.regressions) ?? regressionSummaries.length;
   const recentScenarioCount = coerceCount(runCenter.counts?.recentScenarioRuns) ?? recentScenarioRuns.length;
   const recentRegressionCount = coerceCount(runCenter.counts?.recentRegressionRuns) ?? recentRegressionRuns.length;
+  const flakyCount =
+    coerceCount(runCenter.flaky?.count) ??
+    coerceCount(runCenter.flaky?.total) ??
+    scenarioSummaries.filter((item) => item.trendSnapshot?.flaky || item.trendSnapshot?.possiblyFlaky).length;
 
-  els.runCenterState.textContent = `route: ready · scenarios:${scenarioCount} regressions:${regressionCount}`;
+  els.runCenterState.textContent = `route: ready · scenarios:${scenarioCount} regressions:${regressionCount} alerts:${alerts.length} recommendations:${recommendations.length}`;
   els.runCenterSummary.className = "detail-card run-center-card";
   els.runCenterSummary.innerHTML = `
     <div class="run-center-grid">
@@ -2196,7 +2781,118 @@ function renderRunCenter() {
         <span class="muted">Recent Regression Runs</span>
         <strong>${escapeHtml(String(recentRegressionCount))}</strong>
       </article>
+      <article class="run-center-stat">
+        <span class="muted">Operator Signals</span>
+        <strong>${escapeHtml(String(alerts.length + recommendations.length))}</strong>
+      </article>
+      <article class="run-center-stat">
+        <span class="muted">Flaky Signals</span>
+        <strong>${escapeHtml(String(flakyCount ?? 0))}</strong>
+      </article>
     </div>
+    <section class="run-center-section">
+      <div class="panel-header nested">
+        <h3>Trend and Health Overview</h3>
+        <span class="muted">aggregate run-center signals</span>
+      </div>
+      <div class="run-center-breakdown-grid">
+        ${renderSummaryObjectCard(runCenter.trendBreakdown, "Trend Breakdown", "No aggregate trend breakdown returned.")}
+        ${renderSummaryObjectCard(runCenter.failureBreakdown, "Failure Breakdown", "No aggregate failure breakdown returned.")}
+        ${renderSummaryObjectCard(runCenter.flaky, "Flaky Summary", "No flaky summary returned.")}
+      </div>
+    </section>
+    <section class="run-center-section">
+      <div class="panel-header nested">
+        <h3>Operator Signals</h3>
+        <span class="muted">${escapeHtml(`alerts:${alerts.length} recommendations:${recommendations.length}`)}</span>
+      </div>
+      <div class="run-center-advisory-grid">
+        ${
+          alerts
+            .slice(0, 4)
+            .map(
+              (item) => `
+                <article class="run-center-advisory-card alert">
+                  <div class="event-title">
+                    <strong>${escapeHtml(item.title)}</strong>
+                    ${renderMetaPill("alert", item.severity || "open", "failed")}
+                  </div>
+                  ${item.detail ? `<p class="decision-summary">${escapeHtml(item.detail)}</p>` : ""}
+                  <div class="event-meta">
+                    ${item.source ? `<code>source=${escapeHtml(item.source)}</code>` : ""}
+                    ${item.timestamp ? `<code>at=${escapeHtml(item.timestamp)}</code>` : ""}
+                    ${item.id ? `<code>id=${escapeHtml(item.id)}</code>` : ""}
+                  </div>
+                </article>
+              `
+            )
+            .join("")
+        }
+        ${
+          recommendations
+            .slice(0, 4)
+            .map(
+              (item) => `
+                <article class="run-center-advisory-card recommendation">
+                  <div class="event-title">
+                    <strong>${escapeHtml(item.title)}</strong>
+                    ${renderMetaPill("recommend", item.severity || item.type || "suggested", "changed")}
+                  </div>
+                  ${item.detail ? `<p class="decision-summary">${escapeHtml(item.detail)}</p>` : ""}
+                  <div class="event-meta">
+                    ${item.source ? `<code>source=${escapeHtml(item.source)}</code>` : ""}
+                    ${item.timestamp ? `<code>at=${escapeHtml(item.timestamp)}</code>` : ""}
+                    ${item.id ? `<code>id=${escapeHtml(item.id)}</code>` : ""}
+                  </div>
+                </article>
+              `
+            )
+            .join("")
+        }
+        ${
+          alerts.length === 0 && recommendations.length === 0
+            ? `<div class="detail-card empty-state compact-empty">No operator alerts or recommendations in run-center payload.</div>`
+            : ""
+        }
+      </div>
+    </section>
+    <section class="run-center-section">
+      <div class="panel-header nested">
+        <h3>Latest Reports</h3>
+        <span class="muted">${escapeHtml(String(latestReports.length))}</span>
+      </div>
+      <div class="run-center-list">
+        ${
+          latestReports
+            .slice(0, 6)
+            .map(
+              (item) => `
+                <article class="run-center-item">
+                  <div class="event-title">
+                    <strong>${escapeHtml(item.title)}</strong>
+                    ${renderStatePill(item.status)}
+                  </div>
+                  <div class="event-meta">
+                    ${item.regressionId ? `<code>regression=${escapeHtml(item.regressionId)}</code>` : ""}
+                    ${item.runId ? `<code>run=${escapeHtml(item.runId)}</code>` : ""}
+                    <code>ended=${escapeHtml(item.endedAt)}</code>
+                  </div>
+                  <div class="lineage-meta">
+                    ${item.failure ? renderMetaPill("failure", summarizeFailureLabel(item.failure), "failed") : ""}
+                    ${
+                      item.suggestedActions.length > 0
+                        ? renderMetaPill("actions", item.suggestedActions.length, "changed")
+                        : ""
+                    }
+                  </div>
+                  ${renderPathReferenceList(item.reportPaths, "Report Paths")}
+                </article>
+              `
+            )
+            .join("") || `<div class="detail-card empty-state compact-empty">No latest report cards returned in run-center payload.</div>`
+        }
+      </div>
+    </section>
     <section class="run-center-section">
       <div class="panel-header nested">
         <h3>Scenario Summaries</h3>
@@ -2219,6 +2915,19 @@ function renderRunCenter() {
                     ${
                       hasDisplayValue(item.passRate)
                         ? `<code>passRate=${escapeHtml(String(item.passRate))}</code>`
+                        : ""
+                    }
+                  </div>
+                  <div class="lineage-meta">
+                    ${renderTrendSnapshotPills(item.trendSnapshot)}
+                    ${
+                      item.latestFailure
+                        ? renderMetaPill("failure", summarizeFailureLabel(item.latestFailure), "failed")
+                        : ""
+                    }
+                    ${
+                      item.latestSuggestedActions.length > 0
+                        ? renderMetaPill("actions", item.latestSuggestedActions.length, "changed")
                         : ""
                     }
                   </div>
@@ -2254,6 +2963,19 @@ function renderRunCenter() {
                         : ""
                     }
                   </div>
+                  <div class="lineage-meta">
+                    ${renderTrendSnapshotPills(item.trendSnapshot)}
+                    ${
+                      item.latestFailure
+                        ? renderMetaPill("failure", summarizeFailureLabel(item.latestFailure), "failed")
+                        : ""
+                    }
+                    ${
+                      item.latestSuggestedActions.length > 0
+                        ? renderMetaPill("actions", item.latestSuggestedActions.length, "changed")
+                        : ""
+                    }
+                  </div>
                 </article>
               `
             )
@@ -2281,6 +3003,15 @@ function renderRunCenter() {
                     <code>launcher=${escapeHtml(item.launcher)}</code>
                     <code>started=${escapeHtml(item.startedAt)}</code>
                   </div>
+                  <div class="lineage-meta">
+                    ${renderTrendSnapshotPills(item.trendSnapshot)}
+                    ${item.failure ? renderMetaPill("failure", summarizeFailureLabel(item.failure), "failed") : ""}
+                    ${
+                      item.suggestedActions.length > 0
+                        ? renderMetaPill("actions", item.suggestedActions.length, "changed")
+                        : ""
+                    }
+                  </div>
                 </article>
               `
             )
@@ -2306,6 +3037,11 @@ function renderRunCenter() {
                 <a class="inline-link" href="${escapeHtml(buildScenarioRunArtifactsByIdHref(selectedScenarioRun.runId))}" target="_blank" rel="noreferrer">artifacts json</a>
                 ${
                   selectedScenarioRun.scenarioId
+                    ? `<a class="inline-link" href="${escapeHtml(buildScenarioTrendHref(selectedScenarioRun.scenarioId))}" target="_blank" rel="noreferrer">trend json</a>`
+                    : ""
+                }
+                ${
+                  selectedScenarioRun.scenarioId
                     ? `<a class="inline-link" href="${escapeHtml(buildScenarioRunArtifactsHref(selectedScenarioRun.scenarioId, selectedScenarioRun.runId))}" target="_blank" rel="noreferrer">scoped artifacts</a>`
                     : ""
                 }
@@ -2320,14 +3056,24 @@ function renderRunCenter() {
                     : ""
                 }
               </div>
+              ${renderTrendSnapshotCard(selectedScenarioRunTrendSnapshot, "Trend Snapshot", "No trend snapshot returned for this scenario run.")}
+              ${renderSummaryObjectCard(selectedScenarioTrendPayload, "Scenario Trend Detail", state.scenarioTrendState === "error" ? `Failed to load scenario trend: ${state.scenarioTrendError}` : "No route-backed scenario trend detail returned.")}
+              ${renderFailureCard(selectedScenarioRunFailure, "Failure Classification", "No failure classification returned for this scenario run.")}
+              ${renderSuggestedActionsCard(selectedScenarioRunSuggestedActions, "Suggested Actions", "No suggested actions returned for this scenario run.")}
               ${
-                selectedScenarioRunCatalog || state.scenarioRunArtifacts
+                state.scenarioRunDetailState === "error"
+                  ? `<div class="detail-card empty-state compact-empty">Failed to load scenario run detail: ${escapeHtml(state.scenarioRunDetailError)}</div>`
+                  : ""
+              }
+              ${
+                selectedScenarioRunCatalog || state.scenarioRunArtifacts || state.scenarioRunDetail
                   ? `<details class="policy-details">
                       <summary>Route-backed Drilldown</summary>
                       <pre class="code-block compact-code">${escapeHtml(
                         JSON.stringify(
                           {
                             catalogRun: selectedScenarioRunCatalog,
+                            runDetail: state.scenarioRunDetail,
                             artifacts:
                               state.selectedScenarioRunId === selectedScenarioRun.runId
                                 ? state.scenarioRunArtifacts
@@ -2366,6 +3112,15 @@ function renderRunCenter() {
                     <code>fail=${escapeHtml(String(item.failCount))}</code>
                     <code>started=${escapeHtml(item.startedAt)}</code>
                   </div>
+                  <div class="lineage-meta">
+                    ${renderTrendSnapshotPills(item.trendSnapshot)}
+                    ${item.failure ? renderMetaPill("failure", summarizeFailureLabel(item.failure), "failed") : ""}
+                    ${
+                      item.suggestedActions.length > 0
+                        ? renderMetaPill("actions", item.suggestedActions.length, "changed")
+                        : ""
+                    }
+                  </div>
                 </article>
               `
             )
@@ -2391,6 +3146,11 @@ function renderRunCenter() {
                 <a class="inline-link" href="${escapeHtml(buildRegressionReportByRunIdHref(selectedRegressionRun.runId))}" target="_blank" rel="noreferrer">report json</a>
                 ${
                   selectedRegressionRun.regressionId
+                    ? `<a class="inline-link" href="${escapeHtml(buildRegressionTrendHref(selectedRegressionRun.regressionId))}" target="_blank" rel="noreferrer">trend json</a>`
+                    : ""
+                }
+                ${
+                  selectedRegressionRun.regressionId
                     ? `<a class="inline-link" href="${escapeHtml(buildRegressionRunsHref(selectedRegressionRun.regressionId))}" target="_blank" rel="noreferrer">all runs</a>`
                     : ""
                 }
@@ -2400,14 +3160,21 @@ function renderRunCenter() {
                     : ""
                 }
               </div>
+              ${renderTrendSnapshotCard(selectedRegressionRunTrendSnapshot, "Trend Snapshot", "No trend snapshot returned for this regression run.")}
+              ${renderSummaryObjectCard(selectedRegressionTrendPayload, "Regression Trend Detail", state.regressionTrendState === "error" ? `Failed to load regression trend: ${state.regressionTrendError}` : "No route-backed regression trend detail returned.")}
+              ${renderFailureCard(selectedRegressionRunFailure, "Failure Classification", "No failure classification returned for this regression run.")}
+              ${renderSuggestedActionsCard(selectedRegressionRunSuggestedActions, "Suggested Actions", "No suggested actions returned for this regression run.")}
+              ${renderReportSummaryCard(selectedRegressionReportPayload, state.regressionRunReportState === "error" ? `Failed to load regression report: ${state.regressionRunReportError}` : "No route-backed regression report detail returned.")}
               ${
-                selectedRegressionRunCatalog
+                selectedRegressionRunCatalog || state.regressionRunDetail || state.regressionRunReport
                   ? `<details class="policy-details">
                       <summary>Route-backed Drilldown</summary>
                       <pre class="code-block compact-code">${escapeHtml(
                         JSON.stringify(
                           {
-                            catalogRun: selectedRegressionRunCatalog
+                            catalogRun: selectedRegressionRunCatalog,
+                            runDetail: state.regressionRunDetail,
+                            report: state.regressionRunReport
                           },
                           null,
                           2
@@ -4296,17 +5063,35 @@ function renderSessionLivePanel(payload) {
           ? `<div class="event-list">
               ${suggestions
                 .slice(0, 4)
-                .map(
-                  (item) => `
+                .map((item) => {
+                  const expectedOutcome = normalizeText(readFirstField(item, ["expectedOutcome", "expected", "outcome"]), "");
+                  const httpHint = normalizeText(readFirstField(item, ["httpHint", "http", "endpoint", "route"]), "");
+                  return `
                     <article class="detail-card compact-empty">
                       <div class="event-title">
                         <strong>${escapeHtml(normalizeText(item?.action, "action"))}</strong>
                         ${item?.commandHint ? `<code>${escapeHtml(normalizeText(item.commandHint))}</code>` : ""}
                       </div>
                       <p class="decision-summary">${escapeHtml(normalizeText(item?.reason, "No reason provided."))}</p>
+                      ${
+                        expectedOutcome || httpHint
+                          ? `<div class="event-meta session-live-suggestion-meta">
+                              ${
+                                expectedOutcome
+                                  ? `<code>expected=${escapeHtml(expectedOutcome)}</code>`
+                                  : ""
+                              }
+                              ${
+                                httpHint
+                                  ? `<code>http=${escapeHtml(httpHint)}</code>`
+                                  : ""
+                              }
+                            </div>`
+                          : ""
+                      }
                     </article>
-                  `
-                )
+                  `;
+                })
                 .join("")}
             </div>`
           : ""
@@ -4556,6 +5341,12 @@ async function loadScenarioDetail() {
     state.scenarioRunArtifacts = null;
     state.scenarioRunArtifactsState = "idle";
     state.scenarioRunArtifactsError = null;
+    state.scenarioRunDetail = null;
+    state.scenarioRunDetailState = "idle";
+    state.scenarioRunDetailError = null;
+    state.scenarioTrend = null;
+    state.scenarioTrendState = "idle";
+    state.scenarioTrendError = null;
     return;
   }
 
@@ -4581,6 +5372,7 @@ async function loadScenarioDetail() {
   }
 
   await loadScenarioRunArtifacts();
+  await loadScenarioRunDetailAndTrend();
 }
 
 async function loadScenarioRunArtifacts() {
@@ -4601,6 +5393,34 @@ async function loadScenarioRunArtifacts() {
   state.scenarioRunArtifactsState = result.state;
   state.scenarioRunArtifactsError = result.error;
   state.scenarioRunArtifacts = result.payload?.detail ?? null;
+}
+
+async function loadScenarioRunDetailAndTrend() {
+  if (!state.selectedScenarioId || state.scenarioRouteState !== "ready") {
+    state.scenarioRunDetail = null;
+    state.scenarioRunDetailState = "idle";
+    state.scenarioRunDetailError = null;
+    state.scenarioTrend = null;
+    state.scenarioTrendState = "idle";
+    state.scenarioTrendError = null;
+    return;
+  }
+
+  const calls = [optionalApi(`/orchestrator/scenarios/${encodeURIComponent(state.selectedScenarioId)}/trends`)];
+  if (state.selectedScenarioRunId) {
+    calls.push(optionalApi(`/orchestrator/scenario-runs/${encodeURIComponent(state.selectedScenarioRunId)}`));
+  } else {
+    calls.push(Promise.resolve({ state: "idle", payload: null, error: null }));
+  }
+
+  const [trendResult, runDetailResult] = await Promise.all(calls);
+  state.scenarioTrendState = trendResult.state;
+  state.scenarioTrendError = trendResult.error;
+  state.scenarioTrend = trendResult.payload?.detail ?? trendResult.payload ?? null;
+
+  state.scenarioRunDetailState = runDetailResult.state;
+  state.scenarioRunDetailError = runDetailResult.error;
+  state.scenarioRunDetail = runDetailResult.payload?.detail ?? runDetailResult.payload ?? null;
 }
 
 async function loadRegressionCatalog() {
@@ -4625,6 +5445,15 @@ async function loadRegressionDetail() {
     state.regressionRuns = [];
     state.regressionRunsState = "idle";
     state.regressionRunsError = null;
+    state.regressionRunDetail = null;
+    state.regressionRunDetailState = "idle";
+    state.regressionRunDetailError = null;
+    state.regressionRunReport = null;
+    state.regressionRunReportState = "idle";
+    state.regressionRunReportError = null;
+    state.regressionTrend = null;
+    state.regressionTrendState = "idle";
+    state.regressionTrendError = null;
     state.selectedRegressionRunId = null;
     return;
   }
@@ -4649,6 +5478,45 @@ async function loadRegressionDetail() {
   if (!state.selectedRegressionRunId && state.regressionRuns[0]?.id) {
     state.selectedRegressionRunId = state.regressionRuns[0].id;
   }
+
+  await loadRegressionRunDetailAndTrend();
+}
+
+async function loadRegressionRunDetailAndTrend() {
+  if (!state.selectedRegressionId || state.regressionRouteState !== "ready") {
+    state.regressionRunDetail = null;
+    state.regressionRunDetailState = "idle";
+    state.regressionRunDetailError = null;
+    state.regressionRunReport = null;
+    state.regressionRunReportState = "idle";
+    state.regressionRunReportError = null;
+    state.regressionTrend = null;
+    state.regressionTrendState = "idle";
+    state.regressionTrendError = null;
+    return;
+  }
+
+  const calls = [optionalApi(`/orchestrator/regressions/${encodeURIComponent(state.selectedRegressionId)}/trends`)];
+  if (state.selectedRegressionRunId) {
+    calls.push(optionalApi(`/orchestrator/regression-runs/${encodeURIComponent(state.selectedRegressionRunId)}`));
+    calls.push(optionalApi(`/orchestrator/regression-runs/${encodeURIComponent(state.selectedRegressionRunId)}/report`));
+  } else {
+    calls.push(Promise.resolve({ state: "idle", payload: null, error: null }));
+    calls.push(Promise.resolve({ state: "idle", payload: null, error: null }));
+  }
+
+  const [trendResult, runDetailResult, reportResult] = await Promise.all(calls);
+  state.regressionTrendState = trendResult.state;
+  state.regressionTrendError = trendResult.error;
+  state.regressionTrend = trendResult.payload?.detail ?? trendResult.payload ?? null;
+
+  state.regressionRunDetailState = runDetailResult.state;
+  state.regressionRunDetailError = runDetailResult.error;
+  state.regressionRunDetail = runDetailResult.payload?.detail ?? runDetailResult.payload ?? null;
+
+  state.regressionRunReportState = reportResult.state;
+  state.regressionRunReportError = reportResult.error;
+  state.regressionRunReport = reportResult.payload?.detail ?? reportResult.payload ?? null;
 }
 
 async function refresh() {

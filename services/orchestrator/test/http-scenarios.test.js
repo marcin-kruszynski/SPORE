@@ -39,6 +39,12 @@ test("scenario, regression, and execution history routes work through orchestrat
   assert.ok(Array.isArray(runCenter.json.detail.scenarios));
   assert.ok(Array.isArray(runCenter.json.detail.regressions));
   assert.ok(runCenter.json.detail.counts);
+  assert.ok(Array.isArray(runCenter.json.detail.alerts));
+  assert.ok(Array.isArray(runCenter.json.detail.recommendations));
+  assert.ok(Array.isArray(runCenter.json.detail.latestReports));
+  if (runCenter.json.detail.latestReports[0]) {
+    assert.ok(typeof runCenter.json.detail.latestReports[0].links === "object");
+  }
 
   const scenario = await getJson(`http://127.0.0.1:${ORCHESTRATOR_PORT}/scenarios/cli-verification-pass`);
   assert.equal(scenario.status, 200);
@@ -80,6 +86,11 @@ test("scenario, regression, and execution history routes work through orchestrat
   );
   assert.equal(scenarioRunDetail.status, 200);
   assert.equal(scenarioRunDetail.json.detail.run.id, scenarioRun.json.run.id);
+  assert.ok(Array.isArray(scenarioRunDetail.json.detail.suggestedActions));
+  if (scenarioRunDetail.json.detail.failure) {
+    assert.ok(typeof scenarioRunDetail.json.detail.failure.code === "string");
+    assert.ok(typeof scenarioRunDetail.json.detail.failure.label === "string");
+  }
 
   const scenarioArtifacts = await getJson(
     `http://127.0.0.1:${WEB_PORT}/api/orchestrator/scenario-runs/${encodeURIComponent(scenarioRun.json.run.id)}/artifacts`
@@ -90,6 +101,12 @@ test("scenario, regression, and execution history routes work through orchestrat
   const runCenterProxy = await getJson(`http://127.0.0.1:${WEB_PORT}/api/orchestrator/run-center/summary`);
   assert.equal(runCenterProxy.status, 200);
   assert.ok(Array.isArray(runCenterProxy.json.detail.recentScenarioRuns));
+  assert.ok(Array.isArray(runCenterProxy.json.detail.alerts));
+  assert.ok(Array.isArray(runCenterProxy.json.detail.recommendations));
+  if (runCenterProxy.json.detail.recentScenarioRuns[0]) {
+    assert.ok("trendHealth" in runCenterProxy.json.detail.recentScenarioRuns[0]);
+    assert.ok("suggestedActions" in runCenterProxy.json.detail.recentScenarioRuns[0]);
+  }
 
   const scenarioTrends = await getJson(
     `http://127.0.0.1:${ORCHESTRATOR_PORT}/scenarios/cli-verification-pass/trends`
@@ -97,6 +114,7 @@ test("scenario, regression, and execution history routes work through orchestrat
   assert.equal(scenarioTrends.status, 200);
   assert.equal(scenarioTrends.json.detail.scenario.id, "cli-verification-pass");
   assert.ok(typeof scenarioTrends.json.detail.windows.allTime.runCount === "number");
+  assert.ok(typeof scenarioTrends.json.detail.windows.allTime.health === "string");
 
   const scenarioRerun = await postJson(
     `http://127.0.0.1:${ORCHESTRATOR_PORT}/scenario-runs/${encodeURIComponent(scenarioRun.json.run.id)}/rerun`,
@@ -143,6 +161,10 @@ test("scenario, regression, and execution history routes work through orchestrat
   );
   assert.equal(regressionRunDetail.status, 200);
   assert.equal(regressionRunDetail.json.detail.run.id, regressionRun.json.run.id);
+  assert.ok(Array.isArray(regressionRunDetail.json.detail.suggestedActions));
+  if (regressionRunDetail.json.detail.failure) {
+    assert.ok(typeof regressionRunDetail.json.detail.failure.code === "string");
+  }
 
   const regressionReport = await getJson(
     `http://127.0.0.1:${WEB_PORT}/api/orchestrator/regression-runs/${encodeURIComponent(regressionRun.json.run.id)}/report`
@@ -151,11 +173,54 @@ test("scenario, regression, and execution history routes work through orchestrat
   assert.equal(regressionReport.json.detail.run.id, regressionRun.json.run.id);
   assert.ok(regressionReport.json.detail.reports.json);
   assert.ok(regressionReport.json.detail.reports.markdown);
+  assert.ok(Array.isArray(regressionReport.json.detail.suggestedActions));
+
+  const regressionLatestReport = await getJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/regressions/local-fast/latest-report`
+  );
+  assert.equal(regressionLatestReport.status, 200);
+  assert.equal(regressionLatestReport.json.detail.run.regressionId, "local-fast");
+  assert.ok(regressionLatestReport.json.detail.reports.json);
+  assert.ok(regressionReport.json.detail.durationSummary);
+  assert.ok(regressionReport.json.detail.artifactSummary);
+  assert.ok(typeof regressionLatestReport.json.detail.links === "object");
+  assert.ok(typeof regressionLatestReport.json.detail.trendSnapshot === "object");
 
   const regressionTrends = await getJson(`http://127.0.0.1:${ORCHESTRATOR_PORT}/regressions/local-fast/trends`);
   assert.equal(regressionTrends.status, 200);
   assert.equal(regressionTrends.json.detail.regression.id, "local-fast");
   assert.ok(typeof regressionTrends.json.detail.windows.allTime.runCount === "number");
+  assert.ok(typeof regressionTrends.json.detail.windows.allTime.health === "string");
+  assert.ok(typeof regressionTrends.json.detail.flaky === "object");
+  assert.ok(typeof regressionTrends.json.detail.scheduleStatus === "object");
+  assert.ok(Array.isArray(regressionTrends.json.detail.recentRuns));
+  assert.ok(typeof regressionTrends.json.detail.failureBreakdown === "object");
+
+  const schedulerStatus = await getJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/regressions/scheduler/status`
+  );
+  assert.equal(schedulerStatus.status, 200);
+  assert.ok(Array.isArray(schedulerStatus.json.detail.profiles));
+  assert.ok(Array.isArray(schedulerStatus.json.detail.evaluations));
+  assert.ok(schedulerStatus.json.detail.profiles.some((item) => item.id === "local-fast" && item.scheduleStatus));
+
+  const latestRegressionReport = await getJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/regressions/local-fast/latest-report`
+  );
+  assert.equal(latestRegressionReport.status, 200);
+  assert.equal(latestRegressionReport.json.detail.run.regressionId, "local-fast");
+  assert.ok(typeof latestRegressionReport.json.detail.durationSummary === "object");
+
+  const schedulerDryRun = await postJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/regressions/scheduler/run`,
+    {
+      regression: "local-fast",
+      dryRun: true
+    }
+  );
+  assert.equal(schedulerDryRun.status, 200);
+  assert.ok(Array.isArray(schedulerDryRun.json.detail.candidates));
+  assert.equal(schedulerDryRun.json.detail.dryRun, true);
 
   const regressionRerun = await postJson(
     `http://127.0.0.1:${ORCHESTRATOR_PORT}/regression-runs/${encodeURIComponent(regressionRun.json.run.id)}/rerun`,
@@ -172,4 +237,62 @@ test("scenario, regression, and execution history routes work through orchestrat
   assert.equal(regressionRerun.status, 200);
   assert.equal(regressionRerun.json.rerunOf, regressionRun.json.run.id);
   assert.equal(regressionRerun.json.run.metadata?.rerunOf, regressionRun.json.run.id);
+
+  const schedulerAllDryRun = await postJson(`http://127.0.0.1:${ORCHESTRATOR_PORT}/regressions/scheduler/run`, {
+    dryRun: true,
+    all: true,
+    stub: true,
+    by: "test-scheduler"
+  });
+  assert.equal(schedulerAllDryRun.status, 200);
+  assert.equal(schedulerAllDryRun.json.detail.dryRun, true);
+  assert.ok(Array.isArray(schedulerDryRun.json.detail.candidates));
+  assert.ok(
+    schedulerAllDryRun.json.detail.candidates.some((item) => item.regressionId === "local-fast" && item.scheduleStatus)
+  );
+
+  const workItem = await postJson(`http://127.0.0.1:${ORCHESTRATOR_PORT}/work-items`, {
+    title: "Validate CLI scenario path",
+    kind: "scenario",
+    goal: "Run the CLI verification scenario through the managed work-item path.",
+    relatedScenarios: ["cli-verification-pass"],
+    metadata: {
+      scenarioId: "cli-verification-pass",
+      projectPath: "config/projects/example-project.yaml"
+    }
+  });
+  assert.equal(workItem.status, 200);
+  assert.equal(workItem.json.detail.kind, "scenario");
+
+  const workItems = await getJson(`http://127.0.0.1:${ORCHESTRATOR_PORT}/work-items`);
+  assert.equal(workItems.status, 200);
+  assert.ok(Array.isArray(workItems.json.detail));
+  assert.ok(workItems.json.detail.some((item) => item.id === workItem.json.detail.id));
+
+  const workItemRun = await postJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/work-items/${encodeURIComponent(workItem.json.detail.id)}/run`,
+    {
+      stub: true,
+      wait: true,
+      by: "test-work-item",
+      timeout: 6000,
+      interval: 250
+    }
+  );
+  assert.equal(workItemRun.status, 200);
+  assert.equal(workItemRun.json.detail.item.id, workItem.json.detail.id);
+  assert.ok(workItemRun.json.detail.run.id);
+
+  const workItemDetail = await getJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/work-items/${encodeURIComponent(workItem.json.detail.id)}`
+  );
+  assert.equal(workItemDetail.status, 200);
+  assert.equal(workItemDetail.json.detail.id, workItem.json.detail.id);
+  assert.ok(Array.isArray(workItemDetail.json.detail.runs));
+
+  const workItemRunDetail = await getJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/work-item-runs/${encodeURIComponent(workItemRun.json.detail.run.id)}`
+  );
+  assert.equal(workItemRunDetail.status, 200);
+  assert.equal(workItemRunDetail.json.detail.workItemId, workItem.json.detail.id);
 });

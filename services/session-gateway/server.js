@@ -187,6 +187,7 @@ function settleControlRequest(record, result, overrides = {}) {
 }
 
 function buildControlSuggestions({ session, diagnostics }) {
+  const sessionPath = `/sessions/${encodeURIComponent(session.id)}`;
   if (diagnostics.status === "settled") {
     return [];
   }
@@ -195,12 +196,22 @@ function buildControlSuggestions({ session, diagnostics }) {
       {
         action: "steer",
         reason: "Session has been active without settling. Ask the agent to conclude or summarize.",
-        commandHint: `POST /sessions/${encodeURIComponent(session.id)}/actions/steer`
+        expectedOutcome: "The runtime receives operator guidance and can conclude with a cleaner settled state.",
+        commandHint: `POST ${sessionPath}/actions/steer`,
+        httpHint: `${sessionPath}/actions/steer`,
+        targetType: "session",
+        targetId: session.id,
+        priority: "high"
       },
       {
         action: "stop",
         reason: "Stop the live session if it is no longer progressing.",
-        commandHint: `POST /sessions/${encodeURIComponent(session.id)}/actions/stop`
+        expectedOutcome: "The session settles as stopped and leaves a durable operator override trail.",
+        commandHint: `POST ${sessionPath}/actions/stop`,
+        httpHint: `${sessionPath}/actions/stop`,
+        targetType: "session",
+        targetId: session.id,
+        priority: "high"
       }
     ];
   }
@@ -209,7 +220,12 @@ function buildControlSuggestions({ session, diagnostics }) {
       {
         action: "steer",
         reason: "Live session is active and can receive operator guidance.",
-        commandHint: `POST /sessions/${encodeURIComponent(session.id)}/actions/steer`
+        expectedOutcome: "The session keeps running but gains new operator direction.",
+        commandHint: `POST ${sessionPath}/actions/steer`,
+        httpHint: `${sessionPath}/actions/steer`,
+        targetType: "session",
+        targetId: session.id,
+        priority: "medium"
       }
     ];
   }
@@ -217,7 +233,12 @@ function buildControlSuggestions({ session, diagnostics }) {
     {
       action: "mark-complete",
       reason: "Session is not settled but appears inactive. Operator can finalize it explicitly if appropriate.",
-      commandHint: `POST /sessions/${encodeURIComponent(session.id)}/actions/mark-complete`
+      expectedOutcome: "The session settles as completed with an explicit operator completion record.",
+      commandHint: `POST ${sessionPath}/actions/mark-complete`,
+      httpHint: `${sessionPath}/actions/mark-complete`,
+      targetType: "session",
+      targetId: session.id,
+      priority: "medium"
     }
   ];
 }

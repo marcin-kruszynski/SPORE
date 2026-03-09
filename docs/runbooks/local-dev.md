@@ -152,6 +152,7 @@ curl http://127.0.0.1:8789/executions
 curl http://127.0.0.1:8789/executions/branch-approval-001/events
 curl http://127.0.0.1:8789/executions/branch-review-001/escalations
 curl -N http://127.0.0.1:8789/stream/executions?execution=branch-approval-001
+curl http://127.0.0.1:8789/run-center/summary
 
 curl -X POST http://127.0.0.1:8789/workflows/invoke \
   -H 'content-type: application/json' \
@@ -175,7 +176,10 @@ When validating domain policy integration, confirm that:
 - omitting `roles` lets the merged domain `workflowPolicy.defaultRoles` choose the launch order,
 - step `maxAttempts`, reviewer `reviewRequired` and `approvalRequired`, and per-role `sessionMode` match the merged policy,
 - startup context files under `tmp/sessions/*.context.json` use the domain docs-kb query terms and result limit,
-- watchdog behavior follows the step soft and hard timeout policy unless the invoke or drive call overrides it.
+- watchdog behavior follows the step soft and hard timeout policy unless the invoke or drive call overrides it,
+- `run-center` payloads expose `alerts[]` and `recommendations[]` for the latest failing scenario and regression flows,
+- scenario and regression run payloads expose `failure` and `suggestedActions` so operator clients do not need to invent local triage heuristics,
+- report, trend, and recent-run payloads may also expose additive `links.*`, `trendSnapshot`, `latestReports[]`, `recentRuns[]`, and `failureBreakdown`; prefer those server-computed drilldown hints over client-side reconstruction.
 
 If execution payloads now include lineage or coordination metadata, inspect them directly from the execution read surfaces rather than by opening SQLite files:
 
@@ -220,13 +224,20 @@ npm run orchestrator:scenario-run-artifacts -- --run <run-id>
 npm run orchestrator:scenario-rerun -- --run <run-id>
 npm run orchestrator:scenario-trends -- --scenario backend-service-delivery
 npm run orchestrator:run-center
+curl http://127.0.0.1:8789/run-center/summary | jq '.detail | {alerts, recommendations}'
 npm run orchestrator:regression-list
 npm run orchestrator:regression-show -- --regression local-fast
 npm run orchestrator:regression-run -- --regression local-fast --stub
 npm run orchestrator:regression-run-show -- --run <run-id>
 npm run orchestrator:regression-report -- --run <run-id>
+npm run orchestrator:regression-latest-report -- --regression local-fast
 npm run orchestrator:regression-rerun -- --run <run-id>
 npm run orchestrator:regression-trends -- --regression local-fast
+curl http://127.0.0.1:8789/regressions/scheduler/status | jq '.detail.profiles[] | {id, scheduleStatus, latestScheduledRun}'
+npm run orchestrator:work-item-create -- --title "CLI verification work item" --kind scenario --scenario cli-verification-pass
+npm run orchestrator:work-item-list
+npm run orchestrator:work-item-run -- --item <work-item-id> --stub
+npm run orchestrator:work-item-run-show -- --run <work-item-run-id>
 ```
 
 Live control inspection:

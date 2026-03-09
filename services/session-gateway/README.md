@@ -69,6 +69,14 @@ The combined live route is the preferred read for operator tooling because it no
 - derived diagnostics,
 - suggested recovery actions.
 
+Those suggested actions may now include additive operator fields such as:
+
+- `expectedOutcome`
+- `httpHint`
+- `targetType`
+- `targetId`
+- `priority`
+
 This is not yet the final control plane, but it is enough for early operator workflows and future Web UI integration.
 
 For control-plane diagnostics and idempotency inspection, prefer:

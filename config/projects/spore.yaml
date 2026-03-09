@@ -1,0 +1,73 @@
+id: spore
+name: SPORE
+type: orchestration-platform
+activeDomains:
+  - id: docs
+    policyPacks: [docs-core]
+    leadProfile: lead
+    scoutProfile: scout
+    builderProfile: builder
+    testerProfile: tester
+    reviewerProfile: reviewer
+    tools: [docs-kb, shell]
+    skills: [documentation-maintenance, adr-writing]
+    workflowPreferences: [docs-adr-pass, review-pass]
+    docsKbPolicy:
+      queryTerms: [spore, docs, architecture, runbooks]
+      resultLimit: 8
+    coordinationPolicy:
+      maxHeldMs: 120000
+  - id: backend
+    policyPacks: [platform-backend]
+    leadProfile: lead
+    scoutProfile: scout
+    builderProfile: builder
+    testerProfile: tester
+    reviewerProfile: reviewer
+    tools: [docs-kb, shell]
+    skills: [service-design, runtime-integration, sqlite]
+    workflowPreferences: [backend-service-delivery, bugfix, review-pass]
+    workflowPolicy:
+      defaultRoles: [lead, builder, tester, reviewer]
+      retryTargetRole: builder
+      resetDescendantSteps: true
+      maxAttemptsByRole:
+        builder: 5
+    docsKbPolicy:
+      queryTerms: [spore, backend, orchestrator, runtime]
+      resultLimit: 8
+    coordinationPolicy:
+      maxHeldMs: 180000
+      escalateOnFamilyStallMs: 90000
+  - id: cli
+    policyPacks: [cli-core]
+    leadProfile: lead
+    scoutProfile: scout
+    builderProfile: builder
+    testerProfile: tester
+    reviewerProfile: reviewer
+    tools: [docs-kb, shell]
+    skills: [terminal-ux, scripting]
+    workflowPreferences: [cli-verification-pass, review-pass]
+    workflowPolicy:
+      approvalRequired: false
+    docsKbPolicy:
+      queryTerms: [spore, cli, operator, terminal]
+      resultLimit: 6
+    coordinationPolicy:
+      maxHeldMs: 90000
+attachedTeams: [web-app-team, service-team]
+profileVariants:
+  - builder
+  - tester
+  - reviewer
+workflowDefaults: [backend-service-delivery, cli-verification-pass, docs-adr-pass]
+docsLocation: docs/
+embeddingIndex:
+  provider: local-bootstrap
+  storePath: data/docs-index/spore-docs.sqlite
+uiSettings:
+  surfaces: [cli, tui, web]
+runtimePolicies:
+  runtime: pi
+  liveInspectionRequired: true

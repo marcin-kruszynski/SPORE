@@ -6,4 +6,11 @@ stopOnFailure: true
 concurrency: 1
 timeoutMs: 240000
 artifactRetention: full
+historyRetentionDays: 30
+retainFailedRuns: true
+schedule:
+  enabled: false
+  cronLike: @daily
+  maxParallelRuns: 1
+  skipIfRunActive: true
 tags: [pi, gateway, control]

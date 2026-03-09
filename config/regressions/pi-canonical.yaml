@@ -6,4 +6,11 @@ stopOnFailure: false
 concurrency: 1
 timeoutMs: 360000
 artifactRetention: full
+historyRetentionDays: 30
+retainFailedRuns: true
+schedule:
+  enabled: true
+  cronLike: @daily
+  maxParallelRuns: 1
+  skipIfRunActive: true
 tags: [pi, canonical]
