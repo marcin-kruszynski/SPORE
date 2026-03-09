@@ -48,6 +48,10 @@ Plans:
   3. Work-item groups report readiness, blocked, running, failed, and completed state from child dependency state instead of manual status setting.
 **Plans**: 2 plans
 
+Plans:
+- [x] `02-01-PLAN.md` - Establish the dependency graph contract, authoring routes, and dependency-aware group execution semantics. ✅ 2026-03-09 (2h 21m, 3 tasks, 5 commits)
+- [ ] `02-02-PLAN.md` - Expose dependency setup and readiness-first visibility across the web and TUI self-build surfaces.
+
 ### Phase 3: Guided Goal-to-Run Flow
 **Goal**: Operators can move from intent to started self-build work through one conservative, linked workflow.
 **Depends on**: Phase 1 and Phase 2
@@ -111,7 +115,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Self-Build Visibility | 3/3 | Complete   | 2026-03-09 |
-| 2. Dependency-Aware Work Graphs | 0/2 | Not started | - |
+| 2. Dependency-Aware Work Graphs | 1/2 | In Progress | - |
 | 3. Guided Goal-to-Run Flow | 0/3 | Not started | - |
 | 4. Proposal Review Hub | 0/2 | Not started | - |
 | 5. Validation Evidence Bundles | 0/3 | Not started | - |

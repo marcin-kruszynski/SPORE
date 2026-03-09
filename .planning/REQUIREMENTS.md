@@ -7,16 +7,16 @@
 
 ### Dashboard
 
-- [ ] **DASH-01**: Operator can open a dedicated self-build dashboard separate from general run-center views
+- [x] **DASH-01**: Operator can open a dedicated self-build dashboard separate from general run-center views
 - [x] **DASH-02**: Operator can see active work-item groups, blocked work items, pending proposals, pending validation, and recent follow-up signals from one self-build summary surface ✅ Plan 01
 - [x] **DASH-03**: Operator can drill from self-build summary cards into linked goal plans, work-item groups, work items, work-item runs, and proposal artifacts ✅ Plan 01
 - [x] **DASH-04**: Web and TUI self-build views consume the same orchestrator-composed read models rather than direct database or filesystem reads ✅ Plan 01
 
 ### Group Execution
 
-- [ ] **GRP-01**: Operator can define explicit dependencies between work items inside a work-item group
-- [ ] **GRP-02**: System blocks downstream work items until required dependencies complete successfully
-- [ ] **GRP-03**: System derives group-level readiness, blocked, running, failed, and completed state from child dependency state
+- [x] **GRP-01**: Operator can define explicit dependencies between work items inside a work-item group
+- [x] **GRP-02**: System blocks downstream work items until required dependencies complete successfully
+- [x] **GRP-03**: System derives group-level readiness, blocked, running, failed, and completed state from child dependency state
 
 ### Lifecycle
 
@@ -94,13 +94,13 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| DASH-01 | Phase 1 | Pending |
+| DASH-01 | Phase 1 | Complete |
 | DASH-02 | Phase 1 | Complete (Plan 01) |
 | DASH-03 | Phase 1 | Complete (Plan 01) |
 | DASH-04 | Phase 1 | Complete (Plan 01) |
-| GRP-01 | Phase 2 | Pending |
-| GRP-02 | Phase 2 | Pending |
-| GRP-03 | Phase 2 | Pending |
+| GRP-01 | Phase 2 | Complete |
+| GRP-02 | Phase 2 | Complete |
+| GRP-03 | Phase 2 | Complete |
 | FLOW-01 | Phase 3 | Pending |
 | FLOW-02 | Phase 3 | Pending |
 | FLOW-03 | Phase 1 | Complete (Plan 01) |

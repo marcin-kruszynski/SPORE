@@ -5,34 +5,36 @@
 See: `.planning/PROJECT.md` (updated 2026-03-09)
 
 **Core value:** SPORE must let an operator guide safe self-improvement with durable traceability, explicit review gates, and enough product surface to make the loop usable end to end.
-**Current focus:** Phase 1 - Self-Build Visibility
+**Current focus:** Phase 2 - Dependency-Aware Work Graphs
 
 ## Current Position
 
-Phase: 1 of 7 (Self-Build Visibility)
-Plan: 3 of 3 in current phase
+Phase: 2 of 7 (Dependency-Aware Work Graphs)
+Plan: 1 of 2 in current phase
 Status: In progress
-Last activity: 2026-03-09 - Plan 03 completed: TUI self-build triage and drilldown
+Last activity: 2026-03-09 - Completed Phase 2 Plan 01 dependency graph contract work.
 
-Progress: [█████████░░] 100%
+Progress: [██░░░░░░░░] 22%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 3
-- Average duration: 10 min
-- Total execution time: 0.5 hours
+- Total plans completed: 4
+- Average duration: 43 min
+- Total execution time: 2.9 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 01 | 3 | 30 min | 10 min |
+| 02 | 1 | 2h 21m | 2h 21m |
 
 **Recent Trend:**
-- Last 5 plans: 17 min, 9 min, 4 min
-- Trend: Accelerating
+- Last 5 plans: 17 min, 9 min, 4 min, 2h 21m
+- Trend: Mixed
 | Phase 01-self-build-visibility P02 | 4 | 3 tasks | 5 files |
+| Phase 02-dependency-aware-work-graphs P01 | 2h 21m | 3 tasks | 11 files |
 
 ## Accumulated Context
 
@@ -54,6 +56,9 @@ Recent decisions affecting current work:
 - [Plan 02] Preserved shared HTTP contracts and operator-first mental models across web and TUI surfaces
 - [Plan 03] Added terminal-native triage view with formatted output while preserving JSON-only backward compatibility
 - [Plan 03] Implemented drilldown support through flags to stay within TUI mental model
+- [Phase 02-dependency-aware-work-graphs]: Kept dependency edges metadata-backed on work items and exposed one normalized dependencyGraph/readiness contract from orchestrator helpers.
+- [Phase 02-dependency-aware-work-graphs]: Reused the existing top-level work-item status model and layered dependencyState, blockerIds, nextActionHint, and transition logs on top.
+- [Phase 02-dependency-aware-work-graphs]: Returned durable failed work-item run and validation detail instead of surfacing HTTP 500s on execution or validation failure.
 
 ### Pending Todos
 
@@ -66,6 +71,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-09 04:47
-Stopped at: Completed 01-self-build-visibility-02-PLAN.md
-Resume file: .planning/phases/01-self-build-visibility/01-self-build-visibility-02-SUMMARY.md
+Last session: 2026-03-09 12:48
+Stopped at: Completed 02-dependency-aware-work-graphs-01-PLAN.md
+Resume file: None
