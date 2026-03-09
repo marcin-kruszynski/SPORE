@@ -54,9 +54,6 @@ Recent decisions affecting current work:
 - [Plan 02] Preserved shared HTTP contracts and operator-first mental models across web and TUI surfaces
 - [Plan 03] Added terminal-native triage view with formatted output while preserving JSON-only backward compatibility
 - [Plan 03] Implemented drilldown support through flags to stay within TUI mental model
-- [Phase 01-self-build-visibility-02]: Added view navigation toggle to keep self-build dashboard distinct from Run Center
-- [Phase 01-self-build-visibility-02]: Implemented detail overlay instead of new pages to preserve dashboard context and lineage
-- [Phase 01-self-build-visibility-02]: Used compact operator-first rows with calm status styling to avoid alert fatigue
 
 ### Pending Todos
 
@@ -69,6 +66,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-09 04:46
-Stopped at: Completed 01-self-build-visibility-03-PLAN.md
-Resume file: .planning/phases/01-self-build-visibility/01-self-build-visibility-03-SUMMARY.md
+Last session: 2026-03-09 04:47
+Stopped at: Completed 01-self-build-visibility-02-PLAN.md
+Resume file: .planning/phases/01-self-build-visibility/01-self-build-visibility-02-SUMMARY.md
