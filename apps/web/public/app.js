@@ -81,6 +81,7 @@ const state = {
   activeView: "run-center",
   selfBuildWorkItems: [],
   selfBuildGroups: [],
+  selfBuildDependencyImpact: null,
   selectedWorkItemId: null,
   selectedWorkItemGroupId: null,
   workItemDetail: null,
@@ -190,6 +191,9 @@ const els = {
   selfBuildView: document.getElementById("self-build-view"),
   selfBuildOverview: document.getElementById("self-build-overview"),
   selfBuildFreshness: document.getElementById("self-build-freshness"),
+  groupReadinessOverview: document.getElementById("group-readiness-overview"),
+  groupReadinessList: document.getElementById("group-readiness-list"),
+  groupReadinessCount: document.getElementById("group-readiness-count"),
   urgentWorkQueue: document.getElementById("urgent-work-queue"),
   urgentWorkCount: document.getElementById("urgent-work-count"),
   followUpQueue: document.getElementById("follow-up-queue"),
@@ -6488,42 +6492,48 @@ function renderSelfBuildDashboard() {
   if (!state.selfBuildSummary) {
     return;
   }
-  
+
   const summary = state.selfBuildSummary;
-  
-  // Render overview cards
+
   renderSelfBuildOverview(summary);
-  
-  // Render urgent work queue
+  renderGroupReadiness(summary.groups || []);
   renderWorkQueue(summary.urgentWork || [], els.urgentWorkQueue, els.urgentWorkCount, "urgent");
-  
-  // Render follow-up queue
   renderWorkQueue(summary.followUpWork || [], els.followUpQueue, els.followUpCount, "follow-up");
-  
-  // Update freshness indicator
+
   if (els.selfBuildFreshness && summary.freshness) {
     const lastRefresh = summary.freshness.lastRefresh || summary.overview?.generatedAt;
-    els.selfBuildFreshness.textContent = `Last updated: ${formatTimestamp(lastRefresh)}`;
+    els.selfBuildFreshness.textContent = `Last updated: ${formatDisplayTimestamp(lastRefresh)}`;
   }
 }
 
 function renderSelfBuildOverview(summary) {
   if (!els.selfBuildOverview) return;
-  
+
   const overview = summary.overview || {};
   const counts = summary.counts || {};
-  
+  const groups = Array.isArray(summary.groups) ? summary.groups : [];
+  const groupStates = groups.reduce(
+    (accumulator, group) => {
+      const headline = group.readiness?.headlineState || "pending";
+      accumulator[headline] = (accumulator[headline] ?? 0) + 1;
+      accumulator.reviewNeeded += group.readiness?.counts?.reviewNeeded ?? 0;
+      accumulator.advisoryWarnings += group.readiness?.counts?.advisoryWarnings ?? 0;
+      return accumulator;
+    },
+    { ready: 0, blocked: 0, failed: 0, running: 0, completed: 0, pending: 0, reviewNeeded: 0, advisoryWarnings: 0 }
+  );
+
   const cards = [
     { label: "Total Work Items", value: counts.workItems || 0 },
     { label: "Groups", value: counts.groups || 0 },
+    { label: "Ready Groups", value: groupStates.ready || 0, highlight: groupStates.ready > 0 },
+    { label: "Blocked Groups", value: groupStates.blocked || 0, highlight: groupStates.blocked > 0 },
+    { label: "Review Needed", value: groupStates.reviewNeeded || 0, highlight: groupStates.reviewNeeded > 0 },
     { label: "Urgent Items", value: overview.urgentCount || 0, highlight: overview.urgentCount > 0 },
-    { label: "Follow-Up Items", value: overview.followUpCount || 0 },
-    { label: "Proposals", value: counts.proposals || 0 },
-    { label: "Blocked", value: counts.blockedItems || 0, highlight: counts.blockedItems > 0 },
-    { label: "Failed", value: counts.failedItems || 0, highlight: counts.failedItems > 0 },
-    { label: "Waiting Review", value: counts.waitingReviewProposals || 0, highlight: counts.waitingReviewProposals > 0 }
+    { label: "Failed Items", value: counts.failedItems || 0, highlight: counts.failedItems > 0 },
+    { label: "Advisory Warnings", value: groupStates.advisoryWarnings || 0 }
   ];
-  
+
   els.selfBuildOverview.innerHTML = cards
     .map(
       (card) => `
@@ -6536,13 +6546,134 @@ function renderSelfBuildOverview(summary) {
     .join("");
 }
 
+function resolveSelfBuildEntryType(item = {}) {
+  if (item.itemType) return item.itemType;
+  if (item.workspaceId) return "workspace";
+  if (item.runId) return "work-item-run";
+  if (item.proposalId) return "proposal";
+  if (item.groupId) return "work-item-group";
+  return "work-item";
+}
+
+function resolveSelfBuildEntryId(item = {}) {
+  return item.id || item.itemId || item.workItemId || item.groupId || item.runId || item.workspaceId || item.proposalId || "";
+}
+
+function dependencyTone(value) {
+  const state = String(value || "pending").toLowerCase();
+  if (["ready", "completed"].includes(state)) return "root";
+  if (["blocked", "review_needed", "failed"].includes(state)) return "changed";
+  if (state === "advisory") return "dependency-advisory";
+  return "inherited";
+}
+
+function renderLineagePill(label, value, tone = "") {
+  const classes = ["lineage-pill"];
+  if (tone) classes.push(tone);
+  return `<span class="${classes.join(" ")}">${escapeHtml(value ? `${label}:${value}` : label)}</span>`;
+}
+
+function renderStatusBadge(value, extraClass = "") {
+  const classes = ["status-badge", stateClass(value)];
+  if (extraClass) classes.push(extraClass);
+  return `<span class="${classes.join(" ")}">${escapeHtml(normalizeText(value))}</span>`;
+}
+
+function groupReadinessPriority(group = {}) {
+  const headline = group.readiness?.headlineState || "pending";
+  const order = { failed: 0, blocked: 1, running: 2, ready: 3, completed: 4, pending: 5 };
+  return order[headline] ?? 6;
+}
+
+function renderGroupReadiness(groups = []) {
+  if (!els.groupReadinessOverview || !els.groupReadinessList) return;
+
+  if (els.groupReadinessCount) {
+    els.groupReadinessCount.textContent = `${groups.length} ${groups.length === 1 ? "group" : "groups"}`;
+  }
+
+  if (groups.length === 0) {
+    els.groupReadinessOverview.innerHTML = `
+      <div class="readiness-stat muted-card">
+        <span class="label">No groups</span>
+        <span class="value">0</span>
+      </div>
+    `;
+    els.groupReadinessList.innerHTML = '<div class="empty-work-queue">Materialize a goal plan to inspect dependency readiness.</div>';
+    return;
+  }
+
+  const readinessTotals = groups.reduce(
+    (accumulator, group) => {
+      const counts = group.readiness?.counts || {};
+      accumulator.ready += counts.ready || 0;
+      accumulator.blocked += counts.blocked || 0;
+      accumulator.reviewNeeded += counts.reviewNeeded || 0;
+      accumulator.running += counts.running || 0;
+      accumulator.completed += counts.completed || 0;
+      return accumulator;
+    },
+    { ready: 0, blocked: 0, reviewNeeded: 0, running: 0, completed: 0 }
+  );
+
+  els.groupReadinessOverview.innerHTML = [
+    { label: "Ready Items", value: readinessTotals.ready, tone: readinessTotals.ready > 0 ? "ready" : "neutral" },
+    { label: "Blocked Items", value: readinessTotals.blocked, tone: readinessTotals.blocked > 0 ? "blocked" : "neutral" },
+    { label: "Review Needed", value: readinessTotals.reviewNeeded, tone: readinessTotals.reviewNeeded > 0 ? "review" : "neutral" },
+    { label: "Completed", value: readinessTotals.completed, tone: readinessTotals.completed > 0 ? "completed" : "neutral" }
+  ]
+    .map(
+      (card) => `
+        <article class="readiness-stat ${card.tone}">
+          <span class="label">${escapeHtml(card.label)}</span>
+          <span class="value">${escapeHtml(String(card.value))}</span>
+        </article>
+      `
+    )
+    .join("");
+
+  const sortedGroups = [...groups].sort((left, right) => {
+    const priorityDelta = groupReadinessPriority(left) - groupReadinessPriority(right);
+    if (priorityDelta !== 0) return priorityDelta;
+    return String(left.title || left.id).localeCompare(String(right.title || right.id));
+  });
+
+  els.groupReadinessList.innerHTML = sortedGroups
+    .map((group) => {
+      const readiness = group.readiness || {};
+      const counts = readiness.counts || {};
+      return `
+        <article class="group-readiness-row" data-open-type="work-item-group" data-open-id="${escapeHtml(group.id)}">
+          <div class="group-readiness-main">
+            <div class="group-readiness-title-row">
+              <strong>${escapeHtml(group.title || group.id)}</strong>
+              ${renderStatusBadge(readiness.headlineState || group.status || "pending")}
+            </div>
+            <p class="group-readiness-summary">${escapeHtml(readiness.preRunSummary?.label || "No dependency summary available yet.")}</p>
+            <div class="lineage-meta">
+              ${renderLineagePill("ready", counts.ready ?? 0, "root")}
+              ${renderLineagePill("blocked", counts.blocked ?? 0, counts.blocked ? "changed" : "")}
+              ${renderLineagePill("review", counts.reviewNeeded ?? 0, counts.reviewNeeded ? "changed" : "")}
+              ${renderLineagePill("edges", group.dependencyGraph?.edges?.length ?? 0, "inherited")}
+            </div>
+          </div>
+          <div class="group-readiness-side">
+            <span class="muted">Next</span>
+            <p>${escapeHtml(readiness.nextActionHint || "Open the group to inspect dependency details.")}</p>
+          </div>
+        </article>
+      `;
+    })
+    .join("");
+}
+
 function renderWorkQueue(items, container, countElement, queueType) {
   if (!container) return;
-  
+
   if (countElement) {
     countElement.textContent = `${items.length} ${items.length === 1 ? "item" : "items"}`;
   }
-  
+
   if (items.length === 0) {
     const emptyClass = queueType === "urgent" ? "quiet" : "";
     const emptyMessage =
@@ -6552,26 +6683,27 @@ function renderWorkQueue(items, container, countElement, queueType) {
     container.innerHTML = `<div class="empty-work-queue ${emptyClass}">${emptyMessage}</div>`;
     return;
   }
-  
+
   container.innerHTML = items
     .map((item) => {
-      const itemType = item.itemType || item.type || "work-item";
-      const itemId = item.id || item.workItemId || item.proposalId || "";
+      const itemType = resolveSelfBuildEntryType(item);
+      const itemId = resolveSelfBuildEntryId(item);
       const title = item.title || item.label || item.name || itemId;
       const status = item.status || item.state || "unknown";
       const meta = [];
-      
+      const reason = item.reason || item.blockedReason || item.nextActionHint || "";
       if (item.kind) meta.push(item.kind);
-      if (item.priority) meta.push(`priority: ${item.priority}`);
-      if (item.lastRunAt) meta.push(`last run: ${formatTimestamp(item.lastRunAt)}`);
-      if (item.blockedReason) meta.push(`blocked: ${item.blockedReason}`);
-      
+      if (item.priority) meta.push(`priority:${item.priority}`);
+      if (item.blockerIds?.[0]) meta.push(`blocker:${item.blockerIds[0]}`);
+      if (item.lastRunAt) meta.push(`last run:${formatDisplayTimestamp(item.lastRunAt)}`);
+
       return `
-        <div class="work-item-row" data-item-type="${escapeHtml(itemType)}" data-item-id="${escapeHtml(itemId)}" onclick="openSelfBuildDetail('${escapeHtml(itemType)}', '${escapeHtml(itemId)}')">
+        <div class="work-item-row" data-open-type="${escapeHtml(itemType)}" data-open-id="${escapeHtml(itemId)}">
           <div class="work-item-status ${stateClass(status)}"></div>
           <div class="work-item-info">
             <div class="work-item-title">${escapeHtml(title)}</div>
             <div class="work-item-meta">${escapeHtml(meta.join(" • "))}</div>
+            ${reason ? `<div class="work-item-reason">${escapeHtml(reason)}</div>` : ""}
           </div>
           <span class="work-item-badge ${queueType}">${escapeHtml(status)}</span>
           <span class="work-item-arrow">→</span>
@@ -6581,17 +6713,210 @@ function renderWorkQueue(items, container, countElement, queueType) {
     .join("");
 }
 
+function renderDependencyEdges(edges = []) {
+  if (!edges.length) {
+    return '<div class="empty-work-queue">No dependencies configured yet. Add a prerequisite to see downstream impact.</div>';
+  }
+
+  return edges
+    .map(
+      (edge) => `
+        <article class="dependency-edge-card">
+          <div class="dependency-edge-title-row">
+            <strong>${escapeHtml(edge.itemTitle || edge.itemId)}</strong>
+            ${renderLineagePill(edge.strictness, edge.label, edge.strictness === "advisory" ? "dependency-advisory" : "dependency-hard")}
+          </div>
+          <p class="dependency-edge-path">
+            waits on <button type="button" class="inline-detail-button" data-open-type="work-item" data-open-id="${escapeHtml(edge.dependencyItemId)}">${escapeHtml(edge.dependencyTitle || edge.dependencyItemId)}</button>
+          </p>
+          <div class="lineage-meta">
+            ${renderLineagePill("edge", edge.id, "inherited")}
+            ${edge.autoRelaxation?.enabled ? renderLineagePill("auto", edge.autoRelaxation.mode || "warn-and-run", "dependency-advisory") : ""}
+          </div>
+        </article>
+      `
+    )
+    .join("");
+}
+
+function renderGroupDependencyComposer(detail) {
+  const items = Array.isArray(detail.items) ? detail.items : [];
+  const downstreamOptions = items
+    .map((item, index) => `<option value="${escapeHtml(item.id)}" ${index === 0 ? "selected" : ""}>${escapeHtml(item.title || item.id)}</option>`)
+    .join("");
+  const prerequisiteOptions = items
+    .map(
+      (item, index) =>
+        `<option value="${escapeHtml(item.id)}" ${index === (items.length > 1 ? 1 : 0) ? "selected" : ""}>${escapeHtml(item.title || item.id)}</option>`
+    )
+    .join("");
+
+  return `
+    <section class="detail-section">
+      <div class="detail-section-heading">
+        <h3>Prerequisite Picker</h3>
+        <p class="detail-support">Route changes through the shared dependency write surface and refresh impact immediately.</p>
+      </div>
+      <form class="dependency-form" data-dependency-form data-group-id="${escapeHtml(detail.id)}">
+        <div class="dependency-form-grid">
+          <label>
+            <span class="detail-label">Downstream item</span>
+            <select name="itemId">${downstreamOptions}</select>
+          </label>
+          <label>
+            <span class="detail-label">Prerequisite item</span>
+            <select name="dependencyItemId">${prerequisiteOptions}</select>
+          </label>
+          <label>
+            <span class="detail-label">Strictness</span>
+            <select name="strictness">
+              <option value="hard">Hard dependency</option>
+              <option value="advisory">Advisory dependency</option>
+            </select>
+          </label>
+        </div>
+        <div class="dependency-form-actions">
+          <button type="submit" class="primary-button">Add prerequisite</button>
+          <span class="muted" data-dependency-feedback>Updates run through <code>/work-item-groups/:id/dependencies</code>.</span>
+        </div>
+      </form>
+      <div class="dependency-edge-list">
+        ${renderDependencyEdges(detail.dependencyGraph?.edges || [])}
+      </div>
+    </section>
+  `;
+}
+
+function renderGroupDependencyItems(detail) {
+  const items = Array.isArray(detail.items) ? detail.items : [];
+  const focusedItems = items
+    .filter((item) => (item.dependencyState?.counts?.total ?? 0) > 0 || (item.blockerIds?.length ?? 0) > 0)
+    .sort((left, right) => {
+      const leftProblem = ["review_needed", "blocked"].includes(left.dependencyState?.state) ? 0 : 1;
+      const rightProblem = ["review_needed", "blocked"].includes(right.dependencyState?.state) ? 0 : 1;
+      if (leftProblem !== rightProblem) return leftProblem - rightProblem;
+      return String(left.title || left.id).localeCompare(String(right.title || right.id));
+    });
+
+  if (!focusedItems.length) {
+    return '<div class="empty-work-queue quiet">No dependency-linked items yet. Add a prerequisite to start shaping readiness.</div>';
+  }
+
+  return focusedItems
+    .map((item) => {
+      const dependency = item.dependencyState || {};
+      const blocker = dependency.blockers?.[0] || null;
+      return `
+        <article class="dependency-item-row">
+          <div class="dependency-item-header">
+            <button type="button" class="inline-detail-button strong-link" data-open-type="work-item" data-open-id="${escapeHtml(item.id)}">${escapeHtml(item.title || item.id)}</button>
+            ${renderStatusBadge(dependency.state || item.status || "pending")}
+          </div>
+          <div class="lineage-meta">
+            ${blocker?.id ? renderLineagePill("blocker", blocker.id, "changed") : ""}
+            ${blocker?.strictness ? renderLineagePill("strict", blocker.strictness, blocker.strictness === "advisory" ? "dependency-advisory" : "dependency-hard") : ""}
+            ${dependency.compactSummary?.advisoryWarningCount ? renderLineagePill("warnings", dependency.compactSummary.advisoryWarningCount, "dependency-advisory") : ""}
+          </div>
+          <p class="dependency-item-reason">${escapeHtml(dependency.reason || "Ready to run.")}</p>
+          <p class="dependency-item-next">${escapeHtml(item.nextActionHint || dependency.nextActionHint || "Open the item for full dependency details.")}</p>
+        </article>
+      `;
+    })
+    .join("");
+}
+
+function renderTransitionLog(detail) {
+  const entries = Array.isArray(detail.dependencyGraph?.transitionLog) ? detail.dependencyGraph.transitionLog.slice(0, 6) : [];
+  if (!entries.length) {
+    return '<div class="empty-work-queue">No dependency transitions recorded yet.</div>';
+  }
+
+  return entries
+    .map(
+      (entry) => `
+        <article class="transition-row">
+          <div class="transition-header">
+            <strong>${escapeHtml(humanizeKey(entry.type || "dependency update"))}</strong>
+            ${renderStatusBadge(entry.state || "pending")}
+          </div>
+          <p>${escapeHtml(entry.reason || "Dependency state updated.")}</p>
+          <div class="lineage-meta">
+            ${entry.blockerId ? renderLineagePill("blocker", entry.blockerId, "changed") : ""}
+            ${entry.dependencyItemId ? renderLineagePill("depends", entry.dependencyItemId, "inherited") : ""}
+            ${entry.strictness ? renderLineagePill("strict", entry.strictness, entry.strictness === "advisory" ? "dependency-advisory" : "dependency-hard") : ""}
+          </div>
+        </article>
+      `
+    )
+    .join("");
+}
+
+function renderWorkItemDependencySection(detail) {
+  const dependency = detail.dependencyState || {};
+  const blockers = Array.isArray(dependency.blockers) ? dependency.blockers : [];
+  const warnings = Array.isArray(dependency.advisoryWarnings) ? dependency.advisoryWarnings : [];
+  const edges = Array.isArray(dependency.incomingEdges) ? dependency.incomingEdges : [];
+
+  return `
+    <section class="detail-section">
+      <div class="detail-section-heading">
+        <h3>Dependency Detail</h3>
+        <p class="detail-support">Plain-language reason first, exact blocker ids and strictness close behind.</p>
+      </div>
+      <div class="detail-card dependency-summary-card compact-empty">
+        <div class="dependency-item-header">
+          <strong>${escapeHtml(dependency.reason || "Ready to run.")}</strong>
+          ${renderStatusBadge(dependency.state || detail.status || "pending")}
+        </div>
+        <div class="lineage-meta">
+          ${renderLineagePill("incoming", edges.length, "inherited")}
+          ${renderLineagePill("blockers", blockers.length, blockers.length ? "changed" : "")}
+          ${renderLineagePill("warnings", warnings.length, warnings.length ? "dependency-advisory" : "")}
+        </div>
+        <p class="dependency-item-next">${escapeHtml(detail.nextActionHint || dependency.nextActionHint || "Ready to run.")}</p>
+      </div>
+      <div class="dependency-edge-list">
+        ${renderDependencyEdges(edges.map((edge) => ({
+          ...edge,
+          itemTitle: detail.title || detail.id,
+          dependencyTitle: blockers.find((blocker) => blocker.dependencyItemId === edge.dependencyItemId)?.dependencyTitle || edge.dependencyItemId
+        })))}
+      </div>
+    </section>
+  `;
+}
+
+function renderGenericDetailRows(detail = {}) {
+  const rows = [
+    ["Status", detail.status || detail.state || null],
+    ["ID", detail.id || null],
+    ["Updated", detail.updatedAt || null],
+    ["Created", detail.createdAt || null]
+  ].filter(([, value]) => value);
+
+  return rows
+    .map(
+      ([label, value]) => `
+        <div class="detail-row">
+          <div class="detail-label">${escapeHtml(label)}</div>
+          <div class="detail-value">${label === "Status" ? renderStatusBadge(value) : escapeHtml(String(value))}</div>
+        </div>
+      `
+    )
+    .join("");
+}
+
 async function openSelfBuildDetail(itemType, itemId) {
   if (!els.selfBuildDetailOverlay || !els.selfBuildDetailContent) return;
-  
-  // Show overlay
+
+  state.selfBuildDependencyImpact = itemType === "work-item-group" ? state.selfBuildDependencyImpact : null;
   els.selfBuildDetailOverlay.style.display = "block";
   els.selfBuildDetailContent.innerHTML = '<div class="loading">Loading detail...</div>';
-  
+
   try {
     let detailData = null;
     let endpoint = "";
-    
+
     if (itemType === "work-item") {
       endpoint = `/api/orchestrator/work-items/${encodeURIComponent(itemId)}`;
       state.selectedWorkItemId = itemId;
@@ -6600,13 +6925,17 @@ async function openSelfBuildDetail(itemType, itemId) {
       state.selectedWorkItemGroupId = itemId;
     } else if (itemType === "proposal") {
       endpoint = `/api/orchestrator/proposal-artifacts/${encodeURIComponent(itemId)}`;
+    } else if (itemType === "work-item-run") {
+      endpoint = `/api/orchestrator/work-item-runs/${encodeURIComponent(itemId)}`;
+    } else if (itemType === "workspace") {
+      endpoint = `/api/orchestrator/workspaces/${encodeURIComponent(itemId)}`;
     } else {
       throw new Error(`Unknown item type: ${itemType}`);
     }
-    
+
     const response = await fetch(endpoint);
     const data = await response.json();
-    
+
     if (data.ok && data.detail) {
       detailData = data.detail;
       renderSelfBuildDetailView(itemType, detailData);
@@ -6621,11 +6950,10 @@ async function openSelfBuildDetail(itemType, itemId) {
 
 function renderSelfBuildDetailView(itemType, detail) {
   if (!els.selfBuildDetailContent || !els.selfBuildDetailTitle) return;
-  
+
   const title = detail.title || detail.label || detail.name || detail.id;
   els.selfBuildDetailTitle.textContent = title;
-  
-  // Render lineage chain
+
   let lineageHTML = "";
   if (itemType === "work-item" && detail.goalPlan && detail.workItemGroup) {
     lineageHTML = `
@@ -6646,11 +6974,13 @@ function renderSelfBuildDetailView(itemType, detail) {
       </div>
     `;
   }
-  
-  // Render detail sections
+
   const statusSection = `
     <div class="detail-section">
-      <h3>Status & Information</h3>
+      <div class="detail-section-heading">
+        <h3>Status & Information</h3>
+        <p class="detail-support">Lead with readiness, then move into blockers, strictness, and next actions.</p>
+      </div>
       <div class="detail-row">
         <div class="detail-label">Status</div>
         <div class="detail-value"><span class="status-badge ${stateClass(detail.status || detail.state)}">${escapeHtml(detail.status || detail.state || "unknown")}</span></div>
@@ -6661,14 +6991,17 @@ function renderSelfBuildDetailView(itemType, detail) {
       </div>
       ${detail.kind ? `<div class="detail-row"><div class="detail-label">Kind</div><div class="detail-value">${escapeHtml(detail.kind)}</div></div>` : ""}
       ${detail.priority ? `<div class="detail-row"><div class="detail-label">Priority</div><div class="detail-value">${escapeHtml(detail.priority)}</div></div>` : ""}
-      ${detail.createdAt ? `<div class="detail-row"><div class="detail-label">Created</div><div class="detail-value">${formatTimestamp(detail.createdAt)}</div></div>` : ""}
-      ${detail.updatedAt ? `<div class="detail-row"><div class="detail-label">Updated</div><div class="detail-value">${formatTimestamp(detail.updatedAt)}</div></div>` : ""}
+      ${detail.createdAt ? `<div class="detail-row"><div class="detail-label">Created</div><div class="detail-value">${formatDisplayTimestamp(detail.createdAt)}</div></div>` : ""}
+      ${detail.updatedAt ? `<div class="detail-row"><div class="detail-label">Updated</div><div class="detail-value">${formatDisplayTimestamp(detail.updatedAt)}</div></div>` : ""}
     </div>
   `;
-  
+
+  let dependencySection = "";
   let recentActivitySection = "";
-  if (itemType === "work-item" && Array.isArray(detail.runs)) {
-    const recentRuns = detail.runs.slice(0, 5);
+
+  if (itemType === "work-item") {
+    dependencySection = renderWorkItemDependencySection(detail);
+    const recentRuns = Array.isArray(detail.runs) ? detail.runs.slice(0, 5) : [];
     recentActivitySection = `
       <div class="detail-section">
         <h3>Recent Runs</h3>
@@ -6677,7 +7010,7 @@ function renderSelfBuildDetailView(itemType, detail) {
           .map(
             (run) => `
           <div class="detail-row">
-            <div class="detail-label">${formatTimestamp(run.startedAt || run.createdAt)}</div>
+            <div class="detail-label">${formatDisplayTimestamp(run.startedAt || run.createdAt)}</div>
             <div class="detail-value"><span class="status-badge ${stateClass(run.status || run.state)}">${escapeHtml(run.status || run.state || "unknown")}</span></div>
           </div>
         `
@@ -6686,27 +7019,170 @@ function renderSelfBuildDetailView(itemType, detail) {
       </div>
     `;
   } else if (itemType === "work-item-group" && Array.isArray(detail.items)) {
+    const impactSummary = state.selectedWorkItemGroupId === detail.id ? state.selfBuildDependencyImpact : null;
+    const counts = detail.readiness?.counts || {};
+    dependencySection = `
+      <section class="detail-section">
+        <div class="dependency-headline">
+          <div>
+            <h3>Readiness First</h3>
+            <p class="detail-support">${escapeHtml(detail.readiness?.preRunSummary?.label || "No readiness summary available.")}</p>
+          </div>
+          ${renderStatusBadge(detail.readiness?.headlineState || detail.status || "pending")}
+        </div>
+        <div class="lineage-meta">
+          ${renderLineagePill("ready", counts.ready ?? 0, "root")}
+          ${renderLineagePill("blocked", counts.blocked ?? 0, counts.blocked ? "changed" : "")}
+          ${renderLineagePill("review", counts.reviewNeeded ?? 0, counts.reviewNeeded ? "changed" : "")}
+          ${renderLineagePill("failed", counts.failed ?? 0, counts.failed ? "changed" : "")}
+          ${renderLineagePill("edges", detail.dependencyGraph?.edges?.length ?? 0, "inherited")}
+        </div>
+        <div class="readiness-stat-grid">
+          <article class="detail-card compact-empty readiness-note-card">
+            <strong>Next action</strong>
+            <p>${escapeHtml(detail.readiness?.nextActionHint || "Inspect the dependency graph before running the group.")}</p>
+          </article>
+          <article class="detail-card compact-empty readiness-note-card">
+            <strong>Pre-run summary</strong>
+            <p>${escapeHtml(detail.readiness?.preRunSummary?.label || "No pre-run summary available.")}</p>
+          </article>
+          ${
+            impactSummary
+              ? `<article class="detail-card compact-empty readiness-note-card impact-card">
+                  <strong>Impact updated</strong>
+                  <p>${escapeHtml(`Headline: ${impactSummary.headlineState} · blockers: ${impactSummary.blockerIds?.length ?? 0}`)}</p>
+                </article>`
+              : ""
+          }
+        </div>
+      </section>
+      ${renderGroupDependencyComposer(detail)}
+      <section class="detail-section">
+        <div class="detail-section-heading">
+          <h3>Blocked / Review Needed</h3>
+          <p class="detail-support">Each row explains the blocker id, strictness, and likely next step.</p>
+        </div>
+        <div class="dependency-item-list">
+          ${renderGroupDependencyItems(detail)}
+        </div>
+      </section>
+      <section class="detail-section">
+        <div class="detail-section-heading">
+          <h3>Dependency Transition Log</h3>
+          <p class="detail-support">Visible state changes for graph edits, skips, relaxations, and review-needed transitions.</p>
+        </div>
+        <div class="transition-list">
+          ${renderTransitionLog(detail)}
+        </div>
+      </section>
+    `;
     recentActivitySection = `
       <div class="detail-section">
-        <h3>Child Items (${detail.items.length})</h3>
+        <div class="detail-section-heading">
+          <h3>Child Items (${detail.items.length})</h3>
+          <p class="detail-support">Open any child item to inspect its dependency reasoning and recent runs.</p>
+        </div>
         ${detail.items
           .map(
             (item) => `
-          <div class="detail-row">
-            <div class="detail-label">${escapeHtml(item.title || item.label || item.id)}</div>
-            <div class="detail-value"><span class="status-badge ${stateClass(item.status || item.state)}">${escapeHtml(item.status || item.state || "unknown")}</span></div>
-          </div>
+          <article class="dependency-item-row compact">
+            <div class="dependency-item-header">
+              <button type="button" class="inline-detail-button strong-link" data-open-type="work-item" data-open-id="${escapeHtml(item.id)}">${escapeHtml(item.title || item.label || item.id)}</button>
+              ${renderStatusBadge(item.dependencyState?.state || item.status || item.state || "pending")}
+            </div>
+            <div class="lineage-meta">
+              ${item.blockerIds?.[0] ? renderLineagePill("blocker", item.blockerIds[0], "changed") : ""}
+              ${(item.dependencyState?.incomingEdges || []).length ? renderLineagePill("incoming", item.dependencyState.incomingEdges.length, "inherited") : ""}
+              ${item.dependencyState?.blockers?.[0]?.strictness ? renderLineagePill("strict", item.dependencyState.blockers[0].strictness, item.dependencyState.blockers[0].strictness === "advisory" ? "dependency-advisory" : "dependency-hard") : ""}
+            </div>
+            <p class="dependency-item-reason">${escapeHtml(item.dependencyState?.reason || item.blockedReason || "Ready to run.")}</p>
+            <p class="dependency-item-next">${escapeHtml(item.nextActionHint || item.dependencyState?.nextActionHint || "Open the item for more detail.")}</p>
+          </article>
         `
           )
           .join("")}
       </div>
     `;
+  } else {
+    recentActivitySection = `
+      <div class="detail-section">
+        <h3>Detail Snapshot</h3>
+        ${renderGenericDetailRows(detail)}
+      </div>
+    `;
   }
-  
-  els.selfBuildDetailContent.innerHTML = lineageHTML + statusSection + recentActivitySection;
+
+  els.selfBuildDetailContent.innerHTML = lineageHTML + statusSection + dependencySection + recentActivitySection;
 }
 
-function formatTimestamp(timestamp) {
+function handleSelfBuildClick(event) {
+  const trigger = event.target.closest("[data-open-type][data-open-id]");
+  if (!trigger) return;
+  event.preventDefault();
+  openSelfBuildDetail(trigger.dataset.openType, trigger.dataset.openId);
+}
+
+async function handleDependencyFormSubmit(event) {
+  const form = event.target.closest("[data-dependency-form]");
+  if (!form) return;
+  event.preventDefault();
+
+  const feedback = form.querySelector("[data-dependency-feedback]");
+  const groupId = form.dataset.groupId;
+  const itemId = form.elements.namedItem("itemId")?.value;
+  const dependencyItemId = form.elements.namedItem("dependencyItemId")?.value;
+  const strictness = form.elements.namedItem("strictness")?.value || "hard";
+
+  if (!groupId || !itemId || !dependencyItemId) {
+    if (feedback) feedback.textContent = "Select both items before saving a dependency.";
+    return;
+  }
+  if (itemId === dependencyItemId) {
+    if (feedback) feedback.textContent = "A work item cannot depend on itself.";
+    return;
+  }
+
+  if (feedback) feedback.textContent = "Updating dependency impact...";
+
+  try {
+    const response = await fetch(`/api/orchestrator/work-item-groups/${encodeURIComponent(groupId)}/dependencies`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        replace: false,
+        edges: [
+          {
+            itemId,
+            dependencyItemId,
+            strictness,
+            autoRelaxation:
+              strictness === "advisory"
+                ? {
+                    enabled: true,
+                    reason: "Advisory dependencies stay visible without blocking group progress."
+                  }
+                : false
+          }
+        ]
+      })
+    });
+    const data = await response.json();
+    if (!response.ok || !data.ok || !data.detail) {
+      throw new Error(data.message || data.error || "Failed to update dependencies.");
+    }
+
+    state.selfBuildDependencyImpact = data.impactSummary || null;
+    state.selectedWorkItemGroupId = groupId;
+    await refreshSelfBuildDashboard();
+    renderSelfBuildDetailView("work-item-group", data.detail);
+  } catch (error) {
+    if (feedback) feedback.textContent = error.message;
+  }
+}
+
+function formatDisplayTimestamp(timestamp) {
   if (!timestamp) return "-";
   try {
     const date = new Date(timestamp);
@@ -6731,6 +7207,16 @@ if (els.selfBuildBackButton) {
       els.selfBuildDetailOverlay.style.display = "none";
     }
   });
+}
+
+[els.groupReadinessList, els.urgentWorkQueue, els.followUpQueue, els.selfBuildDetailContent].forEach((element) => {
+  if (element) {
+    element.addEventListener("click", handleSelfBuildClick);
+  }
+});
+
+if (els.selfBuildDetailContent) {
+  els.selfBuildDetailContent.addEventListener("submit", handleDependencyFormSubmit);
 }
 
 // Initialize view (default to run-center)
