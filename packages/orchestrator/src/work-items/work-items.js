@@ -239,10 +239,61 @@ function normalizeWorkItemResult(kind, result) {
   return result ?? {};
 }
 
-async function runWorkflowWorkItem(item, options, dbPath) {
+function shouldAttachWorkspaceToRole(role, roles, metadata = {}) {
+  const explicitRoles = Array.isArray(metadata.mutatingRoles) ? metadata.mutatingRoles.filter(Boolean) : [];
+  if (explicitRoles.length > 0) {
+    return explicitRoles.includes(role);
+  }
+  if (roles?.includes("builder")) {
+    return role === "builder";
+  }
+  if (roles?.includes("lead")) {
+    return role === "lead";
+  }
+  return role === roles?.[0];
+}
+
+function attachWorkspacePolicy(invocation, run, item) {
+  const workspacePath = run.metadata?.workspacePath ?? null;
+  if (!workspacePath) {
+    return invocation;
+  }
+
+  const roles = invocation.launches.map((launch) => launch.role);
+  return {
+    ...invocation,
+    launches: invocation.launches.map((launch) =>
+      shouldAttachWorkspaceToRole(launch.role, roles, item.metadata ?? {})
+        ? {
+            ...launch,
+            policy: {
+              ...(launch.policy ?? {}),
+              runtimePolicy: {
+                ...(launch.policy?.runtimePolicy ?? {}),
+                workspace: {
+                  enabled: true,
+                  workspaceId: run.metadata?.workspaceId ?? null,
+                  worktreePath: workspacePath,
+                  branchName: run.metadata?.workspaceBranch ?? null,
+                  baseRef: item.metadata?.baseRef ?? "HEAD",
+                  safeMode: item.metadata?.safeMode !== false,
+                  mutationScope: Array.isArray(item.metadata?.mutationScope) ? item.metadata.mutationScope : [],
+                  workItemId: item.id,
+                  workItemRunId: run.id,
+                  source: "work-item-run"
+                }
+              }
+            }
+          }
+        : launch
+    )
+  };
+}
+
+async function runWorkflowWorkItem(item, options, run, dbPath) {
   const metadata = item.metadata ?? {};
   const roles = Array.isArray(metadata.roles) ? metadata.roles : null;
-  const invocation = await planWorkflowInvocation({
+  const plannedInvocation = await planWorkflowInvocation({
     workflowPath: metadata.workflowPath ?? metadata.workflow ?? null,
     projectPath: metadata.projectPath ?? "config/projects/spore.yaml",
     domainId: metadata.domainId ?? null,
@@ -254,6 +305,7 @@ async function runWorkflowWorkItem(item, options, dbPath) {
     parentExecutionId: metadata.parentExecutionId ?? null,
     branchKey: metadata.branchKey ?? null
   });
+  const invocation = attachWorkspacePolicy(plannedInvocation, run, item);
   const created = createExecution(invocation, dbPath);
   const wait = options.wait !== false;
   if (!wait) {
@@ -386,7 +438,7 @@ export async function runManagedWorkItem(itemId, options = {}, dbPath = DEFAULT_
         stepHardTimeoutMs: options.stepHardTimeoutMs ?? item.metadata?.stepHardTimeoutMs ?? null
       }, dbPath);
     } else if (item.kind === "workflow") {
-      result = await runWorkflowWorkItem(item, options, dbPath);
+      result = await runWorkflowWorkItem(item, options, run, dbPath);
     } else {
       throw new Error(`unsupported work item kind: ${item.kind}`);
     }

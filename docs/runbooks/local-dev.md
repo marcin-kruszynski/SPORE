@@ -153,6 +153,7 @@ curl http://127.0.0.1:8789/executions/branch-approval-001/events
 curl http://127.0.0.1:8789/executions/branch-review-001/escalations
 curl -N http://127.0.0.1:8789/stream/executions?execution=branch-approval-001
 curl http://127.0.0.1:8789/run-center/summary
+curl http://127.0.0.1:8789/self-build/dashboard
 curl http://127.0.0.1:8789/self-build/summary
 curl http://127.0.0.1:8789/work-item-templates
 curl http://127.0.0.1:8789/work-item-templates/operator-ui-pass
@@ -169,6 +170,7 @@ curl -X POST http://127.0.0.1:8789/work-item-groups/<group-id>/run \
   -d '{"stub":true,"wait":true}'
 curl http://127.0.0.1:8789/workspaces
 curl http://127.0.0.1:8789/work-item-runs/<run-id>/workspace
+curl http://127.0.0.1:8789/executions/<execution-id>/workspaces
 
 curl -X POST http://127.0.0.1:8789/workflows/invoke \
   -H 'content-type: application/json' \
@@ -222,6 +224,7 @@ The TUI provides a dedicated self-build triage view for scanning urgent and foll
 ```bash
 # Terminal-native triage view (default)
 node packages/tui/src/cli/spore-ops.js self-build --api http://127.0.0.1:8789
+node packages/tui/src/cli/spore-ops.js self-build-dashboard --api http://127.0.0.1:8789
 
 # Raw JSON output (use --json flag)
 node packages/tui/src/cli/spore-ops.js self-build --json --api http://127.0.0.1:8789
@@ -232,6 +235,9 @@ node packages/tui/src/cli/spore-ops.js self-build --proposal <proposal-id> --api
 node packages/tui/src/cli/spore-ops.js self-build --group <group-id> --api http://127.0.0.1:8789
 node packages/tui/src/cli/spore-ops.js self-build --run <work-item-run-id> --api http://127.0.0.1:8789
 node packages/tui/src/cli/spore-ops.js self-build --plan <goal-plan-id> --api http://127.0.0.1:8789
+node packages/tui/src/cli/spore-ops.js work-item-queue --api http://127.0.0.1:8789
+node packages/tui/src/cli/spore-ops.js workspace-list --api http://127.0.0.1:8789
+node packages/tui/src/cli/spore-ops.js workspace-show --workspace <workspace-id> --api http://127.0.0.1:8789
 
 # Legacy raw JSON command (still supported)
 node packages/tui/src/cli/spore-ops.js self-build-summary --api http://127.0.0.1:8789
@@ -287,6 +293,7 @@ npm run orchestrator:scenario-trends -- --scenario backend-service-delivery
 npm run orchestrator:run-center
 curl http://127.0.0.1:8789/run-center/summary | jq '.detail | {alerts, recommendations}'
 npm run orchestrator:self-build-summary
+npm run orchestrator:self-build-dashboard
 npm run orchestrator:regression-list
 npm run orchestrator:regression-show -- --regression local-fast
 npm run orchestrator:regression-run -- --regression local-fast --stub
@@ -300,6 +307,10 @@ npm run orchestrator:work-item-template-list
 npm run orchestrator:work-item-template-show -- --template operator-ui-pass
 npm run orchestrator:workspace-list
 npm run orchestrator:workspace-show -- --run <work-item-run-id>
+npm run orchestrator:workspace-reconcile -- --workspace <workspace-id>
+npm run orchestrator:workspace-cleanup -- --workspace <workspace-id> --force
+npm run orchestrator:execution-workspaces -- --execution <execution-id>
+npm run orchestrator:work-item-run-rerun -- --run <work-item-run-id>
 npm run workspace:list
 npm run orchestrator:goal-plan-create -- --goal "Stabilize CLI verification and docs follow-up"
 npm run orchestrator:goal-plan-list
@@ -386,6 +397,9 @@ For dependency-aware self-build verification, also confirm that:
 ## Operational Notes
 
 - Use tmux-backed sessions for inspectable runs.
+- Use `workspace-reconcile` before manual intervention if a worktree looks orphaned, missing, or dirty.
+- Use `workspace-cleanup` only after proposal/governance state says the workspace is disposable, or with `--force` when the operator is making an explicit recovery decision.
+- Use the runtime `launch-context` artifact or `/sessions/:id/live` `launcherMetadata.cwd` when you need proof that a mutating run launched inside its provisioned workspace rather than the canonical repo root.
 - Prefer `session-manager reconcile` for detached-session cleanup.
 - Prefer `services/session-gateway/` as the shared read API for clients instead of reading local state files directly.
 - Prefer orchestrator execution reads and workflow event streams over inferring workflow state from runtime artifacts alone.

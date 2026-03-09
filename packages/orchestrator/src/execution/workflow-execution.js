@@ -1,4 +1,6 @@
 import { spawn } from "node:child_process";
+import crypto from "node:crypto";
+import path from "node:path";
 
 import { getSession, openSessionDatabase } from "../../../session-manager/src/store/session-store.js";
 import { DEFAULT_SESSION_DB_PATH } from "../../../session-manager/src/metadata/constants.js";
@@ -30,6 +32,7 @@ import {
   insertEscalation,
   insertExecutionWithSteps,
   insertReview,
+  insertWorkspaceAllocation,
   insertWorkflowEvent,
   listApprovals,
   listAuditRecords,
@@ -45,11 +48,14 @@ import {
   listReviews,
   listSteps,
   openOrchestratorDatabase,
+  getWorkspaceAllocationByStepId,
   updateEscalation,
   updateExecution,
+  updateWorkspaceAllocation,
   updateStep
 } from "../store/execution-store.js";
 import { writeExecutionBrief } from "./brief.js";
+import { createWorkspace, inspectWorkspace } from "../../../workspace-manager/src/manager.js";
 import { planWorkflowInvocation } from "../invocation/plan-workflow-invocation.js";
 import { comparePolicies } from "./policy-diff.js";
 import {
@@ -116,6 +122,173 @@ function withSessionDatabase(dbPath, fn) {
 function buildRetriedSessionId(execution, step, nextAttempt) {
   const scope = execution.domainId ?? "shared";
   return `${execution.id}-${scope}-${step.role}-${step.sequence + 1}-r${nextAttempt}`;
+}
+
+function nowIso() {
+  return new Date().toISOString();
+}
+
+function createWorkspaceAllocationId(step) {
+  return `workspace-${step.id.replace(/[^a-zA-Z0-9._-]/g, "-")}-${crypto.randomUUID().slice(0, 8)}`;
+}
+
+function getWorkspacePolicy(step, execution) {
+  return getStepPolicy(step)?.runtimePolicy?.workspace
+    ?? getExecutionPolicy(execution)?.runtimePolicy?.workspace
+    ?? null;
+}
+
+function getWorkspaceRepoRoot() {
+  return process.env.SPORE_WORKSPACE_REPO_ROOT
+    ? path.resolve(process.env.SPORE_WORKSPACE_REPO_ROOT)
+    : PROJECT_ROOT;
+}
+
+function getWorkspaceRoot() {
+  return process.env.SPORE_WORKTREE_ROOT
+    ? path.resolve(process.env.SPORE_WORKTREE_ROOT)
+    : null;
+}
+
+async function ensureStepWorkspace(db, execution, step) {
+  const workspacePolicy = getWorkspacePolicy(step, execution);
+  if (!workspacePolicy?.enabled) {
+    return null;
+  }
+
+  const existing = getWorkspaceAllocationByStepId(db, step.id);
+  if (existing) {
+    return existing;
+  }
+
+  const now = nowIso();
+  const repoRoot = workspacePolicy.repoRoot ? path.resolve(workspacePolicy.repoRoot) : getWorkspaceRepoRoot();
+  const worktreeRoot = workspacePolicy.worktreeRoot ? path.resolve(workspacePolicy.worktreeRoot) : getWorkspaceRoot();
+  const mutationScope = Array.isArray(workspacePolicy.mutationScope) ? workspacePolicy.mutationScope : [];
+
+  if (workspacePolicy.worktreePath) {
+    const allocation = {
+      id: workspacePolicy.workspaceId ?? createWorkspaceAllocationId(step),
+      projectId: execution.projectId,
+      ownerType: "execution-step",
+      ownerId: step.id,
+      executionId: execution.id,
+      stepId: step.id,
+      workItemId: workspacePolicy.workItemId ?? null,
+      workItemRunId: workspacePolicy.workItemRunId ?? null,
+      proposalArtifactId: workspacePolicy.proposalArtifactId ?? null,
+      worktreePath: path.resolve(workspacePolicy.worktreePath),
+      branchName: workspacePolicy.branchName ?? null,
+      baseRef: workspacePolicy.baseRef ?? "HEAD",
+      integrationBranch: workspacePolicy.integrationBranch ?? null,
+      mode: "git-worktree",
+      safeMode: workspacePolicy.safeMode !== false,
+      mutationScope,
+      status: "provisioned",
+      metadata: {
+        repoRoot,
+        source: workspacePolicy.source ?? "workflow-step",
+        reusedWorkspace: true,
+        linkedWorkspaceId: workspacePolicy.workspaceId ?? null
+      },
+      createdAt: now,
+      updatedAt: now,
+      cleanedAt: null
+    };
+    insertWorkspaceAllocation(db, allocation);
+    return allocation;
+  }
+
+  const pending = {
+    id: workspacePolicy.workspaceId ?? createWorkspaceAllocationId(step),
+    projectId: execution.projectId,
+    ownerType: "execution-step",
+    ownerId: step.id,
+    executionId: execution.id,
+    stepId: step.id,
+    workItemId: workspacePolicy.workItemId ?? null,
+    workItemRunId: workspacePolicy.workItemRunId ?? null,
+    proposalArtifactId: workspacePolicy.proposalArtifactId ?? null,
+    worktreePath: path.join(repoRoot, ".spore", "worktrees", execution.projectId ?? "spore", `${step.id}-pending`),
+    branchName: workspacePolicy.branchName ?? `pending/${step.id}`,
+    baseRef: workspacePolicy.baseRef ?? "HEAD",
+    integrationBranch: workspacePolicy.integrationBranch ?? null,
+    mode: "git-worktree",
+    safeMode: workspacePolicy.safeMode !== false,
+    mutationScope,
+    status: "provisioning",
+    metadata: {
+      repoRoot,
+      source: workspacePolicy.source ?? "workflow-step"
+    },
+    createdAt: now,
+    updatedAt: now,
+    cleanedAt: null
+  };
+  insertWorkspaceAllocation(db, pending);
+
+  try {
+    const created = await createWorkspace({
+      repoRoot,
+      workspaceId: pending.id,
+      projectId: pending.projectId,
+      ownerType: pending.ownerType,
+      ownerId: pending.ownerId,
+      baseRef: pending.baseRef,
+      worktreeRoot,
+      safeMode: pending.safeMode,
+      mutationScope
+    });
+    const inspected = await inspectWorkspace({
+      repoRoot,
+      worktreePath: created.worktreePath,
+      branchName: created.branchName
+    });
+    const updated = {
+      ...pending,
+      worktreePath: created.worktreePath,
+      branchName: created.branchName,
+      status: inspected.clean ? "provisioned" : "active",
+      metadata: {
+        ...pending.metadata,
+        inspection: inspected
+      },
+      updatedAt: nowIso()
+    };
+    updateWorkspaceAllocation(db, updated);
+    return updated;
+  } catch (error) {
+    const failed = {
+      ...pending,
+      status: "failed",
+      metadata: {
+        ...pending.metadata,
+        error: error.message
+      },
+      updatedAt: nowIso()
+    };
+    updateWorkspaceAllocation(db, failed);
+    throw error;
+  }
+}
+
+function settleStepWorkspace(db, step, nextStatus, metadata = {}) {
+  const workspace = getWorkspaceAllocationByStepId(db, step.id);
+  if (!workspace) {
+    return null;
+  }
+  const updated = {
+    ...workspace,
+    status: nextStatus,
+    updatedAt: nowIso(),
+    metadata: {
+      ...workspace.metadata,
+      ...metadata,
+      settledAt: metadata.settledAt ?? nowIso()
+    }
+  };
+  updateWorkspaceAllocation(db, updated);
+  return updated;
 }
 
 function emitWorkflowEvent(db, { executionId, stepId = null, sessionId = null, type, payload = {} }) {
@@ -1738,9 +1911,16 @@ function assertNoActiveStep(steps, executionId, action) {
 
 async function launchStep(execution, step, options = {}) {
   const briefPath = await writeExecutionBrief(execution, step);
-  const previousStep = step.sequence > 0
-    ? withOrchestratorDatabase(options.dbPath ?? DEFAULT_ORCHESTRATOR_DB_PATH, (db) => listSteps(db, execution.id)[step.sequence - 1] ?? null)
-    : null;
+  const dbPath = options.dbPath ?? DEFAULT_ORCHESTRATOR_DB_PATH;
+  const db = openOrchestratorDatabase(dbPath);
+  let workspace = null;
+  let previousStep = null;
+  try {
+    previousStep = step.sequence > 0 ? listSteps(db, execution.id)[step.sequence - 1] ?? null : null;
+    workspace = await ensureStepWorkspace(db, execution, step);
+  } finally {
+    db.close();
+  }
   const parentSessionId = previousStep?.sessionId ?? null;
 
   const args = [
@@ -1779,6 +1959,16 @@ async function launchStep(execution, step, options = {}) {
   if (parentSessionId) {
     args.push("--parent", parentSessionId);
   }
+  if (workspace?.worktreePath) {
+    args.push("--cwd", workspace.worktreePath);
+    args.push("--workspace-id", workspace.id);
+    if (workspace.branchName) {
+      args.push("--workspace-branch", workspace.branchName);
+    }
+    if (workspace.baseRef) {
+      args.push("--workspace-base-ref", workspace.baseRef);
+    }
+  }
   if (options.noMonitor) {
     args.push("--no-monitor");
   }
@@ -1791,14 +1981,27 @@ async function launchStep(execution, step, options = {}) {
 
   const runtime = await runCli("node", args);
 
-  return withOrchestratorDatabase(options.dbPath ?? DEFAULT_ORCHESTRATOR_DB_PATH, (db) => {
+  return withOrchestratorDatabase(dbPath, (db) => {
     const currentExecution = getExecution(db, execution.id);
     const currentStep = getStep(db, step.id);
+    const currentWorkspace = getWorkspaceAllocationByStepId(db, step.id);
     const updatedStep = transitionStepRecord(currentStep, "active", {
       parentSessionId,
       launchedAt: new Date().toISOString()
     });
     updateStep(db, updatedStep);
+    if (currentWorkspace) {
+      updateWorkspaceAllocation(db, {
+        ...currentWorkspace,
+        status: "active",
+        updatedAt: nowIso(),
+        metadata: {
+          ...currentWorkspace.metadata,
+          sessionId: updatedStep.sessionId,
+          lastLaunchedAt: nowIso()
+        }
+      });
+    }
     const updatedExecution = transitionExecutionRecord(currentExecution, "running", {
       currentStepIndex: currentStep.sequence,
       startedAt: currentExecution.startedAt ?? new Date().toISOString()
@@ -1818,6 +2021,8 @@ async function launchStep(execution, step, options = {}) {
         attemptCount: updatedStep.attemptCount,
         maxAttempts: updatedStep.maxAttempts,
         parentSessionId,
+        workspaceId: currentWorkspace?.id ?? null,
+        worktreePath: currentWorkspace?.worktreePath ?? null,
         briefPath,
         policy: updatedStep.policy ?? {}
       }
@@ -2123,6 +2328,10 @@ export async function reconcileExecution(executionId, options = {}) {
             }
 
             updateStep(db, settledStep);
+            settleStepWorkspace(db, settledStep, settledStep.state === "failed" ? "failed" : "settled", {
+              finalState: settledStep.state,
+              sessionId: settledStep.sessionId
+            });
             const currentSteps = listSteps(db, executionId);
             const wavePolicy = getWavePolicy(currentSteps, getStepWave(activeStep));
             const failureAction = wavePolicy.onFailure ?? "fail_execution";
@@ -2197,6 +2406,15 @@ export async function reconcileExecution(executionId, options = {}) {
           }
 
           updateStep(db, settledStep);
+          settleStepWorkspace(
+            db,
+            settledStep,
+            settledStep.state === "review_pending" ? "settled" : "settled",
+            {
+              finalState: settledStep.state,
+              sessionId: settledStep.sessionId
+            }
+          );
           if (settledStep.state === "review_pending") {
             emitWorkflowEvent(db, {
               executionId,
@@ -2460,6 +2678,10 @@ export async function recordReviewDecision(executionId, payload, dbPath = DEFAUL
         approvalStatus: reviewStep.approvalRequired ? "pending" : null
       });
       updateStep(db, updatedStep);
+      settleStepWorkspace(db, updatedStep, "settled", {
+        finalState: updatedStep.state,
+        sessionId: updatedStep.sessionId
+      });
       const nextExecutionState = reviewStep.approvalRequired ? "waiting_approval" : "running";
       const updatedExecution = transitionExecutionRecord(execution, nextExecutionState, {
         reviewStatus: payload.status,
@@ -2486,6 +2708,10 @@ export async function recordReviewDecision(executionId, payload, dbPath = DEFAUL
         approvalStatus: null
       });
       updateStep(db, updatedStep);
+      settleStepWorkspace(db, updatedStep, "failed", {
+        finalState: updatedStep.state,
+        sessionId: updatedStep.sessionId
+      });
       const updatedExecution = transitionExecutionRecord(execution, "running", {
         currentStepIndex: retryTarget.sequence,
         reviewStatus: payload.status,
@@ -2558,6 +2784,10 @@ export async function recordReviewDecision(executionId, payload, dbPath = DEFAUL
       approvalStatus: null
     });
     updateStep(db, updatedStep);
+    settleStepWorkspace(db, updatedStep, "failed", {
+      finalState: updatedStep.state,
+      sessionId: updatedStep.sessionId
+    });
     const updatedExecution = transitionExecutionRecord(execution, "rejected", {
       reviewStatus: payload.status,
       approvalStatus: execution.approvalStatus
@@ -2640,6 +2870,10 @@ export async function recordApprovalDecision(executionId, payload, dbPath = DEFA
         approvalStatus: payload.status
       });
       updateStep(db, updatedStep);
+      settleStepWorkspace(db, updatedStep, "settled", {
+        finalState: updatedStep.state,
+        sessionId: updatedStep.sessionId
+      });
 
       const remainingPlanned = steps.some((step) => step.state === "planned");
       const nextExecution = transitionExecutionRecord(execution, remainingPlanned ? "running" : "completed", {
@@ -2666,6 +2900,10 @@ export async function recordApprovalDecision(executionId, payload, dbPath = DEFA
         approvalStatus: payload.status
       });
       updateStep(db, updatedStep);
+      settleStepWorkspace(db, updatedStep, "failed", {
+        finalState: updatedStep.state,
+        sessionId: updatedStep.sessionId
+      });
       const updatedExecution = transitionExecutionRecord(execution, "running", {
         currentStepIndex: retryTarget.sequence,
         approvalStatus: payload.status
@@ -2735,6 +2973,10 @@ export async function recordApprovalDecision(executionId, payload, dbPath = DEFA
       approvalStatus: payload.status
     });
     updateStep(db, updatedStep);
+    settleStepWorkspace(db, updatedStep, "failed", {
+      finalState: updatedStep.state,
+      sessionId: updatedStep.sessionId
+    });
     const nextExecution = transitionExecutionRecord(execution, "rejected", {
       approvalStatus: payload.status,
       currentStepIndex: approvalStep.sequence

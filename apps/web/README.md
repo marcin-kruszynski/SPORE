@@ -88,12 +88,13 @@ This app now provides the first minimal browser-based operator surface for SPORE
   - suggested action rendering from additive `suggestedActions`/`latestSuggestedActions` payloads
   - execution-history row selection with in-panel drilldowns to execution/session/audit/escalation/scenario-run references when payload fields are present
 - keeps the browser proxy aligned with new self-build/work-item orchestrator surfaces so thin-client drilldowns can rely on HTTP contracts instead of local file reads:
+  - `GET /self-build/dashboard`
   - `GET /self-build/summary`
   - `GET /work-item-templates` and `GET /work-item-templates/:id`
   - `GET /goal-plans`, `POST /goals/plan`, `GET /goal-plans/:id`, `POST /goal-plans/:id/materialize`
   - `GET /work-item-groups`, `GET /work-item-groups/:id`, `POST /work-item-groups/:id/run`
   - `GET /work-items`, `GET /work-items/:id`, `GET /work-items/:id/runs`, `POST /work-items/:id/run`
-  - `GET /work-item-runs/:runId`, `GET /work-item-runs/:runId/proposal`, `POST /work-item-runs/:runId/validate`, `GET /work-item-runs/:runId/doc-suggestions`
+  - `GET /work-item-runs/:runId`, `POST /work-item-runs/:runId/rerun`, `GET /work-item-runs/:runId/proposal`, `POST /work-item-runs/:runId/validate`, `GET /work-item-runs/:runId/doc-suggestions`
   - `GET /proposal-artifacts/:id`, `POST /proposal-artifacts/:id/review`, `POST /proposal-artifacts/:id/approval`
 - enriches session detail with Session Live v2 diagnostics from `GET /sessions/:id/live`, including:
   - operator urgency
@@ -108,6 +109,13 @@ This app now provides the first minimal browser-based operator surface for SPORE
 - follows execution activity through the orchestrator SSE stream in addition to the session SSE stream
 - exposes escalation resolution controls, including resume of the affected execution path
 - keeps existing session/operator tabs and controls unchanged
+- now renders a dedicated self-build dashboard with:
+  - status/group/template/domain filters
+  - attention summary cards
+  - urgent and follow-up self-build queues
+  - recent work-item run history with rerun affordances
+  - workspace health drilldowns
+  - execution-level workspace summaries for mutating workflow runs
 
 ## Run
 

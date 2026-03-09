@@ -60,9 +60,14 @@ import {
   getGoalPlanSummary,
   getProposalByRun,
   getProposalSummary,
+  getSelfBuildDashboard,
   getSelfBuildSummary,
   getSelfBuildWorkItem,
   getSelfBuildWorkItemRun,
+  listExecutionWorkspaces,
+  cleanupManagedWorkspace,
+  getWorkspaceDetail,
+  getWorkspaceDetailByRun,
   getWorkspaceByRun,
   getWorkspaceSummary,
   getWorkItemGroupSummary,
@@ -75,7 +80,9 @@ import {
   listWorkItemGroupsSummary,
   listWorkItemTemplates,
   materializeGoalPlan,
+  reconcileManagedWorkspace,
   reviewProposalArtifact,
+  rerunSelfBuildWorkItemRun,
   runSelfBuildWorkItem,
   runWorkItemGroup,
   validateWorkItemRun
@@ -383,6 +390,15 @@ async function main() {
     return;
   }
 
+  if (command === "execution-workspaces") {
+    if (!flags.execution) {
+      throw new Error("use execution-workspaces --execution <id>");
+    }
+    const payload = listExecutionWorkspaces(flags.execution);
+    printPayload(payload, flags);
+    return;
+  }
+
   if (command === "scenario-list") {
     const scenarios = await listScenarioCatalog();
     console.log(JSON.stringify({ ok: true, scenarios }, null, 2));
@@ -597,6 +613,17 @@ async function main() {
 
   if (command === "self-build-summary") {
     const detail = getSelfBuildSummary();
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
+  if (command === "self-build-dashboard") {
+    const detail = getSelfBuildDashboard({
+      status: flags.status ?? null,
+      group: flags.group ?? null,
+      template: flags.template ?? null,
+      domain: flags.domain ?? null
+    });
     console.log(JSON.stringify({ ok: true, detail }, null, 2));
     return;
   }
@@ -894,6 +921,31 @@ async function main() {
     return;
   }
 
+  if (command === "work-item-run-rerun") {
+    if (!flags.run) {
+      throw new Error("use work-item-run-rerun --run <id>");
+    }
+    const detail = await rerunSelfBuildWorkItemRun(flags.run, {
+      project: flags.project ?? null,
+      wait: flags.wait !== false,
+      timeout: flags.timeout ?? "180000",
+      interval: flags.interval ?? "1500",
+      noMonitor: flags["no-monitor"] === true,
+      stub: flags.stub === true,
+      launcher: flags.launcher ?? null,
+      by: flags.by ?? "operator",
+      source: flags.source ?? "cli",
+      reason: flags.reason ?? "",
+      stepSoftTimeoutMs: flags["step-soft-timeout"] ?? null,
+      stepHardTimeoutMs: flags["step-hard-timeout"] ?? null
+    });
+    if (!detail) {
+      throw new Error(`work item run not found: ${flags.run}`);
+    }
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
   if (command === "work-item-validate") {
     if (!flags.run) {
       throw new Error("use work-item-validate --run <id>");
@@ -953,11 +1005,43 @@ async function main() {
     if (!flags.workspace && !flags.run) {
       throw new Error("use workspace-show --workspace <id> or --run <work-item-run-id>");
     }
-    const detail = flags.workspace ? getWorkspaceSummary(flags.workspace) : getWorkspaceByRun(flags.run);
+    const detail = flags.workspace ? await getWorkspaceDetail(flags.workspace) : await getWorkspaceDetailByRun(flags.run);
     if (!detail) {
       throw new Error(`workspace not found: ${flags.workspace ?? flags.run}`);
     }
     console.log(JSON.stringify(detail, null, 2));
+    return;
+  }
+
+  if (command === "workspace-reconcile") {
+    if (!flags.workspace) {
+      throw new Error("use workspace-reconcile --workspace <id>");
+    }
+    const detail = await reconcileManagedWorkspace(flags.workspace, {
+      by: flags.by ?? "operator",
+      source: flags.source ?? "cli"
+    });
+    if (!detail) {
+      throw new Error(`workspace not found: ${flags.workspace}`);
+    }
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
+  if (command === "workspace-cleanup") {
+    if (!flags.workspace) {
+      throw new Error("use workspace-cleanup --workspace <id> [--force] [--keep-branch]");
+    }
+    const detail = await cleanupManagedWorkspace(flags.workspace, {
+      by: flags.by ?? "operator",
+      source: flags.source ?? "cli",
+      force: flags.force === true,
+      keepBranch: flags["keep-branch"] === true
+    });
+    if (!detail) {
+      throw new Error(`workspace not found: ${flags.workspace}`);
+    }
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
     return;
   }
 

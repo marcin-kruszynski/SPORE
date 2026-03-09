@@ -30,6 +30,9 @@
 - `docs/plans/backlog.md`
 - `docs/plans/bootstrap-completion-summary.md`
 - `docs/plans/self-build-status-and-next-steps.md`
+- `docs/plans/builder-tester-verification-workspaces.md`
+- `docs/plans/long-range-self-build-roadmap.md`
+- `docs/plans/project-coordinator-role-plan.md`
 - `docs/roadmap/IMPLEMENTATION_ROADMAP.md`
 - `docs/operations/WORKSPACE_OPERATING_MODEL.md`
 - `docs/operations/BOOTSTRAP_STATUS.md`
@@ -40,8 +43,10 @@
 
 ### Decisions
 - `docs/decisions/ADR-0001-project-scope.md`
-- `docs/decisions/ADR-0002-runtime-pi-first.md`
 - `docs/decisions/ADR-0001-repo-foundation.md`
+- `docs/decisions/ADR-0002-runtime-pi-first.md`
+- `docs/decisions/ADR-0003-documentation-governance.md`
+- `docs/decisions/ADR-0004-docs-adr-pass-process.md`
 - `docs/decisions/adr-template.md`
 
 ### Specs
@@ -84,6 +89,7 @@
 ## What Is Planned
 
 - Phase-driven execution in `docs/roadmap/IMPLEMENTATION_ROADMAP.md`.
+- Long-range supervised self-build execution in `docs/plans/long-range-self-build-roadmap.md`.
 - Knowledge retrieval foundation from `tools/docsearch/` and `packages/docs-kb/`.
 - PI-first runtime adapter strategy from `docs/architecture/PI_INTEGRATION_STRATEGY.md`.
 - Gateway-backed clients and richer runtime control paths.

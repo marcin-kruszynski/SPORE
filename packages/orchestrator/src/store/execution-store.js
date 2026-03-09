@@ -2245,6 +2245,38 @@ export function getWorkspaceAllocationByRunId(db, workItemRunId) {
   return mapWorkspaceAllocation(record);
 }
 
+export function getWorkspaceAllocationByStepId(db, stepId) {
+  const record = db.prepare(`
+    SELECT
+      id,
+      project_id AS projectId,
+      owner_type AS ownerType,
+      owner_id AS ownerId,
+      execution_id AS executionId,
+      step_id AS stepId,
+      work_item_id AS workItemId,
+      work_item_run_id AS workItemRunId,
+      proposal_artifact_id AS proposalArtifactId,
+      worktree_path AS worktreePath,
+      branch_name AS branchName,
+      base_ref AS baseRef,
+      integration_branch AS integrationBranch,
+      mode,
+      safe_mode AS safeMode,
+      mutation_scope_json AS mutationScopeJson,
+      status,
+      metadata_json AS metadataJson,
+      created_at AS createdAt,
+      updated_at AS updatedAt,
+      cleaned_at AS cleanedAt
+    FROM workspace_allocations
+    WHERE step_id = ?
+    ORDER BY updated_at DESC
+    LIMIT 1
+  `).get(stepId);
+  return mapWorkspaceAllocation(record);
+}
+
 export function listWorkspaceAllocations(db, options = {}) {
   const clauses = [];
   const params = [];
@@ -2267,6 +2299,10 @@ export function listWorkspaceAllocations(db, options = {}) {
   if (options.executionId) {
     clauses.push("execution_id = ?");
     params.push(options.executionId);
+  }
+  if (options.stepId) {
+    clauses.push("step_id = ?");
+    params.push(options.stepId);
   }
   const limit = Number.parseInt(String(options.limit ?? "50"), 10) || 50;
   const sql = `

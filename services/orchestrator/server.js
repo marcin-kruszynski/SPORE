@@ -20,15 +20,18 @@ import {
   approveProposalArtifact,
   createGoalPlan,
   createManagedWorkItem,
+  cleanupManagedWorkspace,
   getDocSuggestionsForRun,
   getGoalPlanSummary,
   getProposalByRun,
   getProposalSummary,
+  getSelfBuildDashboard,
   getSelfBuildSummary,
   getSelfBuildWorkItem,
   getSelfBuildWorkItemRun,
-  getWorkspaceByRun,
-  getWorkspaceSummary,
+  listExecutionWorkspaces,
+  getWorkspaceDetail,
+  getWorkspaceDetailByRun,
   getWorkItemGroupSummary,
   setWorkItemGroupDependencies,
   getWorkItemTemplate,
@@ -39,7 +42,9 @@ import {
   listWorkItemGroupsSummary,
   listWorkItemTemplates,
   materializeGoalPlan,
+  reconcileManagedWorkspace,
   reviewProposalArtifact,
+  rerunSelfBuildWorkItemRun,
   runSelfBuildWorkItem,
   runWorkItemGroup,
   validateWorkItemRun
@@ -253,6 +258,19 @@ const server = http.createServer(async (request, response) => {
       json(response, 200, {
         ok: true,
         detail: getSelfBuildSummary()
+      });
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/self-build/dashboard") {
+      json(response, 200, {
+        ok: true,
+        detail: getSelfBuildDashboard({
+          status: url.searchParams.get("status")?.trim() || null,
+          group: url.searchParams.get("group")?.trim() || null,
+          template: url.searchParams.get("template")?.trim() || null,
+          domain: url.searchParams.get("domain")?.trim() || null
+        })
       });
       return;
     }
@@ -748,13 +766,26 @@ const server = http.createServer(async (request, response) => {
     }
 
     if (request.method === "GET" && parts.length === 3 && parts[0] === "work-items" && parts[2] === "runs") {
+      const item = getSelfBuildWorkItem(parts[1]);
+      if (!item) {
+        json(response, 404, { ok: false, error: "not_found", message: `work item not found: ${parts[1]}` });
+        return;
+      }
+      const runs = listSelfBuildWorkItemRuns(parts[1], {
+        limit: url.searchParams.get("limit")?.trim() || "20"
+      });
+      const runCountsByStatus = runs.reduce((accumulator, run) => {
+        accumulator[run.status] = (accumulator[run.status] ?? 0) + 1;
+        return accumulator;
+      }, {});
       json(response, 200, {
         ok: true,
         detail: {
-          item: getSelfBuildWorkItem(parts[1]),
-          runs: listSelfBuildWorkItemRuns(parts[1], {
-            limit: url.searchParams.get("limit")?.trim() || "20"
-          })
+          item,
+          latestRun: runs[0] ?? null,
+          runCountsByStatus,
+          trend: item.runHistory?.trend ?? null,
+          runs
         }
       });
       return;
@@ -781,8 +812,19 @@ const server = http.createServer(async (request, response) => {
       return;
     }
 
+    if (request.method === "POST" && parts.length === 3 && parts[0] === "work-item-runs" && parts[2] === "rerun") {
+      const body = await readJsonBody(request);
+      const detail = await rerunSelfBuildWorkItemRun(parts[1], body);
+      if (!detail) {
+        json(response, 404, { ok: false, error: "not_found", message: `work item run not found: ${parts[1]}` });
+        return;
+      }
+      json(response, 200, { ok: true, detail });
+      return;
+    }
+
     if (request.method === "GET" && parts.length === 3 && parts[0] === "work-item-runs" && parts[2] === "workspace") {
-      const detail = getWorkspaceByRun(parts[1]);
+      const detail = await getWorkspaceDetailByRun(parts[1]);
       if (!detail) {
         json(response, 404, { ok: false, error: "not_found", message: `workspace not found for work item run: ${parts[1]}` });
         return;
@@ -869,12 +911,58 @@ const server = http.createServer(async (request, response) => {
     }
 
     if (request.method === "GET" && parts.length === 2 && parts[0] === "workspaces") {
-      const detail = getWorkspaceSummary(parts[1]);
+      const detail = await getWorkspaceDetail(parts[1]);
       if (!detail) {
         json(response, 404, { ok: false, error: "not_found", message: `workspace not found: ${parts[1]}` });
         return;
       }
       json(response, 200, { ok: true, detail });
+      return;
+    }
+
+    if (request.method === "POST" && parts.length === 3 && parts[0] === "workspaces" && parts[2] === "reconcile") {
+      const body = await readJsonBody(request);
+      const detail = await reconcileManagedWorkspace(parts[1], {
+        by: body.by ?? "operator",
+        source: body.source ?? "http"
+      });
+      if (!detail) {
+        json(response, 404, { ok: false, error: "not_found", message: `workspace not found: ${parts[1]}` });
+        return;
+      }
+      json(response, 200, { ok: true, detail });
+      return;
+    }
+
+    if (request.method === "POST" && parts.length === 3 && parts[0] === "workspaces" && parts[2] === "cleanup") {
+      const body = await readJsonBody(request);
+      try {
+        const detail = await cleanupManagedWorkspace(parts[1], {
+          by: body.by ?? "operator",
+          source: body.source ?? "http",
+          force: body.force === true,
+          keepBranch: body.keepBranch === true
+        });
+        if (!detail) {
+          json(response, 404, { ok: false, error: "not_found", message: `workspace not found: ${parts[1]}` });
+          return;
+        }
+        json(response, 200, { ok: true, detail });
+      } catch (error) {
+        if (error.code === "cleanup_blocked") {
+          json(response, 409, { ok: false, error: error.code, message: error.message });
+          return;
+        }
+        throw error;
+      }
+      return;
+    }
+
+    if (request.method === "GET" && parts.length === 3 && parts[0] === "executions" && parts[2] === "workspaces") {
+      json(response, 200, {
+        ok: true,
+        detail: listExecutionWorkspaces(parts[1])
+      });
       return;
     }
 

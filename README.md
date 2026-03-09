@@ -933,6 +933,7 @@ npm run orchestrator:scenario-rerun -- --run <run-id>
 npm run orchestrator:scenario-trends -- --scenario backend-service-delivery
 npm run orchestrator:run-center
 npm run orchestrator:self-build-summary
+npm run orchestrator:self-build-dashboard
 npm run orchestrator:regression-list
 npm run orchestrator:regression-show -- --regression local-fast
 npm run orchestrator:regression-run -- --regression local-fast --stub
@@ -956,7 +957,11 @@ npm run orchestrator:work-item-show -- --item <work-item-id>
 npm run orchestrator:work-item-runs -- --item <work-item-id>
 npm run orchestrator:work-item-run -- --item <work-item-id> --stub
 npm run orchestrator:work-item-run-show -- --run <work-item-run-id>
+npm run orchestrator:work-item-run-rerun -- --run <work-item-run-id>
 npm run orchestrator:workspace-show -- --run <work-item-run-id>
+npm run orchestrator:workspace-reconcile -- --workspace <workspace-id>
+npm run orchestrator:workspace-cleanup -- --workspace <workspace-id> --force
+npm run orchestrator:execution-workspaces -- --execution <execution-id>
 npm run orchestrator:work-item-validate -- --run <work-item-run-id> --stub
 npm run orchestrator:work-item-doc-suggestions -- --run <work-item-run-id>
 npm run orchestrator:proposal-show -- --run <work-item-run-id>
@@ -971,6 +976,7 @@ npm run orchestrator:proposal-approve -- --proposal <proposal-id> --status appro
 |---|---|---|
 | `GET` | `/executions/:id/history` | Combined ordered execution history with governance, audit, waves, and policy diff |
 | `GET` | `/run-center/summary` | Aggregate operator summary for scenarios, regressions, and recent runs |
+| `GET` | `/self-build/dashboard` | Dedicated self-build dashboard aggregate with queue, attention, recent runs, and workspace health |
 | `GET` | `/self-build/summary` | Aggregate self-build state across plans, groups, work items, runs, and proposals |
 | `GET` | `/scenarios` | Scenario catalog with latest run summary |
 | `GET` | `/scenarios/:id` | One scenario definition with latest run |
@@ -997,6 +1003,7 @@ npm run orchestrator:proposal-approve -- --proposal <proposal-id> --status appro
 | `POST` | `/work-items` | Create one managed work item |
 | `POST` | `/work-items/:id/run` | Execute one managed work item through scenario, regression, or workflow paths |
 | `GET` | `/work-item-runs/:runId` | One durable work-item run result |
+| `POST` | `/work-item-runs/:runId/rerun` | Rerun one prior work-item run with durable lineage back to the original run |
 | `GET` | `/work-item-runs/:runId/workspace` | Workspace allocation linked to one work-item run |
 | `GET` | `/work-item-runs/:runId/proposal` | Proposal artifact summary linked to one work-item run |
 | `POST` | `/work-item-runs/:runId/validate` | Validation pass over one work-item run with durable evaluation output |
@@ -1015,7 +1022,10 @@ npm run orchestrator:proposal-approve -- --proposal <proposal-id> --status appro
 | `POST` | `/proposal-artifacts/:id/approval` | Approval transition for one proposal artifact |
 | `GET` | `/workspaces` | Durable workspace allocation list for mutating self-work |
 | `GET` | `/workspaces/:id` | One workspace allocation with worktree metadata |
-| `GET` | `/sessions/:id/live` | Combined live session metadata, events, artifacts, control history, diagnostics, and operator suggestions |
+| `POST` | `/workspaces/:id/reconcile` | Compare allocation state with `git worktree list` and on-disk reality |
+| `POST` | `/workspaces/:id/cleanup` | Apply governance-aware workspace cleanup with optional force and branch retention |
+| `GET` | `/executions/:id/workspaces` | Workspace allocations linked to one workflow execution |
+| `GET` | `/sessions/:id/live` | Combined live session metadata, events, artifacts, workspace linkage, control history, diagnostics, and operator suggestions |
 | `GET` | `/sessions/:id/control-history` | Durable control request history for one session |
 | `GET` | `/sessions/:id/control-status/:requestId` | One durable control request with ack/result status |
 

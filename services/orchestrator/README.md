@@ -24,6 +24,7 @@ Workflow templates may also define `stepSets`, which the service exposes back th
 - `GET /executions/:id/events`
 - `GET /executions/:id/escalations`
 - `GET /run-center/summary`
+- `GET /self-build/dashboard`
 - `GET /self-build/summary`
 - `GET /scenarios/:id/trends`
 - `GET /scenario-runs/:runId`
@@ -46,6 +47,7 @@ Workflow templates may also define `stepSets`, which the service exposes back th
 - `GET /work-items/:id`
 - `GET /work-items/:id/runs`
 - `GET /work-item-runs/:runId`
+- `POST /work-item-runs/:runId/rerun`
 - `GET /work-item-runs/:runId/workspace`
 - `GET /work-item-runs/:runId/proposal`
 - `POST /work-item-runs/:runId/validate`
@@ -55,6 +57,9 @@ Workflow templates may also define `stepSets`, which the service exposes back th
 - `POST /proposal-artifacts/:id/approval`
 - `GET /workspaces`
 - `GET /workspaces/:id`
+- `POST /workspaces/:id/reconcile`
+- `POST /workspaces/:id/cleanup`
+- `GET /executions/:id/workspaces`
 - `GET /stream/executions?execution=:id`
 - `POST /workflows/plan`
 - `POST /workflows/invoke`
@@ -114,6 +119,7 @@ curl http://127.0.0.1:8789/executions/branch-review-001/escalations
 curl -N http://127.0.0.1:8789/stream/executions?execution=branch-approval-001
 
 curl http://127.0.0.1:8789/run-center/summary
+curl http://127.0.0.1:8789/self-build/dashboard
 curl http://127.0.0.1:8789/self-build/summary
 curl http://127.0.0.1:8789/work-item-templates
 curl http://127.0.0.1:8789/work-item-templates/operator-ui-pass
@@ -143,9 +149,16 @@ curl -X POST http://127.0.0.1:8789/work-items/<id>/run \
   -H 'content-type: application/json' \
   -d '{"stub":true,"wait":true}'
 
+curl -X POST http://127.0.0.1:8789/work-item-runs/<run-id>/rerun \
+  -H 'content-type: application/json' \
+  -d '{"by":"operator","source":"curl"}'
+
 curl http://127.0.0.1:8789/work-item-runs/<run-id>/workspace
 
 curl http://127.0.0.1:8789/workspaces
+curl -X POST http://127.0.0.1:8789/workspaces/<workspace-id>/reconcile
+curl -X POST http://127.0.0.1:8789/workspaces/<workspace-id>/cleanup -H 'content-type: application/json' -d '{"force":true}'
+curl http://127.0.0.1:8789/executions/<execution-id>/workspaces
 
 curl -X POST http://127.0.0.1:8789/work-item-runs/<run-id>/validate \
   -H 'content-type: application/json' \

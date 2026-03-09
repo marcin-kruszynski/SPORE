@@ -16,6 +16,8 @@ node packages/tui/src/cli/spore-ops.js policy-diff --execution e2e-review-001
 node packages/tui/src/cli/spore-ops.js history --execution e2e-review-001
 node packages/tui/src/cli/spore-ops.js run-center
 node packages/tui/src/cli/spore-ops.js self-build-summary
+node packages/tui/src/cli/spore-ops.js self-build-dashboard
+node packages/tui/src/cli/spore-ops.js work-item-queue
 node packages/tui/src/cli/spore-ops.js scenario-list
 node packages/tui/src/cli/spore-ops.js scenario-run --scenario cli-verification-pass
 node packages/tui/src/cli/spore-ops.js scenario-run-show --run <run-id>
@@ -44,6 +46,9 @@ node packages/tui/src/cli/spore-ops.js work-item-show --item <work-item-id>
 node packages/tui/src/cli/spore-ops.js work-item-runs --item <work-item-id>
 node packages/tui/src/cli/spore-ops.js work-item-run --item <work-item-id> --stub
 node packages/tui/src/cli/spore-ops.js work-item-run-show --run <work-item-run-id>
+node packages/tui/src/cli/spore-ops.js work-item-run-rerun --run <work-item-run-id>
+node packages/tui/src/cli/spore-ops.js workspace-list
+node packages/tui/src/cli/spore-ops.js workspace-show --workspace <workspace-id>
 node packages/tui/src/cli/spore-ops.js work-item-validate --run <work-item-run-id> --stub
 node packages/tui/src/cli/spore-ops.js work-item-doc-suggestions --run <work-item-run-id>
 node packages/tui/src/cli/spore-ops.js proposal-show --run <work-item-run-id>
@@ -70,8 +75,10 @@ The TUI/CLI operator surface now provides:
 - scenario and regression rerun and trend inspection over orchestrator HTTP surfaces,
 - scenario and regression launch actions over orchestrator HTTP surfaces,
 - self-build summary inspection for plan/group/work-item/proposal progress snapshots,
+- dedicated self-build dashboard inspection with queue and workspace visibility,
 - work-item template and goal-plan management from the same orchestrator API contract,
 - grouped managed-work inspection and grouped run execution controls,
+- work-item rerun and workspace inspection parity over orchestrator HTTP surfaces,
 - work-item run validation and documentation-suggestion drilldowns,
 - proposal artifact inspection plus review/approval transitions,
 - family-level actions over `/executions/:id/tree/*` for:

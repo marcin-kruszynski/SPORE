@@ -63,6 +63,7 @@ The combined live route is the preferred read for operator tooling because it no
 - session metadata,
 - recent events,
 - artifact summary,
+- workspace linkage, runtime `cwd`, and launch-context evidence when the session plan carries workspace metadata,
 - control history,
 - control acknowledgement summary,
 - launcher metadata,

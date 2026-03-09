@@ -82,6 +82,12 @@ const state = {
   selfBuildWorkItems: [],
   selfBuildGroups: [],
   selfBuildDependencyImpact: null,
+  selfBuildFilters: {
+    status: "",
+    group: "",
+    template: "",
+    domain: ""
+  },
   selectedWorkItemId: null,
   selectedWorkItemGroupId: null,
   workItemDetail: null,
@@ -190,7 +196,16 @@ const els = {
   runCenterView: document.getElementById("run-center-view"),
   selfBuildView: document.getElementById("self-build-view"),
   selfBuildOverview: document.getElementById("self-build-overview"),
+  selfBuildDashboardState: document.getElementById("self-build-dashboard-state"),
   selfBuildFreshness: document.getElementById("self-build-freshness"),
+  selfBuildAttentionCount: document.getElementById("self-build-attention-count"),
+  selfBuildAttentionSummary: document.getElementById("self-build-attention-summary"),
+  selfBuildFilterForm: document.getElementById("self-build-filter-form"),
+  selfBuildStatusFilter: document.getElementById("self-build-status-filter"),
+  selfBuildGroupFilter: document.getElementById("self-build-group-filter"),
+  selfBuildTemplateFilter: document.getElementById("self-build-template-filter"),
+  selfBuildDomainFilter: document.getElementById("self-build-domain-filter"),
+  selfBuildFilterReset: document.getElementById("self-build-filter-reset"),
   groupReadinessOverview: document.getElementById("group-readiness-overview"),
   groupReadinessList: document.getElementById("group-readiness-list"),
   groupReadinessCount: document.getElementById("group-readiness-count"),
@@ -198,6 +213,10 @@ const els = {
   urgentWorkCount: document.getElementById("urgent-work-count"),
   followUpQueue: document.getElementById("follow-up-queue"),
   followUpCount: document.getElementById("follow-up-count"),
+  selfBuildRecentRuns: document.getElementById("self-build-recent-runs"),
+  selfBuildRecentRunsCount: document.getElementById("self-build-recent-runs-count"),
+  selfBuildWorkspaceHealth: document.getElementById("self-build-workspace-health"),
+  selfBuildWorkspaceCount: document.getElementById("self-build-workspace-count"),
   selfBuildDetailOverlay: document.getElementById("self-build-detail-overlay"),
   selfBuildBackButton: document.getElementById("self-build-back-button"),
   selfBuildDetailTitle: document.getElementById("self-build-detail-title"),
@@ -4949,6 +4968,48 @@ function renderWorkflowPreview() {
   `;
 }
 
+function renderExecutionWorkspacePanel(workspaceDetail = null) {
+  const workspaces = workspaceDetail?.workspaces ?? [];
+  if (workspaces.length === 0) {
+    return `
+      <section class="workflow-launch-section">
+        <div class="policy-panel-header">
+          <strong>Execution Workspaces</strong>
+          <span class="muted">0 workspaces</span>
+        </div>
+        <div class="detail-card empty-state compact-empty">No workspace allocations are linked to this execution.</div>
+      </section>
+    `;
+  }
+
+  return `
+    <section class="workflow-launch-section">
+      <div class="policy-panel-header">
+        <strong>Execution Workspaces</strong>
+        <span class="muted">${escapeHtml(String(workspaces.length))} workspace${workspaces.length === 1 ? "" : "s"}</span>
+      </div>
+      <div class="session-meta">
+        <code>${escapeHtml(formatStateCountsMap(workspaceDetail.byStatus ?? {}))}</code>
+        <a class="inline-link" href="/api/orchestrator/executions/${escapeHtml(encodeURIComponent(workspaceDetail.executionId ?? ""))}/workspaces" target="_blank" rel="noreferrer">workspaces json</a>
+      </div>
+      <div class="workflow-launch-list">${workspaces.slice(0, 12).map((workspace) => `
+        <article class="workflow-launch-card">
+          <div class="session-title">
+            <strong>${escapeHtml(workspace.branchName || workspace.id)}</strong>
+            ${renderStatePill(workspace.status)}
+          </div>
+          <div class="session-meta">
+            <code>${escapeHtml(workspace.id)}</code>
+            ${workspace.stepId ? `<code>step=${escapeHtml(workspace.stepId)}</code>` : ""}
+            ${workspace.workItemRunId ? `<code>run=${escapeHtml(workspace.workItemRunId)}</code>` : ""}
+          </div>
+          <p class="detail-support"><code>${escapeHtml(workspace.worktreePath || "-")}</code></p>
+        </article>
+      `).join("")}</div>
+    </section>
+  `;
+}
+
 function renderExecutionDetail() {
   const detail = state.executionDetail;
   const execution = detail?.execution;
@@ -5126,6 +5187,7 @@ function renderExecutionDetail() {
       }
       <div class="detail-span"><span class="muted">Objective</span><br /><code>${escapeHtml(normalizeText(execution.objective))}</code></div>
     </div>
+    ${renderExecutionWorkspacePanel(detail?.workspaces ?? null)}
     ${renderPolicyPanel({
       title: "Effective Policy",
       policy: effectivePolicy,
@@ -5568,14 +5630,15 @@ async function loadExecutionDetail() {
 
   try {
     const executionId = encodeURIComponent(state.selectedExecutionId);
-    const [detailPayload, eventsPayload, escalationsPayload, treePayload, auditPayload, policyDiffPayload, historyPayload] = await Promise.all([
+    const [detailPayload, eventsPayload, escalationsPayload, treePayload, auditPayload, policyDiffPayload, historyPayload, workspacesPayload] = await Promise.all([
       api(`/orchestrator/executions/${executionId}`),
       api(`/orchestrator/executions/${executionId}/events`),
       api(`/orchestrator/executions/${executionId}/escalations`),
       api(`/orchestrator/executions/${executionId}/tree`).catch(() => null),
       api(`/orchestrator/executions/${executionId}/audit`).catch(() => null),
       api(`/orchestrator/executions/${executionId}/policy-diff`).catch(() => null),
-      api(`/orchestrator/executions/${executionId}/history`).catch(() => null)
+      api(`/orchestrator/executions/${executionId}/history`).catch(() => null),
+      api(`/orchestrator/executions/${executionId}/workspaces`).catch(() => null)
     ]);
     const detail = detailPayload.detail ?? null;
     if (detail) {
@@ -5585,6 +5648,7 @@ async function loadExecutionDetail() {
       detail.audit = auditPayload?.audit ?? detail.audit ?? [];
       detail.policyDiff = policyDiffPayload?.detail ?? null;
       detail.history = historyPayload?.detail ?? null;
+      detail.workspaces = workspacesPayload?.detail ?? null;
     }
     state.executionDetail = detail;
     state.executionDetailError = null;
@@ -6469,7 +6533,13 @@ function switchView(viewName) {
 
 async function refreshSelfBuildDashboard() {
   try {
-    const response = await fetch("/api/orchestrator/self-build/summary");
+    const query = new URLSearchParams();
+    if (state.selfBuildFilters.status) query.set("status", state.selfBuildFilters.status);
+    if (state.selfBuildFilters.group) query.set("group", state.selfBuildFilters.group);
+    if (state.selfBuildFilters.template) query.set("template", state.selfBuildFilters.template);
+    if (state.selfBuildFilters.domain) query.set("domain", state.selfBuildFilters.domain);
+    const suffix = query.toString() ? `?${query.toString()}` : "";
+    const response = await fetch(`/api/orchestrator/self-build/dashboard${suffix}`);
     const data = await response.json();
     
     if (data.ok && data.detail) {
@@ -6496,13 +6566,21 @@ function renderSelfBuildDashboard() {
   const summary = state.selfBuildSummary;
 
   renderSelfBuildOverview(summary);
+  renderSelfBuildAttentionSummary(summary);
   renderGroupReadiness(summary.groups || []);
   renderWorkQueue(summary.urgentWork || [], els.urgentWorkQueue, els.urgentWorkCount, "urgent");
   renderWorkQueue(summary.followUpWork || [], els.followUpQueue, els.followUpCount, "follow-up");
+  renderSelfBuildRecentRuns(summary.recentWorkItemRuns || []);
+  renderSelfBuildWorkspaceHealth(summary.workspaces || []);
 
   if (els.selfBuildFreshness && summary.freshness) {
     const lastRefresh = summary.freshness.lastRefresh || summary.overview?.generatedAt;
     els.selfBuildFreshness.textContent = `Last updated: ${formatDisplayTimestamp(lastRefresh)}`;
+  }
+  if (els.selfBuildDashboardState) {
+    const attentionCount = summary.attentionSummary?.total ?? 0;
+    const queueTotal = summary.queueSummary?.total ?? 0;
+    els.selfBuildDashboardState.textContent = `route: ready · attention:${attentionCount} queue:${queueTotal}`;
   }
 }
 
@@ -6526,11 +6604,14 @@ function renderSelfBuildOverview(summary) {
   const cards = [
     { label: "Total Work Items", value: counts.workItems || 0 },
     { label: "Groups", value: counts.groups || 0 },
+    { label: "Goal Plans", value: counts.goalPlans || 0 },
     { label: "Ready Groups", value: groupStates.ready || 0, highlight: groupStates.ready > 0 },
     { label: "Blocked Groups", value: groupStates.blocked || 0, highlight: groupStates.blocked > 0 },
     { label: "Review Needed", value: groupStates.reviewNeeded || 0, highlight: groupStates.reviewNeeded > 0 },
     { label: "Urgent Items", value: overview.urgentCount || 0, highlight: overview.urgentCount > 0 },
     { label: "Failed Items", value: counts.failedItems || 0, highlight: counts.failedItems > 0 },
+    { label: "Needs Validation", value: counts.pendingValidationRuns || 0, highlight: (counts.pendingValidationRuns || 0) > 0 },
+    { label: "Workspace Problems", value: counts.orphanedWorkspaces || 0, highlight: (counts.orphanedWorkspaces || 0) > 0 },
     { label: "Advisory Warnings", value: groupStates.advisoryWarnings || 0 }
   ];
 
@@ -6543,6 +6624,29 @@ function renderSelfBuildOverview(summary) {
       </div>
     `
     )
+    .join("");
+}
+
+function renderSelfBuildAttentionSummary(summary) {
+  if (!els.selfBuildAttentionSummary) return;
+  const attention = summary.attentionSummary || {};
+  const byState = attention.byState || {};
+  const entries = Object.entries(byState);
+  if (els.selfBuildAttentionCount) {
+    els.selfBuildAttentionCount.textContent = `${attention.total || 0} ${attention.total === 1 ? "item" : "items"}`;
+  }
+  if (entries.length === 0) {
+    els.selfBuildAttentionSummary.innerHTML = '<div class="overview-card"><span class="label">Attention</span><span class="value">0</span></div>';
+    return;
+  }
+  els.selfBuildAttentionSummary.innerHTML = entries
+    .sort((left, right) => left[0].localeCompare(right[0]))
+    .map(([key, value]) => `
+      <div class="overview-card ${value > 0 ? "highlight" : ""}">
+        <span class="label">${escapeHtml(humanizeKey(key))}</span>
+        <span class="value">${escapeHtml(String(value))}</span>
+      </div>
+    `)
     .join("");
 }
 
@@ -6705,11 +6809,61 @@ function renderWorkQueue(items, container, countElement, queueType) {
             <div class="work-item-meta">${escapeHtml(meta.join(" • "))}</div>
             ${reason ? `<div class="work-item-reason">${escapeHtml(reason)}</div>` : ""}
           </div>
-          <span class="work-item-badge ${queueType}">${escapeHtml(status)}</span>
+          <span class="work-item-badge ${queueType}">${escapeHtml(item.attentionState || status)}</span>
           <span class="work-item-arrow">→</span>
         </div>
       `;
     })
+    .join("");
+}
+
+function renderSelfBuildRecentRuns(runs = []) {
+  if (!els.selfBuildRecentRuns) return;
+  if (els.selfBuildRecentRunsCount) {
+    els.selfBuildRecentRunsCount.textContent = `${runs.length} ${runs.length === 1 ? "run" : "runs"}`;
+  }
+  if (runs.length === 0) {
+    els.selfBuildRecentRuns.innerHTML = '<div class="empty-work-queue">No recent work-item runs in the current dashboard scope.</div>';
+    return;
+  }
+  els.selfBuildRecentRuns.innerHTML = runs
+    .map((run) => `
+      <div class="work-item-row" data-open-type="work-item-run" data-open-id="${escapeHtml(run.id)}">
+        <div class="work-item-status ${stateClass(run.terminalKind || run.status)}"></div>
+        <div class="work-item-info">
+          <div class="work-item-title">${escapeHtml(run.itemTitle || run.id)}</div>
+          <div class="work-item-meta">${escapeHtml([run.itemKind || "work-item", `validation:${run.validationStatus || "-"}`, run.hasProposal ? "proposal" : "", run.hasWorkspace ? "workspace" : ""].filter(Boolean).join(" • "))}</div>
+          <div class="work-item-reason">${escapeHtml(run.comparisonToPrevious?.summary || "Open run detail for proposal, validation, and doc suggestion drilldown.")}</div>
+        </div>
+        <span class="work-item-badge follow-up">${escapeHtml(run.status || run.terminalKind || "unknown")}</span>
+        <span class="work-item-arrow">→</span>
+      </div>
+    `)
+    .join("");
+}
+
+function renderSelfBuildWorkspaceHealth(workspaces = []) {
+  if (!els.selfBuildWorkspaceHealth) return;
+  if (els.selfBuildWorkspaceCount) {
+    els.selfBuildWorkspaceCount.textContent = `${workspaces.length} ${workspaces.length === 1 ? "workspace" : "workspaces"}`;
+  }
+  if (workspaces.length === 0) {
+    els.selfBuildWorkspaceHealth.innerHTML = '<div class="empty-work-queue quiet">No workspace allocations in the current dashboard scope.</div>';
+    return;
+  }
+  els.selfBuildWorkspaceHealth.innerHTML = workspaces.slice(0, 12)
+    .map((workspace) => `
+      <div class="work-item-row" data-open-type="workspace" data-open-id="${escapeHtml(workspace.id)}">
+        <div class="work-item-status ${stateClass(workspace.status)}"></div>
+        <div class="work-item-info">
+          <div class="work-item-title">${escapeHtml(workspace.branchName || workspace.id)}</div>
+          <div class="work-item-meta">${escapeHtml([workspace.status || "unknown", workspace.workItemId ? `item:${workspace.workItemId}` : "", workspace.safeMode === true ? "safe-mode" : ""].filter(Boolean).join(" • "))}</div>
+          <div class="work-item-reason">${escapeHtml(workspace.worktreePath || "No worktree path available.")}</div>
+        </div>
+        <span class="work-item-badge ${["orphaned", "failed"].includes(workspace.status) ? "urgent" : "follow-up"}">${escapeHtml(workspace.status || "unknown")}</span>
+        <span class="work-item-arrow">→</span>
+      </div>
+    `)
     .join("");
 }
 
@@ -7001,18 +7155,45 @@ function renderSelfBuildDetailView(itemType, detail) {
 
   if (itemType === "work-item") {
     dependencySection = renderWorkItemDependencySection(detail);
-    const recentRuns = Array.isArray(detail.runs) ? detail.runs.slice(0, 5) : [];
+    const runHistory = detail.runHistory?.runs || detail.runs || [];
     recentActivitySection = `
       <div class="detail-section">
-        <h3>Recent Runs</h3>
-        ${recentRuns.length === 0 ? "<p>No runs yet.</p>" : ""}
-        ${recentRuns
+        <div class="detail-section-heading">
+          <h3>Run History</h3>
+          <p class="detail-support">Compare status, validation, proposal linkage, and doc-suggestion drift across runs.</p>
+        </div>
+        ${
+          detail.runHistory?.trend
+            ? `<div class="lineage-meta">
+                ${renderLineagePill("health", detail.runHistory.trend.health, detail.runHistory.trend.health === "degraded" ? "changed" : "root")}
+                ${renderLineagePill("runs", detail.runHistory.trend.runCount ?? 0, "inherited")}
+                ${renderLineagePill("latest", detail.runHistory.trend.latestRunId || "-", "inherited")}
+              </div>`
+            : ""
+        }
+        ${runHistory.length === 0 ? "<p>No runs yet.</p>" : ""}
+        ${runHistory
           .map(
             (run) => `
-          <div class="detail-row">
-            <div class="detail-label">${formatDisplayTimestamp(run.startedAt || run.createdAt)}</div>
-            <div class="detail-value"><span class="status-badge ${stateClass(run.status || run.state)}">${escapeHtml(run.status || run.state || "unknown")}</span></div>
-          </div>
+          <article class="dependency-item-row compact" data-open-type="work-item-run" data-open-id="${escapeHtml(run.id)}">
+            <div class="dependency-item-header">
+              <strong>${escapeHtml(formatDisplayTimestamp(run.startedAt || run.createdAt))}</strong>
+              ${renderStatusBadge(run.status || run.state || "unknown")}
+            </div>
+            <div class="lineage-meta">
+              ${renderLineagePill("validation", run.validationStatus || "-", "inherited")}
+              ${run.hasProposal ? renderLineagePill("proposal", "yes", "root") : ""}
+              ${run.hasWorkspace ? renderLineagePill("workspace", "yes", "root") : ""}
+              ${run.docSuggestionCount ? renderLineagePill("doc-suggestions", run.docSuggestionCount, "dependency-advisory") : ""}
+            </div>
+            <p class="dependency-item-reason">${escapeHtml(run.comparisonToPrevious?.summary || "No previous run available for comparison.")}</p>
+            <p class="dependency-item-next">${escapeHtml(run.links?.execution ? `Execution: ${run.relationSummary?.executionId}` : run.links?.scenarioRun ? `Scenario: ${run.relationSummary?.scenarioRunId}` : run.links?.regressionRun ? `Regression: ${run.relationSummary?.regressionRunId}` : "Open run detail for proposal, validation, and docs suggestions.")}</p>
+            <div class="lineage-meta">
+              ${run.links?.scenarioRun ? `<a class="inline-link" href="/api/orchestrator${escapeHtml(run.links.scenarioRun)}" target="_blank" rel="noreferrer">scenario</a>` : ""}
+              ${run.links?.regressionRun ? `<a class="inline-link" href="/api/orchestrator${escapeHtml(run.links.regressionRun)}" target="_blank" rel="noreferrer">regression</a>` : ""}
+              ${run.links?.execution ? `<a class="inline-link" href="/api/orchestrator${escapeHtml(run.links.execution)}" target="_blank" rel="noreferrer">execution</a>` : ""}
+            </div>
+          </article>
         `
           )
           .join("")}
@@ -7101,6 +7282,55 @@ function renderSelfBuildDetailView(itemType, detail) {
         `
           )
           .join("")}
+      </div>
+    `;
+  } else if (itemType === "work-item-run") {
+    recentActivitySection = `
+      <div class="detail-section">
+        <div class="detail-section-heading">
+          <h3>Run Detail</h3>
+          <p class="detail-support">This view is route-backed and ties one run to proposal, validation, workspace, and suggestions.</p>
+        </div>
+        <div class="lineage-meta">
+          ${detail.comparisonToPrevious?.previousRunId ? renderLineagePill("previous", detail.comparisonToPrevious.previousRunId, "inherited") : ""}
+          ${detail.validationStatus ? renderLineagePill("validation", detail.validationStatus, "inherited") : ""}
+          ${detail.workspace?.id ? renderLineagePill("workspace", detail.workspace.id, "root") : ""}
+          ${detail.proposal?.id ? renderLineagePill("proposal", detail.proposal.id, "root") : ""}
+        </div>
+        <article class="detail-card compact-empty">
+          <strong>Comparison to previous run</strong>
+          <p>${escapeHtml(detail.comparisonToPrevious?.summary || "No previous run available for comparison.")}</p>
+        </article>
+        ${renderFailureCard(detail.failure, "Failure Classification", "No failure classification returned for this run.")}
+        ${renderSuggestedActionsCard(detail.suggestedActions, "Suggested Actions", "No suggested actions returned for this run.")}
+        ${renderSummaryObjectCard(detail.validation, "Validation Summary", "No validation summary returned for this run.")}
+        ${renderSummaryObjectCard(detail.proposal, "Proposal Summary", "No proposal summary returned for this run.")}
+        ${renderSummaryObjectCard(detail.workspace, "Workspace Summary", "No workspace summary returned for this run.")}
+        ${renderSummaryObjectCard(detail.docSuggestions, "Documentation Suggestions", "No documentation suggestions returned for this run.")}
+        <div class="lineage-meta">
+          ${detail.links?.scenarioRun ? `<a class="inline-link" href="/api/orchestrator${escapeHtml(detail.links.scenarioRun)}" target="_blank" rel="noreferrer">scenario run</a>` : ""}
+          ${detail.links?.regressionRun ? `<a class="inline-link" href="/api/orchestrator${escapeHtml(detail.links.regressionRun)}" target="_blank" rel="noreferrer">regression run</a>` : ""}
+          ${detail.links?.execution ? `<a class="inline-link" href="/api/orchestrator${escapeHtml(detail.links.execution)}" target="_blank" rel="noreferrer">execution</a>` : ""}
+        </div>
+      </div>
+    `;
+  } else if (itemType === "workspace") {
+    recentActivitySection = `
+      <div class="detail-section">
+        <div class="detail-section-heading">
+          <h3>Workspace Detail</h3>
+          <p class="detail-support">Workspace health, branch metadata, and owner linkage for mutating self-work.</p>
+        </div>
+        <article class="detail-card compact-empty">
+          <strong>Path</strong>
+          <p><code>${escapeHtml(detail.worktreePath || "-")}</code></p>
+        </article>
+        <div class="lineage-meta">
+          ${detail.branchName ? renderLineagePill("branch", detail.branchName, "root") : ""}
+          ${detail.baseRef ? renderLineagePill("base", detail.baseRef, "inherited") : ""}
+          ${detail.workItemId ? renderLineagePill("item", detail.workItemId, "inherited") : ""}
+          ${detail.workItemRunId ? renderLineagePill("run", detail.workItemRunId, "inherited") : ""}
+        </div>
       </div>
     `;
   } else {
@@ -7209,7 +7439,42 @@ if (els.selfBuildBackButton) {
   });
 }
 
+if (els.selfBuildFilterForm) {
+  els.selfBuildFilterForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    state.selfBuildFilters = {
+      status: els.selfBuildStatusFilter?.value?.trim() || "",
+      group: els.selfBuildGroupFilter?.value?.trim() || "",
+      template: els.selfBuildTemplateFilter?.value?.trim() || "",
+      domain: els.selfBuildDomainFilter?.value?.trim() || ""
+    };
+    refreshSelfBuildDashboard();
+  });
+}
+
+if (els.selfBuildFilterReset) {
+  els.selfBuildFilterReset.addEventListener("click", () => {
+    state.selfBuildFilters = {
+      status: "",
+      group: "",
+      template: "",
+      domain: ""
+    };
+    if (els.selfBuildStatusFilter) els.selfBuildStatusFilter.value = "";
+    if (els.selfBuildGroupFilter) els.selfBuildGroupFilter.value = "";
+    if (els.selfBuildTemplateFilter) els.selfBuildTemplateFilter.value = "";
+    if (els.selfBuildDomainFilter) els.selfBuildDomainFilter.value = "";
+    refreshSelfBuildDashboard();
+  });
+}
+
 [els.groupReadinessList, els.urgentWorkQueue, els.followUpQueue, els.selfBuildDetailContent].forEach((element) => {
+  if (element) {
+    element.addEventListener("click", handleSelfBuildClick);
+  }
+});
+
+[els.selfBuildRecentRuns, els.selfBuildWorkspaceHealth].forEach((element) => {
   if (element) {
     element.addEventListener("click", handleSelfBuildClick);
   }

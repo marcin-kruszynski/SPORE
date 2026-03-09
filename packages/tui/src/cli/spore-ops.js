@@ -831,6 +831,21 @@ async function selfBuildSummary(flags) {
   console.log(formatJson(payload));
 }
 
+async function selfBuildDashboard(flags) {
+  const search = new URLSearchParams();
+  if (flags.status) search.set("status", String(flags.status));
+  if (flags.group) search.set("group", String(flags.group));
+  if (flags.template) search.set("template", String(flags.template));
+  if (flags.domain) search.set("domain", String(flags.domain));
+  const suffix = search.toString() ? `?${search.toString()}` : "";
+  const payload = await orchestratorRequest(flags, `/self-build/dashboard${suffix}`);
+  if (flags.json) {
+    console.log(formatJson(payload));
+    return;
+  }
+  console.log(renderSelfBuildTriage(payload));
+}
+
 async function selfBuild(flags) {
   // Drilldown support for self-build records
   if (flags.item) {
@@ -854,12 +869,27 @@ async function selfBuild(flags) {
     return;
   }
   // Default to triage summary
-  const payload = await orchestratorRequest(flags, "/self-build/summary");
+  const payload = await orchestratorRequest(flags, "/self-build/dashboard");
   if (flags.json) {
     console.log(formatJson(payload));
     return;
   }
   console.log(renderSelfBuildTriage(payload));
+}
+
+async function workItemQueue(flags) {
+  const payload = await orchestratorRequest(flags, "/self-build/dashboard");
+  const detail = payload.detail ?? {};
+  const queuePayload = {
+    ok: true,
+    detail: {
+      attentionSummary: detail.attentionSummary ?? {},
+      queueSummary: detail.queueSummary ?? {},
+      urgentWork: detail.urgentWork ?? [],
+      followUpWork: detail.followUpWork ?? []
+    }
+  };
+  console.log(formatJson(queuePayload));
 }
 
 async function workItemTemplateList(flags) {
@@ -1064,6 +1094,28 @@ async function workItemRunShow(flags) {
   console.log(formatJson(payload));
 }
 
+async function workItemRunRerun(flags) {
+  if (!flags.run) {
+    throw new Error("use work-item-run-rerun --run <id>");
+  }
+  const payload = await orchestratorRequest(flags, `/work-item-runs/${encodeURIComponent(flags.run)}/rerun`, {
+    method: "POST",
+    body: JSON.stringify({
+      project: flags.project,
+      wait: flags.wait !== false,
+      timeout: flags.timeout ? toNumber(flags.timeout, null) : undefined,
+      interval: flags.interval ? toNumber(flags.interval, null) : undefined,
+      noMonitor: flags["no-monitor"] === true,
+      stub: flags.stub === true,
+      launcher: flags.launcher,
+      by: flags.by ?? "operator",
+      source: "tui",
+      reason: flags.reason ?? ""
+    })
+  });
+  console.log(formatJson(payload));
+}
+
 async function workItemValidate(flags) {
   if (!flags.run) {
     throw new Error("use work-item-validate --run <id>");
@@ -1129,6 +1181,23 @@ async function proposalApprove(flags) {
       comments: flags.comments ?? ""
     })
   });
+  console.log(formatJson(payload));
+}
+
+async function workspaceList(flags) {
+  const search = new URLSearchParams();
+  if (flags.status) search.set("status", String(flags.status));
+  if (flags.limit) search.set("limit", String(flags.limit));
+  const suffix = search.toString() ? `?${search.toString()}` : "";
+  const payload = await orchestratorRequest(flags, `/workspaces${suffix}`);
+  console.log(formatJson(payload));
+}
+
+async function workspaceShow(flags) {
+  if (!flags.workspace) {
+    throw new Error("use workspace-show --workspace <id>");
+  }
+  const payload = await orchestratorRequest(flags, `/workspaces/${encodeURIComponent(flags.workspace)}`);
   console.log(formatJson(payload));
 }
 
@@ -1251,8 +1320,16 @@ async function main() {
     await selfBuildSummary(flags);
     return;
   }
+  if (command === "self-build-dashboard") {
+    await selfBuildDashboard(flags);
+    return;
+  }
   if (command === "self-build") {
     await selfBuild(flags);
+    return;
+  }
+  if (command === "work-item-queue") {
+    await workItemQueue(flags);
     return;
   }
   if (command === "work-item-template-list") {
@@ -1315,6 +1392,10 @@ async function main() {
     await workItemRunShow(flags);
     return;
   }
+  if (command === "work-item-run-rerun") {
+    await workItemRunRerun(flags);
+    return;
+  }
   if (command === "work-item-validate") {
     await workItemValidate(flags);
     return;
@@ -1335,11 +1416,19 @@ async function main() {
     await proposalApprove(flags);
     return;
   }
+  if (command === "workspace-list") {
+    await workspaceList(flags);
+    return;
+  }
+  if (command === "workspace-show") {
+    await workspaceShow(flags);
+    return;
+  }
   if (["pause", "hold", "resume", "review", "approval", "drive"].includes(command)) {
     await treeAction(flags, command);
     return;
   }
-  throw new Error("commands: dashboard | inspect | execution | tree | family | audit | policy-diff | history | run-center | self-build | self-build-summary | scenario-list | scenario-show | scenario-runs | scenario-run | scenario-run-show | scenario-run-artifacts | scenario-rerun | scenario-trends | regression-list | regression-show | regression-runs | regression-run | regression-run-show | regression-report | regression-latest-report | regression-rerun | regression-trends | regression-scheduler | regression-scheduler-status | work-item-template-list | work-item-template-show | goal-plan-create | goal-plan-list | goal-plan-show | goal-plan-materialize | work-item-group-list | work-item-group-show | work-item-group-run | work-item-list | work-item-show | work-item-runs | work-item-create | work-item-run | work-item-run-show | work-item-validate | work-item-doc-suggestions | proposal-show | proposal-review | proposal-approve | drive | pause | hold | resume | review | approval");
+  throw new Error("commands: dashboard | inspect | execution | tree | family | audit | policy-diff | history | run-center | self-build | self-build-summary | self-build-dashboard | work-item-queue | workspace-list | workspace-show | scenario-list | scenario-show | scenario-runs | scenario-run | scenario-run-show | scenario-run-artifacts | scenario-rerun | scenario-trends | regression-list | regression-show | regression-runs | regression-run | regression-run-show | regression-report | regression-latest-report | regression-rerun | regression-trends | regression-scheduler | regression-scheduler-status | work-item-template-list | work-item-template-show | goal-plan-create | goal-plan-list | goal-plan-show | goal-plan-materialize | work-item-group-list | work-item-group-show | work-item-group-run | work-item-list | work-item-show | work-item-runs | work-item-create | work-item-run | work-item-run-show | work-item-run-rerun | work-item-validate | work-item-doc-suggestions | proposal-show | proposal-review | proposal-approve | drive | pause | hold | resume | review | approval");
 }
 
 main().catch((error) => {

@@ -167,7 +167,18 @@ Clients should therefore:
 
 ## Self-Build Summary Contract
 
-The `/self-build/summary` route is the operator-first home for Phase 1 dashboard and TUI views. It exposes:
+The `/self-build/dashboard` route is the preferred operator-first home for dedicated self-build dashboard and TUI queue views. It exposes:
+
+- **Overview metrics**: total counts, urgent/follow-up counts, last activity timestamp, generation time
+- **Attention summary**: prioritized `needs-review`, `needs-approval`, `needs-validation`, `workspace-problem`, and `planner-follow-up` counts
+- **Urgent and follow-up queues**: grouped by work-item group and goal plan, with `nextActionHint`, `commandHint`, and `httpHint`
+- **Recent work-item runs**: enriched summaries with validation state, proposal/workspace linkage, and comparison to previous runs
+- **Workspace health**: linked workspaces for mutating self-work
+- **Workspace drilldown**: operators should be able to reconcile or clean up one workspace from the dedicated workspace surface rather than inferring state from filesystem paths
+- **Execution workspace view**: clients should use `GET /executions/:id/workspaces` when they need per-execution workspace lineage instead of reconstructing it from flat allocation lists
+- **Operator filters**: status, group, template, and domain
+
+The `/self-build/summary` route remains available as the lighter snapshot surface. It exposes:
 
 - **Overview metrics**: total counts, urgent/follow-up counts, last activity timestamp, generation time
 - **Urgent work queue**: blocked items, failed items, proposals waiting review/approval, ordered by priority and recency
@@ -178,7 +189,7 @@ The `/self-build/summary` route is the operator-first home for Phase 1 dashboard
 
 Clients should:
 
-- Poll `/self-build/summary` every 30-60 seconds for live dashboards
+- Poll `/self-build/dashboard` every 30-60 seconds for live dashboards
 - Use `urgentWork` and `followUpWork` arrays instead of reconstructing queues from flat lists
 - Render `displayMetadata.statusBadge` and labels directly instead of inventing client-side heuristics
 - Follow `recommendations[].httpHint` for drilldown navigation

@@ -96,6 +96,18 @@ test("self-build summary and lineage routes expose operator-first visibility", a
   
   // Recommendations
   assert.ok(Array.isArray(summary.json.detail.recommendations));
+  assert.ok(typeof summary.json.detail.queueSummary === "object");
+  assert.ok(typeof summary.json.detail.attentionSummary === "object");
+  assert.ok(Array.isArray(summary.json.detail.goalPlans));
+
+  const dashboard = await getJson(`http://127.0.0.1:${ORCHESTRATOR_PORT}/self-build/dashboard`);
+  assert.equal(dashboard.status, 200);
+  assert.ok(dashboard.json.ok);
+  assert.ok(dashboard.json.detail.route);
+  assert.equal(dashboard.json.detail.route.self, "/self-build/dashboard");
+  assert.ok(Array.isArray(dashboard.json.detail.recentWorkItemRuns));
+  assert.ok(typeof dashboard.json.detail.attentionSummary === "object");
+  assert.ok(typeof dashboard.json.detail.queueSummary === "object");
 
   // Test 2: work-item templates catalog
   const templates = await getJson(`http://127.0.0.1:${ORCHESTRATOR_PORT}/work-item-templates`);
@@ -178,6 +190,8 @@ test("self-build summary and lineage routes expose operator-first visibility", a
   assert.equal(itemDetail.json.detail.workItemGroup.id, groupId);
   assert.ok(itemDetail.json.detail.goalPlan);
   assert.equal(itemDetail.json.detail.goalPlan.id, goalPlan.json.detail.id);
+  assert.ok(itemDetail.json.detail.runHistory);
+  assert.ok(Array.isArray(itemDetail.json.detail.runHistory.runs));
 
   // Test 8: run a work item and verify proposal creation
   const runResult = await postJson(
@@ -210,6 +224,18 @@ test("self-build summary and lineage routes expose operator-first visibility", a
   assert.ok(Array.isArray(runDetail.json.detail.docSuggestions));
   assert.ok(Array.isArray(runDetail.json.detail.learningRecords));
   assert.ok(runDetail.json.detail.workspace);
+  assert.ok(Array.isArray(runDetail.json.detail.suggestedActions));
+  assert.ok(typeof runDetail.json.detail.links.rerun === "string");
+
+  const runHistory = await getJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/work-items/${encodeURIComponent(itemId)}/runs`
+  );
+  assert.equal(runHistory.status, 200);
+  assert.ok(runHistory.json.ok);
+  assert.ok(runHistory.json.detail.latestRun);
+  assert.ok(typeof runHistory.json.detail.runCountsByStatus === "object");
+  assert.ok(Array.isArray(runHistory.json.detail.runs));
+  assert.ok(runHistory.json.detail.runs[0].links);
 
   const workspaceDetail = await getJson(
     `http://127.0.0.1:${ORCHESTRATOR_PORT}/work-item-runs/${encodeURIComponent(runId)}/workspace`
@@ -222,6 +248,27 @@ test("self-build summary and lineage routes expose operator-first visibility", a
     worktreePath: workspaceDetail.json.detail.worktreePath,
     branchName: workspaceDetail.json.detail.branchName
   });
+
+  const reconciledWorkspace = await postJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/workspaces/${encodeURIComponent(workspaceDetail.json.detail.id)}/reconcile`,
+    {
+      by: "test-runner",
+      source: "http-self-build-test"
+    }
+  );
+  assert.equal(reconciledWorkspace.status, 200);
+  assert.ok(reconciledWorkspace.json.ok);
+  assert.ok(reconciledWorkspace.json.detail.diagnostics);
+
+  const blockedCleanup = await postJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/workspaces/${encodeURIComponent(workspaceDetail.json.detail.id)}/cleanup`,
+    {
+      by: "test-runner",
+      source: "http-self-build-test"
+    }
+  );
+  assert.equal(blockedCleanup.status, 409);
+  assert.equal(blockedCleanup.json.error, "cleanup_blocked");
 
   const workspaceList = await getJson(`http://127.0.0.1:${ORCHESTRATOR_PORT}/workspaces`);
   assert.equal(workspaceList.status, 200);
@@ -243,6 +290,23 @@ test("self-build summary and lineage routes expose operator-first visibility", a
     assert.ok(proposal.json.detail.links.approval);
     assert.ok(proposal.json.detail.artifacts);
     assert.ok(proposal.json.detail.artifacts.workspace);
+    assert.ok(proposal.json.detail.artifacts.patchArtifact);
+    assert.ok(typeof proposal.json.detail.artifacts.patchArtifact.byteLength === "number");
+    assert.ok(proposal.json.detail.artifacts.diffSummary);
+    assert.ok(typeof proposal.json.detail.artifacts.diffSummary.fileCount === "number");
+    assert.ok(Array.isArray(proposal.json.detail.artifacts.changedFilesByScope));
+  }
+
+  const executionId = runDetail.json.detail?.result?.executionId ?? runResult.json.detail?.run?.result?.executionId ?? null;
+  if (executionId) {
+    const executionWorkspaces = await getJson(
+      `http://127.0.0.1:${ORCHESTRATOR_PORT}/executions/${encodeURIComponent(executionId)}/workspaces`
+    );
+    assert.equal(executionWorkspaces.status, 200);
+    assert.ok(executionWorkspaces.json.ok);
+    assert.equal(executionWorkspaces.json.detail.executionId, executionId);
+    assert.ok(Array.isArray(executionWorkspaces.json.detail.workspaces));
+    assert.ok(executionWorkspaces.json.detail.workspaces.some((entry) => entry.id === workspaceDetail.json.detail.id));
   }
 
   // Test 11: validate work-item run (triggers scenario/regression runs)
@@ -271,11 +335,33 @@ test("self-build summary and lineage routes expose operator-first visibility", a
   assert.equal(docSuggestions.json.detail.runId, runId);
   assert.ok(Array.isArray(docSuggestions.json.detail.suggestions));
 
+  const rerun = await postJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/work-item-runs/${encodeURIComponent(runId)}/rerun`,
+    {
+      stub: true,
+      timeout: 12000,
+      interval: 250,
+      by: "test-rerun",
+      source: "http-self-build-test",
+      reason: "coverage"
+    }
+  );
+  assert.equal(rerun.status, 200);
+  assert.ok(rerun.json.ok);
+  assert.equal(rerun.json.detail.rerunOf, runId);
+  assert.ok(rerun.json.detail.run.id);
+
   // Test 13: verify web proxy routes work
   const webSummary = await getJson(`http://127.0.0.1:${WEB_PORT}/api/orchestrator/self-build/summary`);
   assert.equal(webSummary.status, 200);
   assert.ok(webSummary.json.ok);
   assert.ok(webSummary.json.detail);
+
+  const webDashboard = await getJson(`http://127.0.0.1:${WEB_PORT}/api/orchestrator/self-build/dashboard`);
+  assert.equal(webDashboard.status, 200);
+  assert.ok(webDashboard.json.ok);
+  assert.ok(Array.isArray(webDashboard.json.detail.recentWorkItemRuns));
+  assert.ok(typeof webDashboard.json.detail.attentionSummary === "object");
 
   const webTemplates = await getJson(`http://127.0.0.1:${WEB_PORT}/api/orchestrator/work-item-templates`);
   assert.equal(webTemplates.status, 200);

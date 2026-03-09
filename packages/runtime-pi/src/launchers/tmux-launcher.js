@@ -66,6 +66,7 @@ export async function writeLaunchAssets({ sessionId, plan, contextPath, briefPat
   const piSessionPath = path.join(basePath, `${sessionId}.pi-session.jsonl`);
   const controlPath = path.join(basePath, `${sessionId}.control.ndjson`);
   const rpcStatusPath = path.join(basePath, `${sessionId}.rpc-status.json`);
+  const launchContextPath = path.join(basePath, `${sessionId}.launch-context.json`);
   const rolePromptPath = plan.pi?.systemPromptRef
     ? path.join(PROJECT_ROOT, plan.pi.systemPromptRef)
     : null;
@@ -92,6 +93,9 @@ export async function writeLaunchAssets({ sessionId, plan, contextPath, briefPat
     "",
     "## Startup Context",
     `- Retrieval bundle: ${contextPath}`,
+    plan.session?.cwd ? `- Working directory: ${plan.session.cwd}` : null,
+    plan.metadata?.workspace?.id ? `- Workspace ID: ${plan.metadata.workspace.id}` : null,
+    plan.metadata?.workspace?.branchName ? `- Workspace branch: ${plan.metadata.workspace.branchName}` : null,
     "",
     "Use the project documentation and the startup context before taking action.",
     "",
@@ -114,7 +118,7 @@ export async function writeLaunchAssets({ sessionId, plan, contextPath, briefPat
           briefContent.trim()
         ].join("\n")
       : ""
-  ].join("\n");
+  ].filter(Boolean).join("\n");
 
   await fs.writeFile(promptPath, `${prompt}\n`, "utf8");
 
@@ -127,58 +131,76 @@ export async function writeLaunchAssets({ sessionId, plan, contextPath, briefPat
     stderrPath,
     piSessionPath,
     controlPath,
-    rpcStatusPath
+    rpcStatusPath,
+    launchContextPath
   };
 }
 
 export async function writeLaunchScript({
   launcherType,
   assets,
-  stubDurationSeconds = 2
+  stubDurationSeconds = 2,
+  cwd = PROJECT_ROOT,
+  workspace = null
 }) {
-  const promptPath = path.relative(PROJECT_ROOT, assets.promptPath);
-  const transcriptPath = path.relative(PROJECT_ROOT, assets.transcriptPath);
-  const exitPath = path.relative(PROJECT_ROOT, assets.exitPath);
   const piBinary =
     launcherType === "pi-json" || launcherType === "pi-rpc"
       ? await resolveCommandBinary("pi")
       : null;
+  const effectiveCwd = path.resolve(cwd);
+  const promptPath = path.resolve(assets.promptPath);
+  const transcriptPath = path.resolve(assets.transcriptPath);
+  const exitPath = path.resolve(assets.exitPath);
+  const eventsPath = path.resolve(assets.piEventsPath);
+  const stderrPath = path.resolve(assets.stderrPath);
+  const sessionFilePath = path.resolve(assets.piSessionPath);
+  const controlPath = path.resolve(assets.controlPath);
+  const rpcStatusPath = path.resolve(assets.rpcStatusPath);
+  const launchContextPath = path.resolve(assets.launchContextPath);
+  const rpcRunnerPath = path.join(PROJECT_ROOT, "packages/runtime-pi/src/launchers/pi-rpc-runner.js");
+  const jsonRunnerPath = path.join(PROJECT_ROOT, "packages/runtime-pi/src/launchers/pi-json-runner.js");
   const launchBody =
     launcherType === "pi-rpc" && piBinary
       ? [
           "echo \"Launching pi in RPC mode...\" | tee -a " + shellEscape(transcriptPath),
-          `node ${shellEscape("packages/runtime-pi/src/launchers/pi-rpc-runner.js")} ` +
+          `node ${shellEscape(rpcRunnerPath)} ` +
             `--pi-bin ${shellEscape(piBinary)} ` +
             `--prompt ${shellEscape(promptPath)} ` +
-            `--transcript ${shellEscape(path.relative(PROJECT_ROOT, assets.transcriptPath))} ` +
-            `--events ${shellEscape(path.relative(PROJECT_ROOT, assets.piEventsPath))} ` +
-            `--stderr ${shellEscape(path.relative(PROJECT_ROOT, assets.stderrPath))} ` +
-            `--session-file ${shellEscape(path.relative(PROJECT_ROOT, assets.piSessionPath))} ` +
-            `--control ${shellEscape(path.relative(PROJECT_ROOT, assets.controlPath))} ` +
-            `--status-file ${shellEscape(path.relative(PROJECT_ROOT, assets.rpcStatusPath))}`
+            `--transcript ${shellEscape(transcriptPath)} ` +
+            `--events ${shellEscape(eventsPath)} ` +
+            `--stderr ${shellEscape(stderrPath)} ` +
+            `--session-file ${shellEscape(sessionFilePath)} ` +
+            `--control ${shellEscape(controlPath)} ` +
+            `--status-file ${shellEscape(rpcStatusPath)} ` +
+            `--cwd ${shellEscape(effectiveCwd)}`
         ].join("\n")
       : launcherType === "pi-json" && piBinary
       ? [
           "echo \"Launching pi in JSON event mode...\" | tee -a " + shellEscape(transcriptPath),
-          `node ${shellEscape("packages/runtime-pi/src/launchers/pi-json-runner.js")} ` +
+          `node ${shellEscape(jsonRunnerPath)} ` +
             `--pi-bin ${shellEscape(piBinary)} ` +
             `--prompt ${shellEscape(promptPath)} ` +
-            `--transcript ${shellEscape(path.relative(PROJECT_ROOT, assets.transcriptPath))} ` +
-            `--events ${shellEscape(path.relative(PROJECT_ROOT, assets.piEventsPath))} ` +
-            `--stderr ${shellEscape(path.relative(PROJECT_ROOT, assets.stderrPath))} ` +
-            `--session-file ${shellEscape(path.relative(PROJECT_ROOT, assets.piSessionPath))}`
+            `--transcript ${shellEscape(transcriptPath)} ` +
+            `--events ${shellEscape(eventsPath)} ` +
+            `--stderr ${shellEscape(stderrPath)} ` +
+            `--session-file ${shellEscape(sessionFilePath)} ` +
+            `--cwd ${shellEscape(effectiveCwd)}`
         ].join("\n")
       : [
           "echo \"pi CLI not found. Running bootstrap stub launcher.\" | tee -a " +
             shellEscape(transcriptPath),
+          workspace?.id
+            ? `echo \"Workspace: ${workspace.id} (${workspace.branchName ?? "unknown"})\" | tee -a ${shellEscape(transcriptPath)}`
+            : null,
           `cat ${shellEscape(promptPath)} | tee -a ${shellEscape(transcriptPath)}`,
           `sleep ${stubDurationSeconds}`,
           "echo \"Stub session finished.\" | tee -a " + shellEscape(transcriptPath)
-        ].join("\n");
+        ].filter(Boolean).join("\n");
 
   const script = `#!/usr/bin/env bash
 set +e
-cd ${shellEscape(PROJECT_ROOT)}
+cd ${shellEscape(effectiveCwd)}
+node -e "const fs=require('node:fs'); fs.writeFileSync(process.argv[1], JSON.stringify({cwd: process.cwd(), launcherType: process.argv[2], workspaceId: process.argv[3] || null, branchName: process.argv[4] || null, recordedAt: new Date().toISOString()}, null, 2) + '\\n')" ${shellEscape(launchContextPath)} ${shellEscape(launcherType)} ${shellEscape(workspace?.id ?? "")} ${shellEscape(workspace?.branchName ?? "")}
 ${launchBody}
 exit_code=$?
 printf '{"exitCode": %s}\\n' "$exit_code" > ${shellEscape(exitPath)}

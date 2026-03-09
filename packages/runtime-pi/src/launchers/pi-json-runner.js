@@ -111,7 +111,7 @@ async function main() {
     !flags.stderr ||
     !flags["session-file"]
   ) {
-    throw new Error("use --pi-bin --prompt --transcript --events --stderr --session-file");
+    throw new Error("use --pi-bin --prompt --transcript --events --stderr --session-file [--cwd <path>]");
   }
 
   const piBinary = resolvePath(flags["pi-bin"]);
@@ -120,6 +120,7 @@ async function main() {
   const eventsPath = resolvePath(flags.events);
   const stderrPath = resolvePath(flags.stderr);
   const sessionFilePath = resolvePath(flags["session-file"]);
+  const workingDirectory = flags.cwd ? resolvePath(flags.cwd) : PROJECT_ROOT;
 
   await Promise.all([
     ensureFileParent(transcriptPath),
@@ -140,7 +141,7 @@ async function main() {
       "Execute this SPORE session plan."
     ],
     {
-      cwd: PROJECT_ROOT,
+      cwd: workingDirectory,
       stdio: ["ignore", "pipe", "pipe"]
     }
   );

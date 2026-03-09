@@ -177,7 +177,7 @@ async function main() {
     !flags["status-file"]
   ) {
     throw new Error(
-      "use --pi-bin --prompt --transcript --events --stderr --session-file --control --status-file"
+      "use --pi-bin --prompt --transcript --events --stderr --session-file --control --status-file [--cwd <path>]"
     );
   }
 
@@ -189,6 +189,7 @@ async function main() {
   const sessionFilePath = resolvePath(flags["session-file"]);
   const controlPath = resolvePath(flags.control);
   const statusPath = resolvePath(flags["status-file"]);
+  const workingDirectory = flags.cwd ? resolvePath(flags.cwd) : PROJECT_ROOT;
   const idleGraceMs = Number.parseInt(String(flags["idle-grace-ms"] ?? "1500"), 10);
   const pollIntervalMs = Number.parseInt(String(flags["poll-ms"] ?? "1000"), 10);
 
@@ -217,6 +218,7 @@ async function main() {
     finishedAt: null,
     controlPath: path.relative(PROJECT_ROOT, controlPath),
     sessionArtifactPath: path.relative(PROJECT_ROOT, sessionFilePath),
+    cwd: path.relative(PROJECT_ROOT, workingDirectory),
     lastEventAt: null,
     sawAgentEnd: false,
     abortRequested: false,
@@ -229,7 +231,7 @@ async function main() {
   }
 
   const child = spawn(piBinary, ["--mode", "rpc", "--no-session"], {
-    cwd: PROJECT_ROOT,
+    cwd: workingDirectory,
     stdio: ["pipe", "pipe", "pipe"]
   });
   state.pid = child.pid ?? null;

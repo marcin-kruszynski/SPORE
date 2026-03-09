@@ -163,6 +163,28 @@ export async function inspectWorkspace({ repoRoot = PROJECT_ROOT, worktreePath, 
   }
 
   const branchMatches = branchName ? matched?.branch === branchName : null;
+  const issues = [];
+  if (!exists) {
+    issues.push("missing-path");
+  }
+  if (exists && !matched) {
+    issues.push("not-registered");
+  }
+  if (branchName && branchMatches === false) {
+    issues.push("branch-mismatch");
+  }
+  if (matched?.detached) {
+    issues.push("detached-head");
+  }
+  if (matched?.prunable) {
+    issues.push("prunable");
+  }
+  if (matched?.locked) {
+    issues.push("locked");
+  }
+  if (exists && !clean && porcelain.length > 0) {
+    issues.push("dirty");
+  }
   return {
     repoRoot: canonicalRoot,
     worktreePath: normalizedPath,
@@ -177,7 +199,54 @@ export async function inspectWorkspace({ repoRoot = PROJECT_ROOT, worktreePath, 
     locked: matched?.locked ?? false,
     prunable: matched?.prunable ?? false,
     isCanonicalRoot: matched?.isCanonicalRoot ?? false,
-    porcelain
+    porcelain,
+    issues
+  };
+}
+
+export function deriveWorkspaceDiagnostics({ inspection, allocation = null } = {}) {
+  const issues = Array.isArray(inspection?.issues) ? inspection.issues : [];
+  const allocationStatus = allocation?.status ?? null;
+  const state =
+    allocationStatus === "cleaned"
+      ? "cleaned"
+      : !inspection?.exists
+        ? "missing"
+        : !inspection?.registered
+          ? "orphaned"
+          : issues.includes("branch-mismatch")
+            ? "branch-mismatch"
+            : issues.includes("detached-head")
+              ? "detached"
+              : issues.includes("dirty")
+                ? "dirty"
+                : allocationStatus === "failed"
+                  ? "failed"
+                  : "healthy";
+  const healthy = ["healthy", "cleaned"].includes(state);
+  const recommendedAction =
+    state === "missing" || state === "orphaned"
+      ? "reconcile-or-cleanup"
+      : state === "dirty"
+        ? "inspect-before-cleanup"
+        : state === "branch-mismatch" || state === "detached"
+          ? "inspect-and-reconcile"
+          : state === "failed"
+            ? "inspect-failure"
+            : "none";
+  return {
+    state,
+    healthy,
+    issues,
+    recommendedAction,
+    registered: inspection?.registered ?? false,
+    exists: inspection?.exists ?? false,
+    clean: inspection?.clean ?? false,
+    branchMatches: inspection?.branchMatches ?? null,
+    detached: inspection?.detached ?? false,
+    locked: inspection?.locked ?? false,
+    prunable: inspection?.prunable ?? false,
+    porcelainCount: Array.isArray(inspection?.porcelain) ? inspection.porcelain.length : 0
   };
 }
 
@@ -268,6 +337,7 @@ export async function reconcileWorkspace({ repoRoot = PROJECT_ROOT, allocation =
     worktreePath: allocation.worktreePath,
     branchName: allocation.branchName ?? null
   });
+  const diagnostics = deriveWorkspaceDiagnostics({ inspection, allocation });
   const status = !inspection.exists
     ? "orphaned"
     : !inspection.registered
@@ -278,7 +348,168 @@ export async function reconcileWorkspace({ repoRoot = PROJECT_ROOT, allocation =
   return {
     allocationId: allocation.id ?? null,
     status,
-    inspection
+    inspection,
+    diagnostics,
+    commandHint: workspaceCommandHint({
+      ...allocation,
+      worktreePath: inspection.worktreePath
+    })
+  };
+}
+
+function classifyWorkspaceChange(code = "") {
+  if (code === "??") return "untracked";
+  if (code.includes("R")) return "renamed";
+  if (code.includes("D")) return "deleted";
+  if (code.includes("A")) return "added";
+  if (code.includes("U")) return "conflicted";
+  return "modified";
+}
+
+function matchMutationScope(filePath, mutationScope = []) {
+  const normalizedPath = String(filePath ?? "").replace(/\\/g, "/");
+  const scopes = Array.isArray(mutationScope) ? mutationScope.filter(Boolean) : [];
+  for (const scope of scopes) {
+    const normalizedScope = String(scope).replace(/\\/g, "/").replace(/\/+$/, "");
+    if (!normalizedScope) {
+      continue;
+    }
+    if (
+      normalizedPath === normalizedScope ||
+      normalizedPath.startsWith(`${normalizedScope}/`)
+    ) {
+      return normalizedScope;
+    }
+  }
+  const rootSegment = normalizedPath.split("/")[0] ?? "unscoped";
+  return rootSegment || "unscoped";
+}
+
+function parseWorkspaceStatusLines(output = "") {
+  const entries = [];
+  for (const rawLine of String(output).split(/\r?\n/)) {
+    const line = rawLine.trimEnd();
+    if (!line) {
+      continue;
+    }
+    const code = line.slice(0, 2);
+    const rawPath = line.slice(3).trim();
+    const renameParts = rawPath.includes(" -> ") ? rawPath.split(" -> ") : null;
+    const previousPath = renameParts ? renameParts[0] : null;
+    const filePath = renameParts ? renameParts.at(-1) : rawPath;
+    entries.push({
+      path: filePath,
+      previousPath,
+      code,
+      status: classifyWorkspaceChange(code),
+      untracked: code === "??",
+      conflicted: code.includes("U")
+    });
+  }
+  return entries;
+}
+
+function parseNumstatLines(output = "") {
+  const byPath = new Map();
+  for (const rawLine of String(output).split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line) {
+      continue;
+    }
+    const parts = line.split("\t");
+    if (parts.length < 3) {
+      continue;
+    }
+    const [insertionsRaw, deletionsRaw, ...pathParts] = parts;
+    const filePath = pathParts.join("\t").trim();
+    byPath.set(filePath, {
+      insertions: insertionsRaw === "-" ? null : Number.parseInt(insertionsRaw, 10) || 0,
+      deletions: deletionsRaw === "-" ? null : Number.parseInt(deletionsRaw, 10) || 0
+    });
+  }
+  return byPath;
+}
+
+export async function summarizeWorkspaceChanges({ worktreePath, mutationScope = [] } = {}) {
+  if (!worktreePath) {
+    throw new Error("worktreePath is required to summarize workspace changes");
+  }
+
+  const [statusResult, numstatResult] = await Promise.all([
+    run("git", ["status", "--porcelain=v1", "--untracked-files=all"], { cwd: worktreePath }),
+    run("git", ["diff", "--numstat", "--find-renames", "HEAD"], { cwd: worktreePath }).catch(() => ({
+      stdout: "",
+      stderr: "",
+      code: 0
+    }))
+  ]);
+
+  const statusEntries = parseWorkspaceStatusLines(statusResult.stdout);
+  const numstatByPath = parseNumstatLines(numstatResult.stdout);
+  const files = statusEntries.map((entry) => {
+    const numstat =
+      numstatByPath.get(entry.path) ??
+      (entry.previousPath ? numstatByPath.get(`${entry.previousPath} => ${entry.path}`) : null) ??
+      null;
+    const scope = matchMutationScope(entry.path, mutationScope);
+    return {
+      path: entry.path,
+      previousPath: entry.previousPath,
+      status: entry.status,
+      code: entry.code,
+      scope,
+      insertions: numstat?.insertions ?? 0,
+      deletions: numstat?.deletions ?? 0,
+      untracked: entry.untracked,
+      conflicted: entry.conflicted
+    };
+  });
+
+  const byScope = new Map();
+  const summary = {
+    fileCount: files.length,
+    trackedFileCount: files.filter((file) => !file.untracked).length,
+    untrackedFileCount: files.filter((file) => file.untracked).length,
+    addedCount: files.filter((file) => file.status === "added").length,
+    modifiedCount: files.filter((file) => file.status === "modified").length,
+    deletedCount: files.filter((file) => file.status === "deleted").length,
+    renamedCount: files.filter((file) => file.status === "renamed").length,
+    conflictedCount: files.filter((file) => file.conflicted).length,
+    insertionCount: files.reduce((total, file) => total + (file.insertions ?? 0), 0),
+    deletionCount: files.reduce((total, file) => total + (file.deletions ?? 0), 0)
+  };
+
+  for (const file of files) {
+    const existing = byScope.get(file.scope) ?? {
+      scope: file.scope,
+      fileCount: 0,
+      addedCount: 0,
+      modifiedCount: 0,
+      deletedCount: 0,
+      renamedCount: 0,
+      untrackedCount: 0,
+      conflictedCount: 0,
+      insertionCount: 0,
+      deletionCount: 0,
+      files: []
+    };
+    existing.fileCount += 1;
+    existing.addedCount += file.status === "added" ? 1 : 0;
+    existing.modifiedCount += file.status === "modified" ? 1 : 0;
+    existing.deletedCount += file.status === "deleted" ? 1 : 0;
+    existing.renamedCount += file.status === "renamed" ? 1 : 0;
+    existing.untrackedCount += file.untracked ? 1 : 0;
+    existing.conflictedCount += file.conflicted ? 1 : 0;
+    existing.insertionCount += file.insertions ?? 0;
+    existing.deletionCount += file.deletions ?? 0;
+    existing.files.push(file);
+    byScope.set(file.scope, existing);
+  }
+
+  return {
+    ...summary,
+    changedFiles: files,
+    filesByScope: [...byScope.values()].sort((left, right) => left.scope.localeCompare(right.scope))
   };
 }
 

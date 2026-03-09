@@ -66,7 +66,11 @@ async function loadOrBuildPlan(flags) {
     contextQueryTerms: flags["context-query-terms"]
       ? String(flags["context-query-terms"]).split(",").map((item) => item.trim()).filter(Boolean)
       : null,
-    contextLimit: flags["context-limit"] ?? null
+    contextLimit: flags["context-limit"] ?? null,
+    cwd: flags.cwd ?? null,
+    workspaceId: flags["workspace-id"] ?? null,
+    workspaceBranch: flags["workspace-branch"] ?? null,
+    workspaceBaseRef: flags["workspace-base-ref"] ?? null
   });
 }
 
@@ -150,7 +154,9 @@ async function main() {
   await writeLaunchScript({
     launcherType,
     assets,
-    stubDurationSeconds: Number.parseInt(flags["stub-seconds"] ?? "2", 10)
+    stubDurationSeconds: Number.parseInt(flags["stub-seconds"] ?? "2", 10),
+    cwd: plan.session?.cwd ? resolvePath(plan.session.cwd) : PROJECT_ROOT,
+    workspace: plan.metadata?.workspace ?? null
   });
 
   const createResult = await runCli("node", [

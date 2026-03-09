@@ -313,7 +313,8 @@ function getArtifactMap(session) {
     stderr: `${base}.stderr.log`,
     control: `${base}.control.ndjson`,
     exit: `${base}.exit.json`,
-    rpcStatus: `${base}.rpc-status.json`
+    rpcStatus: `${base}.rpc-status.json`,
+    launchContext: `${base}.launch-context.json`
   };
 }
 
@@ -352,6 +353,17 @@ async function buildArtifactSummary(session) {
   }, {});
 }
 
+async function readPlanArtifact(session, artifacts) {
+  if (!artifacts?.plan?.exists) {
+    return null;
+  }
+  try {
+    return (await readArtifactContent(session, "plan")).content;
+  } catch {
+    return null;
+  }
+}
+
 async function readArtifactContent(session, artifactName, raw = false) {
   const artifactMap = getArtifactMap(session);
   const targetPath = artifactMap[artifactName];
@@ -378,7 +390,7 @@ async function readArtifactContent(session, artifactName, raw = false) {
     };
   }
 
-  if (artifactName === "plan" || artifactName === "context" || artifactName === "exit" || artifactName === "rpcStatus") {
+  if (artifactName === "plan" || artifactName === "context" || artifactName === "exit" || artifactName === "rpcStatus" || artifactName === "launchContext") {
     return {
       path: path.relative(PROJECT_ROOT, targetPath),
       content: JSON.parse(content)
@@ -830,6 +842,19 @@ async function createServer(options = {}) {
           artifacts.rpcStatus?.exists
             ? (await readArtifactContent(session, "rpcStatus")).content
             : null;
+        const launchContext =
+          artifacts.launchContext?.exists
+            ? (await readArtifactContent(session, "launchContext")).content
+            : null;
+        const plan = await readPlanArtifact(session, artifacts);
+        const workspace = plan?.metadata?.workspace
+          ? {
+              id: plan.metadata.workspace.id ?? null,
+              branchName: plan.metadata.workspace.branchName ?? null,
+              baseRef: plan.metadata.workspace.baseRef ?? null,
+              cwd: plan.metadata.workspace.cwd ?? plan.session?.cwd ?? null
+            }
+          : null;
         json(response, 200, {
           ok: true,
           session,
@@ -837,6 +862,8 @@ async function createServer(options = {}) {
           artifacts,
           controlHistory,
           diagnostics,
+          workspace,
+          launchContext,
           launcher: {
             launcherType: session.launcherType ?? null,
             tmuxSession: session.tmuxSession ?? null,
@@ -848,6 +875,7 @@ async function createServer(options = {}) {
             runId: session.runId ?? null,
             runtimeAdapter: session.runtimeAdapter ?? null,
             transportMode: session.transportMode ?? null,
+            cwd: launchContext?.cwd ?? plan?.session?.cwd ?? null,
             rpcStatus
           },
           controlAck: controlHistory[0]

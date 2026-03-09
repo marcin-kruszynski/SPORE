@@ -42,12 +42,15 @@ SPORE already has a meaningful executable foundation.
 - `git worktree` provisioning for mutating self-work through `packages/workspace-manager/`
 - workspace linkage from work-item runs and proposal artifacts to a concrete worktree path and branch
 - `work-item run validation` and `doc suggestions`
-- `self-build summary` as an aggregate read surface
-- Web run-center visibility into managed work items, work-item runs, and proposal artifacts
+- `self-build summary` and `self-build dashboard` as aggregate read surfaces
+- `work-item run history` with trend, comparison, and rerun affordances
+- durable `attentionSummary`, queue ordering, and planner follow-up items for self-work
+- Web run-center visibility into managed work items, work-item runs, proposal artifacts, and workspace health
+- TUI parity for `self-build-dashboard`, `work-item-queue`, `workspace-list`, `workspace-show`, and `work-item-run-rerun`
 
 ## What This Means Practically
 
-SPORE can now represent and execute supervised self-work in a structured way.
+SPORE can now represent and execute supervised self-work in a structured way, and it now has a dedicated self-build dashboard for operator triage instead of relying only on generic run-center views.
 
 The current supervised self-work shape is:
 
@@ -62,26 +65,126 @@ The current supervised self-work shape is:
 
 That is not full autonomy. It is a controlled self-improvement loop with durable traceability.
 
+## Phase 1 Status
+
+Phase 1 from the long-range self-build roadmap is complete.
+
+Delivered in that phase:
+
+- dedicated `GET /self-build/dashboard` aggregate route
+- browser self-build dashboard with filters for status, group, template, and domain
+- first-class work-item run history with trend and comparison summaries
+- durable self-build queue and attention-state model
+- TUI parity for dashboard, queue, workspace inspection, and run rerun flows
+- deterministic operator alerts and recommendations sourced from persisted state
+
+The next implementation work should therefore move to phase 3 concerns: stronger planning, richer grouped execution, and tighter proposal/validation governance.
+
+## Phase 2 Status
+
+Phase 2 from the long-range self-build roadmap is now complete.
+
+Delivered in that phase:
+
+- durable workspace diagnostics, reconcile, and governance-aware cleanup
+- retention guidance for workspace-backed artifacts versus disposable workspace directories
+- richer proposal artifacts backed by real workspace diffs, changed-file grouping, and patch previews
+- runtime launch with `cwd` set to the provisioned workspace for controlled mutating self-work
+- durable runtime launch-context artifact proving actual launch `cwd`
+- session live visibility for workspace linkage, runtime `cwd`, and launch-context metadata
+- first slice of per-step workspace allocation for mutating workflow execution
+- execution-level workspace reads through `GET /executions/:id/workspaces`
+- automated tests that prove stub-backed runtime launch writes artifacts from the provisioned workspace context
+
+Remaining gaps now start in phase 3 and beyond:
+
+- planner quality is still deterministic but shallow
+- validation bundles are still narrower than they need to be
+- proposal governance needs richer review/rework semantics
+- dependency-aware self-build execution needs to be generalized beyond the current slice
+- there is still no supervised end-to-end self-build loop that an operator can run as one product workflow
+
 ## The Next 16 Steps
 
 The next implementation wave should move in this order.
 
-### 1. Build a Dedicated Self-Build Dashboard
+### 1. Generalize Workspace Diagnostics and Reconcile
 
-Move self-build visibility from being only one section inside `Run Center` to a dedicated dashboard.
+Extend the first worktree slice into a durable health and recovery surface.
 
 Target outcomes:
-- active work-item groups
-- blocked work items
-- proposal artifacts waiting review
-- validation waiting execution
-- latest learning records and doc suggestions
+- `missing`, `orphaned`, `dirty`, `failed`, `settled`, and `cleaned` workspace diagnostics
+- reconcile semantics that compare DB state, `git worktree list`, and filesystem reality
+- operator suggestions for cleanup, recovery, or inspection
 
 Why now:
-- the data model exists already
-- the operator surface is the current bottleneck
+- mutating self-work already provisions worktrees; diagnostics must catch up before volume increases
 
-### 2. Add Work-Item Dependency-Aware Group Execution
+Status:
+- completed for durable diagnostics, live workspace detail, and explicit reconcile commands
+- still missing execution-level aggregate workspace views and stronger dashboard surfacing
+
+### 2. Add Workspace Cleanup Policy
+
+Make cleanup policy explicit and governance-aware.
+
+Target outcomes:
+- do not remove reviewed or approval-pending worktrees too early
+- explicit cleanup commands and retention rules
+- auditable cleanup decisions
+
+Why now:
+- proposal-backed workspaces are now durable operator artifacts, not disposable temp dirs
+
+Status:
+- completed, including retention guidance that distinguishes workspace directories from retained proposal artifacts
+
+### 3. Strengthen Proposal Artifact Semantics
+
+Proposal artifacts need to become a stronger review package for code-oriented self-work.
+
+Target outcomes:
+- richer diff summaries
+- changed-file grouping by mutation scope
+- stronger links to workspace status, tests, and validation evidence
+
+Why now:
+- proposals exist, but they are still too thin for sustained self-build review
+
+Status:
+- completed for normalized diff summaries, mutation-scope file grouping, patch previews, and richer workspace linkage
+
+### 4. Runtime Launch in Workspace `cwd`
+
+Mutating runs should execute in the provisioned worktree, not only be linked to it logically.
+
+Target outcomes:
+- runtime launch with `cwd` set to the worktree
+- workspace metadata visible in session artifacts and session live
+- integration proof that mutating runtime sessions do not run from the canonical root
+
+Why now:
+- without this, filesystem isolation is incomplete
+
+Status:
+- completed for workspace-backed self-work launches, durable launch-context artifacts, and integration assertions that capture actual launch `cwd`
+
+### 5. Per-Step Workspace Allocation for General Workflow Execution
+
+Extend workspace allocation beyond self-build work-item runs.
+
+Target outcomes:
+- mutating builder-like workflow steps can get their own worktree
+- execution-to-workspace linkage is queryable
+- reviewer/scout/orchestrator stay read-only by default
+
+Why now:
+- self-build should not be the only place that benefits from filesystem isolation
+
+Status:
+- completed for the first production-shaped slice: mutating workflow steps can provision or reuse a workspace through `runtimePolicy.workspace`, execution-level workspace reads now exist, and non-mutating roles remain read-only unless explicitly opted in
+
+### 6. Add Work-Item Dependency-Aware Group Execution
 
 Make `work-item groups` respect explicit dependencies instead of treating grouped work as only a flat collection.
 
@@ -93,7 +196,7 @@ Target outcomes:
 Why now:
 - self-work will become noisy and unsafe without ordering semantics
 
-### 3. Build a Full Goal -> Plan -> Materialize -> Run -> Validate -> Review Flow
+### 7. Build a Full Goal -> Plan -> Materialize -> Run -> Validate -> Review Flow
 
 Turn the current separate self-build endpoints into one operator-recognizable lifecycle.
 
@@ -105,19 +208,7 @@ Target outcomes:
 Why now:
 - the pieces exist, but the end-to-end path is still spread across separate commands and screens
 
-### 4. Strengthen Proposal Artifact Semantics
-
-Proposal artifacts need to become the standard review package for code-oriented self-work.
-
-Target outcomes:
-- consistent artifact schema
-- stronger links to affected files, tests, validations, and doc impact
-- clearer proposal summary for reviewers
-
-Why now:
-- proposals exist, but the contract is still early and should be normalized before heavier self-work
-
-### 5. Add Proposal-Centric Review Workflows
+### 8. Add Proposal-Centric Review Workflows
 
 Treat proposal review as a dedicated workflow stage rather than a thin state transition.
 
@@ -129,7 +220,7 @@ Target outcomes:
 Why now:
 - self-building without a strong review loop becomes indistinguishable from unsafe automation
 
-### 6. Add Validation Bundles for Work-Item Runs
+### 9. Add Validation Bundles for Work-Item Runs
 
 A work-item run should carry a named validation bundle instead of only ad hoc validation attachments.
 
@@ -141,7 +232,7 @@ Target outcomes:
 Why now:
 - validation exists, but it is still one level too manual for repeatable self-build loops
 
-### 7. Add Safe-Mode Enforcement as a First-Class Runtime Rule
+### 10. Add Safe-Mode Enforcement as a First-Class Runtime Rule
 
 The default early self-build path should remain constrained.
 
@@ -153,7 +244,7 @@ Target outcomes:
 Why now:
 - the repository is close to running self-work regularly; guardrails need to harden before that becomes routine
 
-### 8. Expand the SPORE Project Profile for Self-Work Defaults
+### 11. Expand the SPORE Project Profile for Self-Work Defaults
 
 Treat SPORE itself as the first serious managed project profile.
 
@@ -166,7 +257,7 @@ Target outcomes:
 Why now:
 - SPORE should become the canonical reference project for its own orchestration model
 
-### 9. Add Work-Item Templates for More Real SPORE Tasks
+### 12. Add Work-Item Templates for More Real SPORE Tasks
 
 Broaden the current small template catalog.
 
@@ -180,7 +271,7 @@ Target outcomes:
 Why now:
 - a richer template library reduces operator friction and supports future planner quality
 
-### 10. Add Goal-Planning Rules That Use Project and Domain Context Better
+### 13. Add Goal-Planning Rules That Use Project and Domain Context Better
 
 The goal planner should become less generic and more project-aware.
 
@@ -192,20 +283,7 @@ Target outcomes:
 Why now:
 - current planner is intentionally simple; it is good enough for bootstrap, not good enough for broader self-work
 
-### 11. Add Self-Build Queue Management
-
-Introduce a durable queue view for pending, blocked, running, and review-pending self-work.
-
-Target outcomes:
-- queue ordering
-- queue filters
-- queue grouping by goal plan or work-item group
-- operator summary of stuck items
-
-Why now:
-- once there are more than a few work items, the current surfaces will stop scaling operationally
-
-### 12. Add Better Learning Record Surfacing
+### 14. Add Better Learning Record Surfacing
 
 Learning records exist, but they are not yet central to operator decisions.
 
@@ -217,7 +295,7 @@ Target outcomes:
 Why now:
 - self-building without durable reflection leaves too much value trapped in logs and run history
 
-### 13. Add Auto-Documentation Suggestion Review Surfaces
+### 15. Add Auto-Documentation Suggestion Review Surfaces
 
 Doc suggestions should become a visible review queue, not only attached metadata.
 
@@ -229,20 +307,7 @@ Target outcomes:
 Why now:
 - documentation drift will become a real risk as self-work volume grows
 
-### 14. Add Failure Pattern Aggregation for Self-Work
-
-Use work-item and proposal outcomes to surface repeated failure modes.
-
-Target outcomes:
-- repeated governance stalls
-- repeated validation failures
-- repeated proposal rejections
-- repeated runtime/operator issues affecting self-build
-
-Why now:
-- this becomes the basis for better planning, better policy packs, and lower operator toil
-
-### 15. Add Supervised Self-Build Scenarios
+### 16. Add Supervised Self-Build Scenarios
 
 Create canonical named scenarios specifically for SPORE working on SPORE.
 
@@ -255,20 +320,6 @@ Target outcomes:
 Why now:
 - named scenarios are the backbone of repeatable validation in the rest of the system and should become the backbone here too
 
-### 16. Build Supervised Self-Build Loop v1
-
-Only after the previous steps land should SPORE expose a real supervised self-building loop.
-
-Target outcomes:
-- operator provides goal
-- goal becomes plan and work-item group
-- managed execution respects dependencies and policy packs
-- proposal artifacts are produced and validated
-- documentation suggestions and learning records are generated
-- process stops at explicit review and approval gates
-
-Why now:
-- this is the first version that can reasonably be called “SPORE working on SPORE” without dropping safety and traceability
 
 ## Broader View: What Still Needs to Be Implemented
 
@@ -277,8 +328,7 @@ The next 16 steps above are the immediate self-build track. The broader missing 
 ### A. Self-Build Product Surface Is Still Incomplete
 
 What is missing:
-- dedicated self-build dashboard
-- queue management and batch execution visibility
+- first-class queue management and batch execution visibility beyond the new dashboard
 - first-class proposal review screens
 - first-class doc-suggestion review screens
 - first-class learning review screens
@@ -388,7 +438,6 @@ Every new self-build loop feature should keep updating:
 
 A credible supervised self-building SPORE still needs all of the following together:
 
-- a dedicated self-build dashboard
 - dependency-aware grouped execution
 - stronger proposal review workflows
 - reusable validation bundles
@@ -403,10 +452,10 @@ Until those pieces land, SPORE can already do supervised self-work, but it still
 
 If the next batch should stay tightly focused, implement these four first:
 
-1. dedicated self-build dashboard
-2. dependency-aware work-item groups
-3. validation bundles for work-item runs
-4. proposal review workflow depth
+1. workspace diagnostics and reconcile
+2. stronger proposal artifact semantics
+3. dependency-aware work-item groups
+4. execution-level workspace reads and runtime proof
 
 That gives the highest leverage path toward a usable supervised self-build loop.
 

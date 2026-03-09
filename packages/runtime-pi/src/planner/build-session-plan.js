@@ -31,7 +31,11 @@ export async function buildSessionPlan({
   sessionMode = null,
   contextQuery = null,
   contextQueryTerms = null,
-  contextLimit = null
+  contextLimit = null,
+  cwd = null,
+  workspaceId = null,
+  workspaceBranch = null,
+  workspaceBaseRef = null
 }) {
   if (!profilePath) {
     throw new Error("profilePath is required");
@@ -71,7 +75,8 @@ export async function buildSessionPlan({
       sessionMode: sessionMode ?? profile.sessionMode,
       transportMode: runtimeConfig.sessionDefaults?.mode ?? "local-process",
       transcriptCapture: runtimeConfig.sessionDefaults?.captureTranscript ?? true,
-      storeRoot: runtimeConfig.sessionDefaults?.storeRoot ?? "tmp/sessions"
+      storeRoot: runtimeConfig.sessionDefaults?.storeRoot ?? "tmp/sessions",
+      cwd: cwd ? relativeToProject(resolveInputPath(cwd)) : null
     },
     project: project
       ? {
@@ -104,6 +109,14 @@ export async function buildSessionPlan({
     },
     metadata: {
       generatedAt: new Date().toISOString(),
+      workspace: workspaceId || cwd
+        ? {
+            id: workspaceId ?? null,
+            branchName: workspaceBranch ?? null,
+            baseRef: workspaceBaseRef ?? null,
+            cwd: cwd ? relativeToProject(resolveInputPath(cwd)) : null
+          }
+        : null,
       sourceFiles: {
         profile: relativeToProject(resolvedProfilePath),
         runtime: relativeToProject(resolvedRuntimePath),

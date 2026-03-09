@@ -104,6 +104,34 @@ test("session live route returns diagnostics and control guidance", async (t) =>
     fs.writeFile(`${base}.transcript.md`, "builder transcript\n", "utf8"),
     fs.writeFile(`${base}.rpc-status.json`, `${JSON.stringify({ ok: true }, null, 2)}\n`, "utf8"),
     fs.writeFile(
+      `${base}.launch-context.json`,
+      `${JSON.stringify({
+        cwd: ".spore/worktrees/spore/ws-live",
+        launcherType: "pi-rpc",
+        workspaceId: "ws-live",
+        branchName: "spore/spore/execution-step/step-live"
+      }, null, 2)}\n`,
+      "utf8"
+    ),
+    fs.writeFile(
+      `${base}.plan.json`,
+      `${JSON.stringify({
+        session: {
+          id: sessionId,
+          cwd: ".spore/worktrees/spore/ws-live"
+        },
+        metadata: {
+          workspace: {
+            id: "ws-live",
+            branchName: "spore/spore/execution-step/step-live",
+            baseRef: "HEAD",
+            cwd: ".spore/worktrees/spore/ws-live"
+          }
+        }
+      }, null, 2)}\n`,
+      "utf8"
+    ),
+    fs.writeFile(
       `${base}.control.ndjson`,
       `${JSON.stringify({ id: `${sessionId}-control`, action: "steer", message: "finish soon" })}\n`,
       "utf8"
@@ -119,6 +147,8 @@ test("session live route returns diagnostics and control guidance", async (t) =>
     gateway.kill("SIGTERM");
     await fs.rm(`${base}.transcript.md`, { force: true });
     await fs.rm(`${base}.rpc-status.json`, { force: true });
+    await fs.rm(`${base}.launch-context.json`, { force: true });
+    await fs.rm(`${base}.plan.json`, { force: true });
     await fs.rm(`${base}.control.ndjson`, { force: true });
   });
 
@@ -149,6 +179,9 @@ test("session live route returns diagnostics and control guidance", async (t) =>
   assert.equal(response.json.controlHistory.length, 1);
   assert.equal(response.json.launcherMetadata.launcherType, "pi-rpc");
   assert.equal(response.json.launcherMetadata.runtimeAdapter, "runtime-pi");
+  assert.equal(response.json.launcherMetadata.cwd, ".spore/worktrees/spore/ws-live");
+  assert.equal(response.json.launchContext.cwd, ".spore/worktrees/spore/ws-live");
+  assert.equal(response.json.workspace.id, "ws-live");
   assert.ok(response.json.launcherMetadata.rpcStatus);
   assert.equal(response.json.controlAck.requestId, `${sessionId}-request`);
 

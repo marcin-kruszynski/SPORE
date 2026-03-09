@@ -9,10 +9,13 @@ import {
   buildWorkspaceBranchName,
   buildWorkspacePath,
   createWorkspace,
+  deriveWorkspaceDiagnostics,
   inspectWorkspace,
   listGitWorktrees,
   removeWorkspace,
+  reconcileWorkspace,
   resolveCanonicalGitRoot,
+  summarizeWorkspaceChanges,
   writeWorkspacePatchArtifact
 } from "../src/manager.js";
 
@@ -102,4 +105,88 @@ test("workspace branch naming is stable and sanitized", () => {
     ownerId: "run:123"
   });
   assert.equal(branch, "spore/spore-ui/work-item-run/run-123");
+});
+
+test("workspace reconcile surfaces diagnostics for dirty and missing worktrees", async () => {
+  const repoRoot = await makeTempRepo();
+  const workspace = await createWorkspace({
+    repoRoot,
+    workspaceId: "ws-002",
+    projectId: "spore",
+    ownerType: "execution-step",
+    ownerId: "step-001"
+  });
+
+  await fs.writeFile(path.join(workspace.worktreePath, "README.md"), "# temp repo\ndirty\n", "utf8");
+  const dirtyInspection = await inspectWorkspace({
+    repoRoot,
+    worktreePath: workspace.worktreePath,
+    branchName: workspace.branchName
+  });
+  const dirtyDiagnostics = deriveWorkspaceDiagnostics({
+    inspection: dirtyInspection,
+    allocation: {
+      id: workspace.id,
+      status: "active"
+    }
+  });
+  assert.equal(dirtyDiagnostics.state, "dirty");
+  assert.equal(dirtyDiagnostics.recommendedAction, "inspect-before-cleanup");
+
+  const reconciledDirty = await reconcileWorkspace({
+    repoRoot,
+    allocation: {
+      id: workspace.id,
+      worktreePath: workspace.worktreePath,
+      branchName: workspace.branchName,
+      status: "active"
+    }
+  });
+  assert.equal(reconciledDirty.diagnostics.state, "dirty");
+
+  await removeWorkspace({ repoRoot, worktreePath: workspace.worktreePath, branchName: workspace.branchName, force: true });
+  const reconciledMissing = await reconcileWorkspace({
+    repoRoot,
+    allocation: {
+      id: workspace.id,
+      worktreePath: workspace.worktreePath,
+      branchName: workspace.branchName,
+      status: "active"
+    }
+  });
+  assert.equal(reconciledMissing.diagnostics.state, "missing");
+  assert.equal(reconciledMissing.commandHint.includes("git status"), true);
+});
+
+test("workspace change summary groups changed files by mutation scope", async () => {
+  const repoRoot = await makeTempRepo();
+  const workspace = await createWorkspace({
+    repoRoot,
+    workspaceId: "ws-003",
+    projectId: "spore",
+    ownerType: "work-item-run",
+    ownerId: "run-003",
+    mutationScope: ["docs", "apps/web"]
+  });
+
+  await fs.mkdir(path.join(workspace.worktreePath, "docs"), { recursive: true });
+  await fs.mkdir(path.join(workspace.worktreePath, "apps", "web"), { recursive: true });
+  await fs.writeFile(path.join(workspace.worktreePath, "docs", "guide.md"), "# guide\n", "utf8");
+  await fs.writeFile(path.join(workspace.worktreePath, "apps", "web", "panel.js"), "console.log('panel');\n", "utf8");
+  await fs.writeFile(path.join(workspace.worktreePath, "README.md"), "# temp repo\nchanged\n", "utf8");
+
+  const summary = await summarizeWorkspaceChanges({
+    worktreePath: workspace.worktreePath,
+    mutationScope: ["docs", "apps/web"]
+  });
+
+  assert.equal(summary.fileCount, 3);
+  assert.ok(summary.untrackedFileCount >= 2);
+  assert.ok(summary.changedFiles.some((file) => file.scope === "docs"));
+  assert.ok(summary.changedFiles.some((file) => file.scope === "apps/web"));
+  assert.ok(summary.changedFiles.some((file) => file.path === "README.md"));
+  assert.ok(summary.filesByScope.some((entry) => entry.scope === "docs" && entry.fileCount === 1));
+  assert.ok(summary.filesByScope.some((entry) => entry.scope === "apps/web" && entry.fileCount === 1));
+
+  await removeWorkspace({ repoRoot, worktreePath: workspace.worktreePath, branchName: workspace.branchName, force: true });
 });

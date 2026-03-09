@@ -8,7 +8,8 @@ Status note:
 - the first implementation slice now exists through `packages/workspace-manager/`,
 - durable `workspace_allocations` are persisted for mutating self-work,
 - proposal artifacts and work-item runs can now link to a provisioned git worktree,
-- per-step execution worktrees are still pending.
+- runtime launch can now switch `cwd` into a provisioned workspace for controlled mutating self-work,
+- an initial execution-step workspace path now exists through `runtimePolicy.workspace`.
 
 It answers four questions:
 
@@ -36,11 +37,11 @@ Today, SPORE has:
 - mutation intent metadata.
 
 It still does **not** yet have:
-- per-step execution worktrees across the general workflow engine,
+- broad policy-driven execution-step worktrees across the whole workflow engine,
 - execution-family integration branches,
 - persistent per-agent worktree pools,
-- full cleanup/reconcile automation for orphaned worktrees,
-- runtime launch `cwd` switched into per-step worktrees for builder-like execution steps.
+- retention automation for old workspaces and artifact bundles,
+- a dedicated proof for real PI-backed mutating sessions under proposal-producing self-work.
 
 For real code-writing swarm behavior, SPORE should move to a **canonical-root + per-mutating-run worktree** model.
 
@@ -86,9 +87,12 @@ Implemented now:
 - `git worktree remove`
 - durable `workspace_allocations`
 - orchestrator read surfaces for workspaces linked to mutating work-item runs
+- orchestrator execution-level workspace reads through `GET /executions/:id/workspaces`
 - workspace allocation tables for worktree paths or branches
 - orchestrator/session launch code that switches cwd into a per-run worktree
+- durable `launch-context` artifacts that record the actual runtime launch `cwd`
 - cleanup/reconcile logic for orphaned worktrees
+- governance-aware cleanup and retention guidance for workspace directories versus proposal artifacts
 
 This means the current self-build loop can reason about scoped mutations, but it cannot yet guarantee physical filesystem isolation between mutating workers.
 
@@ -269,14 +273,22 @@ The right move is:
 
 ## Do we have worktree creation implemented now?
 
-No.
+Yes, partially.
 
-SPORE currently has no real worktree provisioning path.
-There is no implemented distinction between:
-- canonical repo root,
-- mutable worktree for a run,
-- integration branch workspace,
-- reusable worker workspace.
+SPORE now has a real worktree provisioning path for mutating self-work and an initial execution-step integration path.
+
+Implemented now:
+- canonical repo root versus mutable per-run worktree,
+- durable `workspace_allocations`,
+- explicit `workspace reconcile` and `workspace cleanup`,
+- runtime launch with `cwd` set to the provisioned worktree when a mutating self-work workflow step carries workspace policy,
+- workspace metadata in runtime session plans and session live inspection.
+
+Still not complete:
+- full workspace-backed execution coverage for all mutating workflow steps,
+- aggregate execution-to-workspace read surfaces,
+- durable merge/integration discipline on top of workspace-backed proposals,
+- reusable worker workspace pools.
 
 ## Should the model be per agent, per task, or per lead tree?
 

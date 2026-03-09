@@ -66,10 +66,59 @@
         <div class="self-build-dashboard">
           <section class="dashboard-section">
             <div class="panel-header">
+              <div>
+                <h2>Self-Build Dashboard</h2>
+                <p class="section-note">Dedicated operator surface for managed work, proposals, validations, learnings, and workspace attention.</p>
+              </div>
+              <span id="self-build-dashboard-state" class="muted">route: idle</span>
+            </div>
+            <form id="self-build-filter-form" class="workflow-form">
+              <div class="inline-grid">
+                <div>
+                  <label class="form-label" for="self-build-status-filter">Status</label>
+                  <select id="self-build-status-filter">
+                    <option value="">All</option>
+                    <option value="pending">pending</option>
+                    <option value="running">running</option>
+                    <option value="blocked">blocked</option>
+                    <option value="completed">completed</option>
+                    <option value="failed">failed</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="form-label" for="self-build-group-filter">Group</label>
+                  <input id="self-build-group-filter" type="text" placeholder="work-group-..." />
+                </div>
+                <div>
+                  <label class="form-label" for="self-build-template-filter">Template</label>
+                  <input id="self-build-template-filter" type="text" placeholder="operator-ui-pass" />
+                </div>
+                <div>
+                  <label class="form-label" for="self-build-domain-filter">Domain</label>
+                  <input id="self-build-domain-filter" type="text" placeholder="frontend" />
+                </div>
+              </div>
+              <div class="control-row">
+                <button type="submit" class="primary-button">Apply Filters</button>
+                <button id="self-build-filter-reset" type="button" class="secondary-button">Reset</button>
+              </div>
+            </form>
+          </section>
+
+          <section class="dashboard-section">
+            <div class="panel-header">
               <h2>Overview</h2>
               <span id="self-build-freshness" class="muted">Last updated: -</span>
             </div>
             <div id="self-build-overview" class="overview-cards"></div>
+          </section>
+
+          <section class="dashboard-section">
+            <div class="panel-header">
+              <h2>Attention Summary</h2>
+              <span id="self-build-attention-count" class="muted">0 items</span>
+            </div>
+            <div id="self-build-attention-summary" class="overview-cards"></div>
           </section>
 
           <section class="dashboard-section">
@@ -98,6 +147,22 @@
               <span id="follow-up-count" class="muted">0 items</span>
             </div>
             <div id="follow-up-queue" class="work-queue"></div>
+          </section>
+
+          <section class="dashboard-section">
+            <div class="panel-header">
+              <h2>Recent Work-Item Runs</h2>
+              <span id="self-build-recent-runs-count" class="muted">0 runs</span>
+            </div>
+            <div id="self-build-recent-runs" class="work-queue"></div>
+          </section>
+
+          <section class="dashboard-section">
+            <div class="panel-header">
+              <h2>Workspace Health</h2>
+              <span id="self-build-workspace-count" class="muted">0 workspaces</span>
+            </div>
+            <div id="self-build-workspace-health" class="work-queue"></div>
           </section>
 
           <!-- Drilldown Detail View -->

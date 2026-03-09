@@ -93,12 +93,17 @@ Recommended interpretation:
 - `regression-trends --regression <id>` returns pass-rate, duration, and streak summaries across durable regression runs.
 - `regression-scheduler-status` returns the read-only scheduler status summary and latest scheduled-run pointers without abusing the scheduler run mutation route as a status check.
 - `self-build-summary` returns one top-level summary of goal plans, groups, work items, runs, proposals, and evaluation/doc-suggestion readiness.
+- `self-build-dashboard` returns the dedicated self-build dashboard aggregate with attention states, queue summaries, recent work-item runs, and workspace health.
 - `work-item-template-list` and `work-item-template-show --template <id>` expose reusable work-item creation templates from `config/work-item-templates/`.
 - `goal-plan-create`, `goal-plan-list`, `goal-plan-show --plan <id>`, and `goal-plan-materialize --plan <id>` expose durable goal planning and plan-to-group materialization.
 - `work-item-group-list`, `work-item-group-show --group <id>`, and `work-item-group-run --group <id>` expose grouped managed-work execution.
 - `work-item-list`, `work-item-show`, `work-item-create`, `work-item-run`, and `work-item-run-show` expose the first durable managed self-work surface for SPORE itself.
 - `work-item-runs --item <id>` exposes durable run history for one managed work item.
+- `work-item-run-rerun --run <id>` creates a new durable managed run linked back to the original run.
 - `workspace-list` and `workspace-show --workspace <id>` (or `--run <work-item-run-id>`) expose durable worktree allocation state for mutating self-work.
+- `workspace-reconcile --workspace <id>` refreshes durable workspace diagnostics against Git and filesystem reality.
+- `workspace-cleanup --workspace <id>` applies governance-aware cleanup and can be forced when operator review decides the workspace is disposable.
+- `execution-workspaces --execution <id>` returns the workspace allocations linked to one workflow execution.
 - `work-item-validate --run <id>` records durable validation/evaluation artifacts for one managed run.
 - `work-item-doc-suggestions --run <id>` returns persisted documentation follow-up suggestions for one managed run.
 - `proposal-show --proposal <id>` (or `--run <work-item-run-id>`) exposes durable proposal artifact summary.
@@ -152,6 +157,7 @@ npm run orchestrator:scenario-rerun -- --run <run-id>
 npm run orchestrator:scenario-trends -- --scenario backend-service-delivery
 npm run orchestrator:run-center
 npm run orchestrator:self-build-summary
+npm run orchestrator:self-build-dashboard
 npm run orchestrator:regression-run -- --regression local-fast --stub
 npm run orchestrator:regression-run-show -- --run <run-id>
 npm run orchestrator:regression-report -- --run <run-id>
@@ -173,7 +179,11 @@ npm run orchestrator:work-item-show -- --item <work-item-id>
 npm run orchestrator:work-item-runs -- --item <work-item-id>
 npm run orchestrator:work-item-run -- --item <work-item-id> --stub
 npm run orchestrator:work-item-run-show -- --run <work-item-run-id>
+npm run orchestrator:work-item-run-rerun -- --run <work-item-run-id>
 npm run orchestrator:workspace-show -- --run <work-item-run-id>
+npm run orchestrator:workspace-reconcile -- --workspace <workspace-id>
+npm run orchestrator:workspace-cleanup -- --workspace <workspace-id> --force
+npm run orchestrator:execution-workspaces -- --execution <execution-id>
 npm run orchestrator:work-item-validate -- --run <work-item-run-id> --stub
 npm run orchestrator:work-item-doc-suggestions -- --run <work-item-run-id>
 npm run orchestrator:proposal-show -- --run <work-item-run-id>

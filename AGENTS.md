@@ -109,9 +109,12 @@ Useful local overrides for isolated runs and tests:
 - Treat `goal plans` as durable planning artifacts that should be materialized into work-item groups; prefer `/goals/plan`, `/goal-plans*`, and `/goal-plans/:id/materialize`.
 - Treat `work-item groups` as the execution unit for multi-item rollout. Prefer `/work-item-groups*` and `/work-item-groups/:id/run` over manually running each child item when grouped execution is intended.
 - Treat proposal artifacts as governed outputs for work-item runs. Prefer `/work-item-runs/:runId/proposal`, `/proposal-artifacts/:id/review`, and `/proposal-artifacts/:id/approval` for proposal lifecycle transitions.
-- Treat workspace allocations as durable self-work infrastructure. Prefer `/workspaces*` and `/work-item-runs/:runId/workspace` over inferring worktree state from filesystem paths alone.
+- Treat workspace allocations as durable self-work infrastructure. Prefer `/workspaces*`, `/work-item-runs/:runId/workspace`, and `/executions/:id/workspaces` over inferring worktree state from filesystem paths alone.
+- Prefer `/workspaces/:id/reconcile` before manual cleanup when a workspace looks orphaned, missing, or dirty.
+- Treat workspace cleanup as governance-aware. Do not remove a proposal-backed or review-pending workspace unless the operator is making an explicit forced recovery decision.
+- Treat runtime `launch-context` artifacts and session live `launcherMetadata.cwd` as the evidence path for proving that mutating runs launched inside a provisioned workspace.
 - Treat run validation and docs follow-up as first-class read/write surfaces. Prefer `/work-item-runs/:runId/validate` and `/work-item-runs/:runId/doc-suggestions` for operator quality loops.
-- Use `/self-build/summary` (or `self-build-summary`) for top-level self-build state snapshots before stitching ad hoc summary views.
+- Use `/self-build/dashboard` (or `self-build-dashboard`) as the preferred aggregate self-build triage surface when building dedicated dashboards or operator consoles. Use `/self-build/summary` only when a lighter snapshot is sufficient.
 
 ## Minimum Verification Loop
 
@@ -216,15 +219,18 @@ Current CLI contract: `docs-kb index|search|status|rebuild`.
 - `services/orchestrator/` also exposes durable scenario-run and regression-run reads by run id, rerun endpoints, and trend reads for operator validation loops.
 - `services/orchestrator/` also exposes `GET /run-center/summary` as the preferred aggregate operator summary for scenarios, regressions, and recent validation runs.
 - `services/orchestrator/` also exposes self-build/work-item surfaces:
+  - `GET /self-build/dashboard`
   - `GET /self-build/summary`
   - `GET /work-item-templates` and `GET /work-item-templates/:id`
   - `GET /goal-plans`, `POST /goals/plan`, `GET /goal-plans/:id`, `POST /goal-plans/:id/materialize`
   - `GET /work-item-groups`, `GET /work-item-groups/:id`, `POST /work-item-groups/:id/run`
   - `GET /work-items`, `POST /work-items`, `GET /work-items/:id`, `GET /work-items/:id/runs`, `POST /work-items/:id/run`
-  - `GET /work-item-runs/:runId`, `GET /work-item-runs/:runId/workspace`, `GET /work-item-runs/:runId/proposal`, `POST /work-item-runs/:runId/validate`, `GET /work-item-runs/:runId/doc-suggestions`
+  - `GET /work-item-runs/:runId`, `POST /work-item-runs/:runId/rerun`, `GET /work-item-runs/:runId/workspace`, `GET /work-item-runs/:runId/proposal`, `POST /work-item-runs/:runId/validate`, `GET /work-item-runs/:runId/doc-suggestions`
   - `GET /proposal-artifacts/:id`, `POST /proposal-artifacts/:id/review`, `POST /proposal-artifacts/:id/approval`
-  - `GET /workspaces`, `GET /workspaces/:id`
+  - `GET /workspaces`, `GET /workspaces/:id`, `POST /workspaces/:id/reconcile`, `POST /workspaces/:id/cleanup`
+  - `GET /executions/:id/workspaces`
 - `GET /run-center/summary` should be treated as the preferred aggregate route for operator alerts and recommendations across named validation flows.
+- `GET /self-build/dashboard` should be treated as the preferred aggregate route for self-build attention states, queue ordering, workspace health, and recent managed-work runs.
 - Treat additive operator drilldown helpers such as `links.*`, `trendSnapshot`, `latestReports[]`, `recentRuns[]`, and `failureBreakdown` as first-class read-surface fields when they are present; clients should not reconstruct equivalent links heuristically.
 - `services/orchestrator/` now also exposes `/work-items`, `/work-items/:id`, `/work-items/:id/run`, and `/work-item-runs/:runId` for supervised self-work tracking.
 - `apps/web/` renders grouped execution list/detail, rooted lineage tree, wave progression, coordination metadata, step/session tree, and review/approval history over those APIs.

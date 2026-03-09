@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import fs from "node:fs/promises";
 import path from "node:path";
 
 import { DEFAULT_ORCHESTRATOR_DB_PATH, PROJECT_ROOT } from "../metadata/constants.js";
@@ -45,7 +46,11 @@ import {
 } from "../work-items/work-items.js";
 import {
   createWorkspace,
+  deriveWorkspaceDiagnostics,
   inspectWorkspace,
+  reconcileWorkspace,
+  removeWorkspace,
+  summarizeWorkspaceChanges,
   writeWorkspacePatchArtifact
 } from "../../../workspace-manager/src/manager.js";
 
@@ -940,6 +945,363 @@ function buildWorkspaceSummary(allocation) {
   } : null;
 }
 
+function getWorkspaceOwnerContext(allocation, dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
+  if (!allocation) {
+    return {
+      workItemRun: null,
+      proposal: null,
+      workItem: null
+    };
+  }
+  return withDatabase(dbPath, (db) => ({
+    workItemRun: allocation.workItemRunId ? getWorkItemRun(db, allocation.workItemRunId) : null,
+    proposal: allocation.proposalArtifactId ? getProposalArtifact(db, allocation.proposalArtifactId) : null,
+    workItem: allocation.workItemId ? getWorkItem(db, allocation.workItemId) : null
+  }));
+}
+
+function buildWorkspaceCleanupPolicy({ allocation, inspection = null, workItemRun = null, proposal = null } = {}) {
+  const blockedBy = [];
+  let reason = "ready";
+  let eligible = true;
+
+  if (!allocation) {
+    return {
+      eligible: false,
+      reason: "missing-allocation",
+      blockedBy: ["missing-allocation"],
+      requiresForce: false
+    };
+  }
+
+  if (allocation.status === "cleaned") {
+    return {
+      eligible: false,
+      reason: "already-cleaned",
+      blockedBy: ["already-cleaned"],
+      requiresForce: false
+    };
+  }
+
+  if (["provisioning"].includes(allocation.status)) {
+    eligible = false;
+    reason = "still-provisioning";
+    blockedBy.push("still-provisioning");
+  }
+
+  if (proposal && ["ready_for_review", "reviewed"].includes(proposal.status)) {
+    eligible = false;
+    reason = "proposal-awaiting-governance";
+    blockedBy.push("proposal-awaiting-governance");
+  }
+
+  if (workItemRun && ["planned", "starting", "running"].includes(workItemRun.status)) {
+    eligible = false;
+    reason = "owner-run-active";
+    blockedBy.push("owner-run-active");
+  }
+
+  const dirty = Array.isArray(inspection?.porcelain) && inspection.porcelain.length > 0;
+  const requiresForce = dirty || ["orphaned", "failed"].includes(allocation.status);
+  const artifactRetention =
+    proposal && ["ready_for_review", "reviewed", "approved"].includes(proposal.status)
+      ? "retain"
+      : proposal
+        ? "retain-patch-only"
+        : "optional";
+  const workspaceRetention =
+    !eligible
+      ? "keep-until-governance-settles"
+      : requiresForce
+        ? "operator-cleanup-with-force"
+        : "cleanup-allowed";
+
+  return {
+    eligible,
+    reason,
+    blockedBy,
+    requiresForce,
+    defaultKeepBranch: false,
+    artifactRetention,
+    workspaceRetention,
+    recommendation: eligible
+      ? requiresForce
+        ? "cleanup-with-force"
+        : "cleanup"
+      : "inspect-before-cleanup"
+  };
+}
+
+function enrichWorkspaceAllocation(allocation, dbPath = DEFAULT_ORCHESTRATOR_DB_PATH, inspection = null) {
+  const summary = buildWorkspaceSummary(allocation);
+  if (!summary) {
+    return null;
+  }
+  const context = getWorkspaceOwnerContext(allocation, dbPath);
+  const diagnostics =
+    inspection
+      ? deriveWorkspaceDiagnostics({ inspection, allocation })
+      : compactObject(allocation.metadata?.diagnostics ?? {});
+  const cleanupPolicy = buildWorkspaceCleanupPolicy({
+    allocation,
+    inspection,
+    workItemRun: context.workItemRun,
+    proposal: context.proposal
+  });
+  return {
+    ...summary,
+    diagnostics,
+    cleanupPolicy,
+    owner: {
+      workItemId: allocation.workItemId ?? null,
+      workItemRunId: allocation.workItemRunId ?? null,
+      workItemRunStatus: context.workItemRun?.status ?? null,
+      proposalArtifactId: allocation.proposalArtifactId ?? null,
+      proposalStatus: context.proposal?.status ?? null
+    }
+  };
+}
+
+function countDocSuggestions(value) {
+  return Array.isArray(value) ? value.length : 0;
+}
+
+function summarizeValidationState(validation = null) {
+  if (!validation) {
+    return "not_configured";
+  }
+  return validation.status ?? "not_configured";
+}
+
+function workItemRunTerminalKind(run = {}) {
+  const status = String(run.status ?? "").trim();
+  if (["completed", "passed"].includes(status)) {
+    return "completed";
+  }
+  if (["failed", "rejected", "canceled", "stopped"].includes(status)) {
+    return "failed";
+  }
+  if (["waiting_review", "waiting_approval", "held", "paused", "blocked"].includes(status)) {
+    return "blocked";
+  }
+  if (["running", "planned", "starting"].includes(status)) {
+    return "running";
+  }
+  return "pending";
+}
+
+function buildWorkItemRunLinks(run) {
+  const result = run?.result ?? {};
+  return compactObject({
+    self: `/work-item-runs/${encodeURIComponent(run.id)}`,
+    item: `/work-items/${encodeURIComponent(run.workItemId)}`,
+    proposal: `/work-item-runs/${encodeURIComponent(run.id)}/proposal`,
+    workspace: `/work-item-runs/${encodeURIComponent(run.id)}/workspace`,
+    validate: `/work-item-runs/${encodeURIComponent(run.id)}/validate`,
+    docSuggestions: `/work-item-runs/${encodeURIComponent(run.id)}/doc-suggestions`,
+    rerun: `/work-item-runs/${encodeURIComponent(run.id)}/rerun`,
+    scenarioRun: result.scenarioRunId ? `/scenario-runs/${encodeURIComponent(result.scenarioRunId)}` : null,
+    regressionRun: result.regressionRunId ? `/regression-runs/${encodeURIComponent(result.regressionRunId)}` : null,
+    execution: result.executionId ? `/executions/${encodeURIComponent(result.executionId)}` : null
+  });
+}
+
+function buildRunComparison(currentRun, previousRun) {
+  if (!currentRun || !previousRun) {
+    return null;
+  }
+  const currentValidation = summarizeValidationState(currentRun.metadata?.validation);
+  const previousValidation = summarizeValidationState(previousRun.metadata?.validation);
+  const currentDocSuggestions = countDocSuggestions(currentRun.metadata?.docSuggestions);
+  const previousDocSuggestions = countDocSuggestions(previousRun.metadata?.docSuggestions);
+  const currentProposalId = currentRun.metadata?.proposalArtifactId ?? null;
+  const previousProposalId = previousRun.metadata?.proposalArtifactId ?? null;
+  const currentStarted = Date.parse(currentRun.startedAt ?? currentRun.createdAt ?? 0);
+  const previousStarted = Date.parse(previousRun.startedAt ?? previousRun.createdAt ?? 0);
+
+  return {
+    previousRunId: previousRun.id,
+    statusChanged: currentRun.status !== previousRun.status,
+    previousStatus: previousRun.status ?? null,
+    validationChanged: currentValidation !== previousValidation,
+    previousValidationStatus: previousValidation,
+    currentValidationStatus: currentValidation,
+    proposalChanged: currentProposalId !== previousProposalId,
+    previousProposalId,
+    currentProposalId,
+    docSuggestionDelta: currentDocSuggestions - previousDocSuggestions,
+    currentDocSuggestionCount: currentDocSuggestions,
+    previousDocSuggestionCount: previousDocSuggestions,
+    startedDeltaMs:
+      Number.isFinite(currentStarted) && Number.isFinite(previousStarted)
+        ? currentStarted - previousStarted
+        : null,
+    summary:
+      currentRun.status !== previousRun.status
+        ? `Status changed from ${previousRun.status} to ${currentRun.status}.`
+        : currentValidation !== previousValidation
+        ? `Validation changed from ${previousValidation} to ${currentValidation}.`
+        : currentProposalId !== previousProposalId
+        ? "Proposal linkage changed between runs."
+        : currentDocSuggestions !== previousDocSuggestions
+        ? `Documentation suggestion count changed from ${previousDocSuggestions} to ${currentDocSuggestions}.`
+        : "No major run-to-run delta detected."
+  };
+}
+
+function summarizeWorkItemRunTrend(runs = []) {
+  const counts = runs.reduce(
+    (accumulator, run) => {
+      const bucket = workItemRunTerminalKind(run);
+      accumulator.total += 1;
+      accumulator[bucket] = (accumulator[bucket] ?? 0) + 1;
+      return accumulator;
+    },
+    { total: 0, completed: 0, blocked: 0, failed: 0, running: 0, pending: 0 }
+  );
+  const latest = runs[0] ?? null;
+  const latestCompleted = runs.find((run) => workItemRunTerminalKind(run) === "completed") ?? null;
+  const latestFailed = runs.find((run) => workItemRunTerminalKind(run) === "failed") ?? null;
+  const health =
+    counts.failed > 0
+      ? "degraded"
+      : counts.blocked > 0
+      ? "needs-review"
+      : counts.running > 0
+      ? "active"
+      : counts.total > 0
+      ? "healthy"
+      : "idle";
+  return {
+    runCount: counts.total,
+    byState: counts,
+    health,
+    latestRunId: latest?.id ?? null,
+    latestSuccessfulRunId: latestCompleted?.id ?? null,
+    latestFailedRunId: latestFailed?.id ?? null
+  };
+}
+
+function buildWorkItemRunSummary(run, item = null, previousRun = null) {
+  if (!run) {
+    return null;
+  }
+  const validationStatus = summarizeValidationState(run.metadata?.validation);
+  const docSuggestionCount = countDocSuggestions(run.metadata?.docSuggestions);
+  const result = run.result ?? {};
+  return {
+    ...run,
+    itemTitle: item?.title ?? null,
+    itemKind: item?.kind ?? null,
+    terminalKind: workItemRunTerminalKind(run),
+    validationStatus,
+    docSuggestionCount,
+    hasProposal: Boolean(run.metadata?.proposalArtifactId),
+    hasWorkspace: Boolean(run.metadata?.workspaceId),
+    links: buildWorkItemRunLinks(run),
+    comparisonToPrevious: buildRunComparison(run, previousRun),
+    relationSummary: compactObject({
+      scenarioRunId: result.scenarioRunId ?? null,
+      regressionRunId: result.regressionRunId ?? null,
+      executionId: result.executionId ?? null
+    })
+  };
+}
+
+function attentionPriorityForState(state) {
+  const order = {
+    "workspace-problem": 0,
+    "needs-review": 1,
+    "needs-approval": 2,
+    "needs-validation": 3,
+    "blocked": 4,
+    "planner-follow-up": 5,
+    "docs-follow-up": 6,
+    "healthy": 7
+  };
+  return order[state] ?? 9;
+}
+
+function buildAttentionItem(payload = {}) {
+  const attentionState = payload.attentionState ?? "healthy";
+  const priority = payload.priority ?? (attentionPriorityForState(attentionState) <= 2 ? "high" : attentionPriorityForState(attentionState) <= 4 ? "medium" : "low");
+  return compactObject({
+    id: payload.id ?? createId("attention"),
+    kind: payload.kind ?? attentionState,
+    status: payload.status ?? attentionState,
+    attentionState,
+    attentionPriority: attentionPriorityForState(attentionState),
+    priority,
+    queueType: payload.queueType ?? (["workspace-problem", "needs-review", "needs-approval", "blocked"].includes(attentionState) ? "urgent" : "follow-up"),
+    title: payload.title ?? "Untitled attention item",
+    reason: payload.reason ?? "",
+    targetType: payload.targetType ?? null,
+    targetId: payload.targetId ?? null,
+    itemId: payload.itemId ?? null,
+    runId: payload.runId ?? null,
+    proposalId: payload.proposalId ?? null,
+    workspaceId: payload.workspaceId ?? null,
+    groupId: payload.groupId ?? null,
+    goalPlanId: payload.goalPlanId ?? null,
+    templateId: payload.templateId ?? null,
+    domainId: payload.domainId ?? null,
+    safeMode: payload.safeMode ?? null,
+    mutationScope: payload.mutationScope ?? [],
+    requiresProposal: payload.requiresProposal ?? null,
+    blockerIds: payload.blockerIds ?? [],
+    actionHint: payload.actionHint ?? null,
+    nextActionHint: payload.nextActionHint ?? null,
+    commandHint: payload.commandHint ?? null,
+    httpHint: payload.httpHint ?? null,
+    timestamp: payload.timestamp ?? nowIso()
+  });
+}
+
+function summarizeAttentionItems(items = []) {
+  const byState = items.reduce((accumulator, item) => {
+    const state = item.attentionState ?? "healthy";
+    accumulator[state] = (accumulator[state] ?? 0) + 1;
+    return accumulator;
+  }, {});
+  const topItems = [...items]
+    .sort((left, right) => {
+      const priorityDelta = (left.attentionPriority ?? 9) - (right.attentionPriority ?? 9);
+      if (priorityDelta !== 0) return priorityDelta;
+      return new Date(right.timestamp ?? 0) - new Date(left.timestamp ?? 0);
+    })
+    .slice(0, 10);
+  return {
+    total: items.length,
+    byState,
+    highestPriorityState: topItems[0]?.attentionState ?? "healthy",
+    topItems
+  };
+}
+
+function buildQueueSummary(urgentWork = [], followUpWork = []) {
+  const all = [...urgentWork, ...followUpWork];
+  const byGroup = all.reduce((accumulator, item) => {
+    const key = item.groupId ?? "ungrouped";
+    const entry = accumulator[key] ?? { count: 0, attentionStates: {}, groupId: item.groupId ?? null, goalPlanId: item.goalPlanId ?? null };
+    entry.count += 1;
+    entry.attentionStates[item.attentionState ?? "healthy"] = (entry.attentionStates[item.attentionState ?? "healthy"] ?? 0) + 1;
+    accumulator[key] = entry;
+    return accumulator;
+  }, {});
+  const byGoalPlan = all.reduce((accumulator, item) => {
+    const key = item.goalPlanId ?? "no-goal-plan";
+    accumulator[key] = (accumulator[key] ?? 0) + 1;
+    return accumulator;
+  }, {});
+  return {
+    total: all.length,
+    urgent: urgentWork.length,
+    followUp: followUpWork.length,
+    byGroup,
+    byGoalPlan
+  };
+}
+
 async function provisionWorkspaceForWorkItemRun(item, run, options = {}, dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
   if (!workItemRequiresWorkspace(item)) {
     return null;
@@ -1028,30 +1390,79 @@ async function provisionWorkspaceForWorkItemRun(item, run, options = {}, dbPath 
   }
 }
 
+function buildChangedFilesByScope(diffSummary = null) {
+  if (!diffSummary || !Array.isArray(diffSummary.filesByScope)) {
+    return [];
+  }
+  return diffSummary.filesByScope.map((entry) => ({
+    scope: entry.scope,
+    fileCount: entry.fileCount,
+    addedCount: entry.addedCount,
+    modifiedCount: entry.modifiedCount,
+    deletedCount: entry.deletedCount,
+    renamedCount: entry.renamedCount,
+    untrackedCount: entry.untrackedCount,
+    conflictedCount: entry.conflictedCount,
+    insertionCount: entry.insertionCount,
+    deletionCount: entry.deletionCount,
+    files: entry.files.map((file) => ({
+      path: file.path,
+      previousPath: file.previousPath ?? null,
+      status: file.status,
+      insertions: file.insertions ?? 0,
+      deletions: file.deletions ?? 0
+    }))
+  }));
+}
+
 async function attachWorkspacePatchArtifact(proposal, workspace) {
   if (!proposal || !workspace?.worktreePath) {
     return proposal;
   }
   const patchPath = path.join(PROJECT_ROOT, "artifacts", "proposals", `${proposal.id}.patch`);
-  const patchArtifact = await writeWorkspacePatchArtifact({
-    worktreePath: workspace.worktreePath,
-    outputPath: patchPath
-  });
+  const [patchArtifact, diffSummary] = await Promise.all([
+    writeWorkspacePatchArtifact({
+      worktreePath: workspace.worktreePath,
+      outputPath: patchPath
+    }),
+    summarizeWorkspaceChanges({
+      worktreePath: workspace.worktreePath,
+      mutationScope: workspace.mutationScope ?? []
+    })
+  ]);
+  const patchPreview = await fs.readFile(patchArtifact.outputPath, "utf8")
+    .then((content) => content.split(/\r?\n/).slice(0, 40).join("\n").slice(0, 4000))
+    .catch(() => "");
   return {
     ...proposal,
     artifacts: {
       ...(proposal.artifacts ?? {}),
+      proposedFiles:
+        Array.isArray(diffSummary?.changedFiles) && diffSummary.changedFiles.length > 0
+          ? diffSummary.changedFiles.map((file) => ({
+              path: file.path,
+              previousPath: file.previousPath ?? null,
+              scope: file.scope ?? null,
+              status: file.status,
+              insertions: file.insertions ?? 0,
+              deletions: file.deletions ?? 0
+            }))
+          : proposal.artifacts?.proposedFiles ?? [],
       workspace: {
         workspaceId: workspace.id,
         worktreePath: workspace.worktreePath,
         branchName: workspace.branchName,
         baseRef: workspace.baseRef,
-        status: workspace.status
+        status: workspace.status,
+        mutationScope: workspace.mutationScope ?? []
       },
       patchArtifact: {
         path: path.relative(PROJECT_ROOT, patchArtifact.outputPath),
-        byteLength: patchArtifact.byteLength
-      }
+        byteLength: patchArtifact.byteLength,
+        preview: patchPreview
+      },
+      diffSummary,
+      changedFilesByScope: buildChangedFilesByScope(diffSummary)
     },
     metadata: {
       ...(proposal.metadata ?? {}),
@@ -1061,11 +1472,64 @@ async function attachWorkspacePatchArtifact(proposal, workspace) {
   };
 }
 
-function buildProposalArtifacts(item, run, validation = null) {
+function buildProposalArtifacts(item, run, validation = null, workspace = null) {
   const changeSummary = item.goal || `Proposal generated for ${item.title}`;
+  const mutationScope = asArray(item.metadata?.mutationScope);
+  const diffSummary = workspace?.metadata?.diffSummary ?? null;
   return {
     changeSummary,
-    proposedFiles: asArray(item.metadata?.mutationScope).map((scope) => ({ scope, status: "planned" })),
+    proposedFiles:
+      Array.isArray(diffSummary?.changedFiles) && diffSummary.changedFiles.length > 0
+        ? diffSummary.changedFiles.map((file) => ({
+            path: file.path,
+            previousPath: file.previousPath ?? null,
+            scope: file.scope ?? null,
+            status: file.status,
+            insertions: file.insertions ?? 0,
+            deletions: file.deletions ?? 0
+          }))
+        : mutationScope.map((scope) => ({ scope, status: "planned" })),
+    diffSummary: diffSummary
+      ? {
+          fileCount: diffSummary.fileCount,
+          trackedFileCount: diffSummary.trackedFileCount,
+          untrackedFileCount: diffSummary.untrackedFileCount,
+          addedCount: diffSummary.addedCount,
+          modifiedCount: diffSummary.modifiedCount,
+          deletedCount: diffSummary.deletedCount,
+          renamedCount: diffSummary.renamedCount,
+          conflictedCount: diffSummary.conflictedCount,
+          insertionCount: diffSummary.insertionCount,
+          deletionCount: diffSummary.deletionCount
+        }
+      : {
+          fileCount: 0,
+          trackedFileCount: 0,
+          untrackedFileCount: 0,
+          addedCount: 0,
+          modifiedCount: 0,
+          deletedCount: 0,
+          renamedCount: 0,
+          conflictedCount: 0,
+          insertionCount: 0,
+          deletionCount: 0
+        },
+    changedFilesByScope:
+      Array.isArray(diffSummary?.filesByScope) && diffSummary.filesByScope.length > 0
+        ? buildChangedFilesByScope(diffSummary)
+        : mutationScope.map((scope) => ({
+            scope,
+            fileCount: 0,
+            addedCount: 0,
+            modifiedCount: 0,
+            deletedCount: 0,
+            renamedCount: 0,
+            untrackedCount: 0,
+            conflictedCount: 0,
+            insertionCount: 0,
+            deletionCount: 0,
+            files: []
+          })),
     testSummary: validation ? {
       validationStatus: validation.status ?? null,
       scenarioRunIds: validation.scenarioRunIds ?? [],
@@ -1179,7 +1643,11 @@ export function listSelfBuildWorkItems(options = {}, dbPath = DEFAULT_ORCHESTRAT
 
 export function listSelfBuildWorkItemRuns(itemId, options = {}, dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
   const limit = Number.parseInt(String(options.limit ?? "20"), 10) || 20;
-  return withDatabase(dbPath, (db) => listWorkItemRuns(db, itemId, limit));
+  return withDatabase(dbPath, (db) => {
+    const item = getWorkItem(db, itemId);
+    const runs = listWorkItemRuns(db, itemId, limit);
+    return runs.map((run, index) => buildWorkItemRunSummary(run, item, runs[index + 1] ?? null));
+  });
 }
 
 export function getSelfBuildWorkItem(itemId, dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
@@ -1189,7 +1657,7 @@ export function getSelfBuildWorkItem(itemId, dbPath = DEFAULT_ORCHESTRATOR_DB_PA
   }
   const group = item.metadata?.groupId ? withDatabase(dbPath, (db) => getWorkItemGroup(db, item.metadata.groupId)) : null;
   const goalPlan = item.metadata?.goalPlanId ? withDatabase(dbPath, (db) => getGoalPlan(db, item.metadata.goalPlanId)) : null;
-  const recentRuns = listSelfBuildWorkItemRuns(itemId, { limit: 10 }, dbPath);
+  const recentRuns = listSelfBuildWorkItemRuns(itemId, { limit: 20 }, dbPath);
   const latestProposal = recentRuns.length > 0 
     ? withDatabase(dbPath, (db) => getProposalArtifactByRunId(db, recentRuns[0].id))
     : null;
@@ -1205,16 +1673,20 @@ export function getSelfBuildWorkItem(itemId, dbPath = DEFAULT_ORCHESTRATOR_DB_PA
     ...derivedItem,
     workItemGroup: groupSummary,
     goalPlan: goalPlan ? buildGoalPlanSummary(goalPlan) : null,
-    recentRuns: recentRuns.slice(0, 5).map((run) => ({
-      ...run,
+    recentRuns: recentRuns.slice(0, 5),
+    runHistory: {
+      runs: recentRuns,
+      latestRun: recentRuns[0] ?? null,
+      runCountsByStatus: recentRuns.reduce((accumulator, run) => {
+        accumulator[run.status] = (accumulator[run.status] ?? 0) + 1;
+        return accumulator;
+      }, {}),
+      trend: summarizeWorkItemRunTrend(recentRuns),
       links: {
-        self: `/work-item-runs/${encodeURIComponent(run.id)}`,
-        workspace: `/work-item-runs/${encodeURIComponent(run.id)}/workspace`,
-        proposal: run.id ? `/work-item-runs/${encodeURIComponent(run.id)}/proposal` : null,
-        validate: `/work-item-runs/${encodeURIComponent(run.id)}/validate`,
-        docSuggestions: `/work-item-runs/${encodeURIComponent(run.id)}/doc-suggestions`
+        self: `/work-items/${encodeURIComponent(itemId)}/runs`,
+        rerun: `/work-items/${encodeURIComponent(itemId)}/run`
       }
-    })),
+    },
     latestProposal: latestProposal ? buildProposalSummary(latestProposal) : null,
     latestWorkspace: buildWorkspaceSummary(latestWorkspace),
     links: {
@@ -1233,6 +1705,9 @@ export function getSelfBuildWorkItemRun(runId, dbPath = DEFAULT_ORCHESTRATOR_DB_
     return null;
   }
   const item = withDatabase(dbPath, (db) => getWorkItem(db, run.workItemId));
+  const recentRuns = withDatabase(dbPath, (db) => listWorkItemRuns(db, run.workItemId, 20));
+  const runIndex = recentRuns.findIndex((entry) => entry.id === run.id);
+  const previousRun = runIndex >= 0 ? recentRuns[runIndex + 1] ?? null : recentRuns.find((entry) => entry.id !== run.id) ?? null;
   const proposal = withDatabase(dbPath, (db) => getProposalArtifactByRunId(db, run.id));
   const workspace = withDatabase(dbPath, (db) => getWorkspaceAllocationByRunId(db, run.id));
   const learningRecords = withDatabase(dbPath, (db) =>
@@ -1241,20 +1716,74 @@ export function getSelfBuildWorkItemRun(runId, dbPath = DEFAULT_ORCHESTRATOR_DB_
   const docSuggestions = run.metadata?.docSuggestions ?? buildDocSuggestions(item ?? { relatedDocs: [] }, run, proposal);
   const group = item?.metadata?.groupId ? withDatabase(dbPath, (db) => getWorkItemGroup(db, item.metadata.groupId)) : null;
   const goalPlan = item?.metadata?.goalPlanId ? withDatabase(dbPath, (db) => getGoalPlan(db, item.metadata.goalPlanId)) : null;
+  const failure =
+    run.status === "failed"
+      ? {
+          code: "work_item_run_failed",
+          label: "Work item run failed",
+          reason: run.result?.error ?? run.metadata?.error ?? "The work item run ended in a failed state."
+        }
+      : run.status === "blocked"
+      ? {
+          code: "work_item_run_blocked",
+          label: "Work item run blocked",
+          reason: item?.blockedReason ?? item?.dependencyState?.reason ?? "The work item run is blocked."
+        }
+      : null;
+  const suggestedActions = [];
+  if (failure && run.status === "failed") {
+    suggestedActions.push({
+      action: "rerun-work-item",
+      targetType: "work-item-run",
+      targetId: run.id,
+      reason: failure.reason,
+      expectedOutcome: "Create a fresh run of the same work item with new runtime and proposal artifacts.",
+      commandHint: `npm run orchestrator:work-item-run -- --item ${run.workItemId}`,
+      httpHint: `/work-item-runs/${encodeURIComponent(run.id)}/rerun`,
+      priority: "high"
+    });
+  }
+  if (run.status === "completed" && summarizeValidationState(run.metadata?.validation) !== "completed") {
+    suggestedActions.push({
+      action: "validate-work-item-run",
+      targetType: "work-item-run",
+      targetId: run.id,
+      reason: "Validation has not been executed for this completed work-item run.",
+      expectedOutcome: "Create linked scenario and regression validation records for the run.",
+      commandHint: `npm run orchestrator:work-item-validate -- --run ${run.id}`,
+      httpHint: `/work-item-runs/${encodeURIComponent(run.id)}/validate`,
+      priority: "medium"
+    });
+  }
+  if ((run.metadata?.proposalArtifactId ?? proposal?.id) && proposal?.status === "ready_for_review") {
+    suggestedActions.push({
+      action: "review-proposal",
+      targetType: "proposal",
+      targetId: proposal.id,
+      reason: "The linked proposal is waiting for review.",
+      expectedOutcome: "Record proposal review notes and move governance forward.",
+      commandHint: `npm run orchestrator:proposal-show -- --proposal ${proposal.id}`,
+      httpHint: `/proposal-artifacts/${encodeURIComponent(proposal.id)}`,
+      priority: "high"
+    });
+  }
   
   return {
-    ...run,
+    ...buildWorkItemRunSummary(run, item, previousRun),
     item,
     proposal: buildProposalSummary(proposal),
     workspace: buildWorkspaceSummary(workspace),
     validation: run.metadata?.validation ?? null,
     docSuggestions,
     learningRecords: learningRecords.map(buildLearningSummary),
+    failure,
+    suggestedActions,
     lineage: {
       workItemGroup: group ? { id: group.id, title: group.title } : null,
       goalPlan: goalPlan ? { id: goalPlan.id, title: goalPlan.title, goal: goalPlan.goal } : null
     },
     links: {
+      ...buildWorkItemRunLinks(run),
       self: `/work-item-runs/${encodeURIComponent(runId)}`,
       item: `/work-items/${encodeURIComponent(run.workItemId)}`,
       proposal: proposal ? `/proposal-artifacts/${encodeURIComponent(proposal.id)}` : null,
@@ -1264,6 +1793,50 @@ export function getSelfBuildWorkItemRun(runId, dbPath = DEFAULT_ORCHESTRATOR_DB_
       group: group ? `/work-item-groups/${encodeURIComponent(group.id)}` : null,
       goalPlan: goalPlan ? `/goal-plans/${encodeURIComponent(goalPlan.id)}` : null
     }
+  };
+}
+
+export async function rerunSelfBuildWorkItemRun(runId, options = {}, dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
+  const existingRun = withDatabase(dbPath, (db) => getWorkItemRun(db, runId));
+  if (!existingRun) {
+    return null;
+  }
+  const result = await runSelfBuildWorkItem(existingRun.workItemId, {
+    ...options,
+    source: options.source ?? "work-item-rerun",
+    by: options.by ?? "operator"
+  }, dbPath);
+  if (result?.run?.id) {
+    const updatedRun = {
+      ...result.run,
+      metadata: {
+        ...result.run.metadata,
+        rerunOf: runId,
+        rerunReason: options.reason ?? null,
+        rerunSource: options.source ?? "work-item-rerun"
+      }
+    };
+    withDatabase(dbPath, (db) => updateWorkItemRun(db, updatedRun));
+    result.run = getManagedWorkItemRun(updatedRun.id, dbPath);
+    if (result.proposal?.id) {
+      const proposal = withDatabase(dbPath, (db) => getProposalArtifact(db, result.proposal.id));
+      if (proposal) {
+        withDatabase(dbPath, (db) => updateProposalArtifact(db, {
+          ...proposal,
+          metadata: {
+            ...proposal.metadata,
+            rerunOf: runId,
+            rerunSource: options.source ?? "work-item-rerun"
+          },
+          updatedAt: nowIso()
+        }));
+        result.proposal = buildProposalSummary(withDatabase(dbPath, (db) => getProposalArtifact(db, result.proposal.id)));
+      }
+    }
+  }
+  return {
+    ...result,
+    rerunOf: runId
   };
 }
 
@@ -1309,6 +1882,7 @@ export async function runSelfBuildWorkItem(itemId, options = {}, dbPath = DEFAUL
     let proposal = null;
     if (failedItem && failedRun && workItemKindRequiresProposal(failedItem)) {
       const now = nowIso();
+      const proposalWorkspace = provisionedWorkspace ?? getWorkspaceByRun(failedRun.id, dbPath);
       proposal = {
         id: createId("proposal"),
         workItemRunId: failedRun.id,
@@ -1321,7 +1895,7 @@ export async function runSelfBuildWorkItem(itemId, options = {}, dbPath = DEFAUL
           runStatus: failedRun.status,
           safeMode: failedItem.metadata?.safeMode !== false
         },
-        artifacts: buildProposalArtifacts(failedItem, failedRun, failedRun.metadata?.validation ?? null),
+        artifacts: buildProposalArtifacts(failedItem, failedRun, failedRun.metadata?.validation ?? null, proposalWorkspace),
         metadata: {
           source: options.source ?? "work-item-run",
           requiresHumanApproval: failedItem.metadata?.requiresHumanApproval ?? false,
@@ -1332,7 +1906,7 @@ export async function runSelfBuildWorkItem(itemId, options = {}, dbPath = DEFAUL
         reviewedAt: null,
         approvedAt: null
       };
-      proposal = await attachWorkspacePatchArtifact(proposal, provisionedWorkspace ?? getWorkspaceByRun(failedRun.id, dbPath));
+      proposal = await attachWorkspacePatchArtifact(proposal, proposalWorkspace);
       withDatabase(dbPath, (db) => insertProposalArtifact(db, proposal));
       if (provisionedWorkspace) {
         const updatedWorkspace = {
@@ -1366,6 +1940,7 @@ export async function runSelfBuildWorkItem(itemId, options = {}, dbPath = DEFAUL
   let proposal = null;
   if (workItemKindRequiresProposal(settledItem)) {
     const now = nowIso();
+    const proposalWorkspace = provisionedWorkspace ?? getWorkspaceByRun(runDetail.id, dbPath);
     proposal = {
       id: createId("proposal"),
       workItemRunId: runDetail.id,
@@ -1378,7 +1953,7 @@ export async function runSelfBuildWorkItem(itemId, options = {}, dbPath = DEFAUL
         runStatus: runDetail.status,
         safeMode: settledItem.metadata?.safeMode !== false
       },
-      artifacts: buildProposalArtifacts(settledItem, runDetail, runDetail.metadata?.validation ?? null),
+      artifacts: buildProposalArtifacts(settledItem, runDetail, runDetail.metadata?.validation ?? null, proposalWorkspace),
       metadata: {
         source: options.source ?? "work-item-run",
         requiresHumanApproval: settledItem.metadata?.requiresHumanApproval ?? false,
@@ -1389,7 +1964,7 @@ export async function runSelfBuildWorkItem(itemId, options = {}, dbPath = DEFAUL
       reviewedAt: null,
       approvedAt: null
     };
-    proposal = await attachWorkspacePatchArtifact(proposal, provisionedWorkspace ?? getWorkspaceByRun(runDetail.id, dbPath));
+    proposal = await attachWorkspacePatchArtifact(proposal, proposalWorkspace);
     withDatabase(dbPath, (db) => insertProposalArtifact(db, proposal));
     if (provisionedWorkspace) {
       const updatedWorkspace = {
@@ -1760,8 +2335,27 @@ export function getProposalByRun(runId, dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
   return buildProposalSummary(artifact);
 }
 
+export function listExecutionWorkspaces(executionId, dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
+  const workspaces = withDatabase(dbPath, (db) =>
+    listWorkspaceAllocations(db, { executionId, limit: 200 })
+  ).map((allocation) => enrichWorkspaceAllocation(allocation, dbPath));
+  const byStatus = workspaces.reduce((accumulator, workspace) => {
+    accumulator[workspace.status] = (accumulator[workspace.status] ?? 0) + 1;
+    return accumulator;
+  }, {});
+  return {
+    executionId,
+    count: workspaces.length,
+    byStatus,
+    workspaces,
+    links: {
+      self: `/executions/${encodeURIComponent(executionId)}/workspaces`
+    }
+  };
+}
+
 export function listWorkspaceSummaries(options = {}, dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
-  return withDatabase(dbPath, (db) => listWorkspaceAllocations(db, options)).map((allocation) => buildWorkspaceSummary(allocation));
+  return withDatabase(dbPath, (db) => listWorkspaceAllocations(db, options)).map((allocation) => enrichWorkspaceAllocation(allocation, dbPath));
 }
 
 export function getWorkspaceSummary(workspaceId, dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
@@ -1769,12 +2363,142 @@ export function getWorkspaceSummary(workspaceId, dbPath = DEFAULT_ORCHESTRATOR_D
   if (!allocation) {
     return null;
   }
-  return buildWorkspaceSummary(allocation);
+  return enrichWorkspaceAllocation(allocation, dbPath);
 }
 
 export function getWorkspaceByRun(runId, dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
   const allocation = withDatabase(dbPath, (db) => getWorkspaceAllocationByRunId(db, runId));
-  return buildWorkspaceSummary(allocation);
+  return enrichWorkspaceAllocation(allocation, dbPath);
+}
+
+function deriveReconciledWorkspaceStatus(allocation, inspection, workItemRun) {
+  if (allocation.status === "cleaned") {
+    return "cleaned";
+  }
+  if (!inspection.exists || !inspection.registered) {
+    return "orphaned";
+  }
+  if (workItemRun && ["planned", "starting", "running"].includes(workItemRun.status)) {
+    return inspection.clean ? "provisioned" : "active";
+  }
+  if (allocation.status === "failed") {
+    return "failed";
+  }
+  return inspection.clean ? "settled" : "active";
+}
+
+export async function getWorkspaceDetail(workspaceId, dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
+  const allocation = withDatabase(dbPath, (db) => getWorkspaceAllocation(db, workspaceId));
+  if (!allocation) {
+    return null;
+  }
+  const repoRoot = allocation.metadata?.repoRoot ? path.resolve(allocation.metadata.repoRoot) : PROJECT_ROOT;
+  const inspection = await inspectWorkspace({
+    repoRoot,
+    worktreePath: allocation.worktreePath,
+    branchName: allocation.branchName ?? null
+  });
+  return enrichWorkspaceAllocation(allocation, dbPath, inspection);
+}
+
+export async function getWorkspaceDetailByRun(runId, dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
+  const allocation = withDatabase(dbPath, (db) => getWorkspaceAllocationByRunId(db, runId));
+  if (!allocation) {
+    return null;
+  }
+  return getWorkspaceDetail(allocation.id, dbPath);
+}
+
+export async function reconcileManagedWorkspace(workspaceId, options = {}, dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
+  const allocation = withDatabase(dbPath, (db) => getWorkspaceAllocation(db, workspaceId));
+  if (!allocation) {
+    return null;
+  }
+  const repoRoot = allocation.metadata?.repoRoot ? path.resolve(allocation.metadata.repoRoot) : PROJECT_ROOT;
+  const reconciled = await reconcileWorkspace({
+    repoRoot,
+    allocation
+  });
+  const ownerContext = getWorkspaceOwnerContext(allocation, dbPath);
+  const updated = {
+    ...allocation,
+    status: deriveReconciledWorkspaceStatus(allocation, reconciled.inspection, ownerContext.workItemRun),
+    metadata: {
+      ...allocation.metadata,
+      diagnostics: reconciled.diagnostics,
+      lastInspection: reconciled.inspection,
+      lastReconciledAt: nowIso(),
+      reconciledBy: options.by ?? "operator",
+      reconcileSource: options.source ?? "workspace-reconcile"
+    },
+    updatedAt: nowIso()
+  };
+  withDatabase(dbPath, (db) => updateWorkspaceAllocation(db, updated));
+  return getWorkspaceDetail(updated.id, dbPath);
+}
+
+export async function cleanupManagedWorkspace(workspaceId, options = {}, dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
+  const allocation = withDatabase(dbPath, (db) => getWorkspaceAllocation(db, workspaceId));
+  if (!allocation) {
+    return null;
+  }
+  const repoRoot = allocation.metadata?.repoRoot ? path.resolve(allocation.metadata.repoRoot) : PROJECT_ROOT;
+  const inspection = await inspectWorkspace({
+    repoRoot,
+    worktreePath: allocation.worktreePath,
+    branchName: allocation.branchName ?? null
+  });
+  const ownerContext = getWorkspaceOwnerContext(allocation, dbPath);
+  const cleanupPolicy = buildWorkspaceCleanupPolicy({
+    allocation,
+    inspection,
+    workItemRun: ownerContext.workItemRun,
+    proposal: ownerContext.proposal
+  });
+  if (!cleanupPolicy.eligible && options.force !== true) {
+    const error = new Error(`workspace cleanup blocked: ${cleanupPolicy.reason}`);
+    error.code = "cleanup_blocked";
+    throw error;
+  }
+
+  let cleanupResult = {
+    removed: false,
+    skipped: true,
+    reason: "already-missing"
+  };
+  if (inspection.exists && inspection.registered) {
+    cleanupResult = await removeWorkspace({
+      repoRoot,
+      worktreePath: allocation.worktreePath,
+      branchName: allocation.branchName ?? null,
+      force: options.force === true || cleanupPolicy.requiresForce,
+      keepBranch: options.keepBranch === true
+    });
+  }
+
+  const updated = {
+    ...allocation,
+    status: "cleaned",
+    cleanedAt: nowIso(),
+    metadata: {
+      ...allocation.metadata,
+      cleanupPolicy,
+      cleanupResult,
+      cleanedBy: options.by ?? "operator",
+      cleanupSource: options.source ?? "workspace-cleanup",
+      cleanedWithForce: options.force === true || cleanupPolicy.requiresForce,
+      keptBranch: options.keepBranch === true
+    },
+    updatedAt: nowIso()
+  };
+  withDatabase(dbPath, (db) => updateWorkspaceAllocation(db, updated));
+  return enrichWorkspaceAllocation(updated, dbPath, {
+    ...inspection,
+    exists: false,
+    registered: false,
+    clean: true,
+    issues: []
+  });
 }
 
 export async function reviewProposalArtifact(artifactId, decision = {}, dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
@@ -1924,10 +2648,11 @@ export function getSelfBuildSummary(dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
   const groups = listWorkItemGroupsSummary({ limit: 50 }, dbPath);
   const groupItemMap = new Map(groups.flatMap((group) => group.items.map((item) => [item.id, item])));
   const workItems = listManagedWorkItems({ limit: 100 }, dbPath).map((item) => groupItemMap.get(item.id) ?? item);
+  const goalPlans = listGoalPlansSummary({ limit: 100 }, dbPath);
   const proposals = withDatabase(dbPath, (db) => listProposalArtifacts(db, null, 100)).map(buildProposalSummary);
   const workspaces = withDatabase(dbPath, (db) => listWorkspaceAllocations(db, { limit: 200 })).map(buildWorkspaceSummary);
   const learnings = withDatabase(dbPath, (db) => listLearningRecords(db, null, 100)).map(buildLearningSummary);
-  const allRuns = workItems.flatMap((item) => (item.runs ?? []).map((run) => ({ ...run, itemTitle: item.title, itemId: item.id })));
+  const allRuns = workItems.flatMap((item) => listSelfBuildWorkItemRuns(item.id, { limit: 20 }, dbPath).map((run) => ({ ...run, itemTitle: item.title, itemId: item.id })));
 
   const blockedItems = workItems.filter((item) => item.status === "blocked" || ["blocked", "review_needed"].includes(item.dependencyState?.state));
   const failedItems = workItems.filter((item) => item.status === "failed");
@@ -1942,53 +2667,90 @@ export function getSelfBuildSummary(dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
     run.metadata?.docSuggestions && run.metadata.docSuggestions.length > 0
   );
   const recentLearnings = learnings.filter((learning) => learning.status === "active").slice(0, 10);
+  const plannerFollowUpPlans = goalPlans.filter((plan) => plan.status === "planned");
 
   const urgentQueue = [
-    ...blockedItems.map((item) => ({
-      kind: "blocked-work-item",
-      priority: "high",
+    ...blockedItems.map((item) => buildAttentionItem({
+      id: `attention:${item.id}:blocked`,
+      attentionState: item.dependencyState?.state === "review_needed" ? "needs-review" : "blocked",
+      targetType: "work-item",
+      targetId: item.id,
       itemId: item.id,
+      groupId: item.metadata?.groupId ?? null,
+      goalPlanId: item.metadata?.goalPlanId ?? null,
+      templateId: item.metadata?.templateId ?? null,
+      domainId: item.metadata?.domainId ?? null,
+      safeMode: item.metadata?.safeMode ?? null,
+      mutationScope: item.metadata?.mutationScope ?? [],
+      requiresProposal: workItemRequiresWorkspace(item),
       title: item.title,
-      reason: item.blockedReason ?? item.dependencyState?.reason ?? "Work item blocked and requires operator intervention",
+      reason: item.blockedReason ?? item.dependencyState?.reason ?? "Work item blocked and requires operator intervention.",
       httpHint: `/work-items/${encodeURIComponent(item.id)}`,
+      commandHint: `npm run orchestrator:work-item-show -- --item ${item.id}`,
       blockerIds: item.blockerIds ?? [],
       nextActionHint: item.nextActionHint ?? item.dependencyState?.nextActionHint ?? null,
       timestamp: item.updatedAt
     })),
-    ...failedItems.map((item) => ({
-      kind: "failed-work-item",
-      priority: "high",
+    ...failedItems.map((item) => buildAttentionItem({
+      id: `attention:${item.id}:failed`,
+      attentionState: "blocked",
+      targetType: "work-item",
+      targetId: item.id,
       itemId: item.id,
+      groupId: item.metadata?.groupId ?? null,
+      goalPlanId: item.metadata?.goalPlanId ?? null,
+      templateId: item.metadata?.templateId ?? null,
+      domainId: item.metadata?.domainId ?? null,
+      safeMode: item.metadata?.safeMode ?? null,
+      mutationScope: item.metadata?.mutationScope ?? [],
+      requiresProposal: workItemRequiresWorkspace(item),
       title: item.title,
-      reason: "Work item failed and may need recovery or retry",
+      reason: "Work item failed and may need recovery or retry.",
       httpHint: `/work-items/${encodeURIComponent(item.id)}`,
+      commandHint: `npm run orchestrator:work-item-run -- --item ${item.id}`,
       timestamp: item.updatedAt
     })),
-    ...waitingReviewProposals.map((proposal) => ({
-      kind: "waiting-review",
-      priority: "high",
+    ...waitingReviewProposals.map((proposal) => buildAttentionItem({
+      id: `attention:${proposal.id}:review`,
+      attentionState: "needs-review",
+      targetType: "proposal",
+      targetId: proposal.id,
       proposalId: proposal.id,
+      itemId: proposal.workItemId ?? null,
+      runId: proposal.workItemRunId ?? null,
       title: proposal.summary?.title ?? "Untitled proposal",
-      reason: "Proposal ready for operator review",
+      reason: "Proposal ready for operator review.",
       httpHint: `/proposal-artifacts/${encodeURIComponent(proposal.id)}`,
+      commandHint: `npm run orchestrator:proposal-show -- --proposal ${proposal.id}`,
       timestamp: proposal.createdAt
     })),
-    ...waitingApprovalProposals.map((proposal) => ({
-      kind: "waiting-approval",
-      priority: "medium",
+    ...waitingApprovalProposals.map((proposal) => buildAttentionItem({
+      id: `attention:${proposal.id}:approval`,
+      attentionState: "needs-approval",
+      targetType: "proposal",
+      targetId: proposal.id,
       proposalId: proposal.id,
+      itemId: proposal.workItemId ?? null,
+      runId: proposal.workItemRunId ?? null,
       title: proposal.summary?.title ?? "Untitled proposal",
-      reason: "Proposal reviewed and waiting for approval",
+      reason: "Proposal reviewed and waiting for approval.",
       httpHint: `/proposal-artifacts/${encodeURIComponent(proposal.id)}`,
+      commandHint: `npm run orchestrator:proposal-show -- --proposal ${proposal.id}`,
       timestamp: proposal.reviewedAt ?? proposal.createdAt
     })),
-    ...orphanedWorkspaces.map((workspace) => ({
-      kind: "orphaned-workspace",
-      priority: "high",
+    ...orphanedWorkspaces.map((workspace) => buildAttentionItem({
+      id: `attention:${workspace.id}:workspace`,
+      attentionState: "workspace-problem",
+      targetType: "workspace",
+      targetId: workspace.id,
       workspaceId: workspace.id,
+      itemId: workspace.workItemId ?? null,
+      runId: workspace.workItemRunId ?? null,
+      proposalId: workspace.proposalArtifactId ?? null,
       title: workspace.branchName,
       reason: `Workspace ${workspace.id} is ${workspace.status} and may require cleanup or recovery.`,
       httpHint: `/workspaces/${encodeURIComponent(workspace.id)}`,
+      commandHint: `npm run orchestrator:workspace-show -- --workspace ${workspace.id}`,
       nextActionHint: "Inspect the workspace and reconcile or remove it if the owner run is already settled.",
       timestamp: workspace.updatedAt
     }))
@@ -2001,34 +2763,57 @@ export function getSelfBuildSummary(dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
   });
 
   const followUpQueue = [
-    ...pendingValidationRuns.slice(0, 10).map((run) => ({
-      kind: "pending-validation",
-      priority: "medium",
+    ...pendingValidationRuns.slice(0, 10).map((run) => buildAttentionItem({
+      id: `attention:${run.id}:validation`,
+      attentionState: "needs-validation",
+      targetType: "work-item-run",
+      targetId: run.id,
       runId: run.id,
       itemId: run.itemId,
       title: `Validate ${run.itemTitle}`,
-      reason: "Work item run completed but validation not yet triggered",
+      reason: "Work item run completed but validation not yet triggered.",
       httpHint: `/work-item-runs/${encodeURIComponent(run.id)}`,
-      actionHint: "POST /work-item-runs/:runId/validate",
+      commandHint: `npm run orchestrator:work-item-validate -- --run ${run.id}`,
+      nextActionHint: "Trigger validation to attach durable scenario and regression evidence.",
       timestamp: run.endedAt ?? run.startedAt
     })),
-    ...needsDocFollowUpRuns.slice(0, 10).map((run) => ({
-      kind: "doc-suggestions",
-      priority: "low",
+    ...needsDocFollowUpRuns.slice(0, 10).map((run) => buildAttentionItem({
+      id: `attention:${run.id}:docs`,
+      attentionState: "docs-follow-up",
+      targetType: "work-item-run",
+      targetId: run.id,
       runId: run.id,
       itemId: run.itemId,
       title: `Doc follow-up for ${run.itemTitle}`,
-      reason: "Work item run has documentation suggestions",
+      reason: "Work item run has documentation suggestions.",
       httpHint: `/work-item-runs/${encodeURIComponent(run.id)}/doc-suggestions`,
+      commandHint: `npm run orchestrator:work-item-doc-suggestions -- --run ${run.id}`,
       timestamp: run.endedAt ?? run.startedAt
+    })),
+    ...plannerFollowUpPlans.slice(0, 10).map((plan) => buildAttentionItem({
+      id: `attention:${plan.id}:planner`,
+      attentionState: "planner-follow-up",
+      targetType: "goal-plan",
+      targetId: plan.id,
+      goalPlanId: plan.id,
+      title: plan.title,
+      reason: "Goal plan is still planned and waiting to be materialized into managed work.",
+      httpHint: `/goal-plans/${encodeURIComponent(plan.id)}`,
+      commandHint: `npm run orchestrator:goal-plan-show -- --plan ${plan.id}`,
+      timestamp: plan.updatedAt
     }))
   ].sort((left, right) => new Date(right.timestamp) - new Date(left.timestamp));
+
+  const attentionItems = [...urgentQueue, ...followUpQueue];
+  const attentionSummary = summarizeAttentionItems(attentionItems);
+  const queueSummary = buildQueueSummary(urgentQueue, followUpQueue);
 
   const mostRecentActivity = [
     ...workItems.map((item) => ({ kind: "work-item", timestamp: item.updatedAt })),
     ...groups.map((group) => ({ kind: "group", timestamp: group.updatedAt })),
     ...proposals.map((proposal) => ({ kind: "proposal", timestamp: proposal.updatedAt })),
-    ...learnings.map((learning) => ({ kind: "learning", timestamp: learning.updatedAt }))
+    ...learnings.map((learning) => ({ kind: "learning", timestamp: learning.updatedAt })),
+    ...goalPlans.map((plan) => ({ kind: "goal-plan", timestamp: plan.updatedAt }))
   ].sort((left, right) => new Date(right.timestamp) - new Date(left.timestamp))[0];
 
   return {
@@ -2037,6 +2822,7 @@ export function getSelfBuildSummary(dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
       totalGroups: groups.length,
       totalProposals: proposals.length,
       totalWorkspaces: workspaces.length,
+      totalGoalPlans: goalPlans.length,
       urgentCount: urgentQueue.length,
       followUpCount: followUpQueue.length,
       lastActivity: mostRecentActivity?.timestamp ?? null,
@@ -2054,12 +2840,17 @@ export function getSelfBuildSummary(dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
       waitingReviewProposals: waitingReviewProposals.length,
       waitingApprovalProposals: waitingApprovalProposals.length,
       pendingValidationRuns: pendingValidationRuns.length,
-      learningRecords: learnings.length
+      learningRecords: learnings.length,
+      goalPlans: goalPlans.length,
+      plannedGoalPlans: plannerFollowUpPlans.length
     },
+    queueSummary,
+    attentionSummary,
     urgentWork: urgentQueue.slice(0, 20),
     followUpWork: followUpQueue.slice(0, 20),
     workItems,
     groups,
+    goalPlans,
     blockedItems,
     failedItems,
     proposals,
@@ -2102,6 +2893,76 @@ export function getSelfBuildSummary(dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
         ? `npm run orchestrator:workspace-show -- --workspace ${item.workspaceId}`
         : `npm run orchestrator:proposal-show -- --proposal ${item.proposalId}`,
       httpHint: item.httpHint
-    }))
+    })),
+    alerts: attentionItems.filter((item) => item.queueType === "urgent").slice(0, 10),
+    attentionItems
+  };
+}
+
+export function getSelfBuildDashboard(options = {}, dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
+  const base = getSelfBuildSummary(dbPath);
+  const filters = compactObject({
+    status: toText(options.status, ""),
+    group: toText(options.group, ""),
+    template: toText(options.template, ""),
+    domain: toText(options.domain, "")
+  });
+  const workItems = base.workItems.filter((item) => {
+    if (filters.status && String(item.status ?? item.dependencyState?.state ?? "").trim() !== filters.status) return false;
+    if (filters.group && String(item.metadata?.groupId ?? "").trim() !== filters.group) return false;
+    if (filters.template && String(item.metadata?.templateId ?? "").trim() !== filters.template) return false;
+    if (filters.domain && String(item.metadata?.domainId ?? "").trim() !== filters.domain) return false;
+    return true;
+  });
+  const workItemIds = new Set(workItems.map((item) => item.id));
+  const groups = base.groups.filter((group) => !filters.group || group.id === filters.group || group.items.some((item) => workItemIds.has(item.id)));
+  const proposals = base.proposals.filter((proposal) => !proposal.workItemId || workItemIds.size === 0 || workItemIds.has(proposal.workItemId));
+  const workspaces = base.workspaces.filter((workspace) => !workspace.workItemId || workItemIds.size === 0 || workItemIds.has(workspace.workItemId));
+  const recentRuns = workItems.flatMap((item) => listSelfBuildWorkItemRuns(item.id, { limit: 5 }, dbPath).map((run) => ({
+    ...run,
+    itemTitle: item.title,
+    templateId: item.metadata?.templateId ?? null,
+    domainId: item.metadata?.domainId ?? null,
+    safeMode: item.metadata?.safeMode ?? null
+  }))).sort((left, right) => new Date(right.startedAt ?? right.createdAt ?? 0) - new Date(left.startedAt ?? left.createdAt ?? 0)).slice(0, 20);
+  const filteredAttentionItems = base.attentionItems.filter((item) => {
+    if (filters.group && item.groupId && item.groupId !== filters.group) return false;
+    if (filters.template && item.templateId && item.templateId !== filters.template) return false;
+    if (filters.domain && item.domainId && item.domainId !== filters.domain) return false;
+    return true;
+  });
+  const urgentWork = filteredAttentionItems.filter((item) => item.queueType === "urgent");
+  const followUpWork = filteredAttentionItems.filter((item) => item.queueType !== "urgent");
+  return {
+    ...base,
+    route: {
+      self: "/self-build/dashboard"
+    },
+    filtersApplied: filters,
+    overview: {
+      ...base.overview,
+      filteredWorkItems: workItems.length,
+      filteredGroups: groups.length,
+      filteredProposals: proposals.length,
+      filteredWorkspaces: workspaces.length
+    },
+    queueSummary: buildQueueSummary(urgentWork, followUpWork),
+    attentionSummary: summarizeAttentionItems(filteredAttentionItems),
+    urgentWork,
+    followUpWork,
+    workItems,
+    groups,
+    proposals,
+    workspaces,
+    recentWorkItemRuns: recentRuns,
+    dashboardSections: {
+      overview: true,
+      queues: true,
+      groupReadiness: true,
+      recentRuns: true,
+      workspaces: true,
+      proposals: true,
+      learnings: true
+    }
   };
 }
