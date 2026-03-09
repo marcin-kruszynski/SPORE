@@ -13,7 +13,7 @@ This roadmap turns SPORE's existing self-build primitives into a supervised prod
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Self-Build Visibility** - Establish a dedicated dashboard and linked self-build read models over existing orchestrator surfaces. ✅ 2026-03-09
-- [ ] **Phase 2: Dependency-Aware Work Graphs** - Make grouped self-build execution respect prerequisites and expose blocked readiness clearly.
+- [x] **Phase 2: Dependency-Aware Work Graphs** - Make grouped self-build execution respect prerequisites and expose blocked readiness clearly. ✅ 2026-03-09
 - [ ] **Phase 3: Guided Goal-to-Run Flow** - Let operators plan, materialize, template, and launch self-build work from one conservative flow.
 - [ ] **Phase 4: Proposal Review Hub** - Turn proposal artifacts into the durable governance package for code-oriented self-build work.
 - [ ] **Phase 5: Validation Evidence Bundles** - Attach named scenario-backed validation and require evidence before proposal completion.
@@ -50,7 +50,7 @@ Plans:
 
 Plans:
 - [x] `02-01-PLAN.md` - Establish the dependency graph contract, authoring routes, and dependency-aware group execution semantics. ✅ 2026-03-09 (2h 21m, 3 tasks, 5 commits)
-- [ ] `02-02-PLAN.md` - Expose dependency setup and readiness-first visibility across the web and TUI self-build surfaces.
+- [x] `02-02-PLAN.md` - Expose dependency setup and readiness-first visibility across the web and TUI self-build surfaces. ✅ 2026-03-09 (56 min, 3 tasks, 3 commits)
 
 ### Phase 3: Guided Goal-to-Run Flow
 **Goal**: Operators can move from intent to started self-build work through one conservative, linked workflow.
@@ -115,7 +115,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Self-Build Visibility | 3/3 | Complete   | 2026-03-09 |
-| 2. Dependency-Aware Work Graphs | 1/2 | In Progress | - |
+| 2. Dependency-Aware Work Graphs | 2/2 | Complete | 2026-03-09 |
 | 3. Guided Goal-to-Run Flow | 0/3 | Not started | - |
 | 4. Proposal Review Hub | 0/2 | Not started | - |
 | 5. Validation Evidence Bundles | 0/3 | Not started | - |

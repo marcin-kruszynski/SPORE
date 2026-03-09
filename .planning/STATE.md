@@ -5,36 +5,37 @@
 See: `.planning/PROJECT.md` (updated 2026-03-09)
 
 **Core value:** SPORE must let an operator guide safe self-improvement with durable traceability, explicit review gates, and enough product surface to make the loop usable end to end.
-**Current focus:** Phase 2 - Dependency-Aware Work Graphs
+**Current focus:** Phase 3 - Guided Goal-to-Run Flow
 
 ## Current Position
 
 Phase: 2 of 7 (Dependency-Aware Work Graphs)
-Plan: 1 of 2 in current phase
-Status: In progress
-Last activity: 2026-03-09 - Completed Phase 2 Plan 01 dependency graph contract work.
+Plan: 2 of 2 in current phase
+Status: Complete
+Last activity: 2026-03-09 - Completed Phase 2 Plan 02 dependency-aware operator surfaces.
 
-Progress: [██░░░░░░░░] 22%
+Progress: [███░░░░░░░] 28%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 4
-- Average duration: 43 min
-- Total execution time: 2.9 hours
+- Total plans completed: 5
+- Average duration: 46 min
+- Total execution time: 3.8 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 01 | 3 | 30 min | 10 min |
-| 02 | 1 | 2h 21m | 2h 21m |
+| 02 | 2 | 3h 17m | 1h 39m |
 
 **Recent Trend:**
-- Last 5 plans: 17 min, 9 min, 4 min, 2h 21m
+- Last 5 plans: 17 min, 9 min, 4 min, 2h 21m, 56 min
 - Trend: Mixed
 | Phase 01-self-build-visibility P02 | 4 | 3 tasks | 5 files |
 | Phase 02-dependency-aware-work-graphs P01 | 2h 21m | 3 tasks | 11 files |
+| Phase 02 P02 | 56 min | 3 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -59,6 +60,9 @@ Recent decisions affecting current work:
 - [Phase 02-dependency-aware-work-graphs]: Kept dependency edges metadata-backed on work items and exposed one normalized dependencyGraph/readiness contract from orchestrator helpers.
 - [Phase 02-dependency-aware-work-graphs]: Reused the existing top-level work-item status model and layered dependencyState, blockerIds, nextActionHint, and transition logs on top.
 - [Phase 02-dependency-aware-work-graphs]: Returned durable failed work-item run and validation detail instead of surfacing HTTP 500s on execution or validation failure.
+- [Phase 02]: Added a dedicated Group Readiness section before urgent queues so operators see ready-vs-blocked context first.
+- [Phase 02]: Kept browser dependency authoring thin over /work-item-groups/:id/dependencies and reflected the returned impact summary immediately.
+- [Phase 02]: Rendered work-item-group detail as formatted TUI output by default while preserving JSON access behind --json.
 
 ### Pending Todos
 
@@ -71,6 +75,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-09 12:48
-Stopped at: Completed 02-dependency-aware-work-graphs-01-PLAN.md
+Last session: 2026-03-09 15:58
+Stopped at: Completed 02-02-PLAN.md
 Resume file: None
