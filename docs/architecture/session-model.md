@@ -56,6 +56,7 @@ The repository now includes:
 - detached-session reconciliation from exit files,
 - operator inspection via `packages/tui/`,
 - session, artifact, and event-stream access plus narrow control actions via `services/session-gateway/`.
+- a combined live-session route (`GET /sessions/:id/live`) that now returns diagnostics and suggested recovery actions along with metadata, artifacts, events, and control history.
 
 Workflow execution now also links parent and child sessions so a single execution can be rendered as a step/session tree in the web surface.
 

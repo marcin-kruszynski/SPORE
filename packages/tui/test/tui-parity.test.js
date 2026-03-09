@@ -83,6 +83,31 @@ test('tui execution and family commands consume orchestrator HTTP surfaces', asy
   assert.ok(Array.isArray(scenarioListPayload.scenarios));
   assert.ok(scenarioListPayload.scenarios.some((item) => item.id === 'backend-service-delivery'));
 
+  const scenarioRunOutput = await runCli([
+    'scenario-run',
+    '--scenario', 'cli-verification-pass',
+    '--api', `http://127.0.0.1:${ORCHESTRATOR_PORT}`,
+    '--stub'
+  ]);
+  const scenarioRunPayload = JSON.parse(scenarioRunOutput.stdout);
+  assert.equal(scenarioRunPayload.run.scenarioId, 'cli-verification-pass');
+
+  const scenarioRunShowOutput = await runCli([
+    'scenario-run-show',
+    '--run', scenarioRunPayload.run.id,
+    '--api', `http://127.0.0.1:${ORCHESTRATOR_PORT}`
+  ]);
+  const scenarioRunShowPayload = JSON.parse(scenarioRunShowOutput.stdout);
+  assert.equal(scenarioRunShowPayload.detail.run.id, scenarioRunPayload.run.id);
+
+  const scenarioTrendsOutput = await runCli([
+    'scenario-trends',
+    '--scenario', 'cli-verification-pass',
+    '--api', `http://127.0.0.1:${ORCHESTRATOR_PORT}`
+  ]);
+  const scenarioTrendsPayload = JSON.parse(scenarioTrendsOutput.stdout);
+  assert.ok(typeof scenarioTrendsPayload.detail.windows.allTime.runCount === 'number');
+
   const reviewedOutput = await runCli([
     'family',
     '--execution', executionId,
@@ -98,4 +123,29 @@ test('tui execution and family commands consume orchestrator HTTP surfaces', asy
   const regressionListPayload = JSON.parse(regressionListOutput.stdout);
   assert.ok(Array.isArray(regressionListPayload.regressions));
   assert.ok(regressionListPayload.regressions.some((item) => item.id === 'local-fast'));
+
+  const regressionRunOutput = await runCli([
+    'regression-run',
+    '--regression', 'local-fast',
+    '--api', `http://127.0.0.1:${ORCHESTRATOR_PORT}`,
+    '--stub'
+  ]);
+  const regressionRunPayload = JSON.parse(regressionRunOutput.stdout);
+  assert.equal(regressionRunPayload.regression.id, 'local-fast');
+
+  const regressionRunShowOutput = await runCli([
+    'regression-run-show',
+    '--run', regressionRunPayload.run.id,
+    '--api', `http://127.0.0.1:${ORCHESTRATOR_PORT}`
+  ]);
+  const regressionRunShowPayload = JSON.parse(regressionRunShowOutput.stdout);
+  assert.equal(regressionRunShowPayload.detail.run.id, regressionRunPayload.run.id);
+
+  const regressionTrendsOutput = await runCli([
+    'regression-trends',
+    '--regression', 'local-fast',
+    '--api', `http://127.0.0.1:${ORCHESTRATOR_PORT}`
+  ]);
+  const regressionTrendsPayload = JSON.parse(regressionTrendsOutput.stdout);
+  assert.ok(typeof regressionTrendsPayload.detail.windows.allTime.runCount === 'number');
 });

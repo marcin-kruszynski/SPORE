@@ -20,10 +20,22 @@ const state = {
   scenarioRuns: [],
   scenarioRunsState: "idle",
   scenarioRunsError: null,
+  selectedScenarioRunId: null,
+  scenarioRunArtifacts: null,
+  scenarioRunArtifactsState: "idle",
+  scenarioRunArtifactsError: null,
   regressions: [],
   selectedRegressionId: null,
   regressionRouteState: "idle",
   regressionRouteError: null,
+  regressionDetail: null,
+  regressionDetailState: "idle",
+  regressionDetailError: null,
+  regressionRuns: [],
+  regressionRunsState: "idle",
+  regressionRunsError: null,
+  selectedRegressionRunId: null,
+  selectedExecutionHistoryRowKey: null,
   workflowPreview: null,
   workflowPreviewError: null,
   workflowPreviewDirty: false,
@@ -1142,6 +1154,161 @@ function getScenarioStatus(record = {}) {
   return normalizeText(readFirstField(record, ["status", "state", "result", "latestStatus", "lastStatus"]), "unknown");
 }
 
+function normalizeReferenceValue(value) {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed || null;
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  return null;
+}
+
+function collectReferenceValues(source, matcher, limit = 16) {
+  if (!source || typeof matcher !== "function") {
+    return [];
+  }
+
+  const queue = [source];
+  const seenObjects = new Set();
+  const values = [];
+  const seenValues = new Set();
+  let safety = 0;
+
+  while (queue.length > 0 && values.length < limit && safety < 2000) {
+    safety += 1;
+    const current = queue.shift();
+    if (Array.isArray(current)) {
+      for (const item of current) {
+        if (isObject(item) || Array.isArray(item)) {
+          if (!seenObjects.has(item)) {
+            seenObjects.add(item);
+            queue.push(item);
+          }
+        }
+      }
+      continue;
+    }
+
+    if (!isObject(current)) {
+      continue;
+    }
+
+    for (const [key, rawValue] of Object.entries(current)) {
+      const keyLower = String(key).toLowerCase();
+      if (matcher(keyLower, rawValue)) {
+        if (Array.isArray(rawValue)) {
+          for (const item of rawValue) {
+            const normalized = normalizeReferenceValue(item);
+            if (!normalized || seenValues.has(normalized)) {
+              continue;
+            }
+            seenValues.add(normalized);
+            values.push(normalized);
+            if (values.length >= limit) {
+              break;
+            }
+          }
+        } else {
+          const normalized = normalizeReferenceValue(rawValue);
+          if (normalized && !seenValues.has(normalized)) {
+            seenValues.add(normalized);
+            values.push(normalized);
+          }
+        }
+      }
+
+      if (isObject(rawValue) || Array.isArray(rawValue)) {
+        if (!seenObjects.has(rawValue)) {
+          seenObjects.add(rawValue);
+          queue.push(rawValue);
+        }
+      }
+    }
+  }
+
+  return values;
+}
+
+function extractScenarioRunReferences(source) {
+  const scenarioIds = collectReferenceValues(
+    source,
+    (key) => key === "scenarioid" || key === "scenariokey"
+  );
+  const runIds = collectReferenceValues(source, (key) => key === "scenariorunid" || key === "runid");
+  const references = [];
+  const seen = new Set();
+
+  for (let index = 0; index < runIds.length; index += 1) {
+    const runId = runIds[index];
+    const scenarioId = scenarioIds[index] ?? scenarioIds[0] ?? null;
+    if (!scenarioId || !runId) {
+      continue;
+    }
+    const key = `${scenarioId}::${runId}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    references.push({ scenarioId, runId });
+  }
+
+  return references;
+}
+
+function extractHistoryReferences(payload = {}) {
+  const references = {
+    executionIds: collectReferenceValues(
+      payload,
+      (key) => key === "executionid" || key === "targetexecutionid" || key === "parentexecutionid"
+    ),
+    sessionIds: collectReferenceValues(
+      payload,
+      (key) => key === "sessionid" || key === "targetsessionid" || key === "parentsessionid"
+    ),
+    stepIds: collectReferenceValues(
+      payload,
+      (key) => key === "stepid" || key === "targetstepid"
+    ),
+    auditIds: collectReferenceValues(
+      payload,
+      (key) => key === "auditid"
+    ),
+    escalationIds: collectReferenceValues(
+      payload,
+      (key) => key === "escalationid"
+    ),
+    regressionRunIds: collectReferenceValues(
+      payload,
+      (key) => key === "regressionrunid"
+    ),
+    scenarioRuns: extractScenarioRunReferences(payload),
+    artifactPaths: collectReferenceValues(
+      payload,
+      (key, value) =>
+        (key.includes("artifact") || key.endsWith("path") || key === "json" || key === "markdown") &&
+        typeof value === "string" &&
+        value.includes("/")
+    ),
+    reportPaths: collectReferenceValues(
+      payload,
+      (key, value) =>
+        (key.includes("report") || key === "json" || key === "markdown") &&
+        typeof value === "string" &&
+        value.includes("/")
+    )
+  };
+
+  const dedupePaths = (values = []) => Array.from(new Set(values));
+  references.artifactPaths = dedupePaths(references.artifactPaths);
+  references.reportPaths = dedupePaths(references.reportPaths);
+  return references;
+}
+
 function normalizeExecutionHistoryRows(history) {
   const records = normalizeRouteArray(history, ["history", "entries", "events", "timeline", "items", "records"]);
   const rows = [];
@@ -1160,7 +1327,8 @@ function normalizeExecutionHistoryRows(history) {
     if (parsed === null) {
       return;
     }
-    const type = readFirstField(payload, ["type", "eventType", "action", "kind", "name", "label"]) ?? "history";
+    const type = readFirstField(payload, ["label", "type", "eventType", "action", "kind", "name"]) ?? "history";
+    const kind = normalizeText(readFirstField(payload, ["kind", "type", "eventType"]), "history");
     const status = readFirstField(payload, ["status", "state", "result", "outcome"]);
     const details = [
       readFirstField(payload, ["stepId", "step", "stepKey"]),
@@ -1175,12 +1343,17 @@ function normalizeExecutionHistoryRows(history) {
       details.push(JSON.stringify(summaryPayload));
     }
     rows.push({
+      key: normalizeText(readFirstField(payload, ["id", "eventId"]), `${parsed}-${index}`),
       ts: parsed,
       timestamp,
       title: normalizeText(type, "history"),
       meta: details.join(" · "),
       tone: inferEventTone(type, { status }),
-      sortBias: Number(payload?.eventIndex ?? payload?.index ?? index)
+      sortBias: Number(payload?.eventIndex ?? payload?.index ?? index),
+      kind,
+      status: normalizeText(status, ""),
+      raw: payload,
+      references: extractHistoryReferences(payload)
     });
   });
 
@@ -1331,6 +1504,55 @@ function renderScenarioStatus(record = {}) {
   return renderStatePill(status);
 }
 
+function buildExecutionHref(executionId) {
+  return `/api/orchestrator/executions/${encodeURIComponent(executionId)}`;
+}
+
+function buildSessionHref(sessionId) {
+  return `/api/sessions/${encodeURIComponent(sessionId)}?limit=20`;
+}
+
+function buildScenarioRunArtifactsHref(scenarioId, runId) {
+  return `/api/orchestrator/scenarios/${encodeURIComponent(scenarioId)}/runs/${encodeURIComponent(runId)}/artifacts`;
+}
+
+function buildRegressionRunsHref(regressionId) {
+  return `/api/orchestrator/regressions/${encodeURIComponent(regressionId)}/runs`;
+}
+
+function buildSessionArtifactHref(sessionId, artifactName) {
+  return `/api/sessions/${encodeURIComponent(sessionId)}/artifacts/${encodeURIComponent(artifactName)}`;
+}
+
+function renderPathReferenceList(paths = [], title = "References") {
+  if (!Array.isArray(paths) || paths.length === 0) {
+    return "";
+  }
+
+  return `
+    <article class="detail-card compact-empty">
+      <div class="event-title">
+        <strong>${escapeHtml(title)}</strong>
+        <span class="muted">${escapeHtml(String(paths.length))}</span>
+      </div>
+      <div class="event-meta">
+        ${paths
+          .map((pathValue) => {
+            const target = String(pathValue);
+            const href = `/${target.replace(/^\/+/, "")}`;
+            return `
+              <div class="reference-row">
+                <code>${escapeHtml(target)}</code>
+                <a class="inline-link" href="${escapeHtml(href)}" target="_blank" rel="noreferrer">open</a>
+              </div>
+            `;
+          })
+          .join("")}
+      </div>
+    </article>
+  `;
+}
+
 function renderScenarios() {
   if (!els.scenarioList) {
     return;
@@ -1395,7 +1617,17 @@ function renderScenarioDetail() {
     els.scenarioDetail.textContent = "Select a scenario to inspect latest run history and launch it through the orchestrator.";
     return;
   }
-  const latestRun = scenario.latestRun ?? state.scenarioRuns[0] ?? null;
+
+  const scenarioRuns = Array.isArray(state.scenarioRuns) ? state.scenarioRuns : [];
+  const selectedRun =
+    scenarioRuns.find((run) => run.id === state.selectedScenarioRunId) ??
+    scenarioRuns[0] ??
+    scenario.latestRun ??
+    null;
+  const runArtifacts = state.scenarioRunArtifacts?.executions ?? [];
+  const runSummary = selectedRun?.assertionSummary ?? {};
+  const runErrorMessage = state.scenarioRunsState === "error" ? `Failed to load runs: ${state.scenarioRunsError}` : null;
+
   els.scenarioDetail.className = "detail-card";
   els.scenarioDetail.innerHTML = `
     <div class="session-title">
@@ -1415,28 +1647,161 @@ function renderScenarioDetail() {
     </div>
     <div class="lineage-meta">
       ${renderMetaPill("roles", Array.isArray(scenario.roles) ? scenario.roles.join(", ") : "-")}
-      ${renderMetaPill("runs", state.scenarioRuns.length)}
+      ${renderMetaPill("runs", scenarioRuns.length)}
+      ${selectedRun?.usesRealPi ? renderMetaPill("real-pi", "yes", "root") : renderMetaPill("real-pi", "no")}
     </div>
-    <section class="history-stack">
-      ${(state.scenarioRuns ?? []).slice(0, 5).map((run) => `
-        <article class="event-item">
+    ${runErrorMessage ? `<div class="detail-card empty-state compact-empty">${escapeHtml(runErrorMessage)}</div>` : ""}
+    <section class="history-stack run-history-list">
+      ${scenarioRuns.slice(0, 8).map((run) => `
+        <article class="event-item run-history-item ${run.id === state.selectedScenarioRunId ? "active" : ""}" data-scenario-run-id="${escapeHtml(run.id)}">
           <div class="event-title">
             <strong>${escapeHtml(normalizeText(run.status))}</strong>
-            <code>${escapeHtml(normalizeText(run.startedAt))}</code>
+            <code>${escapeHtml(normalizeText(run.id))}</code>
           </div>
           <div class="event-meta">
-            <code>${escapeHtml(normalizeText(run.id))}</code>
+            <code>started=${escapeHtml(normalizeText(run.startedAt))}</code>
+            <code>ended=${escapeHtml(normalizeText(run.endedAt))}</code>
+            <code>launcher=${escapeHtml(normalizeText(run.launcher))}</code>
             <code>executions=${escapeHtml(String((run.executions ?? []).length))}</code>
             <code>sessions=${escapeHtml(String(run.executions?.reduce((acc, item) => acc + Number(item.sessionCount ?? 0), 0) ?? 0))}</code>
+          </div>
+          <div class="lineage-meta">
+            <a class="inline-link" href="${escapeHtml(buildScenarioRunArtifactsHref(scenario.id, run.id))}" target="_blank" rel="noreferrer">artifacts json</a>
           </div>
         </article>
       `).join("") || `<div class="detail-card empty-state">No scenario runs recorded yet.</div>`}
     </section>
+    ${
+      selectedRun
+        ? `
+          <section class="run-drilldown-panel">
+            <div class="panel-header nested">
+              <h3>Scenario Run Drilldown</h3>
+              ${renderStatePill(selectedRun.status ?? "unknown")}
+            </div>
+            <div class="detail-grid">
+              <div><span class="muted">Run ID</span><br /><code>${escapeHtml(normalizeText(selectedRun.id))}</code></div>
+              <div><span class="muted">Launcher</span><br /><code>${escapeHtml(normalizeText(selectedRun.launcher))}</code></div>
+              <div><span class="muted">Started</span><br /><code>${escapeHtml(normalizeText(selectedRun.startedAt))}</code></div>
+              <div><span class="muted">Ended</span><br /><code>${escapeHtml(normalizeText(selectedRun.endedAt))}</code></div>
+              <div><span class="muted">Requested By</span><br /><code>${escapeHtml(normalizeText(selectedRun.requestedBy))}</code></div>
+              <div><span class="muted">Trigger</span><br /><code>${escapeHtml(normalizeText(selectedRun.triggerSource))}</code></div>
+            </div>
+            <div class="lineage-meta">
+              ${renderMetaPill("step-count", runSummary.stepCount ?? 0)}
+              ${renderMetaPill("session-count", runSummary.sessionCount ?? 0)}
+              ${renderMetaPill("success", runSummary.success ? "yes" : "no", runSummary.success ? "root" : "failed")}
+              ${renderMetaPill("governance", runSummary.governanceState ? "yes" : "no", runSummary.governanceState ? "governance" : "")}
+            </div>
+            <div class="event-list">
+              ${(selectedRun.executions ?? []).map((item) => `
+                <article class="detail-card compact-empty">
+                  <div class="event-title">
+                    <strong>${escapeHtml(normalizeText(item.executionId))}</strong>
+                    <button type="button" class="secondary-button jump-button" data-jump-execution-id="${escapeHtml(normalizeText(item.executionId))}">open execution</button>
+                  </div>
+                  <div class="event-meta">
+                    <code>sessions=${escapeHtml(String(item.sessionCount ?? 0))}</code>
+                    <code>linked-at=${escapeHtml(normalizeText(item.createdAt))}</code>
+                  </div>
+                </article>
+              `).join("") || `<div class="detail-card empty-state compact-empty">No execution links recorded for this run.</div>`}
+            </div>
+            <div class="panel-header nested">
+              <h3>Run Artifacts</h3>
+              <span class="muted">/scenarios/:id/runs/:runId/artifacts</span>
+            </div>
+            ${
+              state.scenarioRunArtifactsState === "unavailable"
+                ? `<div class="detail-card empty-state compact-empty">Run artifact route is not available.</div>`
+                : state.scenarioRunArtifactsState === "error"
+                  ? `<div class="detail-card empty-state compact-empty">Failed to load run artifacts: ${escapeHtml(state.scenarioRunArtifactsError)}</div>`
+                  : runArtifacts.length === 0
+                    ? `<div class="detail-card empty-state compact-empty">No scenario artifact references returned for this run.</div>`
+                    : `
+                      <div class="event-list">
+                        ${runArtifacts
+                          .map(
+                            (executionEntry) => `
+                              <article class="decision-card run-drilldown-card">
+                                <div class="event-title">
+                                  <strong>${escapeHtml(normalizeText(executionEntry.executionId))}</strong>
+                                  <button type="button" class="secondary-button jump-button" data-jump-execution-id="${escapeHtml(normalizeText(executionEntry.executionId))}">open execution</button>
+                                </div>
+                                <div class="event-meta">
+                                  <code>sessions=${escapeHtml(String(executionEntry.sessionCount ?? 0))}</code>
+                                </div>
+                                <div class="event-list">
+                                  ${(executionEntry.artifacts ?? []).map((artifactEntry) => `
+                                    <article class="detail-card compact-empty">
+                                      <div class="event-title">
+                                        <strong>${escapeHtml(normalizeText(artifactEntry.sessionId))}</strong>
+                                        <button type="button" class="secondary-button jump-button" data-jump-session-id="${escapeHtml(normalizeText(artifactEntry.sessionId))}">open session</button>
+                                      </div>
+                                      <div class="artifact-meta">
+                                        ${Object.entries(artifactEntry.artifacts ?? {}).map(([name, item]) => `
+                                          <div class="reference-row">
+                                            <code>${escapeHtml(name)}=${escapeHtml(normalizeText(item.path))}</code>
+                                            ${
+                                              item?.exists
+                                                ? `<a class="inline-link" href="${escapeHtml(buildSessionArtifactHref(artifactEntry.sessionId, name))}" target="_blank" rel="noreferrer">open</a>`
+                                                : `<span class="muted">missing</span>`
+                                            }
+                                          </div>
+                                        `).join("")}
+                                      </div>
+                                    </article>
+                                  `).join("")}
+                                </div>
+                              </article>
+                            `
+                          )
+                          .join("")}
+                      </div>
+                    `
+            }
+          </section>
+        `
+        : `<div class="detail-card empty-state compact-empty">Select a scenario run to inspect drilldown details.</div>`
+    }
   `;
   const runButton = document.getElementById("scenario-run-button");
   const runStubButton = document.getElementById("scenario-run-stub-button");
   runButton?.addEventListener("click", () => runScenario(false).catch((error) => alert(error.message)));
   runStubButton?.addEventListener("click", () => runScenario(true).catch((error) => alert(error.message)));
+
+  for (const item of els.scenarioDetail.querySelectorAll("[data-scenario-run-id]")) {
+    item.addEventListener("click", () => {
+      state.selectedScenarioRunId = item.dataset.scenarioRunId;
+      refresh().catch((error) => console.error(error));
+    });
+  }
+
+  for (const button of els.scenarioDetail.querySelectorAll("[data-jump-execution-id]")) {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const executionId = button.dataset.jumpExecutionId;
+      if (!executionId) {
+        return;
+      }
+      state.selectedExecutionId = executionId;
+      connectExecutionEventStream();
+      refresh().catch((error) => console.error(error));
+    });
+  }
+
+  for (const button of els.scenarioDetail.querySelectorAll("[data-jump-session-id]")) {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const sessionId = button.dataset.jumpSessionId;
+      if (!sessionId) {
+        return;
+      }
+      state.selectedSessionId = sessionId;
+      connectEventStream();
+      refresh().catch((error) => console.error(error));
+    });
+  }
 }
 
 function renderRegressions() {
@@ -1458,34 +1823,385 @@ function renderRegressions() {
     els.regressionList.innerHTML = `<div class="detail-card empty-state">No regression profiles registered.</div>`;
     return;
   }
-  els.regressionList.innerHTML = state.regressions.map((regression) => `
-    <article class="decision-card">
-      <div class="event-title">
-        <strong>${escapeHtml(regression.label ?? regression.id)}</strong>
-        ${renderStatePill(regression.latestRun?.status ?? "idle")}
+
+  const selectedRegression =
+    state.regressions.find((regression) => regression.id === state.selectedRegressionId) ??
+    state.regressions[0] ??
+    null;
+  const selectedRegressionRuns = Array.isArray(state.regressionRuns) ? state.regressionRuns : [];
+  const selectedRegressionRun =
+    selectedRegressionRuns.find((run) => run.id === state.selectedRegressionRunId) ??
+    selectedRegressionRuns[0] ??
+    selectedRegression?.latestRun ??
+    null;
+  const reportPaths = Object.values(selectedRegressionRun?.metadata?.reports ?? {}).filter((value) => hasDisplayValue(value));
+
+  els.regressionList.innerHTML = `
+    ${state.regressions
+      .map((regression) => `
+        <article class="decision-card run-history-item ${regression.id === state.selectedRegressionId ? "active" : ""}" data-regression-id="${escapeHtml(regression.id)}">
+          <div class="event-title">
+            <strong>${escapeHtml(regression.label ?? regression.id)}</strong>
+            ${renderStatePill(regression.latestRun?.status ?? "idle")}
+          </div>
+          <div class="event-meta">
+            <code>${escapeHtml(regression.id)}</code>
+            <code>scenarios=${escapeHtml(String((regression.scenarios ?? []).length))}</code>
+            <code>real-pi=${escapeHtml(regression.realPiRequired ? "yes" : "no")}</code>
+          </div>
+          <div class="lineage-meta">
+            ${renderMetaPill("latest", normalizeText(regression.latestRun?.id))}
+            ${renderMetaPill("passed", regression.latestRun?.summary?.passCount ?? 0, "root")}
+            ${renderMetaPill("failed", regression.latestRun?.summary?.failCount ?? 0, regression.latestRun?.summary?.failCount ? "failed" : "")}
+          </div>
+          <div class="control-row">
+            <button type="button" class="secondary-button regression-run-button" data-run-regression-id="${escapeHtml(regression.id)}">Run</button>
+            <button type="button" class="secondary-button regression-run-stub-button" data-run-regression-id="${escapeHtml(regression.id)}">Run (Stub)</button>
+          </div>
+        </article>
+      `)
+      .join("")}
+    <article class="detail-card run-drilldown-panel">
+      <div class="panel-header nested">
+        <h3>Regression Run Drilldown</h3>
+        ${
+          selectedRegression
+            ? `<a class="inline-link" href="${escapeHtml(buildRegressionRunsHref(selectedRegression.id))}" target="_blank" rel="noreferrer">runs json</a>`
+            : ""
+        }
       </div>
-      <div class="event-meta">
-        <code>${escapeHtml(regression.id)}</code>
-        <code>scenarios=${escapeHtml(String((regression.scenarios ?? []).length))}</code>
-        <code>real-pi=${escapeHtml(regression.realPiRequired ? "yes" : "no")}</code>
+      ${
+        !selectedRegression
+          ? `<div class="detail-card empty-state compact-empty">Select a regression profile to inspect runs.</div>`
+          : `
+            <div class="detail-grid">
+              <div><span class="muted">Regression ID</span><br /><code>${escapeHtml(normalizeText(selectedRegression.id))}</code></div>
+              <div><span class="muted">Real PI Required</span><br /><code>${escapeHtml(selectedRegression.realPiRequired ? "yes" : "no")}</code></div>
+              <div class="detail-span"><span class="muted">Scenarios</span><br /><code>${escapeHtml((selectedRegression.scenarios ?? []).join(", ") || "-")}</code></div>
+            </div>
+            ${
+              state.regressionRunsState === "error"
+                ? `<div class="detail-card empty-state compact-empty">Failed to load regression runs: ${escapeHtml(state.regressionRunsError)}</div>`
+                : ""
+            }
+            <section class="history-stack run-history-list">
+              ${
+                selectedRegressionRuns
+                  .slice(0, 8)
+                  .map(
+                    (run) => `
+                      <article class="event-item run-history-item ${run.id === state.selectedRegressionRunId ? "active" : ""}" data-regression-run-id="${escapeHtml(run.id)}">
+                        <div class="event-title">
+                          <strong>${escapeHtml(normalizeText(run.status))}</strong>
+                          <code>${escapeHtml(normalizeText(run.id))}</code>
+                        </div>
+                        <div class="event-meta">
+                          <code>started=${escapeHtml(normalizeText(run.startedAt))}</code>
+                          <code>ended=${escapeHtml(normalizeText(run.endedAt))}</code>
+                          <code>pass=${escapeHtml(String(run.summary?.passCount ?? 0))}</code>
+                          <code>fail=${escapeHtml(String(run.summary?.failCount ?? 0))}</code>
+                          <code>skipped=${escapeHtml(String(run.summary?.skippedCount ?? 0))}</code>
+                        </div>
+                      </article>
+                    `
+                  )
+                  .join("") || `<div class="detail-card empty-state compact-empty">No regression runs recorded yet.</div>`
+              }
+            </section>
+            ${
+              selectedRegressionRun
+                ? `
+                  <div class="panel-header nested">
+                    <h3>Run ${escapeHtml(normalizeText(selectedRegressionRun.id))}</h3>
+                    ${renderStatePill(selectedRegressionRun.status ?? "unknown")}
+                  </div>
+                  <div class="detail-grid">
+                    <div><span class="muted">Requested By</span><br /><code>${escapeHtml(normalizeText(selectedRegressionRun.requestedBy))}</code></div>
+                    <div><span class="muted">Trigger Source</span><br /><code>${escapeHtml(normalizeText(selectedRegressionRun.triggerSource))}</code></div>
+                    <div><span class="muted">Started</span><br /><code>${escapeHtml(normalizeText(selectedRegressionRun.startedAt))}</code></div>
+                    <div><span class="muted">Ended</span><br /><code>${escapeHtml(normalizeText(selectedRegressionRun.endedAt))}</code></div>
+                  </div>
+                  <div class="lineage-meta">
+                    ${renderMetaPill("scenario-count", selectedRegressionRun.summary?.scenarioCount ?? 0)}
+                    ${renderMetaPill("pass", selectedRegressionRun.summary?.passCount ?? 0, "root")}
+                    ${renderMetaPill("fail", selectedRegressionRun.summary?.failCount ?? 0, (selectedRegressionRun.summary?.failCount ?? 0) > 0 ? "failed" : "")}
+                    ${renderMetaPill("skipped", selectedRegressionRun.summary?.skippedCount ?? 0)}
+                  </div>
+                  ${renderPathReferenceList(reportPaths, "Run Reports / Artifacts")}
+                  <div class="event-list">
+                    ${(selectedRegressionRun.items ?? [])
+                      .map((item) => `
+                        <article class="decision-card run-drilldown-card">
+                          <div class="event-title">
+                            <strong>${escapeHtml(normalizeText(item.scenarioId))}</strong>
+                            ${renderStatePill(item.status ?? "unknown")}
+                          </div>
+                          <div class="event-meta">
+                            <code>scenario-run=${escapeHtml(normalizeText(item.scenarioRunId))}</code>
+                            <code>execution=${escapeHtml(normalizeText(item.metadata?.executionId))}</code>
+                            <code>scenario-status=${escapeHtml(normalizeText(item.metadata?.scenarioStatus))}</code>
+                          </div>
+                          <div class="lineage-meta">
+                            ${
+                              item.metadata?.executionId
+                                ? `<button type="button" class="secondary-button jump-button" data-jump-execution-id="${escapeHtml(normalizeText(item.metadata.executionId))}">open execution</button>`
+                                : ""
+                            }
+                            ${
+                              item.scenarioRunId
+                                ? `<a class="inline-link" href="${escapeHtml(buildScenarioRunArtifactsHref(item.scenarioId, item.scenarioRunId))}" target="_blank" rel="noreferrer">scenario artifacts</a>`
+                                : ""
+                            }
+                            ${
+                              item.scenarioId
+                                ? `<button type="button" class="secondary-button jump-button" data-jump-scenario-id="${escapeHtml(normalizeText(item.scenarioId))}">open scenario</button>`
+                                : ""
+                            }
+                          </div>
+                        </article>
+                      `)
+                      .join("") || `<div class="detail-card empty-state compact-empty">No per-scenario regression items recorded for this run.</div>`}
+                  </div>
+                `
+                : `<div class="detail-card empty-state compact-empty">Select a regression run to inspect scenario-level outcomes.</div>`
+            }
+          `
+      }
+    </article>
+  `;
+
+  for (const item of els.regressionList.querySelectorAll("article[data-regression-id]")) {
+    item.addEventListener("click", () => {
+      state.selectedRegressionId = item.dataset.regressionId;
+      refresh().catch((error) => console.error(error));
+    });
+  }
+
+  for (const button of els.regressionList.querySelectorAll(".regression-run-button")) {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      runRegression(button.dataset.runRegressionId, false).catch((error) => alert(error.message));
+    });
+  }
+
+  for (const button of els.regressionList.querySelectorAll(".regression-run-stub-button")) {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      runRegression(button.dataset.runRegressionId, true).catch((error) => alert(error.message));
+    });
+  }
+
+  for (const item of els.regressionList.querySelectorAll("[data-regression-run-id]")) {
+    item.addEventListener("click", (event) => {
+      event.stopPropagation();
+      state.selectedRegressionRunId = item.dataset.regressionRunId;
+      renderRegressions();
+    });
+  }
+
+  for (const button of els.regressionList.querySelectorAll("[data-jump-execution-id]")) {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const executionId = button.dataset.jumpExecutionId;
+      if (!executionId) {
+        return;
+      }
+      state.selectedExecutionId = executionId;
+      connectExecutionEventStream();
+      refresh().catch((error) => console.error(error));
+    });
+  }
+
+  for (const button of els.regressionList.querySelectorAll("[data-jump-scenario-id]")) {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const scenarioId = button.dataset.jumpScenarioId;
+      if (!scenarioId) {
+        return;
+      }
+      state.selectedScenarioId = scenarioId;
+      refresh().catch((error) => console.error(error));
+    });
+  }
+}
+
+function renderExecutionHistoryDrilldown(row, fallbackExecutionId = null) {
+  if (!row) {
+    return `<div class="detail-card empty-state compact-empty">Select a history row to inspect references and raw payload.</div>`;
+  }
+
+  const references = row.references ?? {};
+  const executionIds = references.executionIds ?? [];
+  const sessionIds = references.sessionIds ?? [];
+  const scenarioRuns = references.scenarioRuns ?? [];
+  const regressionRunIds = references.regressionRunIds ?? [];
+  const auditIds = references.auditIds ?? [];
+  const escalationIds = references.escalationIds ?? [];
+  const stepIds = references.stepIds ?? [];
+  const referenceExecutionId = executionIds[0] ?? fallbackExecutionId ?? null;
+
+  return `
+    <section class="run-drilldown-panel history-drilldown">
+      <div class="panel-header nested">
+        <h3>History Row Drilldown</h3>
+        <span class="muted">${escapeHtml(normalizeText(row.kind, "history"))}</span>
+      </div>
+      <div class="detail-grid">
+        <div><span class="muted">Row Key</span><br /><code>${escapeHtml(normalizeText(row.key))}</code></div>
+        <div><span class="muted">Timestamp</span><br /><code>${escapeHtml(normalizeText(row.timestamp))}</code></div>
+        <div><span class="muted">Title</span><br /><code>${escapeHtml(normalizeText(row.title))}</code></div>
+        <div><span class="muted">Status</span><br /><code>${escapeHtml(normalizeText(row.status, "n/a"))}</code></div>
       </div>
       <div class="lineage-meta">
-        ${renderMetaPill("latest", normalizeText(regression.latestRun?.id))}
-        ${renderMetaPill("passed", regression.latestRun?.summary?.passCount ?? 0, "root")}
-        ${renderMetaPill("failed", regression.latestRun?.summary?.failCount ?? 0, regression.latestRun?.summary?.failCount ? "failed" : "")}
+        ${renderMetaPill("executions", executionIds.length)}
+        ${renderMetaPill("sessions", sessionIds.length)}
+        ${renderMetaPill("steps", stepIds.length)}
+        ${renderMetaPill("scenario-runs", scenarioRuns.length)}
+        ${renderMetaPill("regressions", regressionRunIds.length)}
+        ${renderMetaPill("audit-ids", auditIds.length)}
+        ${renderMetaPill("escalation-ids", escalationIds.length)}
       </div>
-      <div class="control-row">
-        <button type="button" class="secondary-button regression-run-button" data-regression-id="${escapeHtml(regression.id)}">Run</button>
-        <button type="button" class="secondary-button regression-run-stub-button" data-regression-id="${escapeHtml(regression.id)}">Run (Stub)</button>
+      <div class="event-list">
+        ${
+          referenceExecutionId
+            ? `
+              <article class="detail-card compact-empty">
+                <div class="event-title">
+                  <strong>Execution References</strong>
+                  <button type="button" class="secondary-button jump-button" data-jump-execution-id="${escapeHtml(referenceExecutionId)}">open selected execution</button>
+                </div>
+                <div class="lineage-meta">
+                  <a class="inline-link" href="${escapeHtml(buildExecutionHref(referenceExecutionId))}" target="_blank" rel="noreferrer">execution json</a>
+                  <a class="inline-link" href="/api/orchestrator/executions/${escapeHtml(encodeURIComponent(referenceExecutionId))}/history" target="_blank" rel="noreferrer">history json</a>
+                  <a class="inline-link" href="/api/orchestrator/executions/${escapeHtml(encodeURIComponent(referenceExecutionId))}/audit" target="_blank" rel="noreferrer">audit json</a>
+                  <a class="inline-link" href="/api/orchestrator/executions/${escapeHtml(encodeURIComponent(referenceExecutionId))}/escalations" target="_blank" rel="noreferrer">escalations json</a>
+                </div>
+                ${
+                  executionIds.length > 1
+                    ? `<div class="lineage-meta">${executionIds
+                        .slice(1)
+                        .map(
+                          (executionId) =>
+                            `<button type="button" class="secondary-button jump-button" data-jump-execution-id="${escapeHtml(executionId)}">${escapeHtml(executionId)}</button>`
+                        )
+                        .join("")}</div>`
+                    : ""
+                }
+              </article>
+            `
+            : ""
+        }
+        ${
+          sessionIds.length > 0
+            ? `
+              <article class="detail-card compact-empty">
+                <div class="event-title">
+                  <strong>Session References</strong>
+                  <span class="muted">${escapeHtml(String(sessionIds.length))}</span>
+                </div>
+                <div class="lineage-meta">
+                  ${sessionIds
+                    .map(
+                      (sessionId) => `
+                        <button type="button" class="secondary-button jump-button" data-jump-session-id="${escapeHtml(sessionId)}">${escapeHtml(sessionId)}</button>
+                        <a class="inline-link" href="${escapeHtml(buildSessionHref(sessionId))}" target="_blank" rel="noreferrer">json</a>
+                      `
+                    )
+                    .join("")}
+                </div>
+              </article>
+            `
+            : ""
+        }
+        ${
+          scenarioRuns.length > 0
+            ? `
+              <article class="detail-card compact-empty">
+                <div class="event-title">
+                  <strong>Scenario Run References</strong>
+                  <span class="muted">${escapeHtml(String(scenarioRuns.length))}</span>
+                </div>
+                <div class="lineage-meta">
+                  ${scenarioRuns
+                    .map(
+                      (reference) =>
+                        `<a class="inline-link" href="${escapeHtml(buildScenarioRunArtifactsHref(reference.scenarioId, reference.runId))}" target="_blank" rel="noreferrer">${escapeHtml(reference.scenarioId)} · ${escapeHtml(reference.runId)}</a>`
+                    )
+                    .join("")}
+                </div>
+              </article>
+            `
+            : ""
+        }
+        ${
+          regressionRunIds.length > 0
+            ? `
+              <article class="detail-card compact-empty">
+                <div class="event-title">
+                  <strong>Regression Run References</strong>
+                  <span class="muted">${escapeHtml(String(regressionRunIds.length))}</span>
+                </div>
+                <div class="lineage-meta">
+                  ${regressionRunIds.map((runId) => `<code>${escapeHtml(runId)}</code>`).join("")}
+                </div>
+              </article>
+            `
+            : ""
+        }
+        ${
+          stepIds.length > 0
+            ? `
+              <article class="detail-card compact-empty">
+                <div class="event-title">
+                  <strong>Step References</strong>
+                  <span class="muted">${escapeHtml(String(stepIds.length))}</span>
+                </div>
+                <div class="lineage-meta">
+                  ${stepIds.map((stepId) => `<code>${escapeHtml(stepId)}</code>`).join("")}
+                </div>
+              </article>
+            `
+            : ""
+        }
+        ${
+          auditIds.length > 0
+            ? `
+              <article class="detail-card compact-empty">
+                <div class="event-title">
+                  <strong>Audit IDs</strong>
+                </div>
+                <div class="lineage-meta">
+                  ${auditIds.map((auditId) => `<code>${escapeHtml(auditId)}</code>`).join("")}
+                </div>
+              </article>
+            `
+            : ""
+        }
+        ${
+          escalationIds.length > 0
+            ? `
+              <article class="detail-card compact-empty">
+                <div class="event-title">
+                  <strong>Escalation IDs</strong>
+                </div>
+                <div class="lineage-meta">
+                  ${escalationIds.map((escalationId) => `<code>${escapeHtml(escalationId)}</code>`).join("")}
+                </div>
+              </article>
+            `
+            : ""
+        }
+        ${renderPathReferenceList(references.reportPaths ?? [], "Report Paths")}
+        ${renderPathReferenceList(references.artifactPaths ?? [], "Artifact Paths")}
+        <article class="detail-card compact-empty">
+          <div class="event-title">
+            <strong>Raw Row Payload</strong>
+          </div>
+          <pre class="code-block compact-code">${escapeHtml(JSON.stringify(row.raw ?? null, null, 2))}</pre>
+        </article>
       </div>
-    </article>
-  `).join("");
-  for (const button of els.regressionList.querySelectorAll(".regression-run-button")) {
-    button.addEventListener("click", () => runRegression(button.dataset.regressionId, false).catch((error) => alert(error.message)));
-  }
-  for (const button of els.regressionList.querySelectorAll(".regression-run-stub-button")) {
-    button.addEventListener("click", () => runRegression(button.dataset.regressionId, true).catch((error) => alert(error.message)));
-  }
+    </section>
+  `;
 }
 
 function renderExecutionHistory(detail) {
@@ -1497,15 +2213,28 @@ function renderExecutionHistory(detail) {
     els.executionHistoryState.textContent = "history route: idle";
     els.executionHistory.className = "execution-history empty-state";
     els.executionHistory.textContent = "Select an execution to load structured history and policy snapshots.";
+    state.selectedExecutionHistoryRowKey = null;
     return;
   }
   if (!history) {
     els.executionHistoryState.textContent = "history route: unavailable";
     els.executionHistory.className = "execution-history empty-state";
     els.executionHistory.textContent = "Structured execution history is not available for the selected execution.";
+    state.selectedExecutionHistoryRowKey = null;
     return;
   }
   const rows = normalizeExecutionHistoryRows({ timeline: history.timeline ?? [] });
+  if (
+    state.selectedExecutionHistoryRowKey &&
+    !rows.some((row) => row.key === state.selectedExecutionHistoryRowKey)
+  ) {
+    state.selectedExecutionHistoryRowKey = null;
+  }
+  if (!state.selectedExecutionHistoryRowKey && rows[0]) {
+    state.selectedExecutionHistoryRowKey = rows[0].key;
+  }
+  const selectedRow = rows.find((row) => row.key === state.selectedExecutionHistoryRowKey) ?? null;
+
   els.executionHistoryState.textContent = `history route: ready · ${rows.length} row${rows.length === 1 ? "" : "s"}`;
   els.executionHistory.className = "execution-history";
   els.executionHistory.innerHTML = `
@@ -1533,7 +2262,7 @@ function renderExecutionHistory(detail) {
     })}
     <ol class="timeline-list">
       ${rows.map((row) => `
-        <li class="timeline-item ${escapeHtml(row.tone)}">
+        <li class="timeline-item ${escapeHtml(row.tone)} ${row.key === state.selectedExecutionHistoryRowKey ? "active" : ""}" data-history-row-key="${escapeHtml(row.key)}">
           <div class="timeline-dot" aria-hidden="true"></div>
           <div class="timeline-content">
             <div class="timeline-title">
@@ -1541,11 +2270,52 @@ function renderExecutionHistory(detail) {
               <code>${escapeHtml(row.timestamp)}</code>
             </div>
             ${row.meta ? `<p class="timeline-meta">${escapeHtml(row.meta)}</p>` : ""}
+            <div class="lineage-meta">
+              ${renderMetaPill("kind", normalizeText(row.kind))}
+              ${(row.references?.sessionIds ?? []).length ? renderMetaPill("sessions", row.references.sessionIds.length) : ""}
+              ${(row.references?.executionIds ?? []).length ? renderMetaPill("executions", row.references.executionIds.length) : ""}
+              ${(row.references?.artifactPaths ?? []).length ? renderMetaPill("artifacts", row.references.artifactPaths.length) : ""}
+              ${(row.references?.reportPaths ?? []).length ? renderMetaPill("reports", row.references.reportPaths.length) : ""}
+            </div>
           </div>
         </li>
       `).join("") || `<li class="timeline-item neutral"><div class="timeline-content"><p class="timeline-meta">No structured history rows returned.</p></div></li>`}
     </ol>
+    ${renderExecutionHistoryDrilldown(selectedRow, detail?.execution?.id)}
   `;
+
+  for (const item of els.executionHistory.querySelectorAll("[data-history-row-key]")) {
+    item.addEventListener("click", () => {
+      state.selectedExecutionHistoryRowKey = item.dataset.historyRowKey;
+      renderExecutionHistory(detail);
+    });
+  }
+
+  for (const button of els.executionHistory.querySelectorAll("[data-jump-execution-id]")) {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const executionId = button.dataset.jumpExecutionId;
+      if (!executionId) {
+        return;
+      }
+      state.selectedExecutionId = executionId;
+      connectExecutionEventStream();
+      refresh().catch((error) => console.error(error));
+    });
+  }
+
+  for (const button of els.executionHistory.querySelectorAll("[data-jump-session-id]")) {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const sessionId = button.dataset.jumpSessionId;
+      if (!sessionId) {
+        return;
+      }
+      state.selectedSessionId = sessionId;
+      connectEventStream();
+      refresh().catch((error) => console.error(error));
+    });
+  }
 }
 
 function renderExecutionMiniCard(execution, { label, selectedId } = {}) {
@@ -3098,6 +3868,10 @@ async function loadScenarioDetail() {
     state.scenarioRunsState = "idle";
     state.scenarioDetailError = null;
     state.scenarioRunsError = null;
+    state.selectedScenarioRunId = null;
+    state.scenarioRunArtifacts = null;
+    state.scenarioRunArtifactsState = "idle";
+    state.scenarioRunArtifactsError = null;
     return;
   }
 
@@ -3114,6 +3888,35 @@ async function loadScenarioDetail() {
   state.scenarioRunsState = runsResult.state;
   state.scenarioRunsError = runsResult.error;
   state.scenarioRuns = runsResult.payload?.detail?.runs ?? [];
+
+  if (state.selectedScenarioRunId && !state.scenarioRuns.some((run) => run.id === state.selectedScenarioRunId)) {
+    state.selectedScenarioRunId = null;
+  }
+  if (!state.selectedScenarioRunId && state.scenarioRuns[0]?.id) {
+    state.selectedScenarioRunId = state.scenarioRuns[0].id;
+  }
+
+  await loadScenarioRunArtifacts();
+}
+
+async function loadScenarioRunArtifacts() {
+  if (
+    !state.selectedScenarioId ||
+    !state.selectedScenarioRunId ||
+    state.scenarioRunsState !== "ready"
+  ) {
+    state.scenarioRunArtifacts = null;
+    state.scenarioRunArtifactsState = "idle";
+    state.scenarioRunArtifactsError = null;
+    return;
+  }
+
+  const scenarioId = encodeURIComponent(state.selectedScenarioId);
+  const runId = encodeURIComponent(state.selectedScenarioRunId);
+  const result = await optionalApi(`/orchestrator/scenarios/${scenarioId}/runs/${runId}/artifacts`);
+  state.scenarioRunArtifactsState = result.state;
+  state.scenarioRunArtifactsError = result.error;
+  state.scenarioRunArtifacts = result.payload?.detail ?? null;
 }
 
 async function loadRegressionCatalog() {
@@ -3121,6 +3924,47 @@ async function loadRegressionCatalog() {
   state.regressionRouteState = result.state;
   state.regressionRouteError = result.error;
   state.regressions = result.payload?.regressions ?? [];
+
+  if (state.selectedRegressionId && !state.regressions.some((regression) => regression.id === state.selectedRegressionId)) {
+    state.selectedRegressionId = null;
+  }
+  if (!state.selectedRegressionId && state.regressions[0]?.id) {
+    state.selectedRegressionId = state.regressions[0].id;
+  }
+}
+
+async function loadRegressionDetail() {
+  if (!state.selectedRegressionId || state.regressionRouteState !== "ready") {
+    state.regressionDetail = null;
+    state.regressionDetailState = "idle";
+    state.regressionDetailError = null;
+    state.regressionRuns = [];
+    state.regressionRunsState = "idle";
+    state.regressionRunsError = null;
+    state.selectedRegressionRunId = null;
+    return;
+  }
+
+  const regressionId = encodeURIComponent(state.selectedRegressionId);
+  const [detailResult, runsResult] = await Promise.all([
+    optionalApi(`/orchestrator/regressions/${regressionId}`),
+    optionalApi(`/orchestrator/regressions/${regressionId}/runs`)
+  ]);
+
+  state.regressionDetailState = detailResult.state;
+  state.regressionDetailError = detailResult.error;
+  state.regressionDetail = detailResult.payload ?? null;
+
+  state.regressionRunsState = runsResult.state;
+  state.regressionRunsError = runsResult.error;
+  state.regressionRuns = runsResult.payload?.detail?.runs ?? [];
+
+  if (state.selectedRegressionRunId && !state.regressionRuns.some((run) => run.id === state.selectedRegressionRunId)) {
+    state.selectedRegressionRunId = null;
+  }
+  if (!state.selectedRegressionRunId && state.regressionRuns[0]?.id) {
+    state.selectedRegressionRunId = state.regressionRuns[0].id;
+  }
 }
 
 async function refresh() {
@@ -3151,6 +3995,7 @@ async function refresh() {
 
   detailPromises.push(loadExecutionDetail());
   detailPromises.push(loadScenarioDetail());
+  detailPromises.push(loadRegressionDetail());
   const results = await Promise.all(detailPromises);
   if (state.selectedSessionId) {
     state.detail = results[0];
@@ -3172,6 +4017,7 @@ async function runScenario(stub = false) {
   if (!state.selectedScenarioId) {
     return;
   }
+  state.selectedScenarioRunId = null;
   await api(`/orchestrator/scenarios/${encodeURIComponent(state.selectedScenarioId)}/run`, {
     method: "POST",
     body: JSON.stringify({
@@ -3188,6 +4034,8 @@ async function runRegression(regressionId, stub = false) {
   if (!regressionId) {
     return;
   }
+  state.selectedRegressionId = regressionId;
+  state.selectedRegressionRunId = null;
   await api(`/orchestrator/regressions/${encodeURIComponent(regressionId)}/run`, {
     method: "POST",
     body: JSON.stringify({

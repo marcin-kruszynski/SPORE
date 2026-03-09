@@ -64,11 +64,43 @@ test("scenario, regression, and execution history routes work through orchestrat
   assert.equal(scenarioRuns.json.detail.runs[0].runId, undefined);
   assert.ok(Array.isArray(scenarioRuns.json.detail.runs[0].executions));
 
+  const scenarioRunDetail = await getJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/scenario-runs/${encodeURIComponent(scenarioRun.json.run.id)}`
+  );
+  assert.equal(scenarioRunDetail.status, 200);
+  assert.equal(scenarioRunDetail.json.detail.run.id, scenarioRun.json.run.id);
+
+  const scenarioArtifacts = await getJson(
+    `http://127.0.0.1:${WEB_PORT}/api/orchestrator/scenario-runs/${encodeURIComponent(scenarioRun.json.run.id)}/artifacts`
+  );
+  assert.equal(scenarioArtifacts.status, 200);
+  assert.equal(scenarioArtifacts.json.detail.run.id, scenarioRun.json.run.id);
+
+  const scenarioTrends = await getJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/scenarios/cli-verification-pass/trends`
+  );
+  assert.equal(scenarioTrends.status, 200);
+  assert.equal(scenarioTrends.json.detail.scenario.id, "cli-verification-pass");
+  assert.ok(typeof scenarioTrends.json.detail.windows.allTime.runCount === "number");
+
+  const scenarioRerun = await postJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/scenario-runs/${encodeURIComponent(scenarioRun.json.run.id)}/rerun`,
+    {
+      stub: true,
+      wait: true,
+      by: "test-rerun",
+      reason: "HTTP rerun coverage"
+    }
+  );
+  assert.equal(scenarioRerun.status, 200);
+  assert.equal(scenarioRerun.json.rerunOf, scenarioRun.json.run.id);
+  assert.equal(scenarioRerun.json.run.metadata?.rerunOf, scenarioRun.json.run.id);
+
   const regressions = await getJson(`http://127.0.0.1:${ORCHESTRATOR_PORT}/regressions`);
   assert.equal(regressions.status, 200);
   assert.ok(regressions.json.regressions.some((item) => item.id === "local-fast"));
 
-  const regressionRun = await postJson(`http://127.0.0.1:${WEB_PORT}/api/orchestrator/regressions/local-fast/run`, {
+  const regressionRun = await postJson(`http://127.0.0.1:${ORCHESTRATOR_PORT}/regressions/local-fast/run`, {
     stub: true,
     by: "test-runner"
   });
@@ -82,4 +114,35 @@ test("scenario, regression, and execution history routes work through orchestrat
   assert.equal(regressionRuns.status, 200);
   assert.equal(regressionRuns.json.detail.regression.id, "local-fast");
   assert.ok(regressionRuns.json.detail.runs.length >= 1);
+
+  const regressionRunDetail = await getJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/regression-runs/${encodeURIComponent(regressionRun.json.run.id)}`
+  );
+  assert.equal(regressionRunDetail.status, 200);
+  assert.equal(regressionRunDetail.json.detail.run.id, regressionRun.json.run.id);
+
+  const regressionReport = await getJson(
+    `http://127.0.0.1:${WEB_PORT}/api/orchestrator/regression-runs/${encodeURIComponent(regressionRun.json.run.id)}/report`
+  );
+  assert.equal(regressionReport.status, 200);
+  assert.equal(regressionReport.json.detail.run.id, regressionRun.json.run.id);
+  assert.ok(regressionReport.json.detail.reports.json);
+  assert.ok(regressionReport.json.detail.reports.markdown);
+
+  const regressionTrends = await getJson(`http://127.0.0.1:${ORCHESTRATOR_PORT}/regressions/local-fast/trends`);
+  assert.equal(regressionTrends.status, 200);
+  assert.equal(regressionTrends.json.detail.regression.id, "local-fast");
+  assert.ok(typeof regressionTrends.json.detail.windows.allTime.runCount === "number");
+
+  const regressionRerun = await postJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/regression-runs/${encodeURIComponent(regressionRun.json.run.id)}/rerun`,
+    {
+      stub: true,
+      by: "test-rerun",
+      reason: "HTTP regression rerun coverage"
+    }
+  );
+  assert.equal(regressionRerun.status, 200);
+  assert.equal(regressionRerun.json.rerunOf, regressionRun.json.run.id);
+  assert.equal(regressionRerun.json.run.metadata?.rerunOf, regressionRun.json.run.id);
 });

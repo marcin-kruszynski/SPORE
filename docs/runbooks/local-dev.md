@@ -95,6 +95,8 @@ npm run runtime-pi:run -- --profile config/profiles/lead.yaml --project config/p
 npm run session:status
 npm run session:events -- --session smoke-001
 npm run ops:inspect -- --session smoke-001
+SPORE_RUN_PI_E2E=1 npm run test:e2e:pi
+SPORE_RUN_PI_E2E=1 SPORE_RUN_PI_CONTROL_E2E=1 npm run test:e2e:gateway-control
 ```
 
 If PI is not configured yet, say so explicitly and use the stub launcher only as a temporary fallback.
@@ -213,9 +215,17 @@ Typical commands:
 npm run orchestrator:scenario-list
 npm run orchestrator:scenario-show -- --scenario backend-service-delivery
 npm run orchestrator:scenario-run -- --scenario cli-verification-pass --stub
+npm run orchestrator:scenario-run-show -- --run <run-id>
+npm run orchestrator:scenario-run-artifacts -- --run <run-id>
+npm run orchestrator:scenario-rerun -- --run <run-id>
+npm run orchestrator:scenario-trends -- --scenario backend-service-delivery
 npm run orchestrator:regression-list
 npm run orchestrator:regression-show -- --regression local-fast
 npm run orchestrator:regression-run -- --regression local-fast --stub
+npm run orchestrator:regression-run-show -- --run <run-id>
+npm run orchestrator:regression-report -- --run <run-id>
+npm run orchestrator:regression-rerun -- --run <run-id>
+npm run orchestrator:regression-trends -- --regression local-fast
 ```
 
 Look for optional fields such as:

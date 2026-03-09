@@ -41,7 +41,9 @@ Bootstrap foundation is complete enough to support the next implementation phase
 - machine-readable scenario and regression catalogs under `config/scenarios/` and `config/regressions/`
 - durable scenario-run and regression-run history in orchestrator SQLite
 - combined execution history surface and scenario-run artifact summaries
+- durable scenario-run and regression-run reads by run id, rerun routes, and trend summaries
 - regression report artifacts under `artifacts/regressions/`
+- session-gateway combined live inspection with derived diagnostics and suggested recovery actions
 - local regression suites split into `test:policy`, `test:http`, `test:web-proxy`, `test:tui`, `test:all-local`, and opt-in `test:e2e:pi`
 
 ## Ready Areas
@@ -85,10 +87,10 @@ Bootstrap foundation is complete enough to support the next implementation phase
 
 ## Next Steps
 
-1. Broaden real PI canonical E2E coverage from single-scenario runs into grouped regression profiles.
-2. Add richer web timeline drilldowns that jump from history rows into exact artifacts and audit payloads.
-3. Add session-gateway live inspection and control E2E coverage against real PI sessions.
-4. Add operator-facing regression history dashboards over durable run/report records.
+1. Build operator-facing run-center views over durable scenario runs, regression runs, and report artifacts.
+2. Add rerun workflows, retention policies, and scheduling for reusable regression profiles.
+3. Extend trend analysis, failure classification, and recovery guidance over durable run history.
+4. Continue broadening real PI coverage from canonical scenario runs into grouped regression profiles.
 
 ## Architectural Risks
 

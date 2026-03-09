@@ -37,7 +37,14 @@ import {
 import { planWorkflowInvocation } from "../invocation/plan-workflow-invocation.js";
 import { PROJECT_ROOT } from "../../../runtime-pi/src/metadata/constants.js";
 import {
+  getRegressionRunDetail,
+  getRegressionRunReport,
+  getRegressionTrends,
+  getScenarioRunSummaryById,
   getScenarioRunArtifacts,
+  getScenarioTrends,
+  rerunRegressionRun,
+  rerunScenarioRun,
   runRegressionById,
   runScenarioById
 } from "../scenarios/run-history.js";
@@ -386,6 +393,30 @@ async function main() {
     return;
   }
 
+  if (command === "scenario-run-show") {
+    if (!flags.run) {
+      throw new Error("use scenario-run-show --run <id>");
+    }
+    const detail = await getScenarioRunSummaryById(flags.run);
+    if (!detail) {
+      throw new Error(`scenario run not found: ${flags.run}`);
+    }
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
+  if (command === "scenario-trends") {
+    if (!flags.scenario) {
+      throw new Error("use scenario-trends --scenario <id>");
+    }
+    const detail = await getScenarioTrends(flags.scenario, undefined, Number.parseInt(String(flags.limit ?? "100"), 10));
+    if (!detail) {
+      throw new Error(`scenario not found: ${flags.scenario}`);
+    }
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
   if (command === "scenario-run") {
     if (!flags.scenario) {
       throw new Error("use scenario-run --scenario <id>");
@@ -404,6 +435,32 @@ async function main() {
       stepSoftTimeoutMs: flags["step-soft-timeout"] ?? null,
       stepHardTimeoutMs: flags["step-hard-timeout"] ?? null
     });
+    console.log(JSON.stringify({ ok: true, ...result }, null, 2));
+    return;
+  }
+
+  if (command === "scenario-rerun") {
+    if (!flags.run) {
+      throw new Error("use scenario-rerun --run <id>");
+    }
+    const result = await rerunScenarioRun(flags.run, {
+      project: flags.project ?? null,
+      wait: flags.wait !== undefined ? flags.wait === true : true,
+      timeout: flags.timeout ?? "180000",
+      interval: flags.interval ?? "1500",
+      noMonitor: flags["no-monitor"] === true,
+      stub: flags.stub === true,
+      launcher: flags.launcher ?? null,
+      objective: flags.objective ?? null,
+      source: flags.source ?? "cli",
+      by: flags.by ?? "operator",
+      reason: flags.reason ?? "",
+      stepSoftTimeoutMs: flags["step-soft-timeout"] ?? null,
+      stepHardTimeoutMs: flags["step-hard-timeout"] ?? null
+    });
+    if (!result) {
+      throw new Error(`scenario run not found: ${flags.run}`);
+    }
     console.log(JSON.stringify({ ok: true, ...result }, null, 2));
     return;
   }
@@ -454,6 +511,66 @@ async function main() {
       stepSoftTimeoutMs: flags["step-soft-timeout"] ?? null,
       stepHardTimeoutMs: flags["step-hard-timeout"] ?? null
     });
+    console.log(JSON.stringify({ ok: true, ...result }, null, 2));
+    return;
+  }
+
+  if (command === "regression-run-show") {
+    if (!flags.run) {
+      throw new Error("use regression-run-show --run <id>");
+    }
+    const detail = await getRegressionRunDetail(flags.run);
+    if (!detail) {
+      throw new Error(`regression run not found: ${flags.run}`);
+    }
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
+  if (command === "regression-report") {
+    if (!flags.run) {
+      throw new Error("use regression-report --run <id>");
+    }
+    const detail = await getRegressionRunReport(flags.run);
+    if (!detail) {
+      throw new Error(`regression run not found: ${flags.run}`);
+    }
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
+  if (command === "regression-trends") {
+    if (!flags.regression) {
+      throw new Error("use regression-trends --regression <id>");
+    }
+    const detail = await getRegressionTrends(flags.regression, undefined, Number.parseInt(String(flags.limit ?? "100"), 10));
+    if (!detail) {
+      throw new Error(`regression not found: ${flags.regression}`);
+    }
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
+  if (command === "regression-rerun") {
+    if (!flags.run) {
+      throw new Error("use regression-rerun --run <id>");
+    }
+    const result = await rerunRegressionRun(flags.run, {
+      project: flags.project ?? null,
+      timeout: flags.timeout ?? "180000",
+      interval: flags.interval ?? "1500",
+      noMonitor: flags["no-monitor"] === true,
+      stub: flags.stub === true,
+      launcher: flags.launcher ?? null,
+      source: flags.source ?? "cli",
+      by: flags.by ?? "operator",
+      reason: flags.reason ?? "",
+      stepSoftTimeoutMs: flags["step-soft-timeout"] ?? null,
+      stepHardTimeoutMs: flags["step-hard-timeout"] ?? null
+    });
+    if (!result) {
+      throw new Error(`regression run not found: ${flags.run}`);
+    }
     console.log(JSON.stringify({ ok: true, ...result }, null, 2));
     return;
   }

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  getLiveSession,
   getSessionStatusFromCli,
   launchGatewayControlledSession,
   postJson,
@@ -10,6 +11,7 @@ import {
   startGatewayServer,
   waitForControlArtifact,
   waitForGatewayEvent,
+  waitForLiveControlHistory,
   waitForGatewaySessionState
 } from "./helpers/gateway-harness.js";
 
@@ -41,6 +43,14 @@ test("gateway steer and stop scaffolding works with a real PI session", async (t
     return;
   }
 
+  const initialLive = await getLiveSession(harness.baseUrl, launched.sessionId, { limit: 20 });
+  assert.equal(initialLive.status, 200);
+  assert.equal(initialLive.json?.session?.id, launched.sessionId);
+  assert.ok(Array.isArray(initialLive.json?.events));
+  assert.equal(initialLive.json?.launcher?.runId, launched.runId);
+  assert.equal(initialLive.json?.launcher?.launcherType, "pi-rpc");
+  assert.ok(Array.isArray(initialLive.json?.controlHistory));
+
   const steer = await postJson(
     harness.baseUrl,
     `/sessions/${encodeURIComponent(launched.sessionId)}/actions/steer`,
@@ -62,11 +72,26 @@ test("gateway steer and stop scaffolding works with a real PI session", async (t
   );
   assert.equal(steerEvent.type, "session.steer");
 
+  const liveAfterSteer = await waitForLiveControlHistory(
+    harness.baseUrl,
+    launched.sessionId,
+    (entry) => JSON.stringify(entry).includes("SPORE_STEER_OK"),
+    { timeoutMs: 15000, intervalMs: 400, limit: 30 }
+  );
+  assert.equal(liveAfterSteer.session.id, launched.sessionId);
+  assert.ok(liveAfterSteer.controlHistory.length >= 1);
+
   const controlArtifactPath = await waitForControlArtifact(launched.sessionId, {
     timeoutMs: 15000,
     intervalMs: 400
   });
   assert.ok(controlArtifactPath);
+
+  const liveSnapshotAfterSteer = await getLiveSession(harness.baseUrl, launched.sessionId, { limit: 30 });
+  assert.equal(liveSnapshotAfterSteer.status, 200);
+  assert.equal(liveSnapshotAfterSteer.json?.ok, true);
+  assert.ok(Array.isArray(liveSnapshotAfterSteer.json?.controlHistory));
+  assert.ok(liveSnapshotAfterSteer.json?.diagnostics);
 
   const stop = await postJson(
     harness.baseUrl,
@@ -87,6 +112,16 @@ test("gateway steer and stop scaffolding works with a real PI session", async (t
   );
   assert.equal(stopped.session.state, "stopped");
 
+  const liveStopped = await getLiveSession(harness.baseUrl, launched.sessionId, { limit: 30 });
+  assert.equal(liveStopped.status, 200);
+  assert.equal(liveStopped.json?.session?.state, "stopped");
+  assert.ok(Array.isArray(liveStopped.json?.controlHistory));
+  assert.ok(
+    liveStopped.json.controlHistory.some((entry) =>
+      JSON.stringify(entry).includes("test requested stop")
+    )
+  );
+
   const summary = await readGatewayArtifactSummary(harness.baseUrl, launched.sessionId);
   assert.equal(summary?.ok, true);
   assert.ok(summary?.artifacts?.transcript);
@@ -94,6 +129,10 @@ test("gateway steer and stop scaffolding works with a real PI session", async (t
   const controlArtifact = await readGatewayArtifacts(harness.baseUrl, launched.sessionId, "control");
   assert.equal(controlArtifact?.ok, true);
   assert.ok(Array.isArray(controlArtifact.content));
+
+  const liveStoppedDiagnostics = await getLiveSession(harness.baseUrl, launched.sessionId, { limit: 30 });
+  assert.equal(liveStoppedDiagnostics.status, 200);
+  assert.equal(liveStoppedDiagnostics.json?.diagnostics?.status, "settled");
 });
 
 test("gateway mark-complete scaffolding works with a real PI session", async (t) => {
@@ -122,6 +161,11 @@ test("gateway mark-complete scaffolding works with a real PI session", async (t)
     return;
   }
 
+  const initialLive = await getLiveSession(harness.baseUrl, launched.sessionId, { limit: 20 });
+  assert.equal(initialLive.status, 200);
+  assert.equal(initialLive.json?.session?.state, "active");
+  assert.equal(initialLive.json?.launcher?.launcherType, "pi-rpc");
+
   const markComplete = await postJson(
     harness.baseUrl,
     `/sessions/${encodeURIComponent(launched.sessionId)}/actions/mark-complete`,
@@ -141,9 +185,21 @@ test("gateway mark-complete scaffolding works with a real PI session", async (t)
   );
   assert.equal(completed.session.state, "completed");
 
+  const completeRequested = await waitForGatewayEvent(
+    harness.baseUrl,
+    { session: launched.sessionId, type: "session.complete_requested", limit: "20" },
+    (event) => event?.payload?.reason === "test requested completion",
+    { timeoutMs: 15000, intervalMs: 400 }
+  );
+  assert.equal(completeRequested.type, "session.complete_requested");
+
   const exitArtifact = await readGatewayArtifacts(harness.baseUrl, launched.sessionId, "exit");
   assert.equal(exitArtifact?.ok, true);
   assert.equal(exitArtifact.content?.exitCode, 0);
+
+  const liveCompletedDiagnostics = await getLiveSession(harness.baseUrl, launched.sessionId, { limit: 30 });
+  assert.equal(liveCompletedDiagnostics.status, 200);
+  assert.equal(liveCompletedDiagnostics.json?.diagnostics?.status, "settled");
 
   const status = await getSessionStatusFromCli(harness.env);
   assert.ok(status.byState.completed >= 1);

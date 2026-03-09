@@ -56,4 +56,13 @@ The write side is still intentionally narrow:
 - `mark-complete` applies an operator completion override
 - `steer` appends to a control queue and routes through PI RPC for `pi-rpc` sessions; tmux text delivery remains the fallback for non-RPC launchers
 
+The combined live route is the preferred read for operator tooling because it now includes:
+
+- session metadata,
+- recent events,
+- artifact summary,
+- control history,
+- derived diagnostics,
+- suggested recovery actions.
+
 This is not yet the final control plane, but it is enough for early operator workflows and future Web UI integration.

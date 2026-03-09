@@ -16,8 +16,16 @@ node packages/tui/src/cli/spore-ops.js policy-diff --execution e2e-review-001
 node packages/tui/src/cli/spore-ops.js history --execution e2e-review-001
 node packages/tui/src/cli/spore-ops.js scenario-list
 node packages/tui/src/cli/spore-ops.js scenario-run --scenario cli-verification-pass
+node packages/tui/src/cli/spore-ops.js scenario-run-show --run <run-id>
+node packages/tui/src/cli/spore-ops.js scenario-run-artifacts --run <run-id>
+node packages/tui/src/cli/spore-ops.js scenario-rerun --run <run-id>
+node packages/tui/src/cli/spore-ops.js scenario-trends --scenario backend-service-delivery
 node packages/tui/src/cli/spore-ops.js regression-list
 node packages/tui/src/cli/spore-ops.js regression-run --regression local-fast
+node packages/tui/src/cli/spore-ops.js regression-run-show --run <run-id>
+node packages/tui/src/cli/spore-ops.js regression-report --run <run-id>
+node packages/tui/src/cli/spore-ops.js regression-rerun --run <run-id>
+node packages/tui/src/cli/spore-ops.js regression-trends --regression local-fast
 node packages/tui/src/cli/spore-ops.js hold --execution e2e-review-001 --reason "Operator hold"
 node packages/tui/src/cli/spore-ops.js review --execution e2e-review-001 --status approved --comments "Ready"
 ```
@@ -34,6 +42,8 @@ The TUI/CLI operator surface now provides:
 - policy diff inspection over `/executions/:id/policy-diff`,
 - combined execution history inspection over `/executions/:id/history`,
 - scenario and regression catalog inspection over orchestrator HTTP surfaces,
+- scenario and regression run inspection by durable run id,
+- scenario and regression rerun and trend inspection over orchestrator HTTP surfaces,
 - scenario and regression launch actions over orchestrator HTTP surfaces,
 - family-level actions over `/executions/:id/tree/*` for:
   - `drive`

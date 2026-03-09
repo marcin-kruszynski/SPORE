@@ -551,6 +551,18 @@ export function getScenarioRunDetail(runId, dbPath = DEFAULT_ORCHESTRATOR_DB_PAT
   });
 }
 
+export async function getScenarioRunSummaryById(runId, dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
+  const detail = getScenarioRunDetail(runId, dbPath);
+  if (!detail) {
+    return null;
+  }
+  const scenario = await getScenarioDefinition(detail.run.scenarioId);
+  return {
+    scenario,
+    ...detail
+  };
+}
+
 export async function getScenarioRunArtifacts(runId, dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
   const detail = getScenarioRunDetail(runId, dbPath);
   if (!detail) {
@@ -571,6 +583,70 @@ export async function getScenarioRunArtifacts(runId, dbPath = DEFAULT_ORCHESTRAT
   };
 }
 
+function buildTrendWindow(runs, isSuccess) {
+  const normalizedRuns = runs
+    .filter(Boolean)
+    .map((run) => ({
+      ...run,
+      durationMs:
+        run.startedAt && run.endedAt
+          ? Math.max(0, Date.parse(run.endedAt) - Date.parse(run.startedAt))
+          : null,
+      succeeded: isSuccess(run)
+    }));
+  const completedRuns = normalizedRuns.filter((run) => run.status !== "running");
+  const passCount = completedRuns.filter((run) => run.succeeded).length;
+  const failCount = completedRuns.filter((run) => !run.succeeded).length;
+  const durations = completedRuns.map((run) => run.durationMs).filter((value) => Number.isFinite(value));
+  let failureStreak = 0;
+  for (const run of completedRuns) {
+    if (run.succeeded) {
+      break;
+    }
+    failureStreak += 1;
+  }
+  return {
+    runCount: normalizedRuns.length,
+    completedCount: completedRuns.length,
+    passCount,
+    failCount,
+    passRate: completedRuns.length > 0 ? passCount / completedRuns.length : null,
+    averageDurationMs:
+      durations.length > 0 ? Math.round(durations.reduce((sum, value) => sum + value, 0) / durations.length) : null,
+    failureStreak,
+    latestGreenAt: completedRuns.find((run) => run.succeeded)?.endedAt ?? null,
+    latestRedAt: completedRuns.find((run) => !run.succeeded)?.endedAt ?? null
+  };
+}
+
+function buildTrendPayload(id, kind, runs, isSuccess) {
+  return {
+    id,
+    kind,
+    windows: {
+      last10: buildTrendWindow(runs.slice(0, 10), isSuccess),
+      last25: buildTrendWindow(runs.slice(0, 25), isSuccess),
+      allTime: buildTrendWindow(runs, isSuccess)
+    }
+  };
+}
+
+export async function getScenarioTrends(scenarioId, dbPath = DEFAULT_ORCHESTRATOR_DB_PATH, limit = 100) {
+  const detail = await listScenarioHistory(scenarioId, dbPath, limit);
+  if (!detail) {
+    return null;
+  }
+  return {
+    scenario: detail.scenario,
+    ...buildTrendPayload(
+      scenarioId,
+      "scenario",
+      detail.runs,
+      (run) => isSuccessfulState(run.status)
+    )
+  };
+}
+
 export function getRegressionRunDetail(runId, dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
   return withDatabase(dbPath, (db) => {
     const run = getRegressionRun(db, runId);
@@ -580,6 +656,132 @@ export function getRegressionRunDetail(runId, dbPath = DEFAULT_ORCHESTRATOR_DB_P
     return {
       run,
       items: listRegressionRunItems(db, runId)
+    };
+  });
+}
+
+export async function getRegressionRunSummaryById(runId, dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
+  const detail = getRegressionRunDetail(runId, dbPath);
+  if (!detail) {
+    return null;
+  }
+  const regression = await getRegressionDefinition(detail.run.regressionId);
+  return {
+    regression,
+    ...detail
+  };
+}
+
+export async function getRegressionRunReport(runId, dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
+  const detail = await getRegressionRunSummaryById(runId, dbPath);
+  if (!detail) {
+    return null;
+  }
+  const reports = detail.run?.metadata?.reports ?? {};
+  const normalized = {};
+  for (const [name, reportPath] of Object.entries(reports)) {
+    normalized[name] = await describePath(path.join(PROJECT_ROOT, reportPath));
+  }
+  return {
+    ...detail,
+    reports: normalized
+  };
+}
+
+export async function getRegressionTrends(regressionId, dbPath = DEFAULT_ORCHESTRATOR_DB_PATH, limit = 100) {
+  const detail = await listRegressionHistory(regressionId, dbPath, limit);
+  if (!detail) {
+    return null;
+  }
+  return {
+    regression: detail.regression,
+    ...buildTrendPayload(
+      regressionId,
+      "regression",
+      detail.runs,
+      (run) => run.status === "passed"
+    )
+  };
+}
+
+export async function rerunScenarioRun(runId, options = {}, dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
+  const detail = getScenarioRunDetail(runId, dbPath);
+  if (!detail) {
+    return null;
+  }
+  const inherited = detail.run ?? {};
+  return runScenarioById(
+    inherited.scenarioId,
+    {
+      project: options.project ?? inherited.metadata?.projectPath ?? "config/projects/example-project.yaml",
+      wait: options.wait !== undefined ? options.wait : true,
+      timeout: options.timeout ?? "180000",
+      interval: options.interval ?? "1500",
+      noMonitor: options.noMonitor === true,
+      stub: options.stub === true,
+      launcher: options.launcher ?? inherited.launcher ?? null,
+      objective: options.objective ?? inherited.objective ?? null,
+      source: options.source ?? "rerun",
+      by: options.by ?? "operator",
+      stepSoftTimeoutMs: options.stepSoftTimeoutMs ?? null,
+      stepHardTimeoutMs: options.stepHardTimeoutMs ?? null,
+      runId: options.runId ?? undefined
+    },
+    dbPath
+  ).then((result) => {
+    const updatedRun = {
+      ...result.run,
+      metadata: {
+        ...result.run.metadata,
+        rerunOf: runId,
+        rerunReason: options.reason ?? "operator rerun"
+      }
+    };
+    withDatabase(dbPath, (db) => updateScenarioRun(db, updatedRun));
+    return {
+      ...result,
+      rerunOf: runId,
+      run: updatedRun
+    };
+  });
+}
+
+export async function rerunRegressionRun(runId, options = {}, dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
+  const detail = getRegressionRunDetail(runId, dbPath);
+  if (!detail) {
+    return null;
+  }
+  const inherited = detail.run ?? {};
+  return runRegressionById(
+    inherited.regressionId,
+    {
+      project: options.project ?? "config/projects/example-project.yaml",
+      timeout: options.timeout ?? "180000",
+      interval: options.interval ?? "1500",
+      noMonitor: options.noMonitor === true,
+      stub: options.stub === true,
+      launcher: options.launcher ?? null,
+      source: options.source ?? "rerun",
+      by: options.by ?? "operator",
+      stepSoftTimeoutMs: options.stepSoftTimeoutMs ?? null,
+      stepHardTimeoutMs: options.stepHardTimeoutMs ?? null,
+      runId: options.runId ?? undefined
+    },
+    dbPath
+  ).then((result) => {
+    const updatedRun = {
+      ...result.run,
+      metadata: {
+        ...result.run.metadata,
+        rerunOf: runId,
+        rerunReason: options.reason ?? "operator rerun"
+      }
+    };
+    withDatabase(dbPath, (db) => updateRegressionRun(db, updatedRun));
+    return {
+      ...result,
+      rerunOf: runId,
+      run: updatedRun
     };
   });
 }

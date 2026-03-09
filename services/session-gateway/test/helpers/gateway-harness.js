@@ -133,6 +133,28 @@ export async function waitForGatewaySessionState(baseUrl, sessionId, acceptedSta
   }, options);
 }
 
+export async function getLiveSession(baseUrl, sessionId, options = {}) {
+  const query = new URLSearchParams();
+  if (options.limit) {
+    query.set("limit", String(options.limit));
+  }
+  const suffix = query.size > 0 ? `?${query.toString()}` : "";
+  return getJson(baseUrl, `/sessions/${encodeURIComponent(sessionId)}/live${suffix}`);
+}
+
+export async function waitForLiveControlHistory(baseUrl, sessionId, predicate, options = {}) {
+  return waitFor(async () => {
+    const result = await getLiveSession(baseUrl, sessionId, {
+      limit: options.limit ?? 50
+    });
+    if (result.status !== 200 || !Array.isArray(result.json?.controlHistory)) {
+      return null;
+    }
+    const match = result.json.controlHistory.find(predicate);
+    return match ? result.json : null;
+  }, options);
+}
+
 export async function waitForGatewayEvent(baseUrl, query, predicate, options = {}) {
   const route = `/events?${new URLSearchParams(query).toString()}`;
   return waitFor(async () => {

@@ -394,6 +394,57 @@ async function scenarioRun(flags) {
   console.log(formatJson(payload));
 }
 
+async function scenarioRunShow(flags) {
+  if (!flags.run) {
+    throw new Error("use scenario-run-show --run <id>");
+  }
+  const payload = await orchestratorRequest(flags, `/scenario-runs/${encodeURIComponent(flags.run)}`);
+  console.log(formatJson(payload));
+}
+
+async function scenarioRunArtifacts(flags) {
+  if (!flags.run) {
+    throw new Error("use scenario-run-artifacts --run <id>");
+  }
+  const payload = await orchestratorRequest(flags, `/scenario-runs/${encodeURIComponent(flags.run)}/artifacts`);
+  console.log(formatJson(payload));
+}
+
+async function scenarioRerun(flags) {
+  if (!flags.run) {
+    throw new Error("use scenario-rerun --run <id>");
+  }
+  const body = {
+    project: flags.project,
+    wait: flags.wait !== false,
+    timeout: flags.timeout ? toNumber(flags.timeout, null) : undefined,
+    interval: flags.interval ? toNumber(flags.interval, null) : undefined,
+    stub: flags.stub === true,
+    launcher: flags.launcher,
+    objective: flags.objective,
+    by: flags.by ?? "operator",
+    source: "tui",
+    reason: flags.reason
+  };
+  Object.keys(body).forEach((key) => body[key] === undefined && delete body[key]);
+  const payload = await orchestratorRequest(flags, `/scenario-runs/${encodeURIComponent(flags.run)}/rerun`, {
+    method: "POST",
+    body: JSON.stringify(body)
+  });
+  console.log(formatJson(payload));
+}
+
+async function scenarioTrends(flags) {
+  if (!flags.scenario) {
+    throw new Error("use scenario-trends --scenario <id>");
+  }
+  const payload = await orchestratorRequest(
+    flags,
+    `/scenarios/${encodeURIComponent(flags.scenario)}/trends?limit=${encodeURIComponent(String(flags.limit ?? "100"))}`
+  );
+  console.log(formatJson(payload));
+}
+
 async function regressionList(flags) {
   const payload = await orchestratorRequest(flags, "/regressions");
   console.log(formatJson(payload));
@@ -436,6 +487,55 @@ async function regressionRun(flags) {
     method: "POST",
     body: JSON.stringify(body)
   });
+  console.log(formatJson(payload));
+}
+
+async function regressionRunShow(flags) {
+  if (!flags.run) {
+    throw new Error("use regression-run-show --run <id>");
+  }
+  const payload = await orchestratorRequest(flags, `/regression-runs/${encodeURIComponent(flags.run)}`);
+  console.log(formatJson(payload));
+}
+
+async function regressionReport(flags) {
+  if (!flags.run) {
+    throw new Error("use regression-report --run <id>");
+  }
+  const payload = await orchestratorRequest(flags, `/regression-runs/${encodeURIComponent(flags.run)}/report`);
+  console.log(formatJson(payload));
+}
+
+async function regressionRerun(flags) {
+  if (!flags.run) {
+    throw new Error("use regression-rerun --run <id>");
+  }
+  const body = {
+    project: flags.project,
+    timeout: flags.timeout ? toNumber(flags.timeout, null) : undefined,
+    interval: flags.interval ? toNumber(flags.interval, null) : undefined,
+    stub: flags.stub === true,
+    launcher: flags.launcher,
+    by: flags.by ?? "operator",
+    source: "tui",
+    reason: flags.reason
+  };
+  Object.keys(body).forEach((key) => body[key] === undefined && delete body[key]);
+  const payload = await orchestratorRequest(flags, `/regression-runs/${encodeURIComponent(flags.run)}/rerun`, {
+    method: "POST",
+    body: JSON.stringify(body)
+  });
+  console.log(formatJson(payload));
+}
+
+async function regressionTrends(flags) {
+  if (!flags.regression) {
+    throw new Error("use regression-trends --regression <id>");
+  }
+  const payload = await orchestratorRequest(
+    flags,
+    `/regressions/${encodeURIComponent(flags.regression)}/trends?limit=${encodeURIComponent(String(flags.limit ?? "100"))}`
+  );
   console.log(formatJson(payload));
 }
 
@@ -490,6 +590,22 @@ async function main() {
     await scenarioRun(flags);
     return;
   }
+  if (command === "scenario-run-show") {
+    await scenarioRunShow(flags);
+    return;
+  }
+  if (command === "scenario-run-artifacts") {
+    await scenarioRunArtifacts(flags);
+    return;
+  }
+  if (command === "scenario-rerun") {
+    await scenarioRerun(flags);
+    return;
+  }
+  if (command === "scenario-trends") {
+    await scenarioTrends(flags);
+    return;
+  }
   if (command === "regression-list") {
     await regressionList(flags);
     return;
@@ -506,11 +622,27 @@ async function main() {
     await regressionRun(flags);
     return;
   }
+  if (command === "regression-run-show") {
+    await regressionRunShow(flags);
+    return;
+  }
+  if (command === "regression-report") {
+    await regressionReport(flags);
+    return;
+  }
+  if (command === "regression-rerun") {
+    await regressionRerun(flags);
+    return;
+  }
+  if (command === "regression-trends") {
+    await regressionTrends(flags);
+    return;
+  }
   if (["pause", "hold", "resume", "review", "approval", "drive"].includes(command)) {
     await treeAction(flags, command);
     return;
   }
-  throw new Error("commands: dashboard | inspect | execution | tree | family | audit | policy-diff | history | scenario-list | scenario-show | scenario-runs | scenario-run | regression-list | regression-show | regression-runs | regression-run | drive | pause | hold | resume | review | approval");
+  throw new Error("commands: dashboard | inspect | execution | tree | family | audit | policy-diff | history | scenario-list | scenario-show | scenario-runs | scenario-run | scenario-run-show | scenario-run-artifacts | scenario-rerun | scenario-trends | regression-list | regression-show | regression-runs | regression-run | regression-run-show | regression-report | regression-rerun | regression-trends | drive | pause | hold | resume | review | approval");
 }
 
 main().catch((error) => {

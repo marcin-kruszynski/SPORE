@@ -77,7 +77,15 @@ Recommended interpretation:
 - `escalations --execution <id>` returns only escalation records for operator consumers.
 - `history --execution <id>` returns one combined execution history payload with timeline, governance, audit, wave summary, and policy diff.
 - `scenario-list`, `scenario-show`, `scenario-runs`, and `scenario-run` expose the machine-readable scenario catalog and durable scenario runs backed by `config/scenarios/`.
+- `scenario-run-show --run <id>` returns one durable scenario run by run id.
+- `scenario-run-artifacts --run <id>` returns normalized artifact summaries for that scenario run.
+- `scenario-rerun --run <id>` creates a new durable scenario run linked back to the original run.
+- `scenario-trends --scenario <id>` returns pass-rate, duration, and streak summaries across durable scenario runs.
 - `regression-list`, `regression-show`, `regression-runs`, and `regression-run` expose reusable regression profiles and durable run history backed by `config/regressions/`.
+- `regression-run-show --run <id>` returns one durable regression run by run id.
+- `regression-report --run <id>` returns report metadata and paths for one durable regression run.
+- `regression-rerun --run <id>` creates a new durable regression run linked back to the original run.
+- `regression-trends --regression <id>` returns pass-rate, duration, and streak summaries across durable regression runs.
 - `scenario-run-artifacts --run <id>` returns a normalized execution/session artifact summary for one scenario run.
 - `drive-group --group <id>` reconciles grouped executions until they settle or reach a governance/blocked stop.
 - `drive-tree --execution <id>` resolves the execution root and drives the whole family through its coordination group.
@@ -120,7 +128,15 @@ npm run orchestrator:resolve-escalation -- --execution branch-review-001 --escal
 npm run orchestrator:history -- --execution branch-review-001
 npm run orchestrator:scenario-list
 npm run orchestrator:scenario-run -- --scenario cli-verification-pass --stub
+npm run orchestrator:scenario-run-show -- --run <run-id>
+npm run orchestrator:scenario-run-artifacts -- --run <run-id>
+npm run orchestrator:scenario-rerun -- --run <run-id>
+npm run orchestrator:scenario-trends -- --scenario backend-service-delivery
 npm run orchestrator:regression-run -- --regression local-fast --stub
+npm run orchestrator:regression-run-show -- --run <run-id>
+npm run orchestrator:regression-report -- --run <run-id>
+npm run orchestrator:regression-rerun -- --run <run-id>
+npm run orchestrator:regression-trends -- --regression local-fast
 ```
 
 Planning without `--roles` is the easiest way to inspect domain-policy defaults in the returned `effectivePolicy` and `launches[]`.

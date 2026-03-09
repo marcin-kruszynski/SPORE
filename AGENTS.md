@@ -203,6 +203,8 @@ Current CLI contract: `docs-kb index|search|status|rebuild`.
 - `services/orchestrator/` also exposes tree-level `pause`, `hold`, `resume`, `review`, and `approval` endpoints for execution families.
 - `services/orchestrator/` also exposes escalation resolution and resume for operator recovery.
 - `services/orchestrator/` also exposes audit and policy-diff reads for durable operator and policy inspection.
+- `services/orchestrator/` also exposes durable scenario-run and regression-run reads by run id, rerun endpoints, and trend reads for operator validation loops.
 - `apps/web/` renders grouped execution list/detail, rooted lineage tree, wave progression, coordination metadata, step/session tree, and review/approval history over those APIs.
 - `packages/tui/` consumes the same orchestrator HTTP surfaces for execution detail, rooted family summary, audit, and policy diff views.
+- `GET /sessions/:id/live` should be treated as the preferred combined live-session payload because it now includes diagnostics and suggested recovery actions in addition to events, artifacts, and control history.
 - UI and automation clients should treat `coordinationGroupId`, `parentExecutionId`, `childExecutionIds`, `branchKey`, `holdReason`, `pausedAt`, `heldAt`, and `resumedAt` as optional additive fields rather than guaranteed schema requirements.

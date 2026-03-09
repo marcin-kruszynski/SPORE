@@ -150,6 +150,76 @@ function supportsRpcControl(session) {
   return session.launcherType === "pi-rpc";
 }
 
+function buildControlSuggestions({ session, diagnostics }) {
+  if (diagnostics.status === "settled") {
+    return [];
+  }
+  if (diagnostics.status === "stuck_active") {
+    return [
+      {
+        action: "steer",
+        reason: "Session has been active without settling. Ask the agent to conclude or summarize.",
+        commandHint: `POST /sessions/${encodeURIComponent(session.id)}/actions/steer`
+      },
+      {
+        action: "stop",
+        reason: "Stop the live session if it is no longer progressing.",
+        commandHint: `POST /sessions/${encodeURIComponent(session.id)}/actions/stop`
+      }
+    ];
+  }
+  if (diagnostics.status === "active") {
+    return [
+      {
+        action: "steer",
+        reason: "Live session is active and can receive operator guidance.",
+        commandHint: `POST /sessions/${encodeURIComponent(session.id)}/actions/steer`
+      }
+    ];
+  }
+  return [
+    {
+      action: "mark-complete",
+      reason: "Session is not settled but appears inactive. Operator can finalize it explicitly if appropriate.",
+      commandHint: `POST /sessions/${encodeURIComponent(session.id)}/actions/mark-complete`
+    }
+  ];
+}
+
+function deriveSessionDiagnostics(session, events, artifacts, controlHistory) {
+  const lastEvent = events.at(-1) ?? null;
+  const now = Date.now();
+  const updatedAt = session.updatedAt ? Date.parse(session.updatedAt) : null;
+  const ageMs = Number.isFinite(updatedAt) ? Math.max(0, now - updatedAt) : null;
+  let status = session.state;
+  if (isSettled(session)) {
+    status = "settled";
+  } else if (session.state === "active" && ageMs !== null && ageMs > 60_000) {
+    status = "stuck_active";
+  } else if (session.state === "active") {
+    status = "active";
+  } else {
+    status = "awaiting_settlement";
+  }
+  return {
+    status,
+    lastEventType: lastEvent?.type ?? null,
+    lastEventAt: lastEvent?.createdAt ?? null,
+    ageMs,
+    hasTranscript: Boolean(artifacts.transcript?.exists),
+    hasPiEvents: Boolean(artifacts.piEvents?.exists),
+    hasRpcStatus: Boolean(artifacts.rpcStatus?.exists),
+    controlCount: Array.isArray(controlHistory) ? controlHistory.length : 0,
+    supportsRpcControl: supportsRpcControl(session),
+    suggestions: buildControlSuggestions({
+      session,
+      diagnostics: {
+        status
+      }
+    })
+  };
+}
+
 function getArtifactMap(session) {
   const base = path.join(PROJECT_ROOT, "tmp", "sessions", session.id);
   return {
@@ -591,12 +661,14 @@ async function createServer(options = {}) {
         const controlHistory = artifacts.control?.exists
           ? (await readArtifactContent(session, "control")).content
           : [];
+        const diagnostics = deriveSessionDiagnostics(session, events, artifacts, controlHistory);
         json(response, 200, {
           ok: true,
           session,
           events,
           artifacts,
           controlHistory,
+          diagnostics,
           launcher: {
             launcherType: session.launcherType ?? null,
             tmuxSession: session.tmuxSession ?? null,

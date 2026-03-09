@@ -59,7 +59,9 @@ Executable foundation now includes:
 - canonical scenario workflows for backend service delivery, frontend UI pass, CLI verification, and docs ADR work
 - machine-readable scenario and regression catalogs with durable run history
 - combined execution history reads and normalized scenario-run artifact summaries
+- durable scenario-run and regression-run reads by run id, rerun routes, and trend summaries
 - operator regression report generation under `artifacts/regressions/`
+- session-gateway combined live inspection with derived diagnostics and recovery suggestions
 - isolated local state overrides for orchestrator/session/event stores during tests and demos
 - local regression suites for policy, HTTP, web-proxy, TUI, opt-in real PI smoke, and opt-in real gateway control E2E
 
@@ -114,8 +116,8 @@ Canonical open questions live in `docs/research/open-questions.md`.
 
 Build on the landed coordination and recovery slice rather than widening the surface area blindly:
 
-1. deepen browser drilldowns from execution history into exact artifacts, audit payloads, and lineage branches,
-2. expand regression profiles and scenario coverage without baking in one universal branching policy,
-3. add stronger gateway live-inspection and control E2E coverage under real PI sessions,
+1. build a richer operator run center over durable scenario, regression, and report history,
+2. add rerun, retention, and scheduling flows for named regression profiles,
+3. extend trend analysis, failure classification, and recovery guidance over durable validation history,
 4. extend real-PI scenario coverage from isolated named runs into grouped regression profiles,
 5. keep scenario/regression history, workflow events, and operator recovery routes aligned as durable contracts rather than UI-only affordances.

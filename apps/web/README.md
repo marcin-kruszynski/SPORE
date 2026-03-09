@@ -65,6 +65,10 @@ This app now provides the first minimal browser-based operator surface for SPORE
 - renders structured execution history from `/executions/:id/history`, including wave summary and policy diff in one view
 - renders scenario catalog, latest scenario runs, and one-click scenario launch over orchestrator APIs
 - renders regression catalog summaries and one-click regression runs over orchestrator APIs
+- adds richer run-center drilldowns:
+  - scenario run selection with per-run metadata, execution links, and scenario-run artifact route integration
+  - regression run selection with per-item scenario outcomes, execution jump links, and report/artifact path references
+  - execution-history row selection with in-panel drilldowns to execution/session/audit/escalation/scenario-run references when payload fields are present
 - renders execution wave progression summaries from rooted tree `stepSummary.byWave` data in both the tree and timeline surfaces
 - follows execution activity through the orchestrator SSE stream in addition to the session SSE stream
 - exposes escalation resolution controls, including resume of the affected execution path

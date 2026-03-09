@@ -72,6 +72,7 @@ SPORE addresses this by building a **structured orchestration protocol** where:
 | Domain-shaped execution behavior | Domain policies override retries, watchdogs, session mode, and docs retrieval |
 | Coordinated execution families | Rooted execution trees, branch spawning, and lineage-aware group control |
 | Parallel work inside one execution | Workflow step sets become launch waves with multiple active steps |
+| Durable operator validation loops | Scenario and regression catalogs with rerun, trends, reports, and live session diagnostics |
 
 ---
 
@@ -840,6 +841,7 @@ npm run orchestrator:invoke -- --domain backend --roles lead,reviewer \
   --objective "Lead should produce one sentence; reviewer should return approve, revise, or reject." \
   --wait
 SPORE_RUN_PI_E2E=1 npm run test:e2e:pi
+SPORE_RUN_PI_E2E=1 SPORE_RUN_PI_CONTROL_E2E=1 npm run test:e2e:gateway-control
 ```
 
 If `pi` is not installed, the runtime falls back to the stub launcher automatically. The default real launcher is `pi-rpc`, which maintains tmux inspectability while routing operator control through PI RPC.
@@ -923,9 +925,17 @@ npm run orchestrator:history -- --execution <id>
 npm run orchestrator:scenario-list
 npm run orchestrator:scenario-show -- --scenario backend-service-delivery
 npm run orchestrator:scenario-run -- --scenario cli-verification-pass --stub
+npm run orchestrator:scenario-run-show -- --run <run-id>
+npm run orchestrator:scenario-run-artifacts -- --run <run-id>
+npm run orchestrator:scenario-rerun -- --run <run-id>
+npm run orchestrator:scenario-trends -- --scenario backend-service-delivery
 npm run orchestrator:regression-list
 npm run orchestrator:regression-show -- --regression local-fast
 npm run orchestrator:regression-run -- --regression local-fast --stub
+npm run orchestrator:regression-run-show -- --run <run-id>
+npm run orchestrator:regression-report -- --run <run-id>
+npm run orchestrator:regression-rerun -- --run <run-id>
+npm run orchestrator:regression-trends -- --regression local-fast
 ```
 
 ### Shared HTTP Surfaces
@@ -936,13 +946,21 @@ npm run orchestrator:regression-run -- --regression local-fast --stub
 | `GET` | `/scenarios` | Scenario catalog with latest run summary |
 | `GET` | `/scenarios/:id` | One scenario definition with latest run |
 | `GET` | `/scenarios/:id/runs` | Durable scenario run history |
+| `GET` | `/scenario-runs/:runId` | One durable scenario run by run id |
+| `GET` | `/scenario-runs/:runId/artifacts` | Artifact summary for one durable scenario run |
 | `GET` | `/scenarios/:id/runs/:runId/artifacts` | Artifact summary for one scenario run |
+| `GET` | `/scenarios/:id/trends` | Trend summary for one scenario |
 | `POST` | `/scenarios/:id/run` | Launch one named scenario |
+| `POST` | `/scenario-runs/:runId/rerun` | Rerun one prior scenario run with optional overrides |
 | `GET` | `/regressions` | Regression catalog with latest run summary |
 | `GET` | `/regressions/:id` | One regression profile with latest run |
 | `GET` | `/regressions/:id/runs` | Durable regression run history |
+| `GET` | `/regression-runs/:runId` | One durable regression run by run id |
+| `GET` | `/regression-runs/:runId/report` | Report metadata for one durable regression run |
+| `GET` | `/regressions/:id/trends` | Trend summary for one regression profile |
 | `POST` | `/regressions/:id/run` | Launch one named regression profile |
-| `GET` | `/sessions/:id/live` | Combined live session metadata, events, artifacts, and control history |
+| `POST` | `/regression-runs/:runId/rerun` | Rerun one prior regression run with optional overrides |
+| `GET` | `/sessions/:id/live` | Combined live session metadata, events, artifacts, control history, and diagnostics |
 
 ### Canonical Scenario Invocations
 

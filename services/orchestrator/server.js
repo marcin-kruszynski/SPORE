@@ -138,6 +138,48 @@ function buildRegressionRunArgs(regressionId, body) {
   return args;
 }
 
+function buildScenarioRerunArgs(runId, body) {
+  const args = [
+    "packages/orchestrator/src/cli/spore-orchestrator.js",
+    "scenario-rerun",
+    "--run", runId
+  ];
+  if (body.project) args.push("--project", body.project);
+  if (body.wait !== false) args.push("--wait");
+  if (body.timeout) args.push("--timeout", String(body.timeout));
+  if (body.interval) args.push("--interval", String(body.interval));
+  if (body.noMonitor) args.push("--no-monitor");
+  if (body.stub) args.push("--stub");
+  if (body.launcher) args.push("--launcher", body.launcher);
+  if (body.objective) args.push("--objective", body.objective);
+  if (body.by) args.push("--by", body.by);
+  if (body.source) args.push("--source", body.source);
+  if (body.reason) args.push("--reason", body.reason);
+  if (body.stepSoftTimeout) args.push("--step-soft-timeout", String(body.stepSoftTimeout));
+  if (body.stepHardTimeout) args.push("--step-hard-timeout", String(body.stepHardTimeout));
+  return args;
+}
+
+function buildRegressionRerunArgs(runId, body) {
+  const args = [
+    "packages/orchestrator/src/cli/spore-orchestrator.js",
+    "regression-rerun",
+    "--run", runId
+  ];
+  if (body.project) args.push("--project", body.project);
+  if (body.timeout) args.push("--timeout", String(body.timeout));
+  if (body.interval) args.push("--interval", String(body.interval));
+  if (body.noMonitor) args.push("--no-monitor");
+  if (body.stub) args.push("--stub");
+  if (body.launcher) args.push("--launcher", body.launcher);
+  if (body.by) args.push("--by", body.by);
+  if (body.source) args.push("--source", body.source);
+  if (body.reason) args.push("--reason", body.reason);
+  if (body.stepSoftTimeout) args.push("--step-soft-timeout", String(body.stepSoftTimeout));
+  if (body.stepHardTimeout) args.push("--step-hard-timeout", String(body.stepHardTimeout));
+  return args;
+}
+
 function sse(response, eventName, payload) {
   response.write(`event: ${eventName}\n`);
   response.write(`data: ${JSON.stringify(payload)}\n\n`);
@@ -344,6 +386,19 @@ const server = http.createServer(async (request, response) => {
       return;
     }
 
+    if (request.method === "GET" && parts.length === 3 && parts[0] === "scenarios" && parts[2] === "trends") {
+      const payload = await runCli([
+        "packages/orchestrator/src/cli/spore-orchestrator.js",
+        "scenario-trends",
+        "--scenario",
+        parts[1],
+        "--limit",
+        url.searchParams.get("limit")?.trim() || "100"
+      ]);
+      json(response, 200, payload);
+      return;
+    }
+
     if (request.method === "GET" && parts.length === 5 && parts[0] === "scenarios" && parts[2] === "runs" && parts[4] === "artifacts") {
       const payload = await runCli([
         "packages/orchestrator/src/cli/spore-orchestrator.js",
@@ -351,6 +406,35 @@ const server = http.createServer(async (request, response) => {
         "--run",
         parts[3]
       ]);
+      json(response, 200, payload);
+      return;
+    }
+
+    if (request.method === "GET" && parts.length === 2 && parts[0] === "scenario-runs") {
+      const payload = await runCli([
+        "packages/orchestrator/src/cli/spore-orchestrator.js",
+        "scenario-run-show",
+        "--run",
+        parts[1]
+      ]);
+      json(response, 200, payload);
+      return;
+    }
+
+    if (request.method === "GET" && parts.length === 3 && parts[0] === "scenario-runs" && parts[2] === "artifacts") {
+      const payload = await runCli([
+        "packages/orchestrator/src/cli/spore-orchestrator.js",
+        "scenario-run-artifacts",
+        "--run",
+        parts[1]
+      ]);
+      json(response, 200, payload);
+      return;
+    }
+
+    if (request.method === "POST" && parts.length === 3 && parts[0] === "scenario-runs" && parts[2] === "rerun") {
+      const body = await readJsonBody(request);
+      const payload = await runCli(buildScenarioRerunArgs(parts[1], body));
       json(response, 200, payload);
       return;
     }
@@ -388,6 +472,48 @@ const server = http.createServer(async (request, response) => {
         "--limit",
         url.searchParams.get("limit")?.trim() || "20"
       ]);
+      json(response, 200, payload);
+      return;
+    }
+
+    if (request.method === "GET" && parts.length === 3 && parts[0] === "regressions" && parts[2] === "trends") {
+      const payload = await runCli([
+        "packages/orchestrator/src/cli/spore-orchestrator.js",
+        "regression-trends",
+        "--regression",
+        parts[1],
+        "--limit",
+        url.searchParams.get("limit")?.trim() || "100"
+      ]);
+      json(response, 200, payload);
+      return;
+    }
+
+    if (request.method === "GET" && parts.length === 2 && parts[0] === "regression-runs") {
+      const payload = await runCli([
+        "packages/orchestrator/src/cli/spore-orchestrator.js",
+        "regression-run-show",
+        "--run",
+        parts[1]
+      ]);
+      json(response, 200, payload);
+      return;
+    }
+
+    if (request.method === "GET" && parts.length === 3 && parts[0] === "regression-runs" && parts[2] === "report") {
+      const payload = await runCli([
+        "packages/orchestrator/src/cli/spore-orchestrator.js",
+        "regression-report",
+        "--run",
+        parts[1]
+      ]);
+      json(response, 200, payload);
+      return;
+    }
+
+    if (request.method === "POST" && parts.length === 3 && parts[0] === "regression-runs" && parts[2] === "rerun") {
+      const body = await readJsonBody(request);
+      const payload = await runCli(buildRegressionRerunArgs(parts[1], body));
       json(response, 200, payload);
       return;
     }

@@ -30,6 +30,7 @@ Each workflow includes:
 
 Named validation flows and recommended commands live in `docs/runbooks/scenario-library.md`.
 Machine-readable scenario and regression catalogs live in `config/scenarios/` and `config/regressions/`.
+Durable operator-facing run records are exposed through scenario-run and regression-run read surfaces, rerun routes, and trend summaries.
 
 ## Current Executable Slice
 
