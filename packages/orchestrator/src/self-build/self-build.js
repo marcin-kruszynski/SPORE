@@ -112,6 +112,51 @@ function blockerId(edgeId, reasonCode) {
   return `blocker:${edgeId}:${reasonCode}`;
 }
 
+function appendDependencyLogEntry(entries = [], entry = {}) {
+  const normalized = compactObject({
+    id: entry.id ?? createId("dependency-transition"),
+    type: entry.type ?? "dependency_state_updated",
+    timestamp: entry.timestamp ?? nowIso(),
+    state: entry.state ?? null,
+    reasonCode: entry.reasonCode ?? null,
+    reason: entry.reason ?? null,
+    itemId: entry.itemId ?? null,
+    dependencyItemId: entry.dependencyItemId ?? null,
+    blockerId: entry.blockerId ?? null,
+    strictness: entry.strictness ?? null,
+    nextActionHint: entry.nextActionHint ?? null
+  });
+  const existing = asArray(entries);
+  const previous = existing[existing.length - 1];
+  if (
+    previous &&
+    previous.type === normalized.type &&
+    previous.itemId === normalized.itemId &&
+    previous.dependencyItemId === normalized.dependencyItemId &&
+    previous.reasonCode === normalized.reasonCode &&
+    previous.state === normalized.state
+  ) {
+    return existing;
+  }
+  return [...existing.slice(-24), normalized];
+}
+
+function recordGroupDependencyTransition(groupId, entry, dbPath) {
+  const group = withDatabase(dbPath, (db) => getWorkItemGroup(db, groupId));
+  if (!group) {
+    return;
+  }
+  const updated = {
+    ...group,
+    metadata: {
+      ...group.metadata,
+      dependencyTransitionLog: appendDependencyLogEntry(group.metadata?.dependencyTransitionLog, entry)
+    },
+    updatedAt: nowIso()
+  };
+  withDatabase(dbPath, (db) => updateWorkItemGroup(db, updated));
+}
+
 function normalizeDependencyStrictness(value) {
   return String(value ?? "hard").trim() === "advisory" ? "advisory" : "hard";
 }
@@ -811,6 +856,8 @@ function buildGroupSummary(group, items = [], runs = []) {
       item: `/work-items/${encodeURIComponent(run.workItemId)}`
     }
   }));
+  const transitionLog = [...asArray(group.metadata?.dependencyTransitionLog), ...evaluated.dependencyGraph.transitionLog]
+    .sort((left, right) => new Date(right.timestamp ?? 0) - new Date(left.timestamp ?? 0));
   
   return {
     ...group,
@@ -820,7 +867,10 @@ function buildGroupSummary(group, items = [], runs = []) {
     runCountsByStatus: counts,
     items: itemsWithLinks,
     recentRuns: runsWithLinks,
-    dependencyGraph: evaluated.dependencyGraph,
+    dependencyGraph: {
+      ...evaluated.dependencyGraph,
+      transitionLog
+    },
     readiness: evaluated.readiness,
     links: groupLinks(group.id)
   };
@@ -1281,6 +1331,14 @@ export function setWorkItemGroupDependencies(groupId, payload = {}, dbPath = DEF
     withDatabase(dbPath, (db) => updateWorkItem(db, updated));
   }
 
+  recordGroupDependencyTransition(groupId, {
+    type: "dependency_graph_updated",
+    state: "ready",
+    reasonCode: "graph_updated",
+    reason: `Updated ${requestedEdges.length} dependency edge${requestedEdges.length === 1 ? "" : "s"} for work-item group ${groupId}.`,
+    nextActionHint: "Review readiness counts before running the group."
+  }, dbPath);
+
   const reconciledGroup = getWorkItemGroupSummary(groupId, dbPath);
   persistGroupDependencyState(reconciledGroup, evaluateGroupDependencies(reconciledGroup.items), "dependency_graph_updated", dbPath);
   const detail = getWorkItemGroupSummary(groupId, dbPath);
@@ -1338,6 +1396,21 @@ export async function runWorkItemGroup(groupId, options = {}, dbPath = DEFAULT_O
     }
 
     if (["blocked", "review_needed"].includes(current.dependencyState?.state)) {
+      recordGroupDependencyTransition(
+        groupId,
+        {
+          type: "dependency_skip",
+          state: current.dependencyState.state,
+          reasonCode: current.dependencyState.blockers?.[0]?.reasonCode ?? "dependency_blocked",
+          reason: current.dependencyState.reason,
+          itemId: current.id,
+          dependencyItemId: current.dependencyState.blockers?.[0]?.dependencyItemId ?? null,
+          blockerId: current.blockerIds?.[0] ?? null,
+          strictness: current.dependencyState.blockers?.[0]?.strictness ?? null,
+          nextActionHint: current.nextActionHint
+        },
+        dbPath
+      );
       results.push({
         itemId: current.id,
         status: "blocked",
@@ -1351,6 +1424,18 @@ export async function runWorkItemGroup(groupId, options = {}, dbPath = DEFAULT_O
     }
 
     if (current.status === "completed") {
+      recordGroupDependencyTransition(
+        groupId,
+        {
+          type: "dependency_skip",
+          state: "completed",
+          reasonCode: "already_completed",
+          reason: `${current.title} was already completed before the group run reached it.`,
+          itemId: current.id,
+          nextActionHint: "No action needed."
+        },
+        dbPath
+      );
       results.push({
         itemId: current.id,
         status: "completed",

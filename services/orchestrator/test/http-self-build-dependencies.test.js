@@ -217,6 +217,7 @@ test("self-build dependency graph routes expose authoring, readiness, and recove
   assert.equal(postRunGroup.status, 200);
   assert.equal(postRunGroup.json.detail.readiness.counts.failed, 1);
   assert.equal(postRunGroup.json.detail.readiness.counts.reviewNeeded, 1);
+  assert.ok(postRunGroup.json.detail.dependencyGraph.transitionLog.some((entry) => entry.type === "dependency_skip"));
   assert.ok(postRunGroup.json.detail.dependencyGraph.transitionLog.some((entry) => entry.type === "dependency_review_needed"));
   assert.ok(postRunGroup.json.detail.dependencyGraph.transitionLog.some((entry) => entry.type === "dependency_auto_relaxed"));
 

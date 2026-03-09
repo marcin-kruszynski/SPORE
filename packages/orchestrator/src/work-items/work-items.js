@@ -314,7 +314,7 @@ export async function runManagedWorkItem(itemId, options = {}, dbPath = DEFAULT_
         updatedAt: startedAt
       }),
       dependencyTransitionLog:
-        item.metadata?.status === "failed" || item.status === "failed"
+        item.status === "failed" || ["failed", "review_needed"].includes(item.metadata?.dependency?.state)
           ? appendDependencyTransition(item.metadata?.dependencyTransitionLog, {
               type: "dependency_retry_started",
               state: "running",
