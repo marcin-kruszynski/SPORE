@@ -99,6 +99,27 @@ npm run orchestrator:plan -- --workflow config/workflows/docs-adr-pass.yaml --do
 npm run orchestrator:invoke -- --workflow config/workflows/docs-adr-pass.yaml --domain docs --roles lead,scout,reviewer --objective "Draft an ADR-backed documentation pass." --wait
 ```
 
+### Self-Build Visibility Validation
+
+- Workflow: `config/workflows/cli-verification-pass.yaml`
+- Domain: `cli`
+- Policy packs: `cli-core`
+- Typical roles: `lead,builder,tester,reviewer`
+- Expected topology:
+  - Wave 1: lead
+  - Wave 2: builder + tester
+  - Wave 3: reviewer
+- Expected governance:
+  - validation of self-build HTTP contract
+  - no approval requirement by default
+- Purpose: Validate Phase 1 self-build visibility foundation before dashboard/TUI implementation
+
+```bash
+npm run orchestrator:scenario-run -- --scenario self-build-visibility-validation --stub
+npm run orchestrator:scenario-show -- --scenario self-build-visibility-validation
+node --test services/orchestrator/test/http-self-build.test.js
+```
+
 ## Local Regression Flow
 
 Use this order when validating the local orchestration stack:

@@ -1,0 +1,18 @@
+id: self-build-visibility-validation
+label: Self-Build Visibility Validation
+workflow: config/workflows/cli-verification-pass.yaml
+domain: cli
+roles: [lead, builder, tester, reviewer]
+objectiveTemplate: "Validate that the self-build summary and detail routes expose operator-first visibility with proper lineage, pending validation queues, and actionable follow-up signals"
+policyPackExpectation: [cli-core]
+expectedGovernance:
+  reviewRequired: false
+  approvalRequired: false
+  reworkCapable: false
+expectedWaveTopology:
+  waveCount: 3
+  labels: [lead, implementation, review]
+  allowsBranching: false
+realPiEligible: false
+regressionProfiles: [local-fast]
+tags: [self-build, validation, phase-01]
