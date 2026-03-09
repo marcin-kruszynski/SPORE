@@ -5,6 +5,8 @@ import { spawn } from "node:child_process";
 import { PROJECT_ROOT } from "../../runtime-pi/src/metadata/constants.js";
 
 export const DEFAULT_WORKTREE_ROOT = path.join(PROJECT_ROOT, ".spore", "worktrees");
+const DEFAULT_SNAPSHOT_AUTHOR_NAME = "SPORE Workspace Manager";
+const DEFAULT_SNAPSHOT_AUTHOR_EMAIL = "spore-workspace@local.invalid";
 
 function resolveWorktreeRoot(repoRoot, explicitRoot = null) {
   if (explicitRoot) {
@@ -66,6 +68,34 @@ export function buildWorkspacePath({ projectId = "default", workspaceId, worktre
   }
   const normalizedProject = String(projectId).trim().replace(/[^a-zA-Z0-9._-]/g, "-") || "default";
   return path.join(worktreeRoot, normalizedProject, workspaceId);
+}
+
+function sanitizeRefSegment(value, fallback = "unknown") {
+  const normalized = String(value ?? "").trim().replace(/[^a-zA-Z0-9._-]/g, "-");
+  return normalized || fallback;
+}
+
+export function buildWorkspaceSnapshotRef({
+  projectId = "default",
+  executionId = null,
+  stepId,
+  attemptCount = 1
+}) {
+  if (!stepId) {
+    throw new Error("stepId is required to build a workspace snapshot ref");
+  }
+  const segments = [
+    "refs",
+    "spore",
+    "handoffs",
+    sanitizeRefSegment(projectId, "default")
+  ];
+  if (executionId) {
+    segments.push(sanitizeRefSegment(executionId));
+  }
+  segments.push(sanitizeRefSegment(stepId));
+  segments.push(`attempt-${sanitizeRefSegment(attemptCount, "1")}`);
+  return segments.join("/");
 }
 
 function parseWorktreeList(output = "") {
@@ -297,6 +327,105 @@ export async function createWorkspace({
     mode,
     safeMode,
     mutationScope: Array.isArray(mutationScope) ? mutationScope : []
+  };
+}
+
+async function getWorkspaceHead({ worktreePath }) {
+  const result = await run("git", ["rev-parse", "HEAD"], { cwd: worktreePath });
+  return result.stdout.trim();
+}
+
+export async function publishWorkspaceSnapshot({
+  repoRoot = PROJECT_ROOT,
+  worktreePath,
+  snapshotRef,
+  commitMessage = "chore: publish workspace snapshot",
+  authorName = DEFAULT_SNAPSHOT_AUTHOR_NAME,
+  authorEmail = DEFAULT_SNAPSHOT_AUTHOR_EMAIL
+} = {}) {
+  if (!worktreePath) {
+    throw new Error("worktreePath is required to publish a workspace snapshot");
+  }
+  if (!snapshotRef) {
+    throw new Error("snapshotRef is required to publish a workspace snapshot");
+  }
+
+  const canonicalRoot = await resolveCanonicalGitRoot(repoRoot);
+  const statusResult = await run("git", ["status", "--porcelain=v1", "--untracked-files=all"], {
+    cwd: worktreePath
+  });
+  const dirtyEntries = parseWorkspaceStatusLines(statusResult.stdout);
+  const headBefore = await getWorkspaceHead({ worktreePath });
+  let snapshotCommit = headBefore;
+  let committed = false;
+
+  if (dirtyEntries.length > 0) {
+    await run("git", ["add", "--all"], { cwd: worktreePath });
+    await run(
+      "git",
+      [
+        "-c",
+        `user.name=${authorName}`,
+        "-c",
+        `user.email=${authorEmail}`,
+        "commit",
+        "-m",
+        commitMessage
+      ],
+      { cwd: worktreePath }
+    );
+    snapshotCommit = await getWorkspaceHead({ worktreePath });
+    committed = true;
+  }
+
+  await run("git", ["update-ref", snapshotRef, snapshotCommit], { cwd: canonicalRoot });
+  return {
+    repoRoot: canonicalRoot,
+    worktreePath: path.resolve(worktreePath),
+    snapshotRef,
+    snapshotCommit,
+    headBefore,
+    committed,
+    dirtyEntryCount: dirtyEntries.length,
+    createdAt: new Date().toISOString()
+  };
+}
+
+export async function createWorkspaceFromSnapshot({
+  repoRoot = PROJECT_ROOT,
+  workspaceId,
+  projectId = "default",
+  ownerType = "execution-step",
+  ownerId,
+  snapshotRef = null,
+  snapshotCommit = null,
+  worktreeRoot = null,
+  branchName = null,
+  mode = "git-worktree",
+  safeMode = true,
+  mutationScope = []
+} = {}) {
+  const baseRef = snapshotCommit ?? snapshotRef;
+  if (!baseRef) {
+    throw new Error("snapshotRef or snapshotCommit is required to create a workspace from snapshot");
+  }
+  const workspace = await createWorkspace({
+    repoRoot,
+    workspaceId,
+    projectId,
+    ownerType,
+    ownerId,
+    baseRef,
+    worktreeRoot,
+    branchName,
+    mode,
+    safeMode,
+    mutationScope
+  });
+  return {
+    ...workspace,
+    sourceRef: snapshotRef ?? null,
+    sourceCommit: snapshotCommit ?? null
   };
 }
 

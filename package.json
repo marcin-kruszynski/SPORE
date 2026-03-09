@@ -14,7 +14,7 @@
     "test:web-proxy": "node --test --test-concurrency=1 services/orchestrator/test/http-policy.test.js services/orchestrator/test/http-governance.test.js services/orchestrator/test/http-scenarios.test.js",
     "test:web": "node --test apps/web/test/self-build-dashboard.test.js apps/web/test/self-build-dependency-graph.test.js",
     "test:tui": "node --test packages/tui/test/tui-parity.test.js",
-    "test:workspace": "node --test packages/workspace-manager/test/workspace-manager.test.js packages/runtime-pi/test/workspace-launch-context.test.js",
+    "test:workspace": "node --test packages/workspace-manager/test/workspace-manager.test.js packages/runtime-pi/test/workspace-launch-context.test.js packages/orchestrator/test/builder-tester-workspaces.test.js",
     "test:all-local": "npm run test:policy && npm run test:http && npm run test:tui && npm run test:workspace",
     "test:e2e:pi": "node --test packages/runtime-pi/test/pi-rpc-smoke.test.js packages/runtime-pi/test/pi-rpc-canonical-scenarios.e2e.test.js packages/runtime-pi/test/pi-rpc-canonical-scenarios.pending.test.js",
     "test:e2e:gateway-control": "node --test services/session-gateway/test/real-pi-session-control.e2e.test.js",

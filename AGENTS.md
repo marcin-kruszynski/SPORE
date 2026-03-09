@@ -113,6 +113,8 @@ Useful local overrides for isolated runs and tests:
 - Prefer `/workspaces/:id/reconcile` before manual cleanup when a workspace looks orphaned, missing, or dirty.
 - Treat workspace cleanup as governance-aware. Do not remove a proposal-backed or review-pending workspace unless the operator is making an explicit forced recovery decision.
 - Treat runtime `launch-context` artifacts and session live `launcherMetadata.cwd` as the evidence path for proving that mutating runs launched inside a provisioned workspace.
+- Treat canonical builder/tester final verification as sequential: builder owns an authoring workspace, publishes a git-backed handoff snapshot, and tester validates a separate verification workspace created from that snapshot.
+- Do not place `builder` and `tester` in the same final verification step set for the canonical implementation workflows.
 - Treat run validation and docs follow-up as first-class read/write surfaces. Prefer `/work-item-runs/:runId/validate` and `/work-item-runs/:runId/doc-suggestions` for operator quality loops.
 - Use `/self-build/dashboard` (or `self-build-dashboard`) as the preferred aggregate self-build triage surface when building dedicated dashboards or operator consoles. Use `/self-build/summary` only when a lighter snapshot is sufficient.
 

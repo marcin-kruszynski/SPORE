@@ -93,6 +93,7 @@ Implemented now:
 - durable `launch-context` artifacts that record the actual runtime launch `cwd`
 - cleanup/reconcile logic for orphaned worktrees
 - governance-aware cleanup and retention guidance for workspace directories versus proposal artifacts
+- builder-to-tester handoff snapshots that provision a dedicated verification workspace from a builder authoring workspace
 
 This means the current self-build loop can reason about scoped mutations, but it cannot yet guarantee physical filesystem isolation between mutating workers.
 

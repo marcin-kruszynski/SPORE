@@ -41,6 +41,8 @@ The bootstrap execution path now supports:
 - ordered multi-session step launch,
 - wave-based launch of multiple steps inside one execution when a workflow defines `stepSets`,
 - wave-gated unlock rules inside one execution (`all`, `any`, `min_success_count`),
+- sequential builder-to-tester verification handoff for the canonical implementation workflows,
+- builder authoring workspaces plus tester verification workspaces created from a builder snapshot rather than a shared mutable worktree,
 - parent-child session linking between consecutive steps,
 - domain-aware workflow policy defaults from `config/domains/*.yaml` plus project `activeDomains[]` overrides,
 - execution records that can carry lineage metadata such as `parentExecutionId` and `coordinationGroupId`,
@@ -156,6 +158,27 @@ That means one execution can now express both:
 
 - strict parallel stages,
 - partial-unlock exploratory stages where one successful lane is enough to move the workflow forward.
+
+## Builder and Tester Verification Workspaces
+
+The current verification contract for the canonical implementation workflows is:
+
+- builder runs in a dedicated authoring workspace,
+- builder publishes a git-backed handoff snapshot before verification begins,
+- tester receives a separate verification workspace created from that snapshot,
+- reviewer consumes proposal and verification evidence rather than a shared mutable checkout.
+
+This means final verification is sequential:
+
+- `lead -> builder -> tester -> reviewer`
+
+The workflow engine now treats builder and tester differently:
+
+- builder is the mutating lane and owns the authoring workspace,
+- tester validates a frozen snapshot and should not repair source in place,
+- reviewer remains read-only.
+
+Do not model final verification as `builder + tester` in the same wave for the canonical implementation workflows. If the system later needs early parallel testing, add an explicit preflight tester lane instead of reintroducing shared builder/tester mutation timing.
 
 ## Execution Lineage
 

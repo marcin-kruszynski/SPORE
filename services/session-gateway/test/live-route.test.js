@@ -197,3 +197,85 @@ test("session live route returns diagnostics and control guidance", async (t) =>
   assert.equal(statusResponse.status, 200);
   assert.equal(statusResponse.json.request.id, `${sessionId}-request`);
 });
+
+test("session live route falls back to launch-context workspace metadata when the plan artifact is missing", async (t) => {
+  const gatewayPort = await findFreePort();
+  const temp = await makeTempPaths("spore-gateway-live-fallback-");
+  const eventLogPath = path.join(temp.root, "events.ndjson");
+  const sessionId = `live-fallback-${Date.now()}`;
+  const sessionDb = openSessionDatabase(temp.sessionDbPath);
+  try {
+    upsertSession(sessionDb, {
+      id: sessionId,
+      runId: `${sessionId}-run`,
+      agentIdentityId: "tester:tester",
+      profileId: "tester",
+      role: "tester",
+      state: "active",
+      runtimeAdapter: "runtime-pi",
+      transportMode: "tmux",
+      sessionMode: "ephemeral",
+      projectId: "example-project",
+      projectName: "Example Project",
+      projectType: "service",
+      domainId: "cli",
+      workflowId: "cli-verification-pass",
+      parentSessionId: null,
+      contextPath: `tmp/sessions/${sessionId}.context.json`,
+      transcriptPath: `tmp/sessions/${sessionId}.transcript.md`,
+      launcherType: "pi-rpc",
+      launchCommand: `tmp/sessions/${sessionId}.launch.sh`,
+      tmuxSession: `${sessionId}-tmux`,
+      startedAt: new Date(Date.now() - 20_000).toISOString(),
+      endedAt: null,
+      createdAt: new Date(Date.now() - 20_000).toISOString(),
+      updatedAt: new Date(Date.now() - 10_000).toISOString()
+    });
+  } finally {
+    sessionDb.close();
+  }
+
+  const base = path.join(PROJECT_ROOT, "tmp", "sessions", sessionId);
+  await fs.mkdir(path.dirname(base), { recursive: true });
+  await Promise.all([
+    fs.writeFile(
+      `${base}.launch-context.json`,
+      `${JSON.stringify({
+        cwd: ".spore/worktrees/spore/ws-fallback",
+        launcherType: "pi-rpc",
+        workspaceId: "ws-fallback",
+        branchName: "spore/spore/execution-step/tester-fallback",
+        baseRef: "refs/heads/main",
+        purpose: "verification",
+        sourceWorkspaceId: "ws-builder",
+        sourceRef: "refs/spore/spore/exec-builder/r1",
+        sourceCommit: "abc123def456"
+      }, null, 2)}\n`,
+      "utf8"
+    ),
+    fs.writeFile(`${base}.rpc-status.json`, `${JSON.stringify({ ok: true }, null, 2)}\n`, "utf8")
+  ]);
+
+  const gateway = startProcess("node", ["services/session-gateway/server.js"], {
+    SPORE_GATEWAY_PORT: String(gatewayPort),
+    SPORE_SESSION_DB_PATH: temp.sessionDbPath,
+    SPORE_EVENT_LOG_PATH: eventLogPath
+  });
+  t.after(async () => {
+    gateway.kill("SIGTERM");
+    await fs.rm(`${base}.launch-context.json`, { force: true });
+    await fs.rm(`${base}.rpc-status.json`, { force: true });
+  });
+
+  await waitForHealth(`http://127.0.0.1:${gatewayPort}/health`);
+
+  const response = await getJson(`http://127.0.0.1:${gatewayPort}/sessions/${encodeURIComponent(sessionId)}/live`);
+  assert.equal(response.status, 200);
+  assert.equal(response.json.ok, true);
+  assert.equal(response.json.workspace.id, "ws-fallback");
+  assert.equal(response.json.workspace.purpose, "verification");
+  assert.equal(response.json.workspace.sourceWorkspaceId, "ws-builder");
+  assert.equal(response.json.workspace.sourceRef, "refs/spore/spore/exec-builder/r1");
+  assert.equal(response.json.workspace.sourceCommit, "abc123def456");
+  assert.equal(response.json.launcherMetadata.cwd, ".spore/worktrees/spore/ws-fallback");
+});

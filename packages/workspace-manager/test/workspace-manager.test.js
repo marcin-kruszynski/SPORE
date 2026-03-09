@@ -6,12 +6,15 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 
 import {
+  buildWorkspaceSnapshotRef,
   buildWorkspaceBranchName,
   buildWorkspacePath,
   createWorkspace,
+  createWorkspaceFromSnapshot,
   deriveWorkspaceDiagnostics,
   inspectWorkspace,
   listGitWorktrees,
+  publishWorkspaceSnapshot,
   removeWorkspace,
   reconcileWorkspace,
   resolveCanonicalGitRoot,
@@ -189,4 +192,66 @@ test("workspace change summary groups changed files by mutation scope", async ()
   assert.ok(summary.filesByScope.some((entry) => entry.scope === "apps/web" && entry.fileCount === 1));
 
   await removeWorkspace({ repoRoot, worktreePath: workspace.worktreePath, branchName: workspace.branchName, force: true });
+});
+
+test("workspace manager publishes a builder snapshot and provisions a separate verification workspace from it", async () => {
+  const repoRoot = await makeTempRepo();
+  const authoringWorkspace = await createWorkspace({
+    repoRoot,
+    workspaceId: "ws-authoring",
+    projectId: "spore",
+    ownerType: "execution-step",
+    ownerId: "step-builder-001",
+    mutationScope: ["docs"]
+  });
+
+  await fs.writeFile(path.join(authoringWorkspace.worktreePath, "README.md"), "# temp repo\nbuilder authored change\n", "utf8");
+  const snapshot = await publishWorkspaceSnapshot({
+    repoRoot,
+    worktreePath: authoringWorkspace.worktreePath,
+    snapshotRef: buildWorkspaceSnapshotRef({
+      projectId: "spore",
+      executionId: "execution-001",
+      stepId: "step-builder-001",
+      attemptCount: 1
+    }),
+    commitMessage: "chore: publish builder snapshot"
+  });
+
+  assert.equal(snapshot.committed, true);
+  assert.ok(snapshot.snapshotCommit);
+  assert.match(snapshot.snapshotRef, /^refs\/spore\/handoffs\//);
+
+  const verificationWorkspace = await createWorkspaceFromSnapshot({
+    repoRoot,
+    workspaceId: "ws-verification",
+    projectId: "spore",
+    ownerType: "execution-step",
+    ownerId: "step-tester-001",
+    snapshotRef: snapshot.snapshotRef,
+    snapshotCommit: snapshot.snapshotCommit,
+    mutationScope: ["docs"]
+  });
+
+  assert.notEqual(verificationWorkspace.worktreePath, authoringWorkspace.worktreePath);
+  const verificationReadme = await fs.readFile(path.join(verificationWorkspace.worktreePath, "README.md"), "utf8");
+  assert.match(verificationReadme, /builder authored change/);
+
+  await fs.writeFile(path.join(authoringWorkspace.worktreePath, "README.md"), "# temp repo\nbuilder changed again\n", "utf8");
+  const verificationReadmeAfterBuilderEdit = await fs.readFile(path.join(verificationWorkspace.worktreePath, "README.md"), "utf8");
+  assert.match(verificationReadmeAfterBuilderEdit, /builder authored change/);
+  assert.doesNotMatch(verificationReadmeAfterBuilderEdit, /builder changed again/);
+
+  await removeWorkspace({
+    repoRoot,
+    worktreePath: verificationWorkspace.worktreePath,
+    branchName: verificationWorkspace.branchName,
+    force: true
+  });
+  await removeWorkspace({
+    repoRoot,
+    worktreePath: authoringWorkspace.worktreePath,
+    branchName: authoringWorkspace.branchName,
+    force: true
+  });
 });

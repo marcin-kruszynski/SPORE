@@ -15,6 +15,9 @@ runtimePolicy:
     builder: ephemeral
     tester: ephemeral
     reviewer: persistent
+  workspace:
+    enabled: true
+    enabledRoles: [builder, tester]
 docsKbPolicy:
   resultLimit: 5
   queryTerms: [cli, shell, terminal, command]

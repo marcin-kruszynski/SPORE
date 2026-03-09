@@ -33,6 +33,8 @@
 - `docs/plans/builder-tester-verification-workspaces.md`
 - `docs/plans/long-range-self-build-roadmap.md`
 - `docs/plans/project-coordinator-role-plan.md`
+- `docs/plans/feature-integrator-role-plan.md`
+- `docs/plans/javascript-to-typescript-migration-plan.md`
 - `docs/roadmap/IMPLEMENTATION_ROADMAP.md`
 - `docs/operations/WORKSPACE_OPERATING_MODEL.md`
 - `docs/operations/BOOTSTRAP_STATUS.md`
@@ -47,6 +49,9 @@
 - `docs/decisions/ADR-0002-runtime-pi-first.md`
 - `docs/decisions/ADR-0003-documentation-governance.md`
 - `docs/decisions/ADR-0004-docs-adr-pass-process.md`
+- `docs/decisions/ADR-0005-builder-tester-verification-workspaces.md`
+- `docs/decisions/ADR-0006-project-coordinator-role.md`
+- `docs/decisions/ADR-0007-feature-integrator-promotion-boundary.md`
 - `docs/decisions/adr-template.md`
 
 ### Specs

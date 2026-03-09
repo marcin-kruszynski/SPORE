@@ -30,7 +30,7 @@ Project config composes domains, teams, profile variants, workflow defaults, and
 Current policy blocks are:
 
 - `workflowPolicy`: `defaultRoles`, `defaultMaxAttempts`, `maxAttemptsByRole`, `stepSoftTimeoutMs`, `stepHardTimeoutMs`, `reviewRequired`, `approvalRequired`, `retryTargetRole`, `resetDescendantSteps`, `reworkStrategy`, `reworkRoles`
-- `runtimePolicy`: `sessionModeByRole`
+- `runtimePolicy`: `sessionModeByRole`, optional role-aware `workspace` defaults
 - `docsKbPolicy`: `resultLimit`, `queryTerms`, optional `queryTemplate`
 
 Workflow templates may also define:
@@ -66,8 +66,16 @@ Current merge rules are:
 - project `activeDomains[]` overrides the matching `config/domains/<id>.yaml` entry,
 - `workflowPolicy.maxAttemptsByRole` merges by role key,
 - `runtimePolicy.sessionModeByRole` merges by role key,
+- `runtimePolicy.workspace` is merged as a normal object and may now enable role-scoped workspace allocation such as `enabledRoles: [builder, tester]`,
 - `docsKbPolicy.queryTerms` is combined and deduplicated,
 - explicit invocation roles still override `workflowPolicy.defaultRoles`.
+
+Current canonical use of `runtimePolicy.workspace` is the snapshot-based builder/tester verification contract:
+
+- builder gets an authoring workspace,
+- builder publishes a git-backed handoff snapshot,
+- tester gets a verification workspace created from that snapshot,
+- reviewer remains read-only.
 
 The effective precedence is:
 

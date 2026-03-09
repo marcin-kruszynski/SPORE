@@ -14,14 +14,23 @@ stepSets:
       onFailure: hold_execution
       blockNextWaveOnOpenEscalation: true
   - name: ui-build
-    roles: [builder, tester]
+    roles: [builder]
     gate:
-      mode: any
+      mode: all
     policy:
       maxActiveMs: 75000
       onTimeout: open_escalation
       onFailure: open_escalation
-      blockNextWaveOnOpenEscalation: false
+      blockNextWaveOnOpenEscalation: true
+  - name: ui-verification
+    roles: [tester]
+    gate:
+      mode: all
+    policy:
+      maxActiveMs: 60000
+      onTimeout: open_escalation
+      onFailure: open_escalation
+      blockNextWaveOnOpenEscalation: true
   - name: ui-review
     roles: [reviewer]
     gate:

@@ -10,8 +10,8 @@ expectedGovernance:
   approvalRequired: false
   reworkCapable: false
 expectedWaveTopology:
-  waveCount: 3
-  labels: [plan, implement-and-verify, cli-review]
+  waveCount: 4
+  labels: [plan, implementation, verify, cli-review]
   allowsBranching: false
 realPiEligible: true
 regressionProfiles: [local-fast, local-all, pi-canonical]

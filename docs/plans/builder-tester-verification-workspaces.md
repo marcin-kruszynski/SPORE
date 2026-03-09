@@ -2,7 +2,22 @@
 
 ## Status
 
-Proposed implementation plan for the next agent.
+Implemented in the current executable foundation.
+
+What is now done:
+
+- canonical implementation workflows use sequential final verification (`builder -> tester -> reviewer`),
+- builder steps can publish a git-backed handoff snapshot from an authoring workspace,
+- tester steps can provision a separate verification workspace from that snapshot,
+- runtime launch records the actual workspace `cwd` in launch-context artifacts,
+- session live surfaces expose workspace linkage, runtime `cwd`, and builder/tester handoff metadata,
+- semantic config validation now rejects workflow step sets that place `builder` and `tester` in the same final verification wave.
+
+Follow-up work remains around:
+
+- stronger proof for real mutating PI runs inside worktree-backed verification flows,
+- richer proposal review packages over the builder snapshot,
+- broader rollout of workspace policy beyond the first canonical implementation flows.
 
 ## Purpose
 

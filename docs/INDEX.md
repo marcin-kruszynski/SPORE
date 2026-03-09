@@ -25,12 +25,17 @@ The docs system is the operational backbone of the project. It organizes vision,
 - Bootstrap architect instruction: [specs/bootstrap-architect-instruction.md](specs/bootstrap-architect-instruction.md)
 - Worktree and workspace isolation: [specs/worktree-and-workspace-isolation.md](specs/worktree-and-workspace-isolation.md)
 - ADR process: [decisions/ADR-0004-docs-adr-pass-process.md](decisions/ADR-0004-docs-adr-pass-process.md)
+- Builder/tester verification workspace ADR: [decisions/ADR-0005-builder-tester-verification-workspaces.md](decisions/ADR-0005-builder-tester-verification-workspaces.md)
+- Project coordinator role ADR: [decisions/ADR-0006-project-coordinator-role.md](decisions/ADR-0006-project-coordinator-role.md)
+- Feature integrator promotion ADR: [decisions/ADR-0007-feature-integrator-promotion-boundary.md](decisions/ADR-0007-feature-integrator-promotion-boundary.md)
 - Bootstrap roadmap: [plans/roadmap.md](plans/roadmap.md)
 - Completion summary: [plans/bootstrap-completion-summary.md](plans/bootstrap-completion-summary.md)
 - Current self-build status: [plans/self-build-status-and-next-steps.md](plans/self-build-status-and-next-steps.md)
 - Builder/tester verification workspaces: [plans/builder-tester-verification-workspaces.md](plans/builder-tester-verification-workspaces.md)
 - Long-range self-build roadmap: [plans/long-range-self-build-roadmap.md](plans/long-range-self-build-roadmap.md)
 - Project coordinator role plan: [plans/project-coordinator-role-plan.md](plans/project-coordinator-role-plan.md)
+- Feature integrator role plan: [plans/feature-integrator-role-plan.md](plans/feature-integrator-role-plan.md)
+- JavaScript to TypeScript migration plan: [plans/javascript-to-typescript-migration-plan.md](plans/javascript-to-typescript-migration-plan.md)
 
 ## Top-Level Map
 

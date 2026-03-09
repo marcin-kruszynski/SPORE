@@ -42,7 +42,11 @@ node packages/workspace-manager/src/cli/spore-workspace.js cleanup --path .spore
 ## Integration Boundary
 
 - `packages/orchestrator/` persists workspace allocations and links them to work-item runs and proposal artifacts.
-- `packages/runtime-pi/` should eventually consume the provisioned worktree as `cwd` for mutating runtime sessions.
+- `packages/runtime-pi/` now consumes the provisioned worktree as `cwd` for mutating runtime sessions and records launch-context evidence.
 - `services/orchestrator/` exposes read surfaces for operators and web clients.
+- canonical builder/tester verification now uses:
+  - builder authoring workspaces,
+  - git-backed handoff snapshots,
+  - separate tester verification workspaces created from the builder snapshot.
 
 This package should stay thin and git-focused. Governance, proposal lifecycle, and workflow state belong elsewhere.

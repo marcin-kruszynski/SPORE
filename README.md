@@ -74,6 +74,7 @@ SPORE addresses this by building a **structured orchestration protocol** where:
 | Parallel work inside one execution | Workflow step sets become launch waves with multiple active steps |
 | Durable operator validation loops | Scenario and regression catalogs with rerun, trends, reports, run-center summaries, and live session diagnostics |
 | Actionable operator triage | Run-center alerts, explicit failure classification, and recovery suggestions on runs and live sessions |
+| Snapshot-based final verification | Builder authoring workspaces hand off git-backed snapshots to separate tester verification workspaces |
 
 ---
 
@@ -281,6 +282,7 @@ That policy currently controls:
 - step watchdog soft and hard timeouts,
 - reviewer-step review and approval requirements,
 - per-role session mode overrides,
+- role-scoped workspace defaults for the canonical builder/tester verification handoff,
 - startup retrieval query terms and result limits for `docs-kb`.
 
 Reusable policy packs in `config/policy-packs/` can feed those same merged blocks before raw domain and project overrides are applied.

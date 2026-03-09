@@ -70,6 +70,8 @@ The combined live route is the preferred read for operator tooling because it no
 - derived diagnostics,
 - suggested recovery actions.
 
+When the plan artifact is unavailable, the live route can now fall back to the durable `launch-context` artifact so workspace linkage and runtime `cwd` remain inspectable for builder/tester verification runs.
+
 Those suggested actions may now include additive operator fields such as:
 
 - `expectedOutcome`

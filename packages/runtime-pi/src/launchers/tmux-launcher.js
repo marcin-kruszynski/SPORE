@@ -200,7 +200,7 @@ export async function writeLaunchScript({
   const script = `#!/usr/bin/env bash
 set +e
 cd ${shellEscape(effectiveCwd)}
-node -e "const fs=require('node:fs'); fs.writeFileSync(process.argv[1], JSON.stringify({cwd: process.cwd(), launcherType: process.argv[2], workspaceId: process.argv[3] || null, branchName: process.argv[4] || null, recordedAt: new Date().toISOString()}, null, 2) + '\\n')" ${shellEscape(launchContextPath)} ${shellEscape(launcherType)} ${shellEscape(workspace?.id ?? "")} ${shellEscape(workspace?.branchName ?? "")}
+node -e "const fs=require('node:fs'); fs.writeFileSync(process.argv[1], JSON.stringify({cwd: process.cwd(), launcherType: process.argv[2], workspaceId: process.argv[3] || null, branchName: process.argv[4] || null, purpose: process.argv[5] || null, sourceWorkspaceId: process.argv[6] || null, sourceRef: process.argv[7] || null, sourceCommit: process.argv[8] || null, recordedAt: new Date().toISOString()}, null, 2) + '\\n')" ${shellEscape(launchContextPath)} ${shellEscape(launcherType)} ${shellEscape(workspace?.id ?? "")} ${shellEscape(workspace?.branchName ?? "")} ${shellEscape(workspace?.purpose ?? "")} ${shellEscape(workspace?.sourceWorkspaceId ?? "")} ${shellEscape(workspace?.sourceRef ?? "")} ${shellEscape(workspace?.sourceCommit ?? "")}
 ${launchBody}
 exit_code=$?
 printf '{"exitCode": %s}\\n' "$exit_code" > ${shellEscape(exitPath)}

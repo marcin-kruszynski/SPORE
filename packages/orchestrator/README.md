@@ -39,7 +39,7 @@ Supported policy blocks are:
 
 - `workflowPolicy`: `defaultRoles`, `defaultMaxAttempts`, `maxAttemptsByRole`, `stepSoftTimeoutMs`, `stepHardTimeoutMs`, `reviewRequired`, `approvalRequired`
 - workflow templates may also declare `stepSets`, which the planner converts into per-step `wave`, `waveName`, and `workflowPolicy.waveGate` metadata for parallel launch inside one execution.
-- `runtimePolicy`: `sessionModeByRole`
+- `runtimePolicy`: `sessionModeByRole`, optional role-aware `workspace`
 - `docsKbPolicy`: `resultLimit`, `queryTerms`, optional `queryTemplate`
 
 Reusable policy packs can contribute to those same merged blocks before the raw domain and project overrides are applied.
@@ -51,6 +51,7 @@ Current behavior is:
 - `maxAttemptsByRole` overrides `defaultMaxAttempts`, which falls back to the workflow retry policy,
 - reviewer steps inherit `reviewRequired` and `approvalRequired` from merged policy,
 - `sessionModeByRole` overrides the profile `sessionMode` for that launch,
+- `runtimePolicy.workspace` can now enable role-scoped workspace allocation, including the canonical builder authoring workspace plus tester verification workspace handoff,
 - `docsKbPolicy` shapes the startup retrieval query and result limit passed to `packages/runtime-pi/`,
 - `stepSoftTimeoutMs` and `stepHardTimeoutMs` become the default watchdog thresholds unless a drive or invoke command overrides them.
 

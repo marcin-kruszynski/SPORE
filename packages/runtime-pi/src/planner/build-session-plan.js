@@ -35,7 +35,11 @@ export async function buildSessionPlan({
   cwd = null,
   workspaceId = null,
   workspaceBranch = null,
-  workspaceBaseRef = null
+  workspaceBaseRef = null,
+  workspacePurpose = null,
+  workspaceSourceId = null,
+  workspaceSourceRef = null,
+  workspaceSourceCommit = null
 }) {
   if (!profilePath) {
     throw new Error("profilePath is required");
@@ -114,7 +118,11 @@ export async function buildSessionPlan({
             id: workspaceId ?? null,
             branchName: workspaceBranch ?? null,
             baseRef: workspaceBaseRef ?? null,
-            cwd: cwd ? relativeToProject(resolveInputPath(cwd)) : null
+            cwd: cwd ? relativeToProject(resolveInputPath(cwd)) : null,
+            purpose: workspacePurpose ?? null,
+            sourceWorkspaceId: workspaceSourceId ?? null,
+            sourceRef: workspaceSourceRef ?? null,
+            sourceCommit: workspaceSourceCommit ?? null
           }
         : null,
       sourceFiles: {

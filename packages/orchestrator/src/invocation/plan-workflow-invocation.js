@@ -403,7 +403,8 @@ export async function planWorkflowInvocation({
           wavePolicy: assignment.wavePolicy
         },
         runtimePolicy: {
-          sessionMode: sessionModeOverride
+          sessionMode: sessionModeOverride,
+          workspace: policy.runtimePolicy?.workspace ?? null
         },
         docsKbPolicy: {
           resultLimit: policy.docsKbPolicy?.resultLimit ?? 5,
@@ -466,7 +467,8 @@ export async function planWorkflowInvocation({
           []
       },
       runtimePolicy: {
-        sessionModeByRole: policy.runtimePolicy?.sessionModeByRole ?? {}
+        sessionModeByRole: policy.runtimePolicy?.sessionModeByRole ?? {},
+        workspace: policy.runtimePolicy?.workspace ?? null
       },
       docsKbPolicy: {
         resultLimit: policy.docsKbPolicy?.resultLimit ?? 5,

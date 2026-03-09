@@ -70,7 +70,11 @@ async function loadOrBuildPlan(flags) {
     cwd: flags.cwd ?? null,
     workspaceId: flags["workspace-id"] ?? null,
     workspaceBranch: flags["workspace-branch"] ?? null,
-    workspaceBaseRef: flags["workspace-base-ref"] ?? null
+    workspaceBaseRef: flags["workspace-base-ref"] ?? null,
+    workspacePurpose: flags["workspace-purpose"] ?? null,
+    workspaceSourceId: flags["workspace-source-id"] ?? null,
+    workspaceSourceRef: flags["workspace-source-ref"] ?? null,
+    workspaceSourceCommit: flags["workspace-source-commit"] ?? null
   });
 }
 

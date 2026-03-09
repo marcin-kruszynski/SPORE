@@ -17,6 +17,9 @@ runtimePolicy:
     builder: ephemeral
     tester: ephemeral
     reviewer: persistent
+  workspace:
+    enabled: true
+    enabledRoles: [builder, tester]
 docsKbPolicy:
   resultLimit: 7
   queryTerms: [ui, component, accessibility]

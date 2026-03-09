@@ -14,12 +14,20 @@ stepSets:
       onFailure: fail_execution
       blockNextWaveOnOpenEscalation: true
   - name: implementation
-    roles: [builder, tester]
+    roles: [builder]
     gate:
-      mode: min_success_count
-      count: 2
+      mode: all
     policy:
       maxActiveMs: 90000
+      onTimeout: open_escalation
+      onFailure: open_escalation
+      blockNextWaveOnOpenEscalation: true
+  - name: service-verification
+    roles: [tester]
+    gate:
+      mode: all
+    policy:
+      maxActiveMs: 60000
       onTimeout: open_escalation
       onFailure: open_escalation
       blockNextWaveOnOpenEscalation: true

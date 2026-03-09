@@ -93,6 +93,27 @@ documents:
     owner: architecture-council
     tags: [pi-first, runtime]
     path: docs/decisions/ADR-0002-runtime-pi-first.md
+  - id: adr-builder-tester-verification-workspaces
+    type: decision
+    domain: shared
+    status: accepted
+    owner: architecture-council
+    tags: [workspace, builder, tester, verification, worktree]
+    path: docs/decisions/ADR-0005-builder-tester-verification-workspaces.md
+  - id: adr-project-coordinator-role
+    type: decision
+    domain: orchestration
+    status: proposed
+    owner: architecture-council
+    tags: [coordinator, project, roles, orchestration, workflow]
+    path: docs/decisions/ADR-0006-project-coordinator-role.md
+  - id: adr-feature-integrator-promotion-boundary
+    type: decision
+    domain: orchestration
+    status: proposed
+    owner: architecture-council
+    tags: [integrator, promotion, merge, coordinator, workflow]
+    path: docs/decisions/ADR-0007-feature-integrator-promotion-boundary.md
   - id: implementation-roadmap
     type: roadmap
     domain: shared
@@ -128,6 +149,20 @@ documents:
     owner: bootstrap-agent
     tags: [coordinator, project, roles, orchestration, workflow]
     path: docs/plans/project-coordinator-role-plan.md
+  - id: feature-integrator-role-plan
+    type: plan
+    domain: orchestration
+    status: active
+    owner: bootstrap-agent
+    tags: [integrator, promotion, merge, project, workflow]
+    path: docs/plans/feature-integrator-role-plan.md
+  - id: javascript-to-typescript-migration-plan
+    type: plan
+    domain: shared
+    status: active
+    owner: bootstrap-agent
+    tags: [typescript, javascript, migration, tooling, quality]
+    path: docs/plans/javascript-to-typescript-migration-plan.md
   - id: bootstrap-status
     type: operations
     domain: shared

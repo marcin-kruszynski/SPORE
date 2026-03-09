@@ -10,8 +10,8 @@ expectedGovernance:
   approvalRequired: false
   reworkCapable: false
 expectedWaveTopology:
-  waveCount: 3
-  labels: [lead, implementation, review]
+  waveCount: 4
+  labels: [plan, implementation, verify, review]
   allowsBranching: false
 realPiEligible: false
 regressionProfiles: [local-fast]

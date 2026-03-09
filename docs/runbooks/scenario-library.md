@@ -31,11 +31,13 @@ npm run orchestrator:regression-run -- --regression local-fast --stub
 - Typical roles: `lead,builder,tester,reviewer`
 - Expected topology:
   - Wave 1: framing
-  - Wave 2: builder + tester in parallel
-  - Wave 3: reviewer
+  - Wave 2: builder
+  - Wave 3: service-verification
+  - Wave 4: service-review
 - Expected governance:
   - reviewer approval required
   - open escalation on implementation wave timeout/failure
+  - tester verifies a builder handoff snapshot in a separate verification workspace
 
 ```bash
 npm run orchestrator:plan -- --workflow config/workflows/backend-service-delivery.yaml --domain backend --roles lead,builder,tester,reviewer
@@ -50,11 +52,13 @@ npm run orchestrator:invoke -- --workflow config/workflows/backend-service-deliv
 - Typical roles: `lead,scout,builder,tester,reviewer`
 - Expected topology:
   - Wave 1: lead + scout
-  - Wave 2: builder + tester with `any` gate
-  - Wave 3: reviewer
+  - Wave 2: ui-build
+  - Wave 3: ui-verification
+  - Wave 4: ui-review
 - Expected governance:
   - rework may branch
   - UI review approval required
+  - final tester verification runs after builder handoff and should not share the builder worktree
 
 ```bash
 npm run orchestrator:plan -- --workflow config/workflows/frontend-ui-pass.yaml --domain frontend --roles lead,scout,builder,tester,reviewer
@@ -69,11 +73,13 @@ npm run orchestrator:invoke -- --workflow config/workflows/frontend-ui-pass.yaml
 - Typical roles: `lead,builder,tester,reviewer`
 - Expected topology:
   - Wave 1: lead
-  - Wave 2: builder + tester
-  - Wave 3: reviewer
+  - Wave 2: implementation
+  - Wave 3: verify
+  - Wave 4: cli-review
 - Expected governance:
   - no approval requirement by default
   - escalation on verification wave timeout/failure
+  - tester verifies a git-backed builder snapshot in a separate verification workspace
 
 ```bash
 npm run orchestrator:plan -- --workflow config/workflows/cli-verification-pass.yaml --domain cli --roles lead,builder,tester,reviewer
@@ -107,8 +113,9 @@ npm run orchestrator:invoke -- --workflow config/workflows/docs-adr-pass.yaml --
 - Typical roles: `lead,builder,tester,reviewer`
 - Expected topology:
   - Wave 1: lead
-  - Wave 2: builder + tester
-  - Wave 3: reviewer
+  - Wave 2: implementation
+  - Wave 3: verify
+  - Wave 4: review
 - Expected governance:
   - validation of self-build HTTP contract
   - no approval requirement by default
@@ -128,8 +135,9 @@ node --test services/orchestrator/test/http-self-build.test.js
 - Typical roles: `lead,builder,tester,reviewer`
 - Expected topology:
   - Wave 1: lead
-  - Wave 2: builder + tester
-  - Wave 3: reviewer
+  - Wave 2: implementation
+  - Wave 3: verify
+  - Wave 4: review
 - Expected governance:
   - validation of dependency authoring and readiness semantics
   - no approval requirement by default
@@ -155,4 +163,5 @@ SPORE_RUN_PI_E2E=1 npm run test:e2e:pi
 ## Notes
 
 - Keep scenario commands stable. They are reference entrypoints for future automation and operator runbooks.
+- For the canonical implementation workflows, builder and tester final verification is intentionally sequential. Builder owns the authoring workspace, publishes a handoff snapshot, and tester validates a separate verification workspace from that snapshot.
 - Prefer extending this file when adding a new canonical scenario instead of scattering one-off examples across package READMEs.

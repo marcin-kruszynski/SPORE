@@ -1544,6 +1544,14 @@ function buildProposalArtifacts(item, run, validation = null, workspace = null) 
       requiredApproval: item.metadata?.requiresHumanApproval ?? workItemKindRequiresProposal(item),
       safeMode: item.metadata?.safeMode !== false
     },
+    handoffSnapshot: workspace?.metadata?.handoff
+      ? {
+          snapshotRef: workspace.metadata.handoff.snapshotRef ?? null,
+          snapshotCommit: workspace.metadata.handoff.snapshotCommit ?? null,
+          publishedAt: workspace.metadata.handoff.publishedAt ?? null,
+          committed: workspace.metadata.handoff.committed ?? null
+        }
+      : null,
     docImpact: {
       relatedDocs: item.relatedDocs ?? [],
       relatedScenarios: item.relatedScenarios ?? [],

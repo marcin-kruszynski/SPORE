@@ -49,11 +49,29 @@ function toRelative(filePath) {
   return path.relative(PROJECT_ROOT, filePath).split(path.sep).join("/");
 }
 
+function validateWorkflowSemantics(filePath, parsed) {
+  const relativePath = toRelative(filePath);
+  if (!relativePath.startsWith("config/workflows/")) {
+    return [];
+  }
+  const stepSets = Array.isArray(parsed?.stepSets) ? parsed.stepSets : [];
+  const errors = [];
+  for (const stepSet of stepSets) {
+    const roles = Array.isArray(stepSet?.roles) ? stepSet.roles : [];
+    if (roles.includes("builder") && roles.includes("tester")) {
+      errors.push(
+        `${relativePath}: step set "${stepSet?.name ?? "unnamed"}" cannot mix builder and tester; final verification must be sequential`
+      );
+    }
+  }
+  return errors;
+}
+
 async function validateFile(filePath) {
   const raw = await fs.readFile(filePath, "utf8");
   const parsed = parseYaml(raw);
   const schema = await loadSchemaForConfig(filePath);
-  const errors = validateAgainstSchema(schema, parsed);
+  const errors = [...validateAgainstSchema(schema, parsed), ...validateWorkflowSemantics(filePath, parsed)];
   return {
     file: toRelative(filePath),
     valid: errors.length === 0,

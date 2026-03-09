@@ -847,12 +847,17 @@ async function createServer(options = {}) {
             ? (await readArtifactContent(session, "launchContext")).content
             : null;
         const plan = await readPlanArtifact(session, artifacts);
-        const workspace = plan?.metadata?.workspace
+        const workspaceMetadata = plan?.metadata?.workspace ?? null;
+        const workspace = workspaceMetadata || launchContext
           ? {
-              id: plan.metadata.workspace.id ?? null,
-              branchName: plan.metadata.workspace.branchName ?? null,
-              baseRef: plan.metadata.workspace.baseRef ?? null,
-              cwd: plan.metadata.workspace.cwd ?? plan.session?.cwd ?? null
+              id: workspaceMetadata?.id ?? launchContext?.workspaceId ?? null,
+              branchName: workspaceMetadata?.branchName ?? launchContext?.branchName ?? null,
+              baseRef: workspaceMetadata?.baseRef ?? launchContext?.baseRef ?? null,
+              cwd: workspaceMetadata?.cwd ?? plan?.session?.cwd ?? launchContext?.cwd ?? null,
+              purpose: workspaceMetadata?.purpose ?? launchContext?.purpose ?? null,
+              sourceWorkspaceId: workspaceMetadata?.sourceWorkspaceId ?? launchContext?.sourceWorkspaceId ?? null,
+              sourceRef: workspaceMetadata?.sourceRef ?? launchContext?.sourceRef ?? null,
+              sourceCommit: workspaceMetadata?.sourceCommit ?? launchContext?.sourceCommit ?? null
             }
           : null;
         json(response, 200, {
