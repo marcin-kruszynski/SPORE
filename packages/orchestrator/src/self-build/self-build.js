@@ -1115,7 +1115,20 @@ export async function runSelfBuildWorkItem(itemId, options = {}, dbPath = DEFAUL
     return null;
   }
   ensureSafeMode(item, item.metadata?.projectId ?? "spore");
-  const result = await runManagedWorkItem(itemId, options, dbPath);
+  let result;
+  try {
+    result = await runManagedWorkItem(itemId, options, dbPath);
+  } catch (error) {
+    const failedItem = withDatabase(dbPath, (db) => getWorkItem(db, itemId));
+    const failedRun = failedItem?.metadata?.lastRunId ? getManagedWorkItemRun(failedItem.metadata.lastRunId, dbPath) : null;
+    return {
+      item: failedItem,
+      run: failedRun,
+      proposal: null,
+      learningRecord: null,
+      error: error.message
+    };
+  }
   const runDetail = getManagedWorkItemRun(result.run.id, dbPath);
   const settledItem = withDatabase(dbPath, (db) => getWorkItem(db, itemId));
   let proposal = null;

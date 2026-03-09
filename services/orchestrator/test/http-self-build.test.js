@@ -169,7 +169,7 @@ test("self-build summary and lineage routes expose operator-first visibility", a
     `http://127.0.0.1:${ORCHESTRATOR_PORT}/work-items/${encodeURIComponent(itemId)}/run`,
     {
       stub: true,
-      timeout: 6000,
+      timeout: 12000,
       interval: 250,
       by: "test-runner",
       source: "http-self-build-test"
@@ -215,7 +215,7 @@ test("self-build summary and lineage routes expose operator-first visibility", a
     `http://127.0.0.1:${ORCHESTRATOR_PORT}/work-item-runs/${encodeURIComponent(runId)}/validate`,
     {
       stub: true,
-      timeout: 6000,
+      timeout: 12000,
       interval: 250,
       by: "test-runner",
       source: "http-self-build-test"

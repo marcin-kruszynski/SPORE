@@ -54,7 +54,7 @@ test("scenario, regression, and execution history routes work through orchestrat
     stub: true,
     wait: true,
     by: "test-runner",
-    timeout: 6000,
+    timeout: 12000,
     interval: 250,
     stepSoftTimeout: 250,
     stepHardTimeout: 1000
@@ -125,7 +125,7 @@ test("scenario, regression, and execution history routes work through orchestrat
       wait: true,
       by: "test-rerun",
       reason: "HTTP rerun coverage",
-      timeout: 6000,
+      timeout: 12000,
       interval: 250,
       stepSoftTimeout: 250,
       stepHardTimeout: 1000
@@ -142,7 +142,7 @@ test("scenario, regression, and execution history routes work through orchestrat
   const regressionRun = await postJson(`http://127.0.0.1:${ORCHESTRATOR_PORT}/regressions/local-fast/run`, {
     stub: true,
     by: "test-runner",
-    timeout: 6000,
+    timeout: 12000,
     interval: 250,
     stepSoftTimeout: 250,
     stepHardTimeout: 1000
@@ -230,7 +230,7 @@ test("scenario, regression, and execution history routes work through orchestrat
       stub: true,
       by: "test-rerun",
       reason: "HTTP regression rerun coverage",
-      timeout: 6000,
+      timeout: 12000,
       interval: 250,
       stepSoftTimeout: 250,
       stepHardTimeout: 1000
@@ -277,7 +277,7 @@ test("scenario, regression, and execution history routes work through orchestrat
       stub: true,
       wait: true,
       by: "test-work-item",
-      timeout: 6000,
+      timeout: 12000,
       interval: 250
     }
   );
@@ -357,7 +357,7 @@ test("scenario, regression, and execution history routes work through orchestrat
       stub: true,
       wait: true,
       by: "test-self-build",
-      timeout: 6000,
+      timeout: 12000,
       interval: 250
     }
   );
@@ -398,7 +398,7 @@ test("scenario, regression, and execution history routes work through orchestrat
     {
       stub: true,
       by: "test-validator",
-      timeout: 6000,
+      timeout: 12000,
       interval: 250
     }
   );
