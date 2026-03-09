@@ -2,8 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 
+import { openOrchestratorDatabase, getWorkItem, updateWorkItem } from '../../orchestrator/src/store/execution-store.js';
 import { createFamilyScenario, makeTempPaths, setReviewerPending } from '../../orchestrator/test/helpers/scenario-fixtures.js';
-import { startProcess, waitForHealth } from '../../../services/orchestrator/test/helpers/http-harness.js';
+import { postJson, startProcess, waitForHealth } from '../../../services/orchestrator/test/helpers/http-harness.js';
 
 const ORCHESTRATOR_PORT = 8800;
 
@@ -33,6 +34,17 @@ function runCli(args, env = {}) {
       reject(new Error(stderr || stdout || `cli failed: ${args.join(' ')}`));
     });
   });
+}
+
+function mutateWorkItem(dbPath, itemId, mutate) {
+  const db = openOrchestratorDatabase(dbPath);
+  try {
+    const item = getWorkItem(db, itemId);
+    const next = mutate(item);
+    updateWorkItem(db, next);
+  } finally {
+    db.close();
+  }
 }
 
 test('tui execution and family commands consume orchestrator HTTP surfaces', async (t) => {
@@ -387,4 +399,177 @@ test('tui execution and family commands consume orchestrator HTTP surfaces', asy
   const selfBuildPlanPayload = JSON.parse(selfBuildPlanOutput.stdout);
   assert.equal(selfBuildPlanPayload.detail.id, goalPlanCreatePayload.detail.id);
   assert.ok(selfBuildPlanPayload.detail.links);
+});
+
+test('tui self-build group and summary commands surface dependency-aware readiness over HTTP routes', async (t) => {
+  const ORCHESTRATOR_PORT = 8801;
+  const { dbPath, sessionDbPath, eventLogPath } = await makeTempPaths('spore-tui-dependency-');
+
+  const orchestrator = startProcess('node', ['services/orchestrator/server.js'], {
+    SPORE_ORCHESTRATOR_PORT: String(ORCHESTRATOR_PORT),
+    SPORE_ORCHESTRATOR_DB_PATH: dbPath,
+    SPORE_SESSION_DB_PATH: sessionDbPath,
+    SPORE_EVENT_LOG_PATH: eventLogPath
+  });
+  t.after(() => orchestrator.kill('SIGTERM'));
+
+  await waitForHealth(`http://127.0.0.1:${ORCHESTRATOR_PORT}/health`);
+
+  const goalPlan = await postJson(`http://127.0.0.1:${ORCHESTRATOR_PORT}/goals/plan`, {
+    goal: 'docs config dashboard runtime dependency graph validation',
+    safeMode: true,
+    by: 'tui-test-runner',
+    source: 'tui-dependency-parity-test'
+  });
+  assert.equal(goalPlan.status, 200);
+  assert.ok(goalPlan.json.ok);
+
+  const materialized = await postJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/goal-plans/${encodeURIComponent(goalPlan.json.detail.id)}/materialize`,
+    { by: 'tui-test-runner' }
+  );
+  assert.equal(materialized.status, 200);
+  assert.ok(materialized.json.ok);
+
+  const groupId = materialized.json.detail.materializedGroup.id;
+  const items = materialized.json.detail.materializedItems;
+  assert.equal(items.length, 4);
+
+  const [successItemId, failingItemId, hardBlockedItemId, advisoryItemId] = items.map((item) => item.id);
+  const updatedAt = new Date().toISOString();
+
+  mutateWorkItem(dbPath, successItemId, (item) => ({
+    ...item,
+    title: 'Dependency root succeeds',
+    kind: 'scenario',
+    status: 'pending',
+    updatedAt,
+    metadata: {
+      ...item.metadata,
+      scenarioId: 'cli-verification-pass',
+      projectPath: 'config/projects/spore.yaml',
+      groupOrder: 0,
+      dependsOn: [],
+      dependencies: []
+    }
+  }));
+  mutateWorkItem(dbPath, failingItemId, (item) => ({
+    ...item,
+    title: 'Dependency root fails',
+    kind: 'scenario',
+    status: 'pending',
+    updatedAt,
+    metadata: {
+      ...item.metadata,
+      scenarioId: 'missing-scenario-id',
+      projectPath: 'config/projects/spore.yaml',
+      groupOrder: 1,
+      dependsOn: [],
+      dependencies: []
+    }
+  }));
+  mutateWorkItem(dbPath, hardBlockedItemId, (item) => ({
+    ...item,
+    title: 'Hard dependent waits',
+    kind: 'scenario',
+    status: 'pending',
+    updatedAt,
+    metadata: {
+      ...item.metadata,
+      scenarioId: 'cli-verification-pass',
+      projectPath: 'config/projects/spore.yaml',
+      groupOrder: 2,
+      dependsOn: [],
+      dependencies: []
+    }
+  }));
+  mutateWorkItem(dbPath, advisoryItemId, (item) => ({
+    ...item,
+    title: 'Advisory dependent keeps moving',
+    kind: 'scenario',
+    status: 'pending',
+    updatedAt,
+    metadata: {
+      ...item.metadata,
+      scenarioId: 'cli-verification-pass',
+      projectPath: 'config/projects/spore.yaml',
+      groupOrder: 3,
+      dependsOn: [],
+      dependencies: []
+    }
+  }));
+
+  const authored = await postJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/work-item-groups/${encodeURIComponent(groupId)}/dependencies`,
+    {
+      edges: [
+        {
+          itemId: hardBlockedItemId,
+          dependencyItemId: failingItemId,
+          strictness: 'hard',
+          autoRelaxation: false
+        },
+        {
+          itemId: advisoryItemId,
+          dependencyItemId: failingItemId,
+          strictness: 'advisory',
+          autoRelaxation: {
+            enabled: true,
+            reason: 'Advisory work can continue with a visible warning.'
+          }
+        }
+      ]
+    }
+  );
+  assert.equal(authored.status, 200);
+  assert.ok(authored.json.ok);
+
+  const groupShowOutput = await runCli([
+    'work-item-group-show',
+    '--group', groupId,
+    '--api', `http://127.0.0.1:${ORCHESTRATOR_PORT}`
+  ]);
+  const groupShowPayload = JSON.parse(groupShowOutput.stdout);
+  assert.equal(groupShowPayload.detail.id, groupId);
+  assert.equal(groupShowPayload.detail.readiness.headlineState, 'ready');
+  assert.equal(groupShowPayload.detail.readiness.counts.blocked, 1);
+  assert.ok(groupShowPayload.detail.readiness.preRunSummary.label);
+  assert.ok(groupShowPayload.detail.readiness.blockerIds.length >= 1);
+  assert.ok(groupShowPayload.detail.dependencyGraph.edges.some((edge) => edge.strictness === 'hard'));
+  assert.ok(groupShowPayload.detail.dependencyGraph.edges.some((edge) => edge.strictness === 'advisory'));
+
+  const selfBuildGroupOutput = await runCli([
+    'self-build',
+    '--group', groupId,
+    '--api', `http://127.0.0.1:${ORCHESTRATOR_PORT}`
+  ]);
+  const selfBuildGroupPayload = JSON.parse(selfBuildGroupOutput.stdout);
+  assert.equal(selfBuildGroupPayload.detail.id, groupId);
+  assert.equal(selfBuildGroupPayload.detail.readiness.counts.blocked, 1);
+  assert.ok(selfBuildGroupPayload.detail.items.some((item) => item.blockerIds?.length));
+
+  const runGroup = await postJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/work-item-groups/${encodeURIComponent(groupId)}/run`,
+    {
+      stub: true,
+      timeout: 12000,
+      interval: 250,
+      by: 'tui-test-runner',
+      source: 'tui-dependency-parity-test'
+    }
+  );
+  assert.equal(runGroup.status, 200);
+  assert.ok(runGroup.json.ok);
+
+  const selfBuildJsonOutput = await runCli([
+    'self-build',
+    '--json',
+    '--api', `http://127.0.0.1:${ORCHESTRATOR_PORT}`
+  ]);
+  const selfBuildJsonPayload = JSON.parse(selfBuildJsonOutput.stdout);
+  const blockedUrgent = selfBuildJsonPayload.detail.urgentWork.find((entry) => entry.itemId === hardBlockedItemId);
+  assert.ok(blockedUrgent);
+  assert.ok(blockedUrgent.reason.includes('failed'));
+  assert.ok(Array.isArray(blockedUrgent.blockerIds));
+  assert.ok(blockedUrgent.nextActionHint.includes('Retry or resolve'));
 });
