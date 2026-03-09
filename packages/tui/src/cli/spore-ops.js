@@ -589,6 +589,7 @@ async function regressionSchedulerStatus(flags) {
 function renderSelfBuildTriage(payload) {
   const detail = payload?.detail ?? {};
   const overview = detail.overview ?? {};
+  const groups = Array.isArray(detail.groups) ? [...detail.groups] : [];
   const urgentWork = detail.urgentWork ?? [];
   const followUpWork = detail.followUpWork ?? [];
   const counts = detail.counts ?? {};
@@ -621,6 +622,40 @@ function renderSelfBuildTriage(payload) {
     }
   }
 
+  lines.push('GROUP READINESS');
+  lines.push('---------------');
+  if (groups.length === 0) {
+    lines.push('No work-item groups materialized yet');
+  } else {
+    const sortedGroups = groups.sort((left, right) => {
+      const order = { failed: 0, blocked: 1, running: 2, ready: 3, completed: 4, pending: 5 };
+      const leftState = order[left?.readiness?.headlineState ?? left?.status ?? 'pending'] ?? 6;
+      const rightState = order[right?.readiness?.headlineState ?? right?.status ?? 'pending'] ?? 6;
+      if (leftState !== rightState) {
+        return leftState - rightState;
+      }
+      return String(left?.title ?? left?.id ?? '').localeCompare(String(right?.title ?? right?.id ?? ''));
+    });
+
+    for (const group of sortedGroups.slice(0, 6)) {
+      const readiness = group.readiness ?? {};
+      const readinessCounts = readiness.counts ?? {};
+      lines.push(`[${String(readiness.headlineState ?? group.status ?? 'pending').toUpperCase()}] ${group.title ?? group.id}`);
+      lines.push(`      ${readiness.preRunSummary?.label ?? 'No pre-run dependency summary available.'}`);
+      lines.push(
+        `      counts: ready=${readinessCounts.ready ?? 0}, blocked=${readinessCounts.blocked ?? 0}, review-needed=${readinessCounts.reviewNeeded ?? 0}, failed=${readinessCounts.failed ?? 0}`
+      );
+      if ((readiness.blockerIds ?? []).length > 0) {
+        lines.push(`      blockers: ${readiness.blockerIds.slice(0, 2).join(', ')}`);
+      }
+      if (readiness.nextActionHint) {
+        lines.push(`      next: ${readiness.nextActionHint}`);
+      }
+      lines.push(`      → /work-item-groups/${group.id}`);
+      lines.push('');
+    }
+  }
+
   // Urgent work queue
   lines.push("URGENT WORK");
   lines.push("-----------");
@@ -633,6 +668,12 @@ function renderSelfBuildTriage(payload) {
       lines.push(`${badge} ${item.kind}`);
       lines.push(`      ${item.title}`);
       lines.push(`      ${item.reason}`);
+      if (Array.isArray(item.blockerIds) && item.blockerIds.length > 0) {
+        lines.push(`      blockers: ${item.blockerIds.slice(0, 2).join(', ')}`);
+      }
+      if (item.nextActionHint) {
+        lines.push(`      next: ${item.nextActionHint}`);
+      }
       lines.push(`      → ${item.httpHint}`);
       lines.push("");
     }
@@ -700,6 +741,88 @@ function renderSelfBuildTriage(payload) {
   lines.push("═══════════════════════════════════════════════════════════");
 
   return lines.join("\n");
+}
+
+function renderWorkItemGroupDetail(detail = {}) {
+  const readiness = detail.readiness ?? {};
+  const counts = readiness.counts ?? {};
+  const items = Array.isArray(detail.items) ? detail.items : [];
+  const edges = Array.isArray(detail.dependencyGraph?.edges) ? detail.dependencyGraph.edges : [];
+  const transitions = Array.isArray(detail.dependencyGraph?.transitionLog) ? detail.dependencyGraph.transitionLog : [];
+  const attentionItems = items.filter((item) => ['blocked', 'review_needed'].includes(item?.dependencyState?.state));
+
+  const lines = [];
+  lines.push('═══════════════════════════════════════════════════════════');
+  lines.push('  SPORE Work-Item Group');
+  lines.push('═══════════════════════════════════════════════════════════');
+  lines.push('');
+  lines.push('GROUP');
+  lines.push('-----');
+  lines.push(`${detail.title ?? detail.id}`);
+  lines.push(`State: ${readiness.headlineState ?? detail.status ?? 'pending'}`);
+  lines.push(`Summary: ${readiness.preRunSummary?.label ?? 'No pre-run dependency summary available.'}`);
+  lines.push(
+    `Counts: ready=${counts.ready ?? 0}, blocked=${counts.blocked ?? 0}, review-needed=${counts.reviewNeeded ?? 0}, running=${counts.running ?? 0}, completed=${counts.completed ?? 0}, failed=${counts.failed ?? 0}`
+  );
+  if ((readiness.blockerIds ?? []).length > 0) {
+    lines.push(`Blockers: ${readiness.blockerIds.join(', ')}`);
+  }
+  if (readiness.nextActionHint) {
+    lines.push(`Next: ${readiness.nextActionHint}`);
+  }
+  lines.push('');
+
+  lines.push('DEPENDENCIES');
+  lines.push('------------');
+  if (edges.length === 0) {
+    lines.push('No dependency edges configured');
+  } else {
+    for (const edge of edges) {
+      lines.push(`[${String(edge.strictness ?? 'hard').toUpperCase()}] ${edge.itemTitle ?? edge.itemId}`);
+      lines.push(`      waits on: ${edge.dependencyTitle ?? edge.dependencyItemId}`);
+      lines.push(`      label: ${edge.label ?? `${edge.strictness ?? 'hard'} dependency`}`);
+      if (edge.autoRelaxation?.enabled) {
+        lines.push(`      auto-relax: ${edge.autoRelaxation.mode ?? 'warn-and-run'}`);
+      }
+      lines.push('');
+    }
+  }
+
+  lines.push('ATTENTION');
+  lines.push('---------');
+  if (attentionItems.length === 0) {
+    lines.push('No blocked or review-needed items');
+  } else {
+    for (const item of attentionItems) {
+      const dependencyState = item.dependencyState ?? {};
+      const blocker = dependencyState.blockers?.[0] ?? null;
+      lines.push(`[${String(dependencyState.state ?? item.status ?? 'pending').toUpperCase()}] ${item.title ?? item.id}`);
+      if (blocker?.id) {
+        lines.push(`      blocker: ${blocker.id}`);
+      }
+      if (blocker?.strictness) {
+        lines.push(`      strictness: ${blocker.strictness}`);
+      }
+      lines.push(`      reason: ${dependencyState.reason ?? item.blockedReason ?? 'No dependency reason available.'}`);
+      lines.push(`      next: ${item.nextActionHint ?? dependencyState.nextActionHint ?? 'Inspect the group detail.'}`);
+      lines.push(`      → /work-items/${item.id}`);
+      lines.push('');
+    }
+  }
+
+  lines.push('TRANSITIONS');
+  lines.push('-----------');
+  if (transitions.length === 0) {
+    lines.push('No dependency transitions recorded');
+  } else {
+    for (const entry of transitions.slice(0, 6)) {
+      lines.push(`${entry.type ?? 'dependency-update'} | state=${entry.state ?? '-'} | blocker=${entry.blockerId ?? '-'}`);
+      lines.push(`      ${entry.reason ?? 'Dependency state updated.'}`);
+    }
+  }
+  lines.push('');
+  lines.push('═══════════════════════════════════════════════════════════');
+  return lines.join('\n');
 }
 
 async function selfBuildSummary(flags) {
@@ -810,6 +933,10 @@ async function workItemGroupList(flags) {
   if (flags.limit) search.set("limit", String(flags.limit));
   const suffix = search.toString() ? `?${search.toString()}` : "";
   const payload = await orchestratorRequest(flags, `/work-item-groups${suffix}`);
+  if (flags.json) {
+    console.log(formatJson(payload));
+    return;
+  }
   console.log(formatJson(payload));
 }
 
@@ -818,7 +945,11 @@ async function workItemGroupShow(flags) {
     throw new Error("use work-item-group-show --group <id>");
   }
   const payload = await orchestratorRequest(flags, `/work-item-groups/${encodeURIComponent(flags.group)}`);
-  console.log(formatJson(payload));
+  if (flags.json) {
+    console.log(formatJson(payload));
+    return;
+  }
+  console.log(renderWorkItemGroupDetail(payload.detail ?? payload));
 }
 
 async function workItemGroupRun(flags) {

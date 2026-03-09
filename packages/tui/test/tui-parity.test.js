@@ -314,6 +314,7 @@ test('tui execution and family commands consume orchestrator HTTP surfaces', asy
   const groupShowOutput = await runCli([
     'work-item-group-show',
     '--group', goalPlanMaterializePayload.detail.materializedGroup.id,
+    '--json',
     '--api', `http://127.0.0.1:${ORCHESTRATOR_PORT}`
   ]);
   const groupShowPayload = JSON.parse(groupShowOutput.stdout);
@@ -375,6 +376,7 @@ test('tui execution and family commands consume orchestrator HTTP surfaces', asy
   const selfBuildGroupOutput = await runCli([
     'self-build',
     '--group', goalPlanMaterializePayload.detail.materializedGroup.id,
+    '--json',
     '--api', `http://127.0.0.1:${ORCHESTRATOR_PORT}`
   ]);
   const selfBuildGroupPayload = JSON.parse(selfBuildGroupOutput.stdout);
@@ -527,6 +529,7 @@ test('tui self-build group and summary commands surface dependency-aware readine
   const groupShowOutput = await runCli([
     'work-item-group-show',
     '--group', groupId,
+    '--json',
     '--api', `http://127.0.0.1:${ORCHESTRATOR_PORT}`
   ]);
   const groupShowPayload = JSON.parse(groupShowOutput.stdout);
@@ -541,12 +544,31 @@ test('tui self-build group and summary commands surface dependency-aware readine
   const selfBuildGroupOutput = await runCli([
     'self-build',
     '--group', groupId,
+    '--json',
     '--api', `http://127.0.0.1:${ORCHESTRATOR_PORT}`
   ]);
   const selfBuildGroupPayload = JSON.parse(selfBuildGroupOutput.stdout);
   assert.equal(selfBuildGroupPayload.detail.id, groupId);
   assert.equal(selfBuildGroupPayload.detail.readiness.counts.blocked, 1);
   assert.ok(selfBuildGroupPayload.detail.items.some((item) => item.blockerIds?.length));
+
+  const formattedGroupOutput = await runCli([
+    'work-item-group-show',
+    '--group', groupId,
+    '--api', `http://127.0.0.1:${ORCHESTRATOR_PORT}`
+  ]);
+  assert.ok(formattedGroupOutput.stdout.includes('SPORE Work-Item Group'));
+  assert.ok(formattedGroupOutput.stdout.includes('DEPENDENCIES'));
+  assert.ok(formattedGroupOutput.stdout.includes('strictness: hard'));
+  assert.ok(formattedGroupOutput.stdout.includes('ATTENTION'));
+
+  const formattedSelfBuildGroupOutput = await runCli([
+    'self-build',
+    '--group', groupId,
+    '--api', `http://127.0.0.1:${ORCHESTRATOR_PORT}`
+  ]);
+  assert.ok(formattedSelfBuildGroupOutput.stdout.includes('SPORE Work-Item Group'));
+  assert.ok(formattedSelfBuildGroupOutput.stdout.includes('Blockers:'));
 
   const runGroup = await postJson(
     `http://127.0.0.1:${ORCHESTRATOR_PORT}/work-item-groups/${encodeURIComponent(groupId)}/run`,
@@ -572,4 +594,12 @@ test('tui self-build group and summary commands surface dependency-aware readine
   assert.ok(blockedUrgent.reason.includes('failed'));
   assert.ok(Array.isArray(blockedUrgent.blockerIds));
   assert.ok(blockedUrgent.nextActionHint.includes('Retry or resolve'));
+
+  const triageOutput = await runCli([
+    'self-build',
+    '--api', `http://127.0.0.1:${ORCHESTRATOR_PORT}`
+  ]);
+  assert.ok(triageOutput.stdout.includes('GROUP READINESS'));
+  assert.ok(triageOutput.stdout.includes('review-needed'));
+  assert.ok(triageOutput.stdout.includes('blockers:'));
 });

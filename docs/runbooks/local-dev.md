@@ -237,10 +237,26 @@ node packages/tui/src/cli/spore-ops.js self-build-summary --api http://127.0.0.1
 
 The triage view displays:
 - Overview counts and status distribution
+- Group readiness with ready, blocked, and review-needed breakdowns
 - Urgent work queue (blocked items, failed items, proposals awaiting review/approval)
 - Follow-up work queue (pending validation, doc suggestions)
 - Recent activity timestamp
 - Next action hints for operators
+
+To inspect one group in the same dependency language as the web surface:
+
+```bash
+# Formatted dependency-aware group detail
+node packages/tui/src/cli/spore-ops.js work-item-group-show --group <group-id> --api http://127.0.0.1:8789
+
+# Raw JSON for scripting or parity checks
+node packages/tui/src/cli/spore-ops.js work-item-group-show --group <group-id> --json --api http://127.0.0.1:8789
+```
+
+Interpret dependency states consistently across web and TUI:
+- `blocked` means a hard prerequisite is still pending or running
+- `review_needed` means an upstream dependency failed and an operator should retry or resolve the path
+- `advisory` means the dependency stays visible as a warning but does not block execution
 
 ## Canonical Scenario Runs
 
@@ -346,6 +362,13 @@ When validating the browser surface for upcoming coordination-group work, confir
 - `paused` and `held` render as recoverable operator states rather than failures,
 - lineage and coordination fields, when present, do not break list or detail rendering,
 - the browser continues to rely only on `/api/*` proxy surfaces.
+
+For dependency-aware self-build verification, also confirm that:
+
+- the Self-Build view leads with Group Readiness before the urgent queue,
+- opening a group shows the prerequisite picker, current hard/advisory edges, and immediate impact feedback after each dependency change,
+- blocked or review-needed rows name the blocker id, strictness, plain-language reason, and likely next step,
+- the browser never mutates dependency state locally; all changes flow through `POST /api/orchestrator/work-item-groups/:id/dependencies`.
 
 ## Data Paths
 
