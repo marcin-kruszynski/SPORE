@@ -12,6 +12,7 @@
     "test:policy": "node --test packages/orchestrator/test/domain-policy-propagation.test.js packages/orchestrator/test/domain-policy.test.js packages/orchestrator/test/family-coordination.test.js packages/runtime-pi/test/domain-policy-runtime-context.test.js",
     "test:http": "node --test --test-concurrency=1 services/orchestrator/test/http-policy.test.js services/orchestrator/test/http-lineage.test.js services/orchestrator/test/http-governance.test.js services/orchestrator/test/http-scenarios.test.js services/orchestrator/test/http-self-build.test.js services/session-gateway/test/live-route.test.js",
     "test:web-proxy": "node --test --test-concurrency=1 services/orchestrator/test/http-policy.test.js services/orchestrator/test/http-governance.test.js services/orchestrator/test/http-scenarios.test.js",
+    "test:web": "node --test apps/web/test/self-build-dashboard.test.js",
     "test:tui": "node --test packages/tui/test/tui-parity.test.js",
     "test:all-local": "npm run test:policy && npm run test:http && npm run test:tui",
     "test:e2e:pi": "node --test packages/runtime-pi/test/pi-rpc-smoke.test.js packages/runtime-pi/test/pi-rpc-canonical-scenarios.e2e.test.js packages/runtime-pi/test/pi-rpc-canonical-scenarios.pending.test.js",
