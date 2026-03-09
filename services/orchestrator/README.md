@@ -61,6 +61,10 @@ Workflow templates may also define `stepSets`, which the service exposes back th
 - `POST /workspaces/:id/cleanup`
 - `GET /executions/:id/workspaces`
 - `GET /stream/executions?execution=:id`
+- `POST /projects/plan`
+- `POST /projects/invoke`
+- `POST /promotions/plan`
+- `POST /promotions/invoke`
 - `POST /workflows/plan`
 - `POST /workflows/invoke`
 - `POST /executions/:id/drive`
@@ -160,6 +164,30 @@ curl -X POST http://127.0.0.1:8789/workspaces/<workspace-id>/reconcile
 curl -X POST http://127.0.0.1:8789/workspaces/<workspace-id>/cleanup -H 'content-type: application/json' -d '{"force":true}'
 curl http://127.0.0.1:8789/executions/<execution-id>/workspaces
 
+curl -X POST http://127.0.0.1:8789/projects/plan \
+  -H 'content-type: application/json' \
+  -d '{"project":"config/projects/example-project.yaml","domains":["backend","frontend"]}'
+
+curl -X POST http://127.0.0.1:8789/projects/invoke \
+  -H 'content-type: application/json' \
+  -d '{"project":"config/projects/example-project.yaml","domains":["backend","frontend"],"objective":"Coordinate backend and frontend work for one project.","wait":true,"stub":true,"timeout":25000,"interval":250}'
+
+curl -X POST http://127.0.0.1:8789/executions/<coordinator-root-execution-id>/tree/review \
+  -H 'content-type: application/json' \
+  -d '{"status":"approved","scope":"all-pending","comments":"Approve project root family reviews"}'
+
+curl -X POST http://127.0.0.1:8789/executions/<coordinator-root-execution-id>/tree/approval \
+  -H 'content-type: application/json' \
+  -d '{"status":"approved","scope":"all-pending","comments":"Approve project root family approvals"}'
+
+curl -X POST http://127.0.0.1:8789/promotions/plan \
+  -H 'content-type: application/json' \
+  -d '{"execution":"<coordinator-root-execution-id>","targetBranch":"main"}'
+
+curl -X POST http://127.0.0.1:8789/promotions/invoke \
+  -H 'content-type: application/json' \
+  -d '{"execution":"<coordinator-root-execution-id>","targetBranch":"main","wait":true,"stub":true,"timeout":25000,"interval":250}'
+
 curl -X POST http://127.0.0.1:8789/work-item-runs/<run-id>/validate \
   -H 'content-type: application/json' \
   -d '{"stub":true,"source":"curl"}'
@@ -232,6 +260,10 @@ curl -X POST http://127.0.0.1:8789/executions/branch-review-001/resume \
 ```
 
 `POST /workflows/plan` returns `invocation.effectivePolicy` plus `invocation.launches[].policy`. `POST /workflows/invoke` returns the same invocation payload alongside execution creation and drive detail, so clients can inspect the exact merged domain policy that was applied.
+
+`POST /projects/plan` and `POST /projects/invoke` are the additive project-root coordination surfaces. They model the explicit `orchestrator -> coordinator -> lead` path without prepending project-scoped roles to existing domain workflow role lists.
+
+`POST /promotions/plan` and `POST /promotions/invoke` are the additive promotion surfaces. They model the explicit `coordinator -> integrator` lane, require durable promotion source artifacts, and default approved results to `promotion_candidate` rather than merge-to-main behavior.
 
 When a workflow uses `stepSets`, the service also returns:
 

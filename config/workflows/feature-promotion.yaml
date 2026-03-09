@@ -1,0 +1,25 @@
+id: feature-promotion
+name: Feature Promotion
+triggerType: manual
+applicableProjectTypes: [application, platform, service, orchestration-platform]
+roleSequence: [integrator]
+stepSets:
+  - name: promotion-framing
+    roles: [integrator]
+    gate:
+      mode: all
+    policy:
+      maxActiveMs: 30000
+      onTimeout: hold_execution
+      onFailure: open_escalation
+      blockNextWaveOnOpenEscalation: true
+reviewStep:
+  required: false
+retryPolicy:
+  maxAttempts: 1
+documentationUpdatePolicy:
+  required: false
+completionRequirements:
+  - durable-sources-collected
+  - integration-workspace-ready
+  - promotion-status-recorded

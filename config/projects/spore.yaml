@@ -1,6 +1,8 @@
 id: spore
 name: SPORE
 type: orchestration-platform
+coordinatorProfile: coordinator
+integratorProfile: integrator
 activeDomains:
   - id: docs
     policyPacks: [docs-core]
@@ -80,6 +82,60 @@ profileVariants:
   - reviewer
 workflowDefaults: [backend-service-delivery, frontend-ui-pass, cli-verification-pass, docs-adr-pass]
 policyPacks: [self-build-safe, self-build-proposals]
+projectCoordinationPolicy:
+  workflow: project-coordination-root
+  workflowPolicy:
+    defaultRoles: [coordinator]
+    stepSoftTimeoutMs: 30000
+    stepHardTimeoutMs: 120000
+  runtimePolicy:
+    sessionModeByRole:
+      coordinator: persistent
+    workspace:
+      enabled: false
+      disabledRoles: [coordinator]
+      safeMode: true
+  docsKbPolicy:
+    queryTerms: [spore, project, coordination, self-build]
+    resultLimit: 8
+  coordinationPolicy:
+    autoHoldParentOnOpenChildEscalation: true
+    resumeParentWhenChildrenSettled: true
+    maxHeldMs: 180000
+    escalateOnFamilyStallMs: 90000
+promotionPolicy:
+  workflow: feature-promotion
+  targetBranch: main
+  integrationBranchPrefix: spore/promote
+  autoMergeToTarget: false
+  requireFreshTarget: true
+  allowMechanicalConflictResolution: true
+  allowIntegratorAutoLand: false
+  requireHumanApprovalToLand: true
+  validationBundles: [local-fast]
+  workflowPolicy:
+    defaultRoles: [integrator]
+    stepSoftTimeoutMs: 30000
+    stepHardTimeoutMs: 120000
+  runtimePolicy:
+    sessionModeByRole:
+      integrator: persistent
+    workspace:
+      enabled: true
+      enabledRoles: [integrator]
+      safeMode: true
+      source: promotion-lane
+      mutationScope: [docs, config, apps/web]
+  docsKbPolicy:
+    queryTerms: [spore, promotion, integration, proposal]
+    resultLimit: 8
+  coordinationPolicy:
+    autoHoldParentOnOpenChildEscalation: true
+    autoHoldParentOnOpenPromotionEscalation: true
+    resumeParentWhenChildrenSettled: true
+    resumeParentWhenPromotionSettled: true
+    maxHeldMs: 180000
+    escalateOnFamilyStallMs: 90000
 docsLocation: docs/
 embeddingIndex:
   provider: local-bootstrap

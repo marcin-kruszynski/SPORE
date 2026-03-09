@@ -51,6 +51,13 @@ The recommended default is:
 - optional execution-family integration branch, but **not** one shared worktree for the whole family,
 - persistent agent-specific worktrees only later, once SPORE has durable worker identity and reuse semantics.
 
+That default now applies concretely to the new project-scoped roles:
+
+- `coordinator` is read-mostly and does not receive a mutating workspace by default,
+- `integrator` receives a dedicated integration workspace plus integration-branch metadata,
+- promotion flows must never mutate the canonical project root directly,
+- approval of a proposal is not equivalent to promotion or merge.
+
 ## Current SPORE State
 
 ## What exists now

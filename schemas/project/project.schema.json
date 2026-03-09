@@ -5,6 +5,8 @@
     "id": { "type": "string" },
     "name": { "type": "string" },
     "type": { "type": "string" },
+    "coordinatorProfile": { "type": "string" },
+    "integratorProfile": { "type": "string" },
     "activeDomains": {
       "type": "array",
       "items": {
@@ -96,6 +98,189 @@
     "attachedTeams": { "type": "array", "items": { "type": "string" } },
     "profileVariants": { "type": "array", "items": { "type": "string" } },
     "workflowDefaults": { "type": "array", "items": { "type": "string" } },
+    "projectCoordinationPolicy": {
+      "type": "object",
+      "properties": {
+        "workflow": { "type": "string" },
+        "policyPacks": { "type": "array", "items": { "type": "string" } },
+        "workflowPolicy": {
+          "type": "object",
+          "properties": {
+            "stepSoftTimeoutMs": { "type": "integer" },
+            "stepHardTimeoutMs": { "type": "integer" },
+            "defaultMaxAttempts": { "type": "integer" },
+            "defaultRoles": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "retryTargetRole": { "type": "string" },
+            "resetDescendantSteps": { "type": "boolean" },
+            "reworkStrategy": { "type": "string" },
+            "reworkRoles": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "maxAttemptsByRole": {
+              "type": "object",
+              "additionalProperties": { "type": "integer" }
+            },
+            "reviewRequired": { "type": "boolean" },
+            "approvalRequired": { "type": "boolean" }
+          }
+        },
+        "runtimePolicy": {
+          "type": "object",
+          "properties": {
+            "sessionModeByRole": {
+              "type": "object",
+              "additionalProperties": { "type": "string" }
+            },
+            "workspace": {
+              "type": "object",
+              "properties": {
+                "enabled": { "type": "boolean" },
+                "enabledRoles": {
+                  "type": "array",
+                  "items": { "type": "string" }
+                },
+                "disabledRoles": {
+                  "type": "array",
+                  "items": { "type": "string" }
+                },
+                "safeMode": { "type": "boolean" },
+                "branchName": { "type": "string" },
+                "baseRef": { "type": "string" },
+                "integrationBranch": { "type": "string" },
+                "source": { "type": "string" },
+                "mutationScope": {
+                  "type": "array",
+                  "items": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "docsKbPolicy": {
+          "type": "object",
+          "properties": {
+            "resultLimit": { "type": "integer" },
+            "queryTemplate": { "type": "string" },
+            "queryTerms": {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          }
+        },
+        "coordinationPolicy": {
+          "type": "object",
+          "properties": {
+            "autoHoldParentOnOpenChildEscalation": { "type": "boolean" },
+            "resumeParentWhenChildrenSettled": { "type": "boolean" },
+            "maxHeldMs": { "type": "integer" },
+            "escalateOnFamilyStallMs": { "type": "integer" }
+          }
+        }
+      }
+    },
+    "promotionPolicy": {
+      "type": "object",
+      "properties": {
+        "workflow": { "type": "string" },
+        "policyPacks": { "type": "array", "items": { "type": "string" } },
+        "targetBranch": { "type": "string" },
+        "integrationBranchPrefix": { "type": "string" },
+        "autoMergeToTarget": { "type": "boolean" },
+        "requireFreshTarget": { "type": "boolean" },
+        "allowMechanicalConflictResolution": { "type": "boolean" },
+        "allowMechanicalConflictAutoResolution": { "type": "boolean" },
+        "allowIntegratorAutoLand": { "type": "boolean" },
+        "requireHumanApprovalToLand": { "type": "boolean" },
+        "maxConflictFiles": { "type": "integer" },
+        "validationBundles": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "workflowPolicy": {
+          "type": "object",
+          "properties": {
+            "stepSoftTimeoutMs": { "type": "integer" },
+            "stepHardTimeoutMs": { "type": "integer" },
+            "defaultMaxAttempts": { "type": "integer" },
+            "defaultRoles": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "retryTargetRole": { "type": "string" },
+            "resetDescendantSteps": { "type": "boolean" },
+            "reworkStrategy": { "type": "string" },
+            "reworkRoles": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "maxAttemptsByRole": {
+              "type": "object",
+              "additionalProperties": { "type": "integer" }
+            },
+            "reviewRequired": { "type": "boolean" },
+            "approvalRequired": { "type": "boolean" }
+          }
+        },
+        "runtimePolicy": {
+          "type": "object",
+          "properties": {
+            "sessionModeByRole": {
+              "type": "object",
+              "additionalProperties": { "type": "string" }
+            },
+            "workspace": {
+              "type": "object",
+              "properties": {
+                "enabled": { "type": "boolean" },
+                "enabledRoles": {
+                  "type": "array",
+                  "items": { "type": "string" }
+                },
+                "disabledRoles": {
+                  "type": "array",
+                  "items": { "type": "string" }
+                },
+                "safeMode": { "type": "boolean" },
+                "branchName": { "type": "string" },
+                "baseRef": { "type": "string" },
+                "integrationBranch": { "type": "string" },
+                "source": { "type": "string" },
+                "mutationScope": {
+                  "type": "array",
+                  "items": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "docsKbPolicy": {
+          "type": "object",
+          "properties": {
+            "resultLimit": { "type": "integer" },
+            "queryTemplate": { "type": "string" },
+            "queryTerms": {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          }
+        },
+        "coordinationPolicy": {
+          "type": "object",
+          "properties": {
+            "autoHoldParentOnOpenChildEscalation": { "type": "boolean" },
+            "resumeParentWhenChildrenSettled": { "type": "boolean" },
+            "maxHeldMs": { "type": "integer" },
+            "escalateOnFamilyStallMs": { "type": "integer" },
+            "autoHoldParentOnOpenPromotionEscalation": { "type": "boolean" },
+            "resumeParentWhenPromotionSettled": { "type": "boolean" }
+          }
+        }
+      }
+    },
     "docsLocation": { "type": "string" },
     "embeddingIndex": {
       "type": "object",

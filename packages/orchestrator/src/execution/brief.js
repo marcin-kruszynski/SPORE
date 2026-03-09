@@ -17,6 +17,8 @@ export async function writeExecutionBrief(execution, step) {
     `- Workflow: ${execution.workflowId}`,
     `- Project: ${execution.projectId}`,
     `- Domain: ${execution.domainId ?? "shared"}`,
+    `- Project Role: ${execution.projectRole ?? execution.metadata?.projectRole ?? "none"}`,
+    `- Topology: ${execution.topology?.kind ?? execution.metadata?.topologyKind ?? "standalone"}`,
     `- Step: ${step.sequence + 1}`,
     `- Role: ${step.role}`,
     `- Requested profile: ${step.requestedProfileId}`,
@@ -24,6 +26,16 @@ export async function writeExecutionBrief(execution, step) {
     "## Objective",
     execution.objective?.trim() || "No objective was provided.",
     "",
+    ...(execution.promotion
+      ? [
+          "## Promotion Context",
+          `- Status: ${execution.promotion.status ?? "unknown"}`,
+          `- Target branch: ${execution.promotion.targetBranch ?? "n/a"}`,
+          `- Integration branch: ${execution.promotion.integrationBranch ?? "n/a"}`,
+          `- Source count: ${execution.promotion.sourceCount ?? 0}`,
+          ""
+        ]
+      : []),
     "## Execution Rules",
     "- Use the objective as the active assignment for this session.",
     "- Stay within the session role boundary.",

@@ -26,6 +26,8 @@ import {
   getRegressionRun,
   getScenarioRun,
   getEscalation,
+  getProposalArtifact,
+  getProposalArtifactByRunId,
   getStep,
   insertApproval,
   insertAuditRecord,
@@ -40,10 +42,12 @@ import {
   listEscalations,
   listExecutionGroup,
   listExecutions,
+  listProposalArtifacts,
   listRegressionRunItems,
   listRegressionRuns,
   listScenarioRunExecutions,
   listScenarioRuns,
+  listWorkspaceAllocations,
   listWorkflowEvents,
   listReviews,
   listSteps,
@@ -57,6 +61,7 @@ import {
 } from "../store/execution-store.js";
 import { writeExecutionBrief } from "./brief.js";
 import {
+  buildWorkspaceBranchName,
   buildWorkspaceSnapshotRef,
   createWorkspace,
   createWorkspaceFromSnapshot,
@@ -64,7 +69,11 @@ import {
   publishWorkspaceSnapshot,
   removeWorkspace
 } from "../../../workspace-manager/src/manager.js";
-import { planWorkflowInvocation } from "../invocation/plan-workflow-invocation.js";
+import {
+  planFeaturePromotion,
+  planProjectCoordination,
+  planWorkflowInvocation
+} from "../invocation/plan-workflow-invocation.js";
 import { comparePolicies } from "./policy-diff.js";
 import {
   getRegressionDefinition,
@@ -163,6 +172,14 @@ function createWorkspaceAllocationId(step) {
   return `workspace-${step.id.replace(/[^a-zA-Z0-9._-]/g, "-")}-${crypto.randomUUID().slice(0, 8)}`;
 }
 
+function buildStepWorkspaceBranchName(execution, step, ownerType = "execution-step") {
+  return buildWorkspaceBranchName({
+    projectId: execution.projectId ?? "default",
+    ownerType,
+    ownerId: step.id
+  });
+}
+
 function getWorkspacePolicy(step, execution) {
   const workspacePolicy = getStepPolicy(step)?.runtimePolicy?.workspace
     ?? getExecutionPolicy(execution)?.runtimePolicy?.workspace
@@ -200,6 +217,9 @@ function getWorkspaceRoot() {
 function getAuthoringWorkspacePurpose(step) {
   if (step.role === "builder") {
     return "authoring";
+  }
+  if (step.role === "integrator") {
+    return "integration";
   }
   if (step.role === "tester") {
     return "verification";
@@ -290,7 +310,7 @@ async function ensureStepWorkspace(db, execution, step) {
       workItemRunId: workspacePolicy.workItemRunId ?? sourceWorkspace.workItemRunId ?? null,
       proposalArtifactId: workspacePolicy.proposalArtifactId ?? sourceWorkspace.proposalArtifactId ?? null,
       worktreePath: path.join(repoRoot, ".spore", "worktrees", execution.projectId ?? "spore", `${step.id}-verification-pending`),
-      branchName: workspacePolicy.branchName ?? `pending/${step.id}-verification`,
+      branchName: workspacePolicy.branchName ?? buildStepWorkspaceBranchName(execution, step, "execution-step-verification"),
       baseRef: sourceHandoff.snapshotCommit ?? sourceHandoff.snapshotRef ?? workspacePolicy.baseRef ?? "HEAD",
       integrationBranch: workspacePolicy.integrationBranch ?? sourceWorkspace.integrationBranch ?? null,
       mode: "git-worktree",
@@ -417,7 +437,7 @@ async function ensureStepWorkspace(db, execution, step) {
     workItemRunId: workspacePolicy.workItemRunId ?? null,
     proposalArtifactId: workspacePolicy.proposalArtifactId ?? null,
     worktreePath: path.join(repoRoot, ".spore", "worktrees", execution.projectId ?? "spore", `${step.id}-pending`),
-    branchName: workspacePolicy.branchName ?? `pending/${step.id}`,
+    branchName: workspacePolicy.branchName ?? buildStepWorkspaceBranchName(execution, step),
     baseRef: workspacePolicy.baseRef ?? "HEAD",
     integrationBranch: workspacePolicy.integrationBranch ?? null,
     mode: "git-worktree",
@@ -445,6 +465,7 @@ async function ensureStepWorkspace(db, execution, step) {
       ownerId: pending.ownerId,
       baseRef: pending.baseRef,
       worktreeRoot,
+      branchName: pending.branchName,
       safeMode: pending.safeMode,
       mutationScope
     });
@@ -625,12 +646,13 @@ function parseIntegerOrNull(value) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
-function openEscalation(db, { execution, step, sourceStepId = null, reason, payload = {}, targetRole = "lead" }) {
+function openEscalation(db, { execution, step, sourceStepId = null, reason, payload = {}, targetRole = null }) {
+  const effectiveTargetRole = defaultEscalationTargetRole(execution, targetRole);
   const escalation = createEscalationRecord({
     executionId: execution.id,
     stepId: step?.id ?? null,
     sourceStepId,
-    targetRole,
+    targetRole: effectiveTargetRole,
     reason,
     payload
   });
@@ -642,11 +664,25 @@ function openEscalation(db, { execution, step, sourceStepId = null, reason, payl
     type: "workflow.execution.escalated",
     payload: {
       escalationId: escalation.id,
-      targetRole,
+      targetRole: effectiveTargetRole,
       reason,
       ...payload
     }
   });
+  if (getExecutionProjectRole(execution) === "integrator") {
+    updateExecutionPromotionSummary(db, execution, {
+      status: "blocked",
+      blockerReason: reason,
+      blockers: [
+        ...asArray(getPromotionSummary(execution)?.blockers),
+        {
+          escalationId: escalation.id,
+          reason,
+          targetRole: effectiveTargetRole
+        }
+      ]
+    });
+  }
   return escalation;
 }
 
@@ -700,8 +736,113 @@ function isExecutionDispatchBlocked(state) {
   return ["paused", "held"].includes(state);
 }
 
+function getExecutionMetadata(execution) {
+  return execution?.metadata ?? {};
+}
+
+function getExecutionProjectRole(execution) {
+  return getExecutionMetadata(execution).projectRole ?? null;
+}
+
+function getExecutionTopologyKind(execution) {
+  const metadata = getExecutionMetadata(execution);
+  return metadata.topologyKind
+    ?? (execution?.parentExecutionId ? "child-workflow" : "standalone");
+}
+
+function getExecutionProjectRootId(execution) {
+  const metadata = getExecutionMetadata(execution);
+  return metadata.projectRootExecutionId
+    ?? (getExecutionTopologyKind(execution) === "project-root" ? execution?.id ?? null : null);
+}
+
+function getPromotionSummary(execution) {
+  return getExecutionMetadata(execution).promotion ?? null;
+}
+
+function decorateExecution(execution) {
+  if (!execution) {
+    return null;
+  }
+  const metadata = getExecutionMetadata(execution);
+  return {
+    ...execution,
+    metadata,
+    projectRole: getExecutionProjectRole(execution),
+    topology: {
+      kind: getExecutionTopologyKind(execution),
+      rootRole: getExecutionProjectRole(execution),
+      projectRootExecutionId: getExecutionProjectRootId(execution),
+      projectLaneType: metadata.projectLaneType ?? getExecutionProjectRole(execution) ?? null
+    },
+    promotion: getPromotionSummary(execution),
+    promotionStatus: getPromotionSummary(execution)?.status ?? null
+  };
+}
+
 function blockingChildren(children) {
   return children.filter((child) => !isTerminalExecutionState(child.state));
+}
+
+function isCoordinationHoldReason(reason) {
+  return [
+    "waiting_for_child_executions",
+    "waiting_for_project_leads",
+    "waiting_for_feature_promotion"
+  ].includes(reason);
+}
+
+function deriveParentHoldReason(parentExecution, childExecution) {
+  const parentRole = getExecutionProjectRole(parentExecution);
+  const childRole = getExecutionProjectRole(childExecution);
+  if (parentRole === "coordinator") {
+    if (childRole === "integrator") {
+      return "waiting_for_feature_promotion";
+    }
+    if (childExecution?.domainId) {
+      return "waiting_for_project_leads";
+    }
+  }
+  return "waiting_for_child_executions";
+}
+
+function shouldDeferImmediateParentHold(parentExecution, childExecution) {
+  return getExecutionProjectRole(parentExecution) === "coordinator"
+    && Boolean(childExecution?.domainId)
+    && getExecutionProjectRole(childExecution) !== "integrator";
+}
+
+function defaultEscalationTargetRole(execution, explicitTargetRole = null) {
+  if (explicitTargetRole) {
+    return explicitTargetRole;
+  }
+  return getExecutionProjectRole(execution) === "integrator" ? "coordinator" : "lead";
+}
+
+function updateExecutionPromotionSummary(db, execution, updates = {}) {
+  const currentPromotion = normalizePromotionSummary(getPromotionSummary(execution) ?? {});
+  const nextPromotion = {
+    ...currentPromotion,
+    ...updates
+  };
+  const nextExecution = updateExecutionMetadataRecord(db, execution, {
+    promotion: nextPromotion
+  });
+  return {
+    execution: nextExecution,
+    promotion: nextPromotion
+  };
+}
+
+function buildPromotionPolicySummary(execution) {
+  const policy = execution?.policy ?? {};
+  return {
+    autoMergeToTarget: policy.autoMergeToTarget === true,
+    requireHumanApprovalToLand: policy.requireHumanApprovalToLand !== false,
+    allowMechanicalConflictResolution: policy.allowMechanicalConflictResolution === true,
+    allowIntegratorAutoLand: policy.allowIntegratorAutoLand === true,
+    validationBundles: asArray(policy.validationBundles)
+  };
 }
 
 function holdExecutionRecord(execution, reason, nextState = "held") {
@@ -1142,16 +1283,23 @@ export function createExecution(invocation, dbPath = DEFAULT_ORCHESTRATOR_DB_PAT
     insertExecutionWithSteps(db, execution, steps);
     if (execution.parentExecutionId) {
       const parentExecution = getExecution(db, execution.parentExecutionId);
-      if (parentExecution && !isTerminalExecutionState(parentExecution.state)) {
-        const heldParent = holdExecutionRecord(parentExecution, "waiting_for_child_executions");
+      if (
+        parentExecution
+        && !isTerminalExecutionState(parentExecution.state)
+        && !shouldDeferImmediateParentHold(parentExecution, execution)
+      ) {
+        const holdReason = deriveParentHoldReason(parentExecution, execution);
+        const heldParent = holdExecutionRecord(parentExecution, holdReason);
         updateExecution(db, heldParent);
         emitWorkflowEvent(db, {
           executionId: parentExecution.id,
           type: "workflow.execution.held",
           payload: {
-            reason: "waiting_for_child_executions",
+            reason: holdReason,
             coordinationGroupId: execution.coordinationGroupId,
-            childExecutionId: execution.id
+            childExecutionId: execution.id,
+            childProjectRole: getExecutionProjectRole(execution),
+            childTopologyKind: getExecutionTopologyKind(execution)
           }
         });
       }
@@ -1167,7 +1315,8 @@ export function createExecution(invocation, dbPath = DEFAULT_ORCHESTRATOR_DB_PAT
         coordinationGroupId: execution.coordinationGroupId,
         parentExecutionId: execution.parentExecutionId,
         branchKey: execution.branchKey,
-        policy: execution.policy ?? {}
+        policy: execution.policy ?? {},
+        metadata: execution.metadata ?? {}
       }
     });
     for (const step of steps) {
@@ -1185,11 +1334,12 @@ export function createExecution(invocation, dbPath = DEFAULT_ORCHESTRATOR_DB_PAT
           sessionMode: step.sessionMode,
           attemptCount: step.attemptCount,
           maxAttempts: step.maxAttempts,
-          policy: step.policy ?? {}
+          policy: step.policy ?? {},
+          executionMetadata: execution.metadata ?? {}
         }
       });
     }
-    return { execution, steps };
+    return { execution: decorateExecution(execution), steps };
   });
 }
 
@@ -1223,15 +1373,15 @@ export function getExecutionDetail(executionId, dbPath = DEFAULT_ORCHESTRATOR_DB
       }
     }
     return {
-      execution,
+      execution: decorateExecution(execution),
       steps,
       reviews,
       approvals,
       events,
       escalations,
       audit,
-      childExecutions,
-      coordinationGroup,
+      childExecutions: childExecutions.map(decorateExecution),
+      coordinationGroup: coordinationGroup.map(decorateExecution),
       sessions
     };
   });
@@ -1299,17 +1449,42 @@ export async function getExecutionPolicyDiff(executionId, dbPath = DEFAULT_ORCHE
 
   const execution = detail.execution;
   const roles = detail.steps.map((step) => step.role);
-  const planned = await planWorkflowInvocation({
-    workflowPath: execution.workflowPath,
-    projectPath: execution.projectPath,
-    domainId: execution.domainId,
-    roles,
-    maxRoles: roles.length,
-    objective: execution.objective,
-    coordinationGroupId: execution.coordinationGroupId,
-    parentExecutionId: execution.parentExecutionId,
-    branchKey: execution.branchKey
-  });
+  let planned;
+  if (getExecutionProjectRole(execution) === "coordinator" && getExecutionTopologyKind(execution) === "project-root") {
+    planned = await planProjectCoordination({
+      projectPath: execution.projectPath,
+      domains: asArray(execution.metadata?.selectedDomains),
+      objective: execution.objective,
+      invocationId: execution.id,
+      coordinationGroupId: execution.coordinationGroupId ?? execution.id,
+      metadata: execution.metadata ?? {}
+    });
+  } else if (getExecutionProjectRole(execution) === "integrator") {
+    planned = await planFeaturePromotion({
+      projectPath: execution.projectPath,
+      objective: execution.objective,
+      invocationId: execution.id,
+      coordinationGroupId: execution.coordinationGroupId,
+      parentExecutionId: execution.parentExecutionId,
+      branchKey: execution.branchKey,
+      targetBranch: execution.metadata?.targetBranch ?? execution.metadata?.promotion?.targetBranch ?? null,
+      sourceSummary: execution.metadata?.sourceSummary ?? execution.metadata?.promotion?.sourceSummary ?? null,
+      metadata: execution.metadata ?? {}
+    });
+  } else {
+    planned = await planWorkflowInvocation({
+      workflowPath: execution.workflowPath,
+      projectPath: execution.projectPath,
+      domainId: execution.domainId,
+      roles,
+      maxRoles: roles.length,
+      objective: execution.objective,
+      coordinationGroupId: execution.coordinationGroupId,
+      parentExecutionId: execution.parentExecutionId,
+      branchKey: execution.branchKey,
+      metadata: execution.metadata ?? {}
+    });
+  }
 
   const persistedPolicy = execution.policy ?? {};
   return {
@@ -1344,6 +1519,18 @@ function orderedTimeline(items) {
 
 function buildExecutionHistoryItems(detail, policyDiff) {
   const items = [];
+  if (detail.execution?.promotion) {
+    items.push({
+      id: `promotion:${detail.execution.id}`,
+      kind: "promotion",
+      timestamp: detail.execution.updatedAt ?? detail.execution.createdAt,
+      executionId: detail.execution.id,
+      stepId: null,
+      sessionId: null,
+      label: `promotion:${detail.execution.promotion.status ?? "unknown"}`,
+      payload: detail.execution.promotion
+    });
+  }
   for (const event of detail.events ?? []) {
     items.push({
       id: event.id,
@@ -1536,16 +1723,16 @@ export function listExecutionChildren(executionId, dbPath = DEFAULT_ORCHESTRATOR
     if (!execution) {
       return null;
     }
-    return listChildExecutions(db, executionId);
+    return listChildExecutions(db, executionId).map(decorateExecution);
   });
 }
 
 export function listCoordinationGroup(groupId, dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
-  return withOrchestratorDatabase(dbPath, (db) => listExecutionGroup(db, groupId));
+  return withOrchestratorDatabase(dbPath, (db) => listExecutionGroup(db, groupId).map(decorateExecution));
 }
 
 export function listExecutionSummaries(dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
-  return withOrchestratorDatabase(dbPath, (db) => listExecutions(db));
+  return withOrchestratorDatabase(dbPath, (db) => listExecutions(db).map(decorateExecution));
 }
 
 function summarizeCoordinationGroupExecutions(groupId, executions) {
@@ -1666,7 +1853,8 @@ export function getExecutionTree(executionId, dbPath = DEFAULT_ORCHESTRATOR_DB_P
     const root = resolveExecutionRoot(db, execution);
     const groupId = execution.coordinationGroupId ?? root.coordinationGroupId ?? root.id;
     const executions = listExecutionGroup(db, groupId);
-    const executionsById = new Map(executions.map((item) => [item.id, item]));
+    const decoratedExecutions = executions.map(decorateExecution);
+    const executionsById = new Map(decoratedExecutions.map((item) => [item.id, item]));
     const childrenByParent = new Map();
     const stepsByExecutionId = new Map();
 
@@ -1686,7 +1874,7 @@ export function getExecutionTree(executionId, dbPath = DEFAULT_ORCHESTRATOR_DB_P
       selectedExecutionId: execution.id,
       rootExecutionId: root.id,
       coordinationGroupId: groupId,
-      executionCount: executions.length,
+      executionCount: decoratedExecutions.length,
       root: buildExecutionTreeNode(root.id, executionsById, childrenByParent, stepsByExecutionId)
     };
   });
@@ -1713,6 +1901,317 @@ function flattenExecutionTree(node, items = [], depth = 0) {
     flattenExecutionTree(child, items, depth + 1);
   }
   return items;
+}
+
+function asArray(value) {
+  return Array.isArray(value) ? value.filter(Boolean) : [];
+}
+
+function unique(values) {
+  return [...new Set(asArray(values))];
+}
+
+function buildCoordinatorBranchKey(domainId) {
+  return `domain:${domainId}`;
+}
+
+function buildPromotionBranchKey(featureKey) {
+  return `promotion:${featureKey}`;
+}
+
+function buildProjectLaneMetadata(rootExecutionId, domainId) {
+  return {
+    topologyKind: "project-child",
+    projectLaneType: "lead",
+    projectRootExecutionId: rootExecutionId,
+    selectedDomainId: domainId
+  };
+}
+
+function buildPromotionLaneMetadata(rootExecutionId, promotion) {
+  return {
+    topologyKind: "promotion-lane",
+    projectRole: "integrator",
+    projectLaneType: "integrator",
+    projectRootExecutionId: rootExecutionId,
+    promotion
+  };
+}
+
+function executionSupportsProjectCoordination(execution) {
+  return getExecutionProjectRole(execution) === "coordinator" || getExecutionTopologyKind(execution) === "project-root";
+}
+
+function isExecutionGovernanceReadyForPromotion(execution) {
+  if (execution.state === "completed") {
+    return true;
+  }
+  if (execution.approvalStatus === "approved") {
+    return true;
+  }
+  return execution.reviewStatus === "approved" && !execution.approvalStatus;
+}
+
+function normalizePromotionSummary(summary = {}) {
+  const normalized = {
+    status: summary.status ?? null,
+    targetBranch: summary.targetBranch ?? null,
+    integrationBranch: summary.integrationBranch ?? null,
+    sourceCount: summary.sourceCount ?? 0,
+    blockers: asArray(summary.blockers),
+    sourceSummary: summary.sourceSummary ?? null,
+    mergeAllowed: summary.mergeAllowed ?? false
+  };
+  return normalized;
+}
+
+function updateExecutionMetadataRecord(db, execution, updates = {}) {
+  const next = {
+    ...execution,
+    metadata: {
+      ...(execution.metadata ?? {}),
+      ...updates
+    },
+    updatedAt: nowIso()
+  };
+  updateExecution(db, next);
+  return next;
+}
+
+function collectExecutionWorkspaceSources(db, execution, proposalsById) {
+  const workspaces = listWorkspaceAllocations(db, {
+    executionId: execution.id,
+    limit: 200
+  });
+  return workspaces
+    .filter((workspace) => workspace.status !== "cleaned")
+    .map((workspace) => {
+      const proposal = workspace.proposalArtifactId ? proposalsById.get(workspace.proposalArtifactId) ?? null : null;
+      const handoff = workspace.metadata?.handoff ?? null;
+      return {
+        executionId: execution.id,
+        domainId: execution.domainId ?? null,
+        role: workspace.metadata?.workspacePurpose === "integration" ? "integrator" : workspace.metadata?.workspacePurpose ?? null,
+        workspaceId: workspace.id,
+        proposalArtifactId: workspace.proposalArtifactId ?? null,
+        proposalStatus: proposal?.status ?? null,
+        worktreePath: workspace.worktreePath,
+        branchName: workspace.branchName,
+        baseRef: workspace.baseRef,
+        integrationBranch: workspace.integrationBranch ?? null,
+        snapshotRef: handoff?.snapshotRef ?? null,
+        snapshotCommit: handoff?.snapshotCommit ?? null,
+        sourceType: proposal
+          ? "proposal-artifact"
+          : handoff?.snapshotCommit
+            ? "workspace-snapshot"
+            : workspace.branchName
+              ? "workspace-branch"
+              : "unknown"
+      };
+    })
+    .filter((source) => Boolean(source.proposalArtifactId || source.snapshotCommit || source.branchName));
+}
+
+function summarizePromotionSources(rootExecution, executions, db) {
+  const proposalsById = new Map(listProposalArtifacts(db, null, 500).map((artifact) => [artifact.id, artifact]));
+  const leadExecutions = executions.filter(
+    (execution) =>
+      execution.id !== rootExecution.id &&
+      execution.parentExecutionId === rootExecution.id &&
+      execution.domainId &&
+      getExecutionProjectRole(execution) !== "integrator"
+  );
+  const blockers = [];
+  const sources = [];
+
+  for (const execution of leadExecutions) {
+    if (!isExecutionGovernanceReadyForPromotion(execution)) {
+      blockers.push({
+        code: "lane_not_ready",
+        executionId: execution.id,
+        domainId: execution.domainId ?? null,
+        message: `lead lane ${execution.id} is not promotion-ready`
+      });
+      continue;
+    }
+    const laneSources = collectExecutionWorkspaceSources(db, execution, proposalsById);
+    if (laneSources.length === 0) {
+      blockers.push({
+        code: "missing_promotion_source",
+        executionId: execution.id,
+        domainId: execution.domainId ?? null,
+        message: `lead lane ${execution.id} has no durable promotion source artifacts`
+      });
+      continue;
+    }
+    sources.push(...laneSources);
+  }
+
+  return {
+    rootExecutionId: rootExecution.id,
+    laneCount: leadExecutions.length,
+    count: sources.length,
+    sources,
+    blockers
+  };
+}
+
+export async function buildProjectCoordinationPlan(options = {}) {
+  const rootInvocation = await planProjectCoordination(options);
+  const selectedDomains = asArray(rootInvocation.metadata?.invocationMetadata?.selectedDomains);
+  const childInvocations = [];
+  for (const domainId of selectedDomains) {
+    const childPlan = await planWorkflowInvocation({
+      projectPath: rootInvocation.project.path,
+      domainId,
+      maxRoles: 32,
+      invocationId: `${rootInvocation.invocationId}-${domainId}-lead`,
+      objective: options.objective ?? rootInvocation.objective,
+      coordinationGroupId: rootInvocation.invocationId,
+      parentExecutionId: rootInvocation.invocationId,
+      branchKey: buildCoordinatorBranchKey(domainId),
+      metadata: buildProjectLaneMetadata(rootInvocation.invocationId, domainId)
+    });
+    childInvocations.push(childPlan);
+  }
+  return {
+    rootInvocation,
+    childInvocations,
+    selectedDomains
+  };
+}
+
+export async function planPromotionForExecution(executionId, options = {}, dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
+  return withOrchestratorDatabase(dbPath, async (db) => {
+    const selected = getExecution(db, executionId);
+    if (!selected) {
+      throw new Error(`execution not found: ${executionId}`);
+    }
+    const root = resolveExecutionRoot(db, selected);
+    if (!executionSupportsProjectCoordination(root)) {
+      throw new Error(`promotion flow requires a coordinator-root execution family: ${root.id}`);
+    }
+    const groupId = root.coordinationGroupId ?? root.id;
+    const executions = listExecutionGroup(db, groupId);
+    const sourceSummary = summarizePromotionSources(root, executions, db);
+    if (sourceSummary.blockers.length > 0 || sourceSummary.count === 0) {
+      const primary = sourceSummary.blockers[0] ?? {
+        code: "missing_promotion_source",
+        message: `execution family ${root.id} has no promotion-ready sources`
+      };
+      throw new Error(`promotion blocked: ${primary.code}: ${primary.message}`);
+    }
+    const plan = await planFeaturePromotion({
+      projectPath: root.projectPath,
+      objective: options.objective ?? root.objective,
+      invocationId: options.invocationId ?? `promotion-${root.id}-${Date.now()}`,
+      coordinationGroupId: groupId,
+      parentExecutionId: root.id,
+      branchKey: buildPromotionBranchKey(options.featureKey ?? root.id),
+      targetBranch: options.targetBranch ?? null,
+      sourceSummary,
+      metadata: {
+        projectRootExecutionId: root.id,
+        promotionSourceExecutionIds: unique(sourceSummary.sources.map((source) => source.executionId)),
+        projectRole: "integrator"
+      }
+    });
+    return {
+      rootExecution: decorateExecution(root),
+      sourceSummary,
+      invocation: plan
+    };
+  });
+}
+
+export async function invokeProjectCoordination(options = {}, dbPath = DEFAULT_ORCHESTRATOR_DB_PATH, sessionDbPath = DEFAULT_SESSION_DB_PATH) {
+  const plan = await buildProjectCoordinationPlan(options);
+  const rootCreated = createExecution(plan.rootInvocation, dbPath);
+  const childResults = [];
+  for (const childPlan of plan.childInvocations) {
+    const childCreated = createExecution(childPlan, dbPath);
+    await emitBranchEvents(plan.rootInvocation.invocationId, childPlan.invocationId, childPlan.coordination.branchKey, dbPath);
+    childResults.push({
+      invocation: childPlan,
+      created: childCreated,
+      detail: getExecutionDetail(childPlan.invocationId, dbPath, sessionDbPath)
+    });
+  }
+  const detail = options.wait
+    ? await driveCoordinationGroup(plan.rootInvocation.invocationId, {
+        wait: true,
+        timeoutMs: options.timeoutMs ?? options.timeout ?? "180000",
+        intervalMs: options.intervalMs ?? options.interval ?? "1500",
+        noMonitor: options.noMonitor ?? false,
+        stub: options.stub ?? false,
+        launcher: options.launcher ?? null,
+        stepSoftTimeoutMs: options.stepSoftTimeoutMs ?? options["step-soft-timeout"] ?? null,
+        stepHardTimeoutMs: options.stepHardTimeoutMs ?? options["step-hard-timeout"] ?? null
+      }, dbPath, sessionDbPath)
+    : getCoordinationGroupDetail(plan.rootInvocation.invocationId, dbPath, sessionDbPath);
+  return {
+    plan,
+    created: {
+      root: rootCreated,
+      children: childResults
+    },
+    detail
+  };
+}
+
+export async function invokeFeaturePromotion(executionId, options = {}, dbPath = DEFAULT_ORCHESTRATOR_DB_PATH, sessionDbPath = DEFAULT_SESSION_DB_PATH) {
+  const promotionPlan = await planPromotionForExecution(executionId, options, dbPath);
+  const created = createExecution(promotionPlan.invocation, dbPath);
+  withOrchestratorDatabase(dbPath, (db) => {
+    const rootExecution = getExecution(db, promotionPlan.rootExecution.id);
+    if (rootExecution) {
+      const heldRoot = holdExecutionRecord(rootExecution, "waiting_for_feature_promotion");
+      updateExecution(db, heldRoot);
+      emitWorkflowEvent(db, {
+        executionId: rootExecution.id,
+        type: "workflow.execution.held",
+        payload: {
+          reason: "waiting_for_feature_promotion",
+          coordinationGroupId: rootExecution.coordinationGroupId ?? rootExecution.id,
+          childExecutionId: promotionPlan.invocation.invocationId,
+          childProjectRole: "integrator",
+          childTopologyKind: "promotion-lane"
+        }
+      });
+    }
+    const integratorExecution = getExecution(db, promotionPlan.invocation.invocationId);
+    if (integratorExecution) {
+      updateExecutionPromotionSummary(db, integratorExecution, {
+        status: "running",
+        sourceSummary: promotionPlan.sourceSummary,
+        blockers: []
+      });
+    }
+  });
+  await emitBranchEvents(
+    promotionPlan.rootExecution.id,
+    promotionPlan.invocation.invocationId,
+    promotionPlan.invocation.coordination.branchKey,
+    dbPath
+  );
+  const detail = options.wait
+    ? await driveExecution(promotionPlan.invocation.invocationId, {
+        wait: true,
+        timeoutMs: options.timeoutMs ?? options.timeout ?? "180000",
+        intervalMs: options.intervalMs ?? options.interval ?? "1500",
+        noMonitor: options.noMonitor ?? false,
+        stub: options.stub ?? false,
+        launcher: options.launcher ?? null,
+        stepSoftTimeoutMs: options.stepSoftTimeoutMs ?? options["step-soft-timeout"] ?? null,
+        stepHardTimeoutMs: options.stepHardTimeoutMs ?? options["step-hard-timeout"] ?? null
+      })
+    : getExecutionDetail(promotionPlan.invocation.invocationId, dbPath, sessionDbPath);
+  return {
+    plan: promotionPlan,
+    created,
+    detail
+  };
 }
 
 export function applyExecutionTreeAction(executionId, action, payload = {}, dbPath = DEFAULT_ORCHESTRATOR_DB_PATH, sessionDbPath = DEFAULT_SESSION_DB_PATH) {
@@ -2415,16 +2914,24 @@ function reconcileCoordinationState(db, execution) {
   const maxHeldMs = parseIntegerOrNull(coordinationPolicy.maxHeldMs);
 
   if (blocking.length > 0 && autoHoldParent && execution.state !== "held") {
-    const heldExecution = holdExecutionRecord(execution, "waiting_for_child_executions");
+    const holdReason =
+      getExecutionProjectRole(execution) === "coordinator"
+        ? blocking.some((child) => getExecutionProjectRole(child) === "integrator")
+          ? "waiting_for_feature_promotion"
+          : "waiting_for_project_leads"
+        : "waiting_for_child_executions";
+    const heldExecution = holdExecutionRecord(execution, holdReason);
     updateExecution(db, heldExecution);
     emitWorkflowEvent(db, {
       executionId: execution.id,
       type: "workflow.execution.held",
       payload: {
-        reason: "waiting_for_child_executions",
+        reason: holdReason,
         blockingChildren: blocking.map((child) => ({
           executionId: child.id,
-          state: child.state
+          state: child.state,
+          projectRole: getExecutionProjectRole(child),
+          topologyKind: getExecutionTopologyKind(child)
         }))
       }
     });
@@ -2432,7 +2939,7 @@ function reconcileCoordinationState(db, execution) {
       executionId: execution.id,
       type: "workflow.family.held",
       payload: {
-        reason: "waiting_for_child_executions",
+        reason: holdReason,
         blockingChildren: blocking.map((child) => child.id),
         coordinationGroupId: execution.coordinationGroupId
       }
@@ -2440,7 +2947,7 @@ function reconcileCoordinationState(db, execution) {
     return heldExecution;
   }
 
-  if (blocking.length === 0 && autoResumeParent && execution.state === "held" && execution.holdReason === "waiting_for_child_executions") {
+  if (blocking.length === 0 && autoResumeParent && execution.state === "held" && isCoordinationHoldReason(execution.holdReason)) {
     const resumedExecution = resumeExecutionRecord(execution);
     updateExecution(db, resumedExecution);
     emitWorkflowEvent(db, {
@@ -2497,7 +3004,7 @@ function reconcileCoordinationState(db, execution) {
     }
   }
 
-  if (execution.state === "held" && execution.holdReason === "waiting_for_child_executions" && maxHeldMs) {
+  if (execution.state === "held" && isCoordinationHoldReason(execution.holdReason) && maxHeldMs) {
     const heldAt = execution.heldAt ? Date.parse(execution.heldAt) : NaN;
     const ageMs = Number.isFinite(heldAt) ? Math.max(0, Date.now() - heldAt) : 0;
     if (ageMs >= maxHeldMs) {
@@ -2899,12 +3406,26 @@ export async function reconcileExecution(executionId, options = {}) {
         approvalStatus: execution.approvalStatus
       });
       updateExecution(db, completed);
+      let finalizedExecution = completed;
+      if (getExecutionProjectRole(execution) === "integrator") {
+        finalizedExecution = updateExecutionPromotionSummary(db, completed, {
+          status: completed.approvalStatus === "approved" || completed.reviewStatus === "approved"
+            ? "promotion_candidate"
+            : "completed",
+          mergeAllowed: getPromotionSummary(execution)?.mergeAllowed ?? buildPromotionPolicySummary(execution).autoMergeToTarget,
+          validationStatus: "completed",
+          blockers: []
+        }).execution;
+      }
       emitWorkflowEvent(db, {
         executionId,
         type: "workflow.execution.completed",
         payload: {
           reviewStatus: completed.reviewStatus,
-          approvalStatus: completed.approvalStatus
+          approvalStatus: completed.approvalStatus,
+          promotion: getExecutionProjectRole(execution) === "integrator"
+            ? getPromotionSummary(finalizedExecution)
+            : null
         }
       });
       return getExecutionDetail(executionId, dbPath, sessionDbPath);
@@ -3194,6 +3715,13 @@ export async function recordApprovalDecision(executionId, payload, dbPath = DEFA
         currentStepIndex: approvalStep.sequence + 1
       });
       updateExecution(db, nextExecution);
+      if (getExecutionProjectRole(execution) === "integrator") {
+        updateExecutionPromotionSummary(db, nextExecution, {
+          status: remainingPlanned ? "running" : "promotion_candidate",
+          validationStatus: remainingPlanned ? "pending" : "completed",
+          blockers: []
+        });
+      }
       emitWorkflowEvent(db, {
         executionId,
         stepId: approvalStep.id,

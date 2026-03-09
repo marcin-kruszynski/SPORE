@@ -115,6 +115,13 @@ Useful local overrides for isolated runs and tests:
 - Treat runtime `launch-context` artifacts and session live `launcherMetadata.cwd` as the evidence path for proving that mutating runs launched inside a provisioned workspace.
 - Treat canonical builder/tester final verification as sequential: builder owns an authoring workspace, publishes a git-backed handoff snapshot, and tester validates a separate verification workspace created from that snapshot.
 - Do not place `builder` and `tester` in the same final verification step set for the canonical implementation workflows.
+- Treat `coordinator` as a project-scoped role, not a domain role. Use explicit project-root planning and invocation paths for `orchestrator -> coordinator -> lead`; do not prepend `coordinator` to existing domain workflow role lists.
+- Treat `integrator` as a project-scoped role, not a domain role. Use explicit promotion planning and invocation paths for `coordinator -> integrator`; do not prepend `integrator` to existing domain workflow role lists.
+- Treat `coordinator` as read-mostly by default; do not provision a mutating workspace for coordinator lanes unless policy explicitly says so.
+- Treat `integrator` as the owner of the dedicated integration workspace and integration branch during promotion flow. Do not mutate the canonical project root directly during promotion.
+- Treat proposal approval as distinct from promotion, and promotion as distinct from merge to the target branch.
+- Treat `promotion_candidate` as the default approved promotion outcome unless project policy explicitly promotes further.
+- Fail promotion early when durable promotion source artifacts are missing; do not infer promotion sources from ad hoc filesystem state.
 - Treat run validation and docs follow-up as first-class read/write surfaces. Prefer `/work-item-runs/:runId/validate` and `/work-item-runs/:runId/doc-suggestions` for operator quality loops.
 - Use `/self-build/dashboard` (or `self-build-dashboard`) as the preferred aggregate self-build triage surface when building dedicated dashboards or operator consoles. Use `/self-build/summary` only when a lighter snapshot is sufficient.
 
@@ -132,6 +139,8 @@ npm run gateway:start
 npm run orchestrator:plan -- --domain backend --roles lead
 npm run orchestrator:plan -- --domain backend --roles lead,builder,tester,reviewer
 npm run orchestrator:invoke -- --domain backend --roles lead,reviewer --objective "Lead should produce one sentence; reviewer should return approve, revise, or reject." --wait
+npm run orchestrator:project-plan -- --project config/projects/example-project.yaml --domains backend,frontend
+npm run orchestrator:project-invoke -- --project config/projects/example-project.yaml --domains backend,frontend --objective "Coordinate backend and frontend work for one project." --wait --stub
 npm run test:policy
 npm run test:http
 npm run test:tui
@@ -231,10 +240,16 @@ Current CLI contract: `docs-kb index|search|status|rebuild`.
   - `GET /proposal-artifacts/:id`, `POST /proposal-artifacts/:id/review`, `POST /proposal-artifacts/:id/approval`
   - `GET /workspaces`, `GET /workspaces/:id`, `POST /workspaces/:id/reconcile`, `POST /workspaces/:id/cleanup`
   - `GET /executions/:id/workspaces`
+- `services/orchestrator/` also exposes explicit project coordination and promotion surfaces:
+  - `POST /projects/plan`
+  - `POST /projects/invoke`
+  - `POST /promotions/plan`
+  - `POST /promotions/invoke`
 - `GET /run-center/summary` should be treated as the preferred aggregate route for operator alerts and recommendations across named validation flows.
 - `GET /self-build/dashboard` should be treated as the preferred aggregate route for self-build attention states, queue ordering, workspace health, and recent managed-work runs.
 - Treat additive operator drilldown helpers such as `links.*`, `trendSnapshot`, `latestReports[]`, `recentRuns[]`, and `failureBreakdown` as first-class read-surface fields when they are present; clients should not reconstruct equivalent links heuristically.
 - `services/orchestrator/` now also exposes `/work-items`, `/work-items/:id`, `/work-items/:id/run`, and `/work-item-runs/:runId` for supervised self-work tracking.
+- UI and automation clients should treat additive execution metadata such as `projectRole`, `topology.kind`, `promotion`, and `promotionStatus` as the authoritative hints for rendering coordinator-root families and integrator promotion lanes.
 - `apps/web/` renders grouped execution list/detail, rooted lineage tree, wave progression, coordination metadata, step/session tree, and review/approval history over those APIs.
 - `packages/tui/` consumes the same orchestrator HTTP surfaces for execution detail, rooted family summary, audit, policy diff, and run-center views.
 - `GET /sessions/:id/live` should be treated as the preferred combined live-session payload because it now includes diagnostics, launcher metadata, control acknowledgements, and suggested recovery actions in addition to events, artifacts, and control history.

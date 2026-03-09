@@ -19,6 +19,7 @@ export function createExecutionRecord(invocation) {
     parentExecutionId: invocation.coordination?.parentExecutionId ?? null,
     branchKey: invocation.coordination?.branchKey ?? null,
     policy: invocation.effectivePolicy ?? {},
+    metadata: invocation.metadata?.invocationMetadata ?? invocation.metadata ?? {},
     objective: invocation.objective ?? "",
     state: "planned",
     reviewStatus: null,

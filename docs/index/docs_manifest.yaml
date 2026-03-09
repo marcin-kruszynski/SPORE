@@ -103,17 +103,52 @@ documents:
   - id: adr-project-coordinator-role
     type: decision
     domain: orchestration
-    status: proposed
+    status: accepted
     owner: architecture-council
     tags: [coordinator, project, roles, orchestration, workflow]
     path: docs/decisions/ADR-0006-project-coordinator-role.md
   - id: adr-feature-integrator-promotion-boundary
     type: decision
     domain: orchestration
-    status: proposed
+    status: accepted
     owner: architecture-council
     tags: [integrator, promotion, merge, coordinator, workflow]
     path: docs/decisions/ADR-0007-feature-integrator-promotion-boundary.md
+  - id: role-model
+    type: architecture
+    domain: orchestration
+    status: active
+    owner: architecture-council
+    tags: [roles, coordinator, integrator, topology]
+    path: docs/architecture/role-model.md
+  - id: workflow-model
+    type: architecture
+    domain: orchestration
+    status: active
+    owner: architecture-council
+    tags: [workflow, promotion, project-root, execution-family]
+    path: docs/architecture/workflow-model.md
+  - id: clients-and-surfaces
+    type: architecture
+    domain: shared
+    status: active
+    owner: architecture-council
+    tags: [clients, surfaces, api, tui, web]
+    path: docs/architecture/clients-and-surfaces.md
+  - id: local-dev-runbook
+    type: runbook
+    domain: shared
+    status: active
+    owner: bootstrap-agent
+    tags: [local-dev, smoke-test, runtime]
+    path: docs/runbooks/local-dev.md
+  - id: adr-typescript-first-codebase
+    type: decision
+    domain: shared
+    status: proposed
+    owner: architecture-council
+    tags: [typescript, javascript, modernization, package-boundaries, runtime]
+    path: docs/decisions/ADR-0008-typescript-first-codebase.md
   - id: implementation-roadmap
     type: roadmap
     domain: shared

@@ -52,6 +52,7 @@
 - `docs/decisions/ADR-0005-builder-tester-verification-workspaces.md`
 - `docs/decisions/ADR-0006-project-coordinator-role.md`
 - `docs/decisions/ADR-0007-feature-integrator-promotion-boundary.md`
+- `docs/decisions/ADR-0008-typescript-first-codebase.md`
 - `docs/decisions/adr-template.md`
 
 ### Specs
@@ -98,3 +99,10 @@
 - Knowledge retrieval foundation from `tools/docsearch/` and `packages/docs-kb/`.
 - PI-first runtime adapter strategy from `docs/architecture/PI_INTEGRATION_STRATEGY.md`.
 - Gateway-backed clients and richer runtime control paths.
+
+## Current Coordination Boundary
+
+- project-root coordination is now modeled explicitly as `orchestrator -> coordinator -> lead`
+- explicit promotion is now modeled as `coordinator -> integrator`
+- legacy domain workflow plan/invoke paths remain valid and unchanged
+- proposal approval is not treated as merge to the target branch

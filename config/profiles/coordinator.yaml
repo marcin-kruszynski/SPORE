@@ -1,0 +1,20 @@
+id: coordinator
+name: Project Coordinator
+role: coordinator
+description: Project-scoped coordination profile responsible for supervising lead lanes, project status synthesis, and escalation routing without owning default repository mutation.
+domain: project
+runtime: pi
+systemPromptRef: .pi/prompts/coordinator.md
+skills: [planning, coordination, docs-navigation, escalation-routing]
+tools: [docs-kb, session-inspect, workflow-dispatch, execution-tree]
+permissions: [read-config, read-docs, inspect-status, dispatch-workflows, route-escalations]
+sessionMode: persistent
+reviewPolicy:
+  required: false
+handoffPolicy:
+  mode: explicit
+  mustReportUpward: true
+docsPolicy:
+  updateRequired: true
+telemetryPolicy:
+  level: detailed

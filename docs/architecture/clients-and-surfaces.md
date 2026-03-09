@@ -135,6 +135,10 @@ The preferred validation-history surfaces are now:
 - `GET /proposal-artifacts/:id`
 - `POST /proposal-artifacts/:id/review`
 - `POST /proposal-artifacts/:id/approval`
+- `POST /projects/plan`
+- `POST /projects/invoke`
+- `POST /promotions/plan`
+- `POST /promotions/invoke`
 
 Those routes should be preferred over reconstructing scenario or regression history from shell output, temporary logs, or raw SQLite inspection.
 
@@ -148,6 +152,16 @@ For self-build flows, clients should treat:
 - validate/doc-suggestion routes as operator quality loops.
 
 That separation keeps planning, execution, and governance inspectable across all client surfaces.
+
+Clients should also treat these additive execution payload fields as first-class when present:
+
+- `projectRole`
+- `topology.kind`
+- `topology.projectLaneType`
+- `promotion`
+- `promotionStatus`
+
+This is the preferred way to render coordinator-root families and integrator lanes without reconstructing those concepts client-side from generic lineage fields alone.
 
 ## Dependency-Aware Work-Item Groups
 

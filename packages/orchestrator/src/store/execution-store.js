@@ -42,6 +42,7 @@ export function openOrchestratorDatabase(dbPath) {
       project_path TEXT,
       domain_id TEXT,
       policy_json TEXT,
+      metadata_json TEXT,
       objective TEXT,
       state TEXT NOT NULL,
       review_status TEXT,
@@ -361,6 +362,7 @@ export function openOrchestratorDatabase(dbPath) {
   ensureColumn(db, "workflow_executions", "held_at", "TEXT");
   ensureColumn(db, "workflow_executions", "resumed_at", "TEXT");
   ensureColumn(db, "workflow_executions", "policy_json", "TEXT");
+  ensureColumn(db, "workflow_executions", "metadata_json", "TEXT");
   ensureColumn(db, "workflow_steps", "session_mode", "TEXT");
   ensureColumn(db, "workflow_steps", "policy_json", "TEXT");
   db.exec(`
@@ -393,12 +395,12 @@ export function insertExecutionWithSteps(db, execution, steps) {
     INSERT INTO workflow_executions (
       id, coordination_group_id, parent_execution_id, branch_key,
       workflow_id, workflow_name, workflow_path, project_id, project_name, project_path,
-      domain_id, policy_json, objective, state, review_status, approval_status, held_from_state, hold_reason, hold_owner, hold_guidance, hold_expires_at, paused_at,
+      domain_id, policy_json, metadata_json, objective, state, review_status, approval_status, held_from_state, hold_reason, hold_owner, hold_guidance, hold_expires_at, paused_at,
       held_at, resumed_at, current_step_index, created_at, updated_at, started_at, ended_at
     ) VALUES (
       @id, @coordinationGroupId, @parentExecutionId, @branchKey,
       @workflowId, @workflowName, @workflowPath, @projectId, @projectName, @projectPath,
-      @domainId, @policyJson, @objective, @state, @reviewStatus, @approvalStatus, @heldFromState, @holdReason, @holdOwner, @holdGuidance, @holdExpiresAt, @pausedAt,
+      @domainId, @policyJson, @metadataJson, @objective, @state, @reviewStatus, @approvalStatus, @heldFromState, @holdReason, @holdOwner, @holdGuidance, @holdExpiresAt, @pausedAt,
       @heldAt, @resumedAt, @currentStepIndex, @createdAt, @updatedAt, @startedAt, @endedAt
     )
   `);
@@ -428,6 +430,7 @@ export function insertExecutionWithSteps(db, execution, steps) {
       projectPath: execution.projectPath,
       domainId: execution.domainId,
       policyJson: JSON.stringify(execution.policy ?? {}),
+      metadataJson: JSON.stringify(execution.metadata ?? {}),
       objective: execution.objective,
       state: execution.state,
       reviewStatus: execution.reviewStatus,
@@ -493,6 +496,7 @@ export function updateExecution(db, execution) {
       project_path = @projectPath,
       domain_id = @domainId,
       policy_json = @policyJson,
+      metadata_json = @metadataJson,
       objective = @objective,
       state = @state,
       review_status = @reviewStatus,
@@ -523,6 +527,7 @@ export function updateExecution(db, execution) {
     projectPath: execution.projectPath,
     domainId: execution.domainId,
     policyJson: JSON.stringify(execution.policy ?? {}),
+    metadataJson: JSON.stringify(execution.metadata ?? {}),
     objective: execution.objective,
     state: execution.state,
     reviewStatus: execution.reviewStatus,
@@ -725,6 +730,7 @@ export function getExecution(db, executionId) {
       project_path AS projectPath,
       domain_id AS domainId,
       policy_json AS policyJson,
+      metadata_json AS metadataJson,
       objective,
       state,
       review_status AS reviewStatus,
@@ -747,7 +753,8 @@ export function getExecution(db, executionId) {
   `).get(executionId);
   return execution ? {
     ...execution,
-    policy: parseJsonField(execution.policyJson)
+    policy: parseJsonField(execution.policyJson),
+    metadata: parseJsonField(execution.metadataJson)
   } : null;
 }
 
@@ -762,6 +769,7 @@ export function listExecutions(db) {
       project_id AS projectId,
       domain_id AS domainId,
       policy_json AS policyJson,
+      metadata_json AS metadataJson,
       state,
       review_status AS reviewStatus,
       approval_status AS approvalStatus,
@@ -781,7 +789,8 @@ export function listExecutions(db) {
     ORDER BY updated_at DESC
   `).all().map((execution) => ({
     ...execution,
-    policy: parseJsonField(execution.policyJson)
+    policy: parseJsonField(execution.policyJson),
+    metadata: parseJsonField(execution.metadataJson)
   }));
 }
 
@@ -796,6 +805,7 @@ export function listChildExecutions(db, parentExecutionId) {
       project_id AS projectId,
       domain_id AS domainId,
       policy_json AS policyJson,
+      metadata_json AS metadataJson,
       state,
       review_status AS reviewStatus,
       approval_status AS approvalStatus,
@@ -816,7 +826,8 @@ export function listChildExecutions(db, parentExecutionId) {
     ORDER BY updated_at DESC
   `).all(parentExecutionId).map((execution) => ({
     ...execution,
-    policy: parseJsonField(execution.policyJson)
+    policy: parseJsonField(execution.policyJson),
+    metadata: parseJsonField(execution.metadataJson)
   }));
 }
 
@@ -831,6 +842,7 @@ export function listExecutionGroup(db, coordinationGroupId) {
       project_id AS projectId,
       domain_id AS domainId,
       policy_json AS policyJson,
+      metadata_json AS metadataJson,
       state,
       review_status AS reviewStatus,
       approval_status AS approvalStatus,
@@ -851,7 +863,8 @@ export function listExecutionGroup(db, coordinationGroupId) {
     ORDER BY updated_at DESC
   `).all(coordinationGroupId).map((execution) => ({
     ...execution,
-    policy: parseJsonField(execution.policyJson)
+    policy: parseJsonField(execution.policyJson),
+    metadata: parseJsonField(execution.metadataJson)
   }));
 }
 

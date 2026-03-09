@@ -6,11 +6,18 @@ import { PROJECT_ROOT } from "../../../runtime-pi/src/metadata/constants.js";
 
 const DEFAULT_ROLE_PROFILE = {
   orchestrator: "orchestrator",
+  coordinator: "coordinator",
   lead: "lead",
   scout: "scout",
   builder: "builder",
   tester: "tester",
-  reviewer: "reviewer"
+  reviewer: "reviewer",
+  integrator: "integrator"
+};
+
+const PROJECT_ROLE_KEYS = {
+  coordinator: "coordinatorProfile",
+  integrator: "integratorProfile"
 };
 
 const DOMAIN_ROLE_KEYS = {
@@ -188,9 +195,21 @@ function mergePolicyChain(items = []) {
   return items.reduce((accumulator, item) => mergePolicies(accumulator, item), emptyPolicyContainer());
 }
 
-async function resolveProfilePath(project, domainId, role) {
+function resolveProjectRoleProfileId(project, role, projectRoleProfiles = {}) {
+  const explicit = projectRoleProfiles?.[role] ?? null;
+  if (explicit) {
+    return explicit;
+  }
+  const configKey = PROJECT_ROLE_KEYS[role];
+  return configKey ? project?.[configKey] ?? null : null;
+}
+
+async function resolveProfilePath(project, domainId, role, options = {}) {
   const domain = resolveDomain(project, domainId);
-  const requestedProfileId = domain && DOMAIN_ROLE_KEYS[role] ? domain[DOMAIN_ROLE_KEYS[role]] : null;
+  const projectRoleProfileId = !domainId ? resolveProjectRoleProfileId(project, role, options.projectRoleProfiles) : null;
+  const requestedProfileId =
+    projectRoleProfileId ??
+    (domain && DOMAIN_ROLE_KEYS[role] ? domain[DOMAIN_ROLE_KEYS[role]] : null);
   const effectiveProfileId = requestedProfileId ?? DEFAULT_ROLE_PROFILE[role] ?? role;
   const requestedPath = path.join(PROJECT_ROOT, "config", "profiles", `${effectiveProfileId}.yaml`);
   if (await fileExists(requestedPath)) {
@@ -327,13 +346,18 @@ export async function planWorkflowInvocation({
   objective = "",
   coordinationGroupId = null,
   parentExecutionId = null,
-  branchKey = null
+  branchKey = null,
+  projectRoleProfiles = null,
+  policyOverrides = null,
+  policyPackIds = null,
+  metadata = null
 }) {
   const resolvedProjectPath = resolvePath(projectPath);
   const project = await readYaml(resolvedProjectPath);
   const domain = domainId ? resolveDomain(project, domainId) : null;
   const domainConfig = await resolveDomainConfig(domainId);
   const domainPolicyPacks = await resolvePolicyPacks([
+    ...asArray(policyPackIds),
     ...asArray(domainConfig.config?.policyPacks),
     ...asArray(domain?.policyPacks)
   ]);
@@ -342,7 +366,8 @@ export async function planWorkflowInvocation({
   const policy = mergePolicyChain([
     ...domainPolicyPacks.map((pack) => pack.config ?? {}),
     domainConfig.config ?? {},
-    domain ?? {}
+    domain ?? {},
+    policyOverrides ?? {}
   ]);
   const selectedRoles = determineRoles({
     explicitRoles: roles,
@@ -363,7 +388,9 @@ export async function planWorkflowInvocation({
   for (let index = 0; index < waveAssignments.length; index += 1) {
     const assignment = waveAssignments[index];
     const role = assignment.role;
-    const profile = await resolveProfilePath(project, domainId, role);
+    const profile = await resolveProfilePath(project, domainId, role, {
+      projectRoleProfiles
+    });
     const governance = resolveGovernance(role, workflow, policy);
     const sessionModeOverride = policy.runtimePolicy?.sessionModeByRole?.[role] ?? null;
     const docsQuery = buildDocsQuery({
@@ -438,7 +465,9 @@ export async function planWorkflowInvocation({
       id: project.id,
       name: project.name,
       type: project.type,
-      path: normalizeRelativePath(resolvedProjectPath)
+      path: normalizeRelativePath(resolvedProjectPath),
+      coordinatorProfile: project.coordinatorProfile ?? null,
+      integratorProfile: project.integratorProfile ?? null
     },
     domain: domainId ? {
       ...(domain ?? { id: domainId }),
@@ -480,6 +509,10 @@ export async function planWorkflowInvocation({
           policy.coordinationPolicy?.autoHoldParentOnOpenChildEscalation ?? true,
         resumeParentWhenChildrenSettled:
           policy.coordinationPolicy?.resumeParentWhenChildrenSettled ?? true,
+        autoHoldParentOnOpenPromotionEscalation:
+          policy.coordinationPolicy?.autoHoldParentOnOpenPromotionEscalation ?? true,
+        resumeParentWhenPromotionSettled:
+          policy.coordinationPolicy?.resumeParentWhenPromotionSettled ?? true,
         maxHeldMs: policy.coordinationPolicy?.maxHeldMs ?? null,
         escalateOnFamilyStallMs: policy.coordinationPolicy?.escalateOnFamilyStallMs ?? null
       },
@@ -496,7 +529,8 @@ export async function planWorkflowInvocation({
         id: pack.id,
         path: normalizeRelativePath(pack.path),
         name: pack.config?.name ?? pack.id
-      }))
+      })),
+      invocationMetadata: metadata ?? {}
     }
   };
 
@@ -505,4 +539,126 @@ export async function planWorkflowInvocation({
   }
 
   return result;
+}
+
+export async function planProjectCoordination({
+  projectPath = "config/projects/example-project.yaml",
+  domains = [],
+  objective = "",
+  invocationId = null,
+  coordinationGroupId = null,
+  metadata = null
+} = {}) {
+  const resolvedProjectPath = resolvePath(projectPath);
+  const project = await readYaml(resolvedProjectPath);
+  const selectedDomains = asArray(domains).length > 0
+    ? asArray(domains)
+    : asArray(project.activeDomains).map((domain) => domain.id);
+  const coordinationPolicy = project.projectCoordinationPolicy ?? {};
+  const workflowPath =
+    coordinationPolicy.workflow
+      ? normalizeWorkflowInput(coordinationPolicy.workflow)
+      : "config/workflows/project-coordination-root.yaml";
+  return planWorkflowInvocation({
+    workflowPath,
+    projectPath,
+    domainId: null,
+    roles: ["coordinator"],
+    maxRoles: 1,
+    invocationId,
+    objective,
+    coordinationGroupId,
+    projectRoleProfiles: {
+      coordinator: project.coordinatorProfile ?? "coordinator"
+    },
+    policyPackIds: asArray(coordinationPolicy.policyPacks),
+    policyOverrides: coordinationPolicy,
+    metadata: {
+      topologyKind: "project-root",
+      projectRole: "coordinator",
+      projectLaneType: "coordinator",
+      selectedDomains,
+      ...(metadata ?? {})
+    }
+  });
+}
+
+export async function planFeaturePromotion({
+  projectPath = "config/projects/example-project.yaml",
+  objective = "",
+  invocationId = null,
+  coordinationGroupId = null,
+  parentExecutionId = null,
+  branchKey = null,
+  targetBranch = null,
+  sourceSummary = null,
+  metadata = null
+} = {}) {
+  const resolvedProjectPath = resolvePath(projectPath);
+  const project = await readYaml(resolvedProjectPath);
+  const promotionPolicy = project.promotionPolicy ?? {};
+  const workflowPath =
+    promotionPolicy.workflow
+      ? normalizeWorkflowInput(promotionPolicy.workflow)
+      : "config/workflows/feature-promotion.yaml";
+  const effectiveTargetBranch = targetBranch ?? promotionPolicy.targetBranch ?? "main";
+  const integrationBranchPrefix = promotionPolicy.integrationBranchPrefix ?? `spore/${project.id}/promotion`;
+  const integrationBranch = `${integrationBranchPrefix}/${invocationId ?? `promotion-${Date.now()}`}`;
+  const mergeAllowed =
+    promotionPolicy.autoMergeToTarget === true
+    && promotionPolicy.allowIntegratorAutoLand === true
+    && promotionPolicy.requireHumanApprovalToLand !== true;
+  const mergedPolicyOverrides = {
+    ...promotionPolicy,
+    runtimePolicy: {
+      ...(promotionPolicy.runtimePolicy ?? {}),
+      workspace: {
+        ...(promotionPolicy.runtimePolicy?.workspace ?? {}),
+        enabled: promotionPolicy.runtimePolicy?.workspace?.enabled ?? true,
+        enabledRoles: unique([
+          "integrator",
+          ...asArray(promotionPolicy.runtimePolicy?.workspace?.enabledRoles)
+        ]),
+        baseRef: effectiveTargetBranch,
+        integrationBranch,
+        branchName: integrationBranch,
+        source: "promotion-lane"
+      }
+    }
+  };
+  return planWorkflowInvocation({
+    workflowPath,
+    projectPath,
+    domainId: null,
+    roles: ["integrator"],
+    maxRoles: 1,
+    invocationId,
+    objective,
+    coordinationGroupId,
+    parentExecutionId,
+    branchKey,
+    projectRoleProfiles: {
+      integrator: project.integratorProfile ?? "integrator"
+    },
+    policyPackIds: asArray(promotionPolicy.policyPacks),
+    policyOverrides: mergedPolicyOverrides,
+    metadata: {
+      topologyKind: "promotion-lane",
+      projectRole: "integrator",
+      projectLaneType: "integrator",
+      targetBranch: effectiveTargetBranch,
+      integrationBranch,
+      sourceSummary: sourceSummary ?? null,
+      promotion: {
+        status: "planned",
+        targetBranch: effectiveTargetBranch,
+        integrationBranch,
+        sourceCount: sourceSummary?.count ?? 0,
+        mergeAllowed,
+        allowMechanicalConflictResolution: promotionPolicy.allowMechanicalConflictResolution === true,
+        validationBundles: asArray(promotionPolicy.validationBundles)
+      },
+      ...(metadata ?? {})
+    }
+  });
 }

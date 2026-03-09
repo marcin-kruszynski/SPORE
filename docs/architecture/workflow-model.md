@@ -21,6 +21,8 @@ Each workflow includes:
 - bugfix
 - research-spike
 - review-pass
+- project-coordination-root
+- feature-promotion
 - backend-service-delivery
 - frontend-ui-pass
 - cli-verification-pass
@@ -52,6 +54,8 @@ The bootstrap execution path now supports:
 - rooted execution-tree reads for lineage-aware clients,
 - governance stop points at `waiting_review` and `waiting_approval`,
 - explicit operator review and approval decisions,
+- explicit project-root coordination through `orchestrator -> coordinator -> lead`,
+- explicit promotion lanes through `coordinator -> integrator`,
 - retry and rework branching when review or approval requests changes,
 - escalation records when retry budgets are exhausted,
 - operator resolution of open escalations with optional execution resume,
@@ -59,6 +63,36 @@ The bootstrap execution path now supports:
 - operator tree-drive, tree-review, tree-approval, and multi-branch spawn controls for execution families,
 - paused and held execution states for operator-controlled interruption without treating the execution as failed,
 - completion, failure, rejection, and cancellation as execution end states.
+
+## Project-Scoped Coordination And Promotion
+
+SPORE now has two project-scoped workflow entrypoints that sit beside existing domain workflows:
+
+- `project-coordination-root`
+- `feature-promotion`
+
+They are explicit planner and invoker paths:
+
+- `project-plan`
+- `project-invoke`
+- `promotion-plan`
+- `promotion-invoke`
+
+Rules:
+
+- `coordinator` is a project-root, read-mostly role and is not prepended to existing domain workflow role lists.
+- `integrator` is a project-scoped promotion lane and is not prepended to domain workflow role lists.
+- existing lead-first child workflows keep their current semantics.
+- proposal approval is not treated as merge completion.
+- the default terminal promotion outcome is `promotion_candidate`, not automatic merge to `main`.
+
+Promotion lanes reuse existing execution-family primitives:
+
+- `coordinationGroupId`
+- `parentExecutionId`
+- `branchKey`
+
+The coordinator root owns the family and domain child lanes. Integrator executions are explicit children under that root and inherit project-level coordination metadata rather than mutating the role lists of domain workflows.
 
 ## Domain Policy Integration
 

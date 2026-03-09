@@ -4,6 +4,7 @@ import { spawn } from "node:child_process";
 import {
   applyExecutionTreeAction,
   applyExecutionTreeGovernance,
+  buildProjectCoordinationPlan,
   createExecution,
   driveCoordinationGroup,
   driveExecution,
@@ -28,11 +29,14 @@ import {
   listExecutionSummaries,
   listScenarioCatalog,
   pauseExecution,
+  planPromotionForExecution,
   recordApprovalDecision,
   recordReviewDecision,
   resumeExecution,
   resolveExecutionEscalation,
-  spawnExecutionBranches
+  spawnExecutionBranches,
+  invokeFeaturePromotion,
+  invokeProjectCoordination
 } from "../execution/workflow-execution.js";
 import { planWorkflowInvocation } from "../invocation/plan-workflow-invocation.js";
 import { PROJECT_ROOT } from "../../../runtime-pi/src/metadata/constants.js";
@@ -109,8 +113,15 @@ function parseArgs(argv) {
   return { positional, flags };
 }
 
+function parseCsv(value) {
+  return String(value ?? "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
 async function buildInvocation(flags) {
-  const roles = flags.roles ? String(flags.roles).split(",").map((item) => item.trim()).filter(Boolean) : null;
+  const roles = flags.roles ? parseCsv(flags.roles) : null;
   return planWorkflowInvocation({
     workflowPath: flags.workflow ?? null,
     projectPath: flags.project ?? "config/projects/example-project.yaml",
@@ -172,6 +183,72 @@ async function main() {
   if (command === "plan") {
     const invocation = await buildInvocation(flags);
     console.log(JSON.stringify({ ok: true, invocation }, null, 2));
+    return;
+  }
+
+  if (command === "project-plan") {
+    const detail = await buildProjectCoordinationPlan({
+      projectPath: flags.project ?? "config/projects/example-project.yaml",
+      domains: parseCsv(flags.domains),
+      objective: flags.objective ?? "",
+      invocationId: flags["invocation-id"] ?? null
+    });
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
+  if (command === "project-invoke") {
+    const detail = await invokeProjectCoordination({
+      projectPath: flags.project ?? "config/projects/example-project.yaml",
+      domains: parseCsv(flags.domains),
+      objective: flags.objective ?? "",
+      invocationId: flags["invocation-id"] ?? null,
+      wait: flags.wait === true,
+      timeout: flags.timeout ?? "180000",
+      interval: flags.interval ?? "1500",
+      noMonitor: flags["no-monitor"] === true,
+      stub: flags.stub === true,
+      launcher: flags.launcher ?? null,
+      stepSoftTimeoutMs: flags["step-soft-timeout"] ?? null,
+      stepHardTimeoutMs: flags["step-hard-timeout"] ?? null
+    });
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
+  if (command === "promotion-plan") {
+    if (!flags.execution) {
+      throw new Error("use promotion-plan --execution <coordinator-root-execution-id> [--target-branch main]");
+    }
+    const detail = await planPromotionForExecution(flags.execution, {
+      invocationId: flags["invocation-id"] ?? null,
+      targetBranch: flags["target-branch"] ?? null,
+      objective: flags.objective ?? null,
+      featureKey: flags["feature-id"] ?? null
+    });
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
+  if (command === "promotion-invoke") {
+    if (!flags.execution) {
+      throw new Error("use promotion-invoke --execution <coordinator-root-execution-id> [--target-branch main]");
+    }
+    const detail = await invokeFeaturePromotion(flags.execution, {
+      invocationId: flags["invocation-id"] ?? null,
+      targetBranch: flags["target-branch"] ?? null,
+      objective: flags.objective ?? null,
+      featureKey: flags["feature-id"] ?? null,
+      wait: flags.wait === true,
+      timeout: flags.timeout ?? "180000",
+      interval: flags.interval ?? "1500",
+      noMonitor: flags["no-monitor"] === true,
+      stub: flags.stub === true,
+      launcher: flags.launcher ?? null,
+      stepSoftTimeoutMs: flags["step-soft-timeout"] ?? null,
+      stepHardTimeoutMs: flags["step-hard-timeout"] ?? null
+    });
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
     return;
   }
 
@@ -395,7 +472,7 @@ async function main() {
       throw new Error("use execution-workspaces --execution <id>");
     }
     const payload = listExecutionWorkspaces(flags.execution);
-    printPayload(payload, flags);
+    console.log(JSON.stringify({ ok: true, detail: payload }, null, 2));
     return;
   }
 
@@ -1246,7 +1323,9 @@ async function main() {
     return;
   }
 
-  throw new Error(`unknown command: ${command}`);
+  throw new Error(
+    `unknown command: ${command}. commands: plan | invoke | project-plan | project-invoke | promotion-plan | promotion-invoke | list | show | children | tree | groups | group | events | escalations | audit | history | policy-diff | execution-workspaces | run-center | scenario-* | regression-* | self-build-* | work-item-* | goal-plan-* | proposal-* | workspace-* | drive | drive-tree | drive-group | fork | spawn-branches | pause | pause-tree | hold | hold-tree | resume | resume-tree | review | review-tree | approve | approve-tree | resolve-escalation`
+  );
 }
 
 main().catch((error) => {

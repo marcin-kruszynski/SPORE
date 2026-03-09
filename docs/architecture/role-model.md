@@ -6,8 +6,16 @@
 
 - receives human direction,
 - chooses workflow templates,
-- dispatches work to leads,
+- dispatches project-root work to coordinators or direct domain work to leads,
 - synthesizes status across domains.
+
+### Coordinator
+
+- owns one project-root execution family,
+- routes one project objective across multiple domain lead lanes,
+- remains read-mostly by default,
+- receives project-level escalations and promotion blockers,
+- does not receive a mutating workspace unless policy explicitly opts in.
 
 ### Lead
 
@@ -41,6 +49,36 @@
 - inspects artifacts and policy compliance,
 - returns approve/revise/reject outcome.
 
+### Integrator
+
+- owns explicit post-review promotion work for one coordinator-root family,
+- consumes durable promotion sources such as proposal artifacts, workspace-linked branches, or snapshot-backed workspaces,
+- uses a dedicated integration workspace and integration branch metadata,
+- may resolve clearly mechanical conflicts when policy allows it,
+- escalates semantic or ambiguous blockers back to the coordinator.
+
 ## Dynamic Profile Mapping
 
 Roles are abstract. Runtime behavior is attached via profiles (e.g., `backend-builder`, `docs-scout`, `browser-tester`).
+
+Project-scoped roles are configured through project config rather than domain config:
+
+- `coordinatorProfile`
+- `integratorProfile`
+
+The intended topology is now:
+
+```text
+orchestrator
+  -> coordinator
+       -> lead (backend)
+       -> lead (frontend)
+       -> lead (docs)
+       -> integrator
+```
+
+Backward compatibility rule:
+
+- existing domain workflows remain lead-first,
+- `coordinator` and `integrator` are explicit planner/invoker paths,
+- they are not silently prepended to domain `roleSequence` lists.

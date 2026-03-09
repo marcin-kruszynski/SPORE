@@ -1,6 +1,6 @@
 # ADR-0007: Add a Project-Scoped Integrator Role for Explicit Feature Promotion
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-03-09
 
 ## Context

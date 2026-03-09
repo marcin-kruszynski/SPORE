@@ -148,6 +148,14 @@ curl -X POST http://127.0.0.1:8789/workflows/invoke \
   -H 'content-type: application/json' \
   -d '{"domain":"backend","roles":["lead"],"objective":"Run check","wait":false}'
 
+curl -X POST http://127.0.0.1:8789/projects/plan \
+  -H 'content-type: application/json' \
+  -d '{"project":"config/projects/example-project.yaml","domains":["backend","frontend"],"objective":"Coordinate backend and frontend work for one project."}'
+
+curl -X POST http://127.0.0.1:8789/projects/invoke \
+  -H 'content-type: application/json' \
+  -d '{"project":"config/projects/example-project.yaml","domains":["backend","frontend"],"objective":"Coordinate backend and frontend work for one project.","wait":true,"stub":true,"timeout":25000,"interval":250}'
+
 curl http://127.0.0.1:8789/executions
 curl http://127.0.0.1:8789/executions/branch-approval-001/events
 curl http://127.0.0.1:8789/executions/branch-review-001/escalations
@@ -183,6 +191,22 @@ curl -X POST http://127.0.0.1:8789/executions/e2e-review-002/review \
 curl -X POST http://127.0.0.1:8789/executions/e2e-review-002/approval \
   -H 'content-type: application/json' \
   -d '{"status":"approved","comments":"Operator approved execution completion."}'
+
+curl -X POST http://127.0.0.1:8789/executions/<coordinator-root-execution-id>/tree/review \
+  -H 'content-type: application/json' \
+  -d '{"status":"approved","scope":"all-pending","comments":"Approve project lanes for promotion."}'
+
+curl -X POST http://127.0.0.1:8789/executions/<coordinator-root-execution-id>/tree/approval \
+  -H 'content-type: application/json' \
+  -d '{"status":"approved","scope":"all-pending","comments":"Approve project lanes for promotion."}'
+
+curl -X POST http://127.0.0.1:8789/promotions/plan \
+  -H 'content-type: application/json' \
+  -d '{"execution":"<coordinator-root-execution-id>","targetBranch":"main"}'
+
+curl -X POST http://127.0.0.1:8789/promotions/invoke \
+  -H 'content-type: application/json' \
+  -d '{"execution":"<coordinator-root-execution-id>","targetBranch":"main","wait":true,"stub":true,"timeout":25000,"interval":250}'
 
 curl -X POST http://127.0.0.1:8789/executions/branch-review-001/escalations/<id>/resolve \
   -H 'content-type: application/json' \

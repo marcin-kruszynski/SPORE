@@ -54,6 +54,10 @@ node packages/tui/src/cli/spore-ops.js work-item-doc-suggestions --run <work-ite
 node packages/tui/src/cli/spore-ops.js proposal-show --run <work-item-run-id>
 node packages/tui/src/cli/spore-ops.js proposal-review --proposal <proposal-id> --status reviewed
 node packages/tui/src/cli/spore-ops.js proposal-approve --proposal <proposal-id> --status approved
+node packages/tui/src/cli/spore-ops.js project-plan --project config/projects/example-project.yaml --domains backend,frontend
+node packages/tui/src/cli/spore-ops.js project-invoke --project config/projects/example-project.yaml --domains backend,frontend --objective "Coordinate backend and frontend work for one project." --wait --stub
+node packages/tui/src/cli/spore-ops.js promotion-plan --execution <coordinator-root-execution-id> --target-branch main
+node packages/tui/src/cli/spore-ops.js promotion-invoke --execution <coordinator-root-execution-id> --target-branch main --wait --stub
 node packages/tui/src/cli/spore-ops.js hold --execution e2e-review-001 --reason "Operator hold"
 node packages/tui/src/cli/spore-ops.js review --execution e2e-review-001 --status approved --comments "Ready"
 ```
@@ -81,6 +85,8 @@ The TUI/CLI operator surface now provides:
 - work-item rerun and workspace inspection parity over orchestrator HTTP surfaces,
 - work-item run validation and documentation-suggestion drilldowns,
 - proposal artifact inspection plus review/approval transitions,
+- explicit project coordination planning and invocation over the coordinator-root path,
+- explicit feature promotion planning and invocation over the integrator lane,
 - family-level actions over `/executions/:id/tree/*` for:
   - `drive`
   - `pause`
@@ -101,3 +107,4 @@ Recent operator commands also expose richer validation surfaces:
 - `regression-latest-report --regression <id>` returns the latest durable report pointer for one regression profile.
 - `regression-scheduler-status` returns the read-only scheduler status summary and latest scheduled-run pointers for all regression profiles.
 - `work-item-*` commands expose the same managed self-work model as the orchestrator HTTP surface, so terminal operators can create, inspect, and run durable work items without bypassing orchestration state.
+- `project-*` and `promotion-*` commands expose the coordinator-root and integrator-specific planner/invoker paths without changing the semantics of existing lead-first domain workflows.

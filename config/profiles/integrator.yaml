@@ -1,0 +1,20 @@
+id: integrator
+name: Feature Integrator
+role: integrator
+description: Project-scoped promotion profile responsible for integrating durable reviewed outputs into an isolated integration workspace and producing promotion candidates.
+domain: project
+runtime: pi
+systemPromptRef: .pi/prompts/integrator.md
+skills: [integration-planning, conflict-triage, validation-routing, docs-navigation]
+tools: [docs-kb, session-inspect, workspace-inspect, git-integration, workflow-dispatch]
+permissions: [read-config, read-docs, inspect-status, mutate-integration-workspace, run-validation, update-promotion-status]
+sessionMode: persistent
+reviewPolicy:
+  required: false
+handoffPolicy:
+  mode: explicit
+  mustReportUpward: true
+docsPolicy:
+  updateRequired: true
+telemetryPolicy:
+  level: detailed

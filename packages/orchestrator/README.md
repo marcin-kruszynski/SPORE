@@ -110,6 +110,10 @@ Recommended interpretation:
 - `proposal-show --proposal <id>` (or `--run <work-item-run-id>`) exposes durable proposal artifact summary.
 - `proposal-review --proposal <id> --status <ready_for_review|reviewed|rejected>` records proposal review state transitions.
 - `proposal-approve --proposal <id> --status <approved|rejected>` records proposal approval state transitions.
+- `project-plan --project <project-config> --domains <csv>` returns the explicit coordinator-root execution plan for one project.
+- `project-invoke --project <project-config> --domains <csv>` launches the explicit `orchestrator -> coordinator -> lead` family without mutating existing domain workflow role lists.
+- `promotion-plan --execution <coordinator-root-execution-id> --target-branch <branch>` returns an explicit integrator promotion lane plan and fails early if durable promotion sources are missing.
+- `promotion-invoke --execution <coordinator-root-execution-id> --target-branch <branch>` launches the explicit `coordinator -> integrator` promotion lane with a dedicated integration workspace and additive promotion metadata.
 - `scenario-run-artifacts --run <id>` returns a normalized execution/session artifact summary for one scenario run.
 - `drive-group --group <id>` reconciles grouped executions until they settle or reach a governance/blocked stop.
 - `drive-tree --execution <id>` resolves the execution root and drives the whole family through its coordination group.
@@ -190,8 +194,19 @@ npm run orchestrator:work-item-doc-suggestions -- --run <work-item-run-id>
 npm run orchestrator:proposal-show -- --run <work-item-run-id>
 npm run orchestrator:proposal-review -- --proposal <proposal-id> --status reviewed
 npm run orchestrator:proposal-approve -- --proposal <proposal-id> --status approved
+npm run orchestrator:project-plan -- --project config/projects/example-project.yaml --domains backend,frontend
+npm run orchestrator:project-invoke -- --project config/projects/example-project.yaml --domains backend,frontend --objective "Coordinate backend and frontend work for one project." --wait --stub
+npm run orchestrator:promotion-plan -- --execution <coordinator-root-execution-id> --target-branch main
+npm run orchestrator:promotion-invoke -- --execution <coordinator-root-execution-id> --target-branch main --wait --stub
 ```
 
 Planning without `--roles` is the easiest way to inspect domain-policy defaults in the returned `effectivePolicy` and `launches[]`.
 
 This is still a narrow bootstrap slice, not the final orchestrator policy engine. The current model is intentionally durable-first: group membership, lineage, pause/hold state, and recovery history should live in orchestrator state rather than only in runtime artifacts.
+
+Coordinator and integrator flows are additive surfaces:
+
+- existing direct workflow `plan` and `invoke` commands keep their current semantics,
+- `project-*` commands model the explicit project-root `orchestrator -> coordinator -> lead` path,
+- `promotion-*` commands model the explicit post-review `coordinator -> integrator` lane,
+- approved proposals default to `promotion_candidate`; proposal approval is not equivalent to promotion or merge.

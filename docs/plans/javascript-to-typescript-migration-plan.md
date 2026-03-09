@@ -4,6 +4,8 @@
 
 This plan defines the complete migration of SPORE first-party code from JavaScript to TypeScript in three phases.
 
+This plan operationalizes `docs/decisions/ADR-0008-typescript-first-codebase.md`.
+
 The migration must:
 
 - end with all first-party source and test code under `apps/`, `packages/`, and `services/` moved to TypeScript,

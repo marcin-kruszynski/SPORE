@@ -1,0 +1,25 @@
+id: project-coordination-root
+name: Project Coordination Root
+triggerType: manual
+applicableProjectTypes: [application, platform, service, orchestration-platform]
+roleSequence: [coordinator]
+stepSets:
+  - name: project-framing
+    roles: [coordinator]
+    gate:
+      mode: all
+    policy:
+      maxActiveMs: 30000
+      onTimeout: hold_execution
+      onFailure: open_escalation
+      blockNextWaveOnOpenEscalation: true
+reviewStep:
+  required: false
+retryPolicy:
+  maxAttempts: 1
+documentationUpdatePolicy:
+  required: false
+completionRequirements:
+  - lead-lanes-created
+  - child-executions-settled
+  - project-status-synthesized

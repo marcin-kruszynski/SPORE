@@ -903,10 +903,31 @@ function buildGroupSummary(group, items = [], runs = []) {
 }
 
 function buildProposalSummary(artifact) {
-  return artifact ? {
+  if (!artifact) {
+    return null;
+  }
+  const promotion = artifact.metadata?.promotion ?? null;
+  return {
     ...artifact,
+    promotionStatus: promotion?.status ?? null,
+    promotion,
     links: proposalLinks(artifact.id)
-  } : null;
+  };
+}
+
+function getProposalPromotionState(proposal) {
+  return proposal?.metadata?.promotion?.status ?? null;
+}
+
+function isProposalPromotionPending(proposal) {
+  const promotionState = getProposalPromotionState(proposal);
+  if (!proposal) {
+    return false;
+  }
+  if (proposal.status === "approved" && !promotionState) {
+    return true;
+  }
+  return ["ready_for_promotion", "promotion_candidate", "blocked", "policy_waiting_approval"].includes(promotionState);
 }
 
 function buildLearningSummary(record) {
@@ -989,10 +1010,12 @@ function buildWorkspaceCleanupPolicy({ allocation, inspection = null, workItemRu
     blockedBy.push("still-provisioning");
   }
 
-  if (proposal && ["ready_for_review", "reviewed"].includes(proposal.status)) {
+  if (proposal && (["ready_for_review", "reviewed"].includes(proposal.status) || isProposalPromotionPending(proposal))) {
     eligible = false;
-    reason = "proposal-awaiting-governance";
-    blockedBy.push("proposal-awaiting-governance");
+    reason = isProposalPromotionPending(proposal)
+      ? "proposal-awaiting-promotion"
+      : "proposal-awaiting-governance";
+    blockedBy.push(reason);
   }
 
   if (workItemRun && ["planned", "starting", "running"].includes(workItemRun.status)) {
@@ -1004,7 +1027,7 @@ function buildWorkspaceCleanupPolicy({ allocation, inspection = null, workItemRu
   const dirty = Array.isArray(inspection?.porcelain) && inspection.porcelain.length > 0;
   const requiresForce = dirty || ["orphaned", "failed"].includes(allocation.status);
   const artifactRetention =
-    proposal && ["ready_for_review", "reviewed", "approved"].includes(proposal.status)
+    proposal && (["ready_for_review", "reviewed", "approved"].includes(proposal.status) || isProposalPromotionPending(proposal))
       ? "retain"
       : proposal
         ? "retain-patch-only"
@@ -2537,6 +2560,19 @@ export async function approveProposalArtifact(artifactId, decision = {}, dbPath 
     return null;
   }
   const approved = decision.status ?? "approved";
+  const nextPromotion =
+    approved === "approved"
+      ? {
+          status: decision.promotionStatus ?? "ready_for_promotion",
+          targetBranch: decision.targetBranch ?? artifact.metadata?.promotion?.targetBranch ?? null,
+          integrationBranch: decision.integrationBranch ?? artifact.artifacts?.workspace?.branchName ?? artifact.metadata?.promotion?.integrationBranch ?? null,
+          source: "proposal-approval",
+          updatedAt: nowIso()
+        }
+      : {
+          status: approved === "rejected" ? "rejected" : artifact.metadata?.promotion?.status ?? null,
+          updatedAt: nowIso()
+        };
   const updated = {
     ...artifact,
     status: approved,
@@ -2544,6 +2580,10 @@ export async function approveProposalArtifact(artifactId, decision = {}, dbPath 
     approvedAt: nowIso(),
     metadata: {
       ...artifact.metadata,
+      promotion: compactObject({
+        ...(artifact.metadata?.promotion ?? {}),
+        ...nextPromotion
+      }),
       approval: {
         by: decision.by ?? "operator",
         comments: decision.comments ?? ""
@@ -2666,6 +2706,7 @@ export function getSelfBuildSummary(dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
   const failedItems = workItems.filter((item) => item.status === "failed");
   const waitingReviewProposals = proposals.filter((proposal) => proposal.status === "ready_for_review");
   const waitingApprovalProposals = proposals.filter((proposal) => ["reviewed", "waiting_approval"].includes(proposal.status));
+  const promotionPendingProposals = proposals.filter((proposal) => isProposalPromotionPending(proposal));
   const orphanedWorkspaces = workspaces.filter((workspace) => ["orphaned", "failed"].includes(workspace.status));
   const activeWorkspaces = workspaces.filter((workspace) => ["provisioned", "active", "settled"].includes(workspace.status));
   const pendingValidationRuns = allRuns.filter((run) => 
@@ -2745,6 +2786,21 @@ export function getSelfBuildSummary(dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
       httpHint: `/proposal-artifacts/${encodeURIComponent(proposal.id)}`,
       commandHint: `npm run orchestrator:proposal-show -- --proposal ${proposal.id}`,
       timestamp: proposal.reviewedAt ?? proposal.createdAt
+    })),
+    ...promotionPendingProposals.map((proposal) => buildAttentionItem({
+      id: `attention:${proposal.id}:promotion`,
+      attentionState: "planner-follow-up",
+      targetType: "proposal",
+      targetId: proposal.id,
+      proposalId: proposal.id,
+      itemId: proposal.workItemId ?? null,
+      runId: proposal.workItemRunId ?? null,
+      title: proposal.summary?.title ?? "Untitled proposal",
+      reason: "Proposal approved but not yet promoted through an integration lane.",
+      httpHint: `/proposal-artifacts/${encodeURIComponent(proposal.id)}`,
+      commandHint: `npm run orchestrator:proposal-show -- --proposal ${proposal.id}`,
+      nextActionHint: "Use the promotion planner or explicit coordinator-to-integrator lane when the project family is ready.",
+      timestamp: proposal.approvedAt ?? proposal.updatedAt ?? proposal.createdAt
     })),
     ...orphanedWorkspaces.map((workspace) => buildAttentionItem({
       id: `attention:${workspace.id}:workspace`,

@@ -70,6 +70,8 @@
       "properties": {
         "autoHoldParentOnOpenChildEscalation": { "type": "boolean" },
         "resumeParentWhenChildrenSettled": { "type": "boolean" },
+        "autoHoldParentOnOpenPromotionEscalation": { "type": "boolean" },
+        "resumeParentWhenPromotionSettled": { "type": "boolean" },
         "maxHeldMs": { "type": "integer" },
         "escalateOnFamilyStallMs": { "type": "integer" }
       }

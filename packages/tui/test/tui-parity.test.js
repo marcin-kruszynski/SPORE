@@ -107,6 +107,99 @@ test('tui execution and family commands consume orchestrator HTTP surfaces', asy
     assert.ok('links' in runCenterPayload.detail.recentScenarioRuns[0]);
   }
 
+  const projectPlanOutput = await runCli([
+    'project-plan',
+    '--project', 'config/projects/example-project.yaml',
+    '--domains', 'backend,frontend',
+    '--objective', 'Coordinate backend and frontend work for one project.',
+    '--api', `http://127.0.0.1:${ORCHESTRATOR_PORT}`
+  ]);
+  const projectPlanPayload = JSON.parse(projectPlanOutput.stdout);
+  assert.equal(projectPlanPayload.detail.rootInvocation.metadata.invocationMetadata.projectRole, 'coordinator');
+  assert.equal(projectPlanPayload.detail.childInvocations.length, 2);
+
+  const projectInvokeOutput = await runCli([
+    'project-invoke',
+    '--project', 'config/projects/example-project.yaml',
+    '--domains', 'backend,frontend',
+    '--objective', 'Coordinate backend and frontend work for one project.',
+    '--api', `http://127.0.0.1:${ORCHESTRATOR_PORT}`,
+    '--wait',
+    '--stub',
+    '--timeout', '20000',
+    '--interval', '250'
+  ]);
+  const projectInvokePayload = JSON.parse(projectInvokeOutput.stdout);
+  const coordinatorExecutionId =
+    projectInvokePayload.detail?.created?.root?.execution?.id
+    ?? projectInvokePayload.detail?.plan?.rootInvocation?.invocationId;
+  assert.ok(coordinatorExecutionId);
+
+  const coordinatorExecutionOutput = await runCli([
+    'execution',
+    '--execution', coordinatorExecutionId,
+    '--api', `http://127.0.0.1:${ORCHESTRATOR_PORT}`
+  ]);
+  const coordinatorExecutionPayload = JSON.parse(coordinatorExecutionOutput.stdout);
+  assert.equal(coordinatorExecutionPayload.execution.projectRole, 'coordinator');
+  assert.equal(coordinatorExecutionPayload.execution.topology?.kind, 'project-root');
+
+  const coordinatorReviewOutput = await runCli([
+    'family',
+    '--execution', coordinatorExecutionId,
+    '--api', `http://127.0.0.1:${ORCHESTRATOR_PORT}`,
+    '--review', 'approved',
+    '--comments', 'Approve project lanes for promotion.'
+  ]);
+  const coordinatorReviewPayload = JSON.parse(coordinatorReviewOutput.stdout);
+  assert.equal(coordinatorReviewPayload.ok, true);
+
+  const coordinatorApprovalOutput = await runCli([
+    'family',
+    '--execution', coordinatorExecutionId,
+    '--api', `http://127.0.0.1:${ORCHESTRATOR_PORT}`,
+    '--approve', 'approved',
+    '--comments', 'Approve project lanes for promotion.'
+  ]);
+  const coordinatorApprovalPayload = JSON.parse(coordinatorApprovalOutput.stdout);
+  assert.equal(coordinatorApprovalPayload.ok, true);
+
+  const promotionPlanOutput = await runCli([
+    'promotion-plan',
+    '--execution', coordinatorExecutionId,
+    '--target-branch', 'main',
+    '--api', `http://127.0.0.1:${ORCHESTRATOR_PORT}`
+  ]);
+  const promotionPlanPayload = JSON.parse(promotionPlanOutput.stdout);
+  assert.equal(promotionPlanPayload.detail.invocation.metadata.invocationMetadata.projectRole, 'integrator');
+  assert.equal(promotionPlanPayload.detail.invocation.metadata.invocationMetadata.promotion.targetBranch, 'main');
+
+  const promotionInvokeOutput = await runCli([
+    'promotion-invoke',
+    '--execution', coordinatorExecutionId,
+    '--target-branch', 'main',
+    '--api', `http://127.0.0.1:${ORCHESTRATOR_PORT}`,
+    '--wait',
+    '--stub',
+    '--timeout', '20000',
+    '--interval', '250'
+  ]);
+  const promotionInvokePayload = JSON.parse(promotionInvokeOutput.stdout);
+  const integratorExecutionId =
+    promotionInvokePayload.detail?.created?.execution?.id
+    ?? promotionInvokePayload.detail?.plan?.invocation?.invocationId;
+  assert.ok(integratorExecutionId);
+
+  const integratorExecutionOutput = await runCli([
+    'execution',
+    '--execution', integratorExecutionId,
+    '--api', `http://127.0.0.1:${ORCHESTRATOR_PORT}`
+  ]);
+  const integratorExecutionPayload = JSON.parse(integratorExecutionOutput.stdout);
+  assert.equal(integratorExecutionPayload.execution.projectRole, 'integrator');
+  assert.equal(integratorExecutionPayload.execution.topology?.kind, 'promotion-lane');
+  assert.ok(['running', 'promotion_candidate', 'completed'].includes(integratorExecutionPayload.execution.promotionStatus));
+
   const scenarioRunOutput = await runCli([
     'scenario-run',
     '--scenario', 'cli-verification-pass',

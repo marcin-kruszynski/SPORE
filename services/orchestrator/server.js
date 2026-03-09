@@ -142,6 +142,72 @@ function buildInvokeArgs(body) {
   return args;
 }
 
+function buildProjectPlanArgs(body) {
+  const args = [
+    "packages/orchestrator/src/cli/spore-orchestrator.js",
+    "project-plan",
+    "--project", body.project ?? "config/projects/example-project.yaml"
+  ];
+  if (body.domains?.length) args.push("--domains", body.domains.join(","));
+  if (body.objective) args.push("--objective", body.objective);
+  if (body.invocationId) args.push("--invocation-id", body.invocationId);
+  return args;
+}
+
+function buildProjectInvokeArgs(body) {
+  const args = [
+    "packages/orchestrator/src/cli/spore-orchestrator.js",
+    "project-invoke",
+    "--project", body.project ?? "config/projects/example-project.yaml"
+  ];
+  if (body.domains?.length) args.push("--domains", body.domains.join(","));
+  if (body.objective) args.push("--objective", body.objective);
+  if (body.invocationId) args.push("--invocation-id", body.invocationId);
+  if (body.wait) args.push("--wait");
+  if (body.timeout) args.push("--timeout", String(body.timeout));
+  if (body.interval) args.push("--interval", String(body.interval));
+  if (body.noMonitor) args.push("--no-monitor");
+  if (body.stub) args.push("--stub");
+  if (body.launcher) args.push("--launcher", body.launcher);
+  if (body.stepSoftTimeout) args.push("--step-soft-timeout", String(body.stepSoftTimeout));
+  if (body.stepHardTimeout) args.push("--step-hard-timeout", String(body.stepHardTimeout));
+  return args;
+}
+
+function buildPromotionPlanArgs(body) {
+  const args = [
+    "packages/orchestrator/src/cli/spore-orchestrator.js",
+    "promotion-plan",
+    "--execution", body.execution
+  ];
+  if (body.invocationId) args.push("--invocation-id", body.invocationId);
+  if (body.targetBranch) args.push("--target-branch", body.targetBranch);
+  if (body.objective) args.push("--objective", body.objective);
+  if (body.featureId) args.push("--feature-id", body.featureId);
+  return args;
+}
+
+function buildPromotionInvokeArgs(body) {
+  const args = [
+    "packages/orchestrator/src/cli/spore-orchestrator.js",
+    "promotion-invoke",
+    "--execution", body.execution
+  ];
+  if (body.invocationId) args.push("--invocation-id", body.invocationId);
+  if (body.targetBranch) args.push("--target-branch", body.targetBranch);
+  if (body.objective) args.push("--objective", body.objective);
+  if (body.featureId) args.push("--feature-id", body.featureId);
+  if (body.wait) args.push("--wait");
+  if (body.timeout) args.push("--timeout", String(body.timeout));
+  if (body.interval) args.push("--interval", String(body.interval));
+  if (body.noMonitor) args.push("--no-monitor");
+  if (body.stub) args.push("--stub");
+  if (body.launcher) args.push("--launcher", body.launcher);
+  if (body.stepSoftTimeout) args.push("--step-soft-timeout", String(body.stepSoftTimeout));
+  if (body.stepHardTimeout) args.push("--step-hard-timeout", String(body.stepHardTimeout));
+  return args;
+}
+
 function buildScenarioRunArgs(scenarioId, body) {
   const args = [
     "packages/orchestrator/src/cli/spore-orchestrator.js",
@@ -1016,6 +1082,50 @@ const server = http.createServer(async (request, response) => {
     if (request.method === "POST" && url.pathname === "/workflows/invoke") {
       const body = await readJsonBody(request);
       const payload = await runCli(buildInvokeArgs(body));
+      json(response, 200, payload);
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/projects/plan") {
+      const body = await readJsonBody(request);
+      const payload = await runCli(buildProjectPlanArgs(body));
+      json(response, 200, payload);
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/projects/invoke") {
+      const body = await readJsonBody(request);
+      const payload = await runCli(buildProjectInvokeArgs(body));
+      json(response, 200, payload);
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/promotions/plan") {
+      const body = await readJsonBody(request);
+      if (!body.execution) {
+        json(response, 400, {
+          ok: false,
+          error: "missing_execution",
+          message: "use execution to identify the coordinator-root execution for promotion"
+        });
+        return;
+      }
+      const payload = await runCli(buildPromotionPlanArgs(body));
+      json(response, 200, payload);
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/promotions/invoke") {
+      const body = await readJsonBody(request);
+      if (!body.execution) {
+        json(response, 400, {
+          ok: false,
+          error: "missing_execution",
+          message: "use execution to identify the coordinator-root execution for promotion"
+        });
+        return;
+      }
+      const payload = await runCli(buildPromotionInvokeArgs(body));
       json(response, 200, payload);
       return;
     }

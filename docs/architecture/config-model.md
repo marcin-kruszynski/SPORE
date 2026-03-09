@@ -83,3 +83,33 @@ The effective precedence is:
 2. base domain config
 3. project `activeDomains[]` override
 4. explicit invocation arguments
+
+Projects may now also define project-scoped orchestration roles and policies that sit outside domain config:
+
+- `coordinatorProfile`
+- `integratorProfile`
+- `projectCoordinationPolicy`
+- `promotionPolicy`
+
+These are project-scoped fields, not domain-scoped fields.
+
+`projectCoordinationPolicy` shapes the explicit project-root coordination path:
+
+- coordinator-root workflow defaults,
+- coordination hold/resume behavior,
+- docs-kb defaults for project framing,
+- role-aware runtime behavior for the coordinator lane.
+
+`promotionPolicy` shapes the explicit feature-promotion path:
+
+- target branch defaults,
+- integration branch prefix,
+- integrator workspace requirements,
+- validation bundle expectations,
+- whether mechanical conflict resolution is allowed,
+- whether landing to the target branch requires extra approval.
+
+Backward compatibility rule:
+
+- do not add `coordinatorProfile` or `integratorProfile` to domain configs,
+- do not treat them as replacements for lead/build/test/review profiles inside existing domain workflows.

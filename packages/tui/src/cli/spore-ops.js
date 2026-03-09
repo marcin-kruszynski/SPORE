@@ -305,6 +305,90 @@ async function executionHistory(flags) {
   console.log(formatJson(payload));
 }
 
+async function projectPlan(flags) {
+  const body = {
+    project: flags.project ?? "config/projects/example-project.yaml",
+    domains: flags.domains ? String(flags.domains).split(",").map((item) => item.trim()).filter(Boolean) : [],
+    objective: flags.objective ?? "",
+    invocationId: flags["invocation-id"] ?? undefined
+  };
+  Object.keys(body).forEach((key) => body[key] === undefined && delete body[key]);
+  const payload = await orchestratorRequest(flags, "/projects/plan", {
+    method: "POST",
+    body: JSON.stringify(body)
+  });
+  console.log(formatJson(payload));
+}
+
+async function projectInvoke(flags) {
+  const body = {
+    project: flags.project ?? "config/projects/example-project.yaml",
+    domains: flags.domains ? String(flags.domains).split(",").map((item) => item.trim()).filter(Boolean) : [],
+    objective: flags.objective ?? "",
+    invocationId: flags["invocation-id"] ?? undefined,
+    wait: flags.wait === true,
+    timeout: flags.timeout ? toNumber(flags.timeout, null) : undefined,
+    interval: flags.interval ? toNumber(flags.interval, null) : undefined,
+    noMonitor: flags["no-monitor"] === true,
+    stub: flags.stub === true,
+    launcher: flags.launcher,
+    stepSoftTimeout: flags["step-soft-timeout"] ? toNumber(flags["step-soft-timeout"], null) : undefined,
+    stepHardTimeout: flags["step-hard-timeout"] ? toNumber(flags["step-hard-timeout"], null) : undefined
+  };
+  Object.keys(body).forEach((key) => body[key] === undefined && delete body[key]);
+  const payload = await orchestratorRequest(flags, "/projects/invoke", {
+    method: "POST",
+    body: JSON.stringify(body)
+  });
+  console.log(formatJson(payload));
+}
+
+async function promotionPlan(flags) {
+  if (!flags.execution) {
+    throw new Error("use promotion-plan --execution <coordinator-root-execution-id>");
+  }
+  const body = {
+    execution: flags.execution,
+    invocationId: flags["invocation-id"] ?? undefined,
+    targetBranch: flags["target-branch"] ?? undefined,
+    objective: flags.objective ?? undefined,
+    featureId: flags["feature-id"] ?? undefined
+  };
+  Object.keys(body).forEach((key) => body[key] === undefined && delete body[key]);
+  const payload = await orchestratorRequest(flags, "/promotions/plan", {
+    method: "POST",
+    body: JSON.stringify(body)
+  });
+  console.log(formatJson(payload));
+}
+
+async function promotionInvoke(flags) {
+  if (!flags.execution) {
+    throw new Error("use promotion-invoke --execution <coordinator-root-execution-id>");
+  }
+  const body = {
+    execution: flags.execution,
+    invocationId: flags["invocation-id"] ?? undefined,
+    targetBranch: flags["target-branch"] ?? undefined,
+    objective: flags.objective ?? undefined,
+    featureId: flags["feature-id"] ?? undefined,
+    wait: flags.wait === true,
+    timeout: flags.timeout ? toNumber(flags.timeout, null) : undefined,
+    interval: flags.interval ? toNumber(flags.interval, null) : undefined,
+    noMonitor: flags["no-monitor"] === true,
+    stub: flags.stub === true,
+    launcher: flags.launcher,
+    stepSoftTimeout: flags["step-soft-timeout"] ? toNumber(flags["step-soft-timeout"], null) : undefined,
+    stepHardTimeout: flags["step-hard-timeout"] ? toNumber(flags["step-hard-timeout"], null) : undefined
+  };
+  Object.keys(body).forEach((key) => body[key] === undefined && delete body[key]);
+  const payload = await orchestratorRequest(flags, "/promotions/invoke", {
+    method: "POST",
+    body: JSON.stringify(body)
+  });
+  console.log(formatJson(payload));
+}
+
 async function runCenter(flags) {
   const payload = await orchestratorRequest(
     flags,
@@ -1236,6 +1320,22 @@ async function main() {
     await executionHistory(flags);
     return;
   }
+  if (command === "project-plan") {
+    await projectPlan(flags);
+    return;
+  }
+  if (command === "project-invoke") {
+    await projectInvoke(flags);
+    return;
+  }
+  if (command === "promotion-plan") {
+    await promotionPlan(flags);
+    return;
+  }
+  if (command === "promotion-invoke") {
+    await promotionInvoke(flags);
+    return;
+  }
   if (command === "run-center") {
     await runCenter(flags);
     return;
@@ -1428,7 +1528,7 @@ async function main() {
     await treeAction(flags, command);
     return;
   }
-  throw new Error("commands: dashboard | inspect | execution | tree | family | audit | policy-diff | history | run-center | self-build | self-build-summary | self-build-dashboard | work-item-queue | workspace-list | workspace-show | scenario-list | scenario-show | scenario-runs | scenario-run | scenario-run-show | scenario-run-artifacts | scenario-rerun | scenario-trends | regression-list | regression-show | regression-runs | regression-run | regression-run-show | regression-report | regression-latest-report | regression-rerun | regression-trends | regression-scheduler | regression-scheduler-status | work-item-template-list | work-item-template-show | goal-plan-create | goal-plan-list | goal-plan-show | goal-plan-materialize | work-item-group-list | work-item-group-show | work-item-group-run | work-item-list | work-item-show | work-item-runs | work-item-create | work-item-run | work-item-run-show | work-item-run-rerun | work-item-validate | work-item-doc-suggestions | proposal-show | proposal-review | proposal-approve | drive | pause | hold | resume | review | approval");
+  throw new Error("commands: dashboard | inspect | execution | tree | family | audit | policy-diff | history | project-plan | project-invoke | promotion-plan | promotion-invoke | run-center | self-build | self-build-summary | self-build-dashboard | work-item-queue | workspace-list | workspace-show | scenario-list | scenario-show | scenario-runs | scenario-run | scenario-run-show | scenario-run-artifacts | scenario-rerun | scenario-trends | regression-list | regression-show | regression-runs | regression-run | regression-run-show | regression-report | regression-latest-report | regression-rerun | regression-trends | regression-scheduler | regression-scheduler-status | work-item-template-list | work-item-template-show | goal-plan-create | goal-plan-list | goal-plan-show | goal-plan-materialize | work-item-group-list | work-item-group-show | work-item-group-run | work-item-list | work-item-show | work-item-runs | work-item-create | work-item-run | work-item-run-show | work-item-run-rerun | work-item-validate | work-item-doc-suggestions | proposal-show | proposal-review | proposal-approve | drive | pause | hold | resume | review | approval");
 }
 
 main().catch((error) => {

@@ -158,7 +158,7 @@ SPORE is organized into five distinct architectural layers, each with clear owne
 
 ## Role Hierarchy
 
-SPORE defines six abstract roles. Concrete behavior is attached via **profiles** -- the same role can have domain-specific variants (e.g., `backend-builder`, `docs-scout`, `browser-tester`).
+SPORE now uses eight architectural roles. Concrete behavior is attached via **profiles** -- the same role can have domain-specific variants (e.g., `backend-builder`, `docs-scout`, `browser-tester`).
 
 ```
                         ┌──────────────┐
@@ -168,11 +168,11 @@ SPORE defines six abstract roles. Concrete behavior is attached via **profiles**
                                │ directs
                         ┌──────▼───────┐
                         │ ORCHESTRATOR │
-                        │              │
-                        │ Dispatches   │
-                        │ workflows,   │
-                        │ synthesizes  │
-                        │ status       │
+                        └──────┬───────┘
+                               │ portfolio / project dispatch
+                        ┌──────▼───────┐
+                        │ COORDINATOR  │
+                        │ project root │
                         └──────┬───────┘
                                │ delegates to domain
                ┌───────────────┼───────────────┐
@@ -186,6 +186,10 @@ SPORE defines six abstract roles. Concrete behavior is attached via **profiles**
         │ invokes     │ │ invokes    │ │ invokes    │
         │ workers     │ │ workers    │ │ workers    │
         └──────┬──────┘ └────────────┘ └────────────┘
+               │                                      ┌────────────┐
+               │                                      │ INTEGRATOR │
+               │                                      │ promotion  │
+               │                                      └────────────┘
                │
     ┌──────────┼──────────┐
     │          │          │
@@ -202,12 +206,14 @@ SPORE defines six abstract roles. Concrete behavior is attached via **profiles**
 
 | Role | Session Mode | Core Responsibility |
 |---|---|---|
-| **Orchestrator** | persistent | Top-level coordinator; workflow dispatch; status synthesis |
+| **Orchestrator** | persistent | Portfolio and top-level workflow coordinator |
+| **Coordinator** | persistent | Project-root coordinator over one execution family; read-mostly by default |
 | **Lead** | persistent | Domain-scoped coordinator; task decomposition; worker invocation |
 | **Scout** | ephemeral | Research-first exploration; source/docs analysis; findings handoff |
 | **Builder** | ephemeral | Implementation-focused; produces code and artifacts; requires review |
 | **Tester** | ephemeral | Validation; runs tests/probes/checklists; reports defects with evidence |
 | **Reviewer** | ephemeral | Independent quality gate; approve/revise/reject verdicts |
+| **Integrator** | ephemeral | Explicit post-review promotion lane using a dedicated integration workspace |
 
 ---
 
@@ -889,6 +895,12 @@ npm run gateway:start                      # Shared session HTTP surface
 ```bash
 npm run orchestrator:plan -- --domain backend --roles lead
 npm run orchestrator:plan -- --domain backend --roles lead,builder,tester,reviewer
+npm run orchestrator:project-plan -- --project config/projects/example-project.yaml --domains backend,frontend
+npm run orchestrator:project-invoke -- --project config/projects/example-project.yaml --domains backend,frontend \
+  --objective "Coordinate backend and frontend work for one project." --wait --stub --timeout 25000
+npm run orchestrator:promotion-plan -- --execution <coordinator-root-execution-id> --target-branch main
+npm run orchestrator:promotion-invoke -- --execution <coordinator-root-execution-id> --target-branch main \
+  --wait --stub --timeout 25000
 npm run orchestrator:invoke -- --domain backend --roles lead --objective "..."
 npm run orchestrator:invoke -- --domain backend --roles lead,reviewer \
   --objective "..." --wait

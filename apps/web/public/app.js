@@ -392,6 +392,100 @@ function renderMetaPill(label, value, tone = "") {
   return `<span class="${className}">${escapeHtml(text)}</span>`;
 }
 
+function getExecutionMetadataRecord(execution) {
+  return isObject(execution?.metadata) ? execution.metadata : {};
+}
+
+function getExecutionProjectRole(execution) {
+  const role = readFirstField(execution, ["projectRole"]) ?? readFirstField(getExecutionMetadataRecord(execution), ["projectRole"]);
+  const normalized = String(role ?? "").trim().toLowerCase();
+  return ["coordinator", "integrator"].includes(normalized) ? normalized : null;
+}
+
+function getExecutionTopologyKind(execution) {
+  const topology = readFirstObjectField(execution, ["topology"]);
+  const kind = readFirstField(topology, ["kind"]) ?? readFirstField(getExecutionMetadataRecord(execution), ["topologyKind"]);
+  const normalized = String(kind ?? "").trim().toLowerCase();
+  return ["project-root", "promotion-lane"].includes(normalized) ? normalized : null;
+}
+
+function getExecutionPromotionRecord(execution) {
+  return readFirstObjectField(execution, ["promotion"]) ?? readFirstObjectField(getExecutionMetadataRecord(execution), ["promotion"]);
+}
+
+function getExecutionPromotionStatus(execution) {
+  const promotion = getExecutionPromotionRecord(execution);
+  const status = readFirstField(execution, ["promotionStatus"]) ?? readFirstField(promotion, ["status"]);
+  const normalized = String(status ?? "").trim().toLowerCase();
+  return normalized || null;
+}
+
+function getProjectRoleTone(projectRole) {
+  if (projectRole === "coordinator") {
+    return "root";
+  }
+  if (projectRole === "integrator") {
+    return "branch";
+  }
+  return "";
+}
+
+function getTopologyKindTone(kind) {
+  if (kind === "project-root") {
+    return "root";
+  }
+  if (kind === "promotion-lane") {
+    return "branch";
+  }
+  return "";
+}
+
+function getPromotionStatusTone(status) {
+  if (["merged", "promotion_candidate", "ready_for_promotion", "ready_to_merge"].includes(status)) {
+    return "root";
+  }
+  if (["blocked", "rejected", "changes_requested"].includes(status)) {
+    return "held";
+  }
+  if (["policy_waiting_approval", "waiting_approval"].includes(status)) {
+    return "governance";
+  }
+  if (["running", "in_progress", "collecting_sources"].includes(status)) {
+    return "branch";
+  }
+  return "changed";
+}
+
+function renderExecutionProjectMetadataPills(execution) {
+  const pills = [];
+  const projectRole = getExecutionProjectRole(execution);
+  const topologyKind = getExecutionTopologyKind(execution);
+  const promotion = getExecutionPromotionRecord(execution);
+  const promotionStatus = getExecutionPromotionStatus(execution);
+
+  if (projectRole) {
+    pills.push(renderMetaPill("project", projectRole, getProjectRoleTone(projectRole)));
+  }
+  if (topologyKind) {
+    pills.push(renderMetaPill("topology", topologyKind, getTopologyKindTone(topologyKind)));
+  }
+  if (promotionStatus) {
+    pills.push(renderMetaPill("promotion", promotionStatus, getPromotionStatusTone(promotionStatus)));
+  }
+  if (hasDisplayValue(promotion?.targetBranch)) {
+    pills.push(renderMetaPill("target", promotion.targetBranch, "branch"));
+  }
+  if (hasDisplayValue(promotion?.integrationBranch)) {
+    pills.push(renderMetaPill("integration", promotion.integrationBranch, "branch"));
+  }
+  if (promotion || promotionStatus) {
+    const sourceCount = Number(promotion?.sourceCount ?? 0);
+    pills.push(renderMetaPill("sources", Number.isFinite(sourceCount) ? sourceCount : normalizeText(promotion?.sourceCount, "0")));
+  }
+
+  return pills.join("");
+}
+
 function renderExecutionModePills(execution) {
   const pills = [];
   const mode = deriveExecutionMode(execution);
@@ -2037,6 +2131,7 @@ function renderExecutions() {
                     </div>
                     <div class="lineage-meta">
                       ${renderExecutionModePills(execution)}
+                      ${renderExecutionProjectMetadataPills(execution)}
                     </div>
                   </article>
                 `;
@@ -3911,6 +4006,7 @@ function renderExecutionMiniCard(execution, { label, selectedId } = {}) {
       </div>
       <div class="lineage-meta">
         ${renderExecutionModePills(execution)}
+        ${renderExecutionProjectMetadataPills(execution)}
       </div>
     </article>
   `;
@@ -5144,6 +5240,7 @@ function renderExecutionDetail() {
     </div>
     <div class="lineage-meta detail-pills">
       ${renderExecutionModePills(execution)}
+      ${renderExecutionProjectMetadataPills(execution)}
       ${groupId ? renderMetaPill("group", groupId) : ""}
       ${execution.parentExecutionId ? renderMetaPill("parent", execution.parentExecutionId, "child") : ""}
       ${childExecutionCount ? renderMetaPill("children", childExecutionCount, "child") : ""}
