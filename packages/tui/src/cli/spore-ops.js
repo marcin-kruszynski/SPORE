@@ -586,9 +586,157 @@ async function regressionSchedulerStatus(flags) {
   console.log(formatJson(payload));
 }
 
+function renderSelfBuildTriage(payload) {
+  const detail = payload?.detail ?? {};
+  const overview = detail.overview ?? {};
+  const urgentWork = detail.urgentWork ?? [];
+  const followUpWork = detail.followUpWork ?? [];
+  const counts = detail.counts ?? {};
+  const recentActivity = detail.recentActivity ?? {};
+  const currentIndicator = detail.currentIndicator ?? "";
+
+  const lines = [];
+  lines.push("═══════════════════════════════════════════════════════════");
+  lines.push("  SPORE Self-Build Triage");
+  lines.push("═══════════════════════════════════════════════════════════");
+  lines.push("");
+
+  // Overview section
+  lines.push("OVERVIEW");
+  lines.push("--------");
+  lines.push(`Work Items: ${overview.totalWorkItems ?? 0} | Groups: ${overview.totalGroups ?? 0} | Proposals: ${overview.totalProposals ?? 0}`);
+  lines.push("");
+
+  // Status counts
+  if (Object.keys(counts).length > 0) {
+    const statusParts = [];
+    for (const [key, value] of Object.entries(counts)) {
+      if (value > 0) {
+        statusParts.push(`${key}=${value}`);
+      }
+    }
+    if (statusParts.length > 0) {
+      lines.push(`Status: ${statusParts.join(", ")}`);
+      lines.push("");
+    }
+  }
+
+  // Urgent work queue
+  lines.push("URGENT WORK");
+  lines.push("-----------");
+  if (urgentWork.length === 0) {
+    lines.push("✓ No urgent work - all clear");
+  } else {
+    for (const item of urgentWork.slice(0, 10)) {
+      const badge = item.priority === "high" ? "[HIGH]" : "[MED] ";
+      const id = item.itemId ?? item.proposalId ?? item.runId ?? "unknown";
+      lines.push(`${badge} ${item.kind}`);
+      lines.push(`      ${item.title}`);
+      lines.push(`      ${item.reason}`);
+      lines.push(`      → ${item.httpHint}`);
+      lines.push("");
+    }
+    if (urgentWork.length > 10) {
+      lines.push(`... and ${urgentWork.length - 10} more urgent items`);
+      lines.push("");
+    }
+  }
+
+  // Follow-up work queue
+  lines.push("FOLLOW-UP WORK");
+  lines.push("--------------");
+  if (followUpWork.length === 0) {
+    lines.push("✓ No pending follow-up work");
+  } else {
+    for (const item of followUpWork.slice(0, 8)) {
+      const badge = item.priority === "high" ? "[HIGH]" : item.priority === "medium" ? "[MED] " : "[LOW] ";
+      lines.push(`${badge} ${item.kind}`);
+      lines.push(`      ${item.title}`);
+      lines.push(`      ${item.reason}`);
+      lines.push(`      → ${item.httpHint}`);
+      if (item.actionHint) {
+        lines.push(`      Action: ${item.actionHint}`);
+      }
+      lines.push("");
+    }
+    if (followUpWork.length > 8) {
+      lines.push(`... and ${followUpWork.length - 8} more follow-up items`);
+      lines.push("");
+    }
+  }
+
+  // Recent activity timestamp
+  if (recentActivity.timestamp) {
+    lines.push("FRESHNESS");
+    lines.push("---------");
+    lines.push(`Most recent activity: ${recentActivity.timestamp} (${recentActivity.kind ?? "unknown"})`);
+    lines.push("");
+  }
+
+  // Current status indicator
+  if (currentIndicator) {
+    lines.push(`Status: ${currentIndicator}`);
+    lines.push("");
+  }
+
+  // Next actions
+  lines.push("NEXT ACTIONS");
+  lines.push("------------");
+  if (urgentWork.length > 0) {
+    lines.push("→ Review urgent work above and take action");
+    lines.push("→ Use drilldown commands for detail:");
+    lines.push("    spore-ops self-build --item <id>");
+    lines.push("    spore-ops self-build --proposal <id>");
+    lines.push("    spore-ops self-build --group <id>");
+  } else if (followUpWork.length > 0) {
+    lines.push("→ Consider follow-up work queue");
+    lines.push("→ Validate completed runs or follow doc suggestions");
+  } else {
+    lines.push("→ System idle - use orchestrator to create new work");
+    lines.push("    goal-plan-create, work-item-create, work-item-group-run");
+  }
+
+  lines.push("");
+  lines.push("═══════════════════════════════════════════════════════════");
+
+  return lines.join("\n");
+}
+
 async function selfBuildSummary(flags) {
   const payload = await orchestratorRequest(flags, "/self-build/summary");
+  // self-build-summary always returns JSON for backward compatibility
   console.log(formatJson(payload));
+}
+
+async function selfBuild(flags) {
+  // Drilldown support for self-build records
+  if (flags.item) {
+    await workItemShow(flags);
+    return;
+  }
+  if (flags.proposal) {
+    await proposalShow(flags);
+    return;
+  }
+  if (flags.group) {
+    await workItemGroupShow(flags);
+    return;
+  }
+  if (flags.run) {
+    await workItemRunShow(flags);
+    return;
+  }
+  if (flags.plan) {
+    await goalPlanShow(flags);
+    return;
+  }
+  // Default to triage summary
+  const payload = await orchestratorRequest(flags, "/self-build/summary");
+  if (flags.json) {
+    console.log(formatJson(payload));
+    return;
+  }
+  console.log(renderSelfBuildTriage(payload));
 }
 
 async function workItemTemplateList(flags) {
@@ -972,6 +1120,10 @@ async function main() {
     await selfBuildSummary(flags);
     return;
   }
+  if (command === "self-build") {
+    await selfBuild(flags);
+    return;
+  }
   if (command === "work-item-template-list") {
     await workItemTemplateList(flags);
     return;
@@ -1056,7 +1208,7 @@ async function main() {
     await treeAction(flags, command);
     return;
   }
-  throw new Error("commands: dashboard | inspect | execution | tree | family | audit | policy-diff | history | run-center | self-build-summary | scenario-list | scenario-show | scenario-runs | scenario-run | scenario-run-show | scenario-run-artifacts | scenario-rerun | scenario-trends | regression-list | regression-show | regression-runs | regression-run | regression-run-show | regression-report | regression-latest-report | regression-rerun | regression-trends | regression-scheduler | regression-scheduler-status | work-item-template-list | work-item-template-show | goal-plan-create | goal-plan-list | goal-plan-show | goal-plan-materialize | work-item-group-list | work-item-group-show | work-item-group-run | work-item-list | work-item-show | work-item-runs | work-item-create | work-item-run | work-item-run-show | work-item-validate | work-item-doc-suggestions | proposal-show | proposal-review | proposal-approve | drive | pause | hold | resume | review | approval");
+  throw new Error("commands: dashboard | inspect | execution | tree | family | audit | policy-diff | history | run-center | self-build | self-build-summary | scenario-list | scenario-show | scenario-runs | scenario-run | scenario-run-show | scenario-run-artifacts | scenario-rerun | scenario-trends | regression-list | regression-show | regression-runs | regression-run | regression-run-show | regression-report | regression-latest-report | regression-rerun | regression-trends | regression-scheduler | regression-scheduler-status | work-item-template-list | work-item-template-show | goal-plan-create | goal-plan-list | goal-plan-show | goal-plan-materialize | work-item-group-list | work-item-group-show | work-item-group-run | work-item-list | work-item-show | work-item-runs | work-item-create | work-item-run | work-item-run-show | work-item-validate | work-item-doc-suggestions | proposal-show | proposal-review | proposal-approve | drive | pause | hold | resume | review | approval");
 }
 
 main().catch((error) => {

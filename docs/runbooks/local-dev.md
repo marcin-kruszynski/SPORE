@@ -155,7 +155,7 @@ curl -N http://127.0.0.1:8789/stream/executions?execution=branch-approval-001
 curl http://127.0.0.1:8789/run-center/summary
 curl http://127.0.0.1:8789/self-build/summary
 curl http://127.0.0.1:8789/work-item-templates
-curl http://127.0.0.1:8789/work-item-templates/scenario-hardening
+curl http://127.0.0.1:8789/work-item-templates/operator-ui-pass
 curl -X POST http://127.0.0.1:8789/goals/plan \
   -H 'content-type: application/json' \
   -d '{"goal":"Stabilize CLI verification and proposal quality","projectId":"spore","mode":"supervised","safeMode":true}'
@@ -213,6 +213,35 @@ node packages/tui/src/cli/spore-ops.js audit --execution e2e-review-002 --api ht
 node packages/tui/src/cli/spore-ops.js policy-diff --execution e2e-review-002 --api http://127.0.0.1:8789
 ```
 
+## TUI Self-Build Triage
+
+The TUI provides a dedicated self-build triage view for scanning urgent and follow-up work:
+
+```bash
+# Terminal-native triage view (default)
+node packages/tui/src/cli/spore-ops.js self-build --api http://127.0.0.1:8789
+
+# Raw JSON output (use --json flag)
+node packages/tui/src/cli/spore-ops.js self-build --json --api http://127.0.0.1:8789
+
+# Drilldown into specific records without leaving the TUI
+node packages/tui/src/cli/spore-ops.js self-build --item <work-item-id> --api http://127.0.0.1:8789
+node packages/tui/src/cli/spore-ops.js self-build --proposal <proposal-id> --api http://127.0.0.1:8789
+node packages/tui/src/cli/spore-ops.js self-build --group <group-id> --api http://127.0.0.1:8789
+node packages/tui/src/cli/spore-ops.js self-build --run <work-item-run-id> --api http://127.0.0.1:8789
+node packages/tui/src/cli/spore-ops.js self-build --plan <goal-plan-id> --api http://127.0.0.1:8789
+
+# Legacy raw JSON command (still supported)
+node packages/tui/src/cli/spore-ops.js self-build-summary --api http://127.0.0.1:8789
+```
+
+The triage view displays:
+- Overview counts and status distribution
+- Urgent work queue (blocked items, failed items, proposals awaiting review/approval)
+- Follow-up work queue (pending validation, doc suggestions)
+- Recent activity timestamp
+- Next action hints for operators
+
 ## Canonical Scenario Runs
 
 Use `docs/runbooks/scenario-library.md` for the stable scenario list and preferred commands. The four canonical flows are:
@@ -250,7 +279,7 @@ npm run orchestrator:regression-rerun -- --run <run-id>
 npm run orchestrator:regression-trends -- --regression local-fast
 curl http://127.0.0.1:8789/regressions/scheduler/status | jq '.detail.profiles[] | {id, scheduleStatus, latestScheduledRun}'
 npm run orchestrator:work-item-template-list
-npm run orchestrator:work-item-template-show -- --template scenario-hardening
+npm run orchestrator:work-item-template-show -- --template operator-ui-pass
 npm run orchestrator:goal-plan-create -- --goal "Stabilize CLI verification and docs follow-up"
 npm run orchestrator:goal-plan-list
 npm run orchestrator:goal-plan-show -- --plan <goal-plan-id>
