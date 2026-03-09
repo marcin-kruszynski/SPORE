@@ -204,6 +204,28 @@ test('tui execution and family commands consume orchestrator HTTP surfaces', asy
   const selfBuildSummaryPayload = JSON.parse(selfBuildSummaryOutput.stdout);
   assert.ok(typeof selfBuildSummaryPayload.detail.counts === 'object');
 
+  // Test self-build triage command (formatted output)
+  const selfBuildTriageOutput = await runCli([
+    'self-build',
+    '--api', `http://127.0.0.1:${ORCHESTRATOR_PORT}`
+  ]);
+  assert.ok(selfBuildTriageOutput.stdout.includes('SPORE Self-Build Triage'));
+  assert.ok(selfBuildTriageOutput.stdout.includes('OVERVIEW'));
+  assert.ok(selfBuildTriageOutput.stdout.includes('URGENT WORK'));
+  assert.ok(selfBuildTriageOutput.stdout.includes('FOLLOW-UP WORK'));
+  assert.ok(selfBuildTriageOutput.stdout.includes('NEXT ACTIONS'));
+
+  // Test self-build with --json flag (JSON output)
+  const selfBuildJsonOutput = await runCli([
+    'self-build',
+    '--json',
+    '--api', `http://127.0.0.1:${ORCHESTRATOR_PORT}`
+  ]);
+  const selfBuildJsonPayload = JSON.parse(selfBuildJsonOutput.stdout);
+  assert.ok(typeof selfBuildJsonPayload.detail.counts === 'object');
+  assert.ok(Array.isArray(selfBuildJsonPayload.detail.urgentWork));
+  assert.ok(Array.isArray(selfBuildJsonPayload.detail.followUpWork));
+
   const workItemCreateOutput = await runCli([
     'work-item-create',
     '--title', 'CLI work item',
@@ -317,4 +339,52 @@ test('tui execution and family commands consume orchestrator HTTP surfaces', asy
   ]);
   const proposalApprovePayload = JSON.parse(proposalApproveOutput.stdout);
   assert.equal(proposalApprovePayload.detail.status, 'approved');
+
+  // Test self-build drilldown commands use orchestrator HTTP surfaces
+  const selfBuildItemOutput = await runCli([
+    'self-build',
+    '--item', workItemCreatePayload.detail.id,
+    '--api', `http://127.0.0.1:${ORCHESTRATOR_PORT}`
+  ]);
+  const selfBuildItemPayload = JSON.parse(selfBuildItemOutput.stdout);
+  assert.equal(selfBuildItemPayload.detail.id, workItemCreatePayload.detail.id);
+  assert.ok(Array.isArray(selfBuildItemPayload.detail.runs));
+  assert.ok(selfBuildItemPayload.detail.links);
+
+  const selfBuildProposalOutput = await runCli([
+    'self-build',
+    '--proposal', proposalWorkItemRunPayload.detail.proposal.id,
+    '--api', `http://127.0.0.1:${ORCHESTRATOR_PORT}`
+  ]);
+  const selfBuildProposalPayload = JSON.parse(selfBuildProposalOutput.stdout);
+  assert.equal(selfBuildProposalPayload.detail.id, proposalWorkItemRunPayload.detail.proposal.id);
+  assert.ok(selfBuildProposalPayload.detail.links);
+
+  const selfBuildGroupOutput = await runCli([
+    'self-build',
+    '--group', goalPlanMaterializePayload.detail.materializedGroup.id,
+    '--api', `http://127.0.0.1:${ORCHESTRATOR_PORT}`
+  ]);
+  const selfBuildGroupPayload = JSON.parse(selfBuildGroupOutput.stdout);
+  assert.equal(selfBuildGroupPayload.detail.id, goalPlanMaterializePayload.detail.materializedGroup.id);
+  assert.ok(Array.isArray(selfBuildGroupPayload.detail.items));
+  assert.ok(selfBuildGroupPayload.detail.links);
+
+  const selfBuildRunOutput = await runCli([
+    'self-build',
+    '--run', workItemRunPayload.detail.run.id,
+    '--api', `http://127.0.0.1:${ORCHESTRATOR_PORT}`
+  ]);
+  const selfBuildRunPayload = JSON.parse(selfBuildRunOutput.stdout);
+  assert.equal(selfBuildRunPayload.detail.id, workItemRunPayload.detail.run.id);
+  assert.ok(selfBuildRunPayload.detail.workItemId);
+
+  const selfBuildPlanOutput = await runCli([
+    'self-build',
+    '--plan', goalPlanCreatePayload.detail.id,
+    '--api', `http://127.0.0.1:${ORCHESTRATOR_PORT}`
+  ]);
+  const selfBuildPlanPayload = JSON.parse(selfBuildPlanOutput.stdout);
+  assert.equal(selfBuildPlanPayload.detail.id, goalPlanCreatePayload.detail.id);
+  assert.ok(selfBuildPlanPayload.detail.links);
 });
