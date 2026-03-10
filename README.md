@@ -445,11 +445,12 @@ Currently emitted events:
 
 | Surface | Port | Technology | Status |
 |---|---|---|---|
-| **TUI** | terminal | Node CLI | Implemented (dashboard + inspect) |
+| **Package CLIs** | terminal | `tsx` + npm scripts | Implemented (runtime, session, workspace, orchestrator, docs) |
+| **TUI** | terminal | Node CLI | Implemented (dashboard, history, self-build triage) |
 | **Session Gateway** | 8787 | `node:http` | Implemented (REST + SSE) |
-| **Orchestrator Service** | 8789 | `node:http` | Implemented (workflow CRUD + control) |
-| **Web Console** | 8788 | Vanilla JS SPA | Implemented (proxies to gateway + orchestrator) |
-| **CLI** | terminal | planned | Scaffold only |
+| **Orchestrator Service** | 8789 | `node:http` | Implemented (planning, governance, self-build, promotion) |
+| **Web Console** | 8788 | Vanilla JS SPA | Implemented (gateway + orchestrator operator console) |
+| **CLI App** | terminal | planned | `apps/cli/` scaffold only |
 
 ---
 
@@ -464,20 +465,21 @@ packages/
 ├── orchestrator/       Workflow planning, execution, review gates
 ├── workspace-manager/  Git worktree provisioning, inspection, cleanup
 ├── tui/                Terminal operator dashboard & session inspector
-├── core/               [scaffold] Shared orchestration contracts
-├── shared/             [scaffold] Shared utilities
-├── shared-config/      [scaffold] Shared config helpers
-├── shared-types/       [scaffold] Schema-derived types
-└── web-ui/             [scaffold] Browser operator surfaces
+├── core/               Shared orchestration helpers and repo path utilities
+├── shared-types/       Shared JSON and envelope types
+├── test-support/       Shared integration harnesses and fixtures
+├── shared/             [reserved] Future shared utilities
+├── shared-config/      [reserved] Future shared config helpers
+└── web-ui/             [reserved] Future reusable browser primitives
 
 services/
 ├── session-gateway/    HTTP API: sessions, events, artifacts, SSE, control
-├── orchestrator/       HTTP API: workflow plan, invoke, drive, review, approve
-└── indexer/            [scaffold] Future indexing service
+├── orchestrator/       HTTP API: workflow, governance, self-build, promotion
+└── indexer/            [reserved] Future indexing service
 
 apps/
 ├── web/                Browser operator console (SPA + proxy server)
-└── cli/                [scaffold] Future CLI application
+└── cli/                [reserved] Future dedicated CLI app shell
 ```
 
 ### Internal Dependency Graph
@@ -507,7 +509,7 @@ web ─────────────┬── proxies to session-gateway 
                  └── proxies to orchestrator-service (:8789)
 ```
 
-**Zero external dependencies.** The entire codebase runs on Node built-in modules (`node:fs`, `node:path`, `node:crypto`, `node:http`, `node:sqlite`, `node:child_process`, `node:stream`).
+**Dependency posture:** first-party runtime and service code stays intentionally light, leaning on Node built-ins plus the local toolchain (`tsx`, TypeScript, Biome) and the optional external `pi` CLI.
 
 ---
 
@@ -760,26 +762,27 @@ This repository is in the **bootstrap-plus-executable-foundation** phase.
 
 | Area | Status | Details |
 |---|---|---|
-| Documentation OS | **Complete** | 111 docs, manifest, indices, policies, 9 domain scaffolds |
-| Configuration | **Complete** | 21 YAML configs, 12 JSON schemas, CLI validator |
+| Documentation OS | **Working** | Canonical docs index, current-state handoff, roadmap, runbooks, ADR trail |
+| Configuration | **Working** | Profiles, workflows, projects, domains, policy packs, CLI validator |
 | Docs KB | **Working** | SQLite index, keyword + semantic search, incremental reindex |
 | Runtime PI | **Working** | Session planning, tmux launch, pi-rpc/pi-json/stub launchers |
 | Session Manager | **Working** | SQLite store, lifecycle FSM, event log, feed, reconciliation |
-| Orchestrator | **Working** | Workflow plan/invoke/drive, step-set waves, tree governance, retry/rework branching, escalation tracking, escalation resume, durable execution |
-| TUI | **Working** | Dashboard (watch mode), session inspection, tmux pane capture |
+| Orchestrator | **Working** | Workflow plan/invoke/drive, tree governance, self-build, promotion, durable execution history |
+| Workspace Manager | **Working** | Git worktree provisioning, reconcile, cleanup, snapshot-aware verification support |
+| TUI / Package CLIs | **Working** | Dashboard, execution inspection, run-center, self-build triage, package-level operator commands |
 | Session Gateway | **Working** | REST API, SSE streaming, control actions (stop/complete/steer) |
-| Web Console | **Working** | SPA over gateway + orchestrator proxies with wave timeline and family controls |
-| Reference Analysis | **Complete** | 6 repositories studied, synthesis documented |
+| Web Console | **Working** | SPA over gateway + orchestrator proxies with run-center, lineage, and self-build views |
+| Reference Analysis | **Complete** | Reference synthesis and comparative analysis documented |
 
 ### What is not yet implemented
 
 - Production orchestrator scheduler
 - Durable queueing / message broker
-- Production event transport
-- Production-grade Web UI and CLI
-- Live session streaming bridge
-- Full review automation engine
-- Domain-specific content in domain docs (all placeholder)
+- Deeper autonomous planner and scheduler quality
+- Richer validation / promotion readiness discipline
+- Stronger integration-branch diagnostics
+- Production-grade dedicated CLI app in `apps/cli/`
+- Broader autonomy over protected repo scopes
 
 ---
 
@@ -1254,18 +1257,21 @@ SPORE synthesizes concepts from six reference projects, adapting (never cloning)
 | [docs/architecture/workflow-model.md](docs/architecture/workflow-model.md) | Workflow template system |
 | [docs/architecture/event-model.md](docs/architecture/event-model.md) | Event envelope and observability |
 | [docs/architecture/config-model.md](docs/architecture/config-model.md) | Configuration split-by-concern |
-| [docs/architecture/role-model.md](docs/architecture/role-model.md) | Six abstract roles |
+| [docs/architecture/role-model.md](docs/architecture/role-model.md) | Current role hierarchy and governance boundaries |
 | [docs/architecture/knowledge-model.md](docs/architecture/knowledge-model.md) | Knowledge layer design |
 | [docs/architecture/embeddings-search.md](docs/architecture/embeddings-search.md) | Docs KB search strategy |
 | [docs/architecture/clients-and-surfaces.md](docs/architecture/clients-and-surfaces.md) | Client surface boundaries |
 | [docs/architecture/observability-model.md](docs/architecture/observability-model.md) | Observability design |
+| [docs/plans/project-state-and-direction-handoff.md](docs/plans/project-state-and-direction-handoff.md) | Current project state, maturity, and direction |
+| [docs/plans/self-build-status-and-next-steps.md](docs/plans/self-build-status-and-next-steps.md) | Tactical self-build status and next work |
+| [docs/plans/roadmap.md](docs/plans/roadmap.md) | Current roadmap and priorities |
 | [docs/decisions/ADR-0001-repo-foundation.md](docs/decisions/ADR-0001-repo-foundation.md) | ADR: Repository foundation |
 | [docs/decisions/ADR-0002-runtime-pi-first.md](docs/decisions/ADR-0002-runtime-pi-first.md) | ADR: PI-first runtime |
-| [docs/roadmap/IMPLEMENTATION_ROADMAP.md](docs/roadmap/IMPLEMENTATION_ROADMAP.md) | 13-wave implementation roadmap |
-| [docs/plans/bootstrap-completion-summary.md](docs/plans/bootstrap-completion-summary.md) | Bootstrap completion summary |
-| [docs/operations/BOOTSTRAP_STATUS.md](docs/operations/BOOTSTRAP_STATUS.md) | Current bootstrap status |
+| [docs/roadmap/IMPLEMENTATION_ROADMAP.md](docs/roadmap/IMPLEMENTATION_ROADMAP.md) | Historical bootstrap roadmap |
+| [docs/plans/bootstrap-completion-summary.md](docs/plans/bootstrap-completion-summary.md) | Historical bootstrap completion summary |
+| [docs/operations/BOOTSTRAP_STATUS.md](docs/operations/BOOTSTRAP_STATUS.md) | Historical bootstrap status snapshot |
 | [docs/runbooks/local-dev.md](docs/runbooks/local-dev.md) | Local development setup and smoke tests |
-| [docs/references/REFERENCE_SYNTHESIS.md](docs/references/REFERENCE_SYNTHESIS.md) | Reference project synthesis |
+| [docs/references/reference-synthesis.md](docs/references/reference-synthesis.md) | Reference project synthesis |
 | [AGENTS.md](AGENTS.md) | Agent work rules and governance contract |
 
 ---

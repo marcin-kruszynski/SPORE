@@ -1,18 +1,11 @@
-# Backlog
+# Historical Bootstrap Backlog
 
-## High Priority
+This file records an early bootstrap backlog from before the current executable foundation existed.
 
-- Implement docs-kb minimal index and search CLI.
-- Define first stable session and event schemas.
-- Build config loader/validator from `config/` and `schemas/`.
+Most items originally tracked here are complete or superseded.
 
-## Medium Priority
+Do not use this file as the current SPORE backlog. Use:
 
-- Build runtime-pi adapter scaffolding.
-- Implement reference sync script automation.
-- Add docs index consistency checker.
-
-## Low Priority
-
-- Prototype web dashboard wireframes.
-- Add quality scorecards for workflow health.
+- `docs/plans/self-build-status-and-next-steps.md`
+- `docs/plans/roadmap.md`
+- `docs/plans/long-range-self-build-roadmap.md`

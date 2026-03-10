@@ -69,4 +69,4 @@ orchestrator
 - Workspace rules stay stricter because the coordinator remains outside normal mutation worktrees.
 - Future project-scoped roles such as an `integrator` promotion lane have a natural parent boundary under the coordinator.
 
-This ADR is implemented in planning form by `docs/plans/project-coordinator-role-plan.md`. If accepted, the next implementation slice should follow that plan and add the matching profile, prompt, config, schema, planner, execution, workspace guardrail, and operator-surface changes.
+This ADR has since been implemented. `docs/plans/project-coordinator-role-plan.md` remains as historical implementation context, while the current ground truth now lives in `docs/architecture/role-model.md`, `docs/architecture/workflow-model.md`, and the active orchestrator/operator surfaces.

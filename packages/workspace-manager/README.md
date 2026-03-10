@@ -32,11 +32,11 @@ Branch names default to:
 ## CLI
 
 ```bash
-node packages/workspace-manager/src/cli/spore-workspace.js list
-node packages/workspace-manager/src/cli/spore-workspace.js create --id ws-001 --project spore --owner-type work-item-run --owner-id work-item-run-001 --scope docs,config
-node packages/workspace-manager/src/cli/spore-workspace.js show --path .spore/worktrees/spore/ws-001
-node packages/workspace-manager/src/cli/spore-workspace.js reconcile --id ws-001 --path .spore/worktrees/spore/ws-001 --branch spore/spore/work-item-run/work-item-run-001
-node packages/workspace-manager/src/cli/spore-workspace.js cleanup --path .spore/worktrees/spore/ws-001 --force
+npm run workspace:list
+npx tsx packages/workspace-manager/src/cli/spore-workspace.ts create --id ws-001 --project spore --owner-type work-item-run --owner-id work-item-run-001 --scope docs,config
+npx tsx packages/workspace-manager/src/cli/spore-workspace.ts show --path .spore/worktrees/spore/ws-001
+npx tsx packages/workspace-manager/src/cli/spore-workspace.ts reconcile --id ws-001 --path .spore/worktrees/spore/ws-001 --branch spore/spore/work-item-run/work-item-run-001
+npx tsx packages/workspace-manager/src/cli/spore-workspace.ts cleanup --path .spore/worktrees/spore/ws-001 --force
 ```
 
 ## Integration Boundary

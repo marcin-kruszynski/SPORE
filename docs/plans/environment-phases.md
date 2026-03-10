@@ -1,25 +1,7 @@
-# Environment Phases
+# Historical Bootstrap Phases
 
-## Phase 0
+This file describes the old bootstrap phase model that preceded the current executable SPORE foundation.
 
-Foundation skeleton and references.
+Keep it only as implementation history.
 
-## Phase 1
-
-Architecture and research baselines.
-
-## Phase 2
-
-Configuration and template system.
-
-## Phase 3
-
-Knowledge infrastructure and docsearch.
-
-## Phase 4
-
-Future runtime/session/client planning.
-
-## Phase 5
-
-Audit, readiness, and implementation handoff.
+Use `docs/plans/roadmap.md` and the self-build planning docs for the current stage.

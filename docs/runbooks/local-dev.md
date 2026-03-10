@@ -18,7 +18,7 @@ Required tools:
 
 1. Clone repository.
 2. Review `README.md`, `AGENTS.md`, and `docs/INDEX.md`.
-3. Inspect `docs/plans/bootstrap-completion-summary.md`.
+3. Inspect `docs/plans/project-state-and-direction-handoff.md`, `docs/plans/self-build-status-and-next-steps.md`, and `docs/plans/roadmap.md`.
 4. Install `pi` if needed:
 
 ```bash
@@ -47,7 +47,7 @@ export SPORE_SESSION_DB_PATH=/tmp/spore-sessions.sqlite
 export SPORE_EVENT_LOG_PATH=/tmp/spore-events.ndjson
 ```
 
-6. Follow roadmap in `docs/roadmap/IMPLEMENTATION_ROADMAP.md`.
+6. Follow `docs/plans/roadmap.md` for current direction. Use `docs/roadmap/IMPLEMENTATION_ROADMAP.md` only as historical bootstrap context.
 7. Prefer named flows from `docs/runbooks/scenario-library.md` for local validation.
 
 ## Environment Verification
@@ -326,7 +326,7 @@ npx tsx packages/tui/src/cli/spore-ops.ts self-build-policy-recommendations --ap
 npx tsx packages/tui/src/cli/spore-ops.ts self-build-policy-recommendation-show --recommendation <id> --api http://127.0.0.1:8789
 npx tsx packages/tui/src/cli/spore-ops.ts self-build-override-show --override <id> --api http://127.0.0.1:8789
 
-`npm run test:http` and `npm run test:tui` now use shared teardown plus `--test-force-exit` as a guardrail. If either suite hangs again, treat that as a harness regression rather than expected behavior and fix the teardown path instead of normalizing the hang.
+`npm run test:http` and `npm run test:tui` should exit cleanly using the shared teardown helpers. If either suite hangs again, treat that as a harness regression rather than expected behavior and fix the teardown path instead of normalizing the hang.
 ```
 
 The triage view displays:

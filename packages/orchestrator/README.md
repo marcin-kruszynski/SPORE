@@ -1,6 +1,6 @@
 # `packages/orchestrator`
 
-This package now owns the first workflow-planning and workflow-invocation slice for SPORE.
+This package owns SPORE's workflow planning, durable execution, governance, and self-build orchestration core.
 
 ## Current Capability
 
@@ -148,93 +148,55 @@ Recommended interpretation:
 
 ## Run
 
+Common workflows are exposed as root npm aliases:
+
 ```bash
 npm run orchestrator:plan -- --domain backend --roles lead
-npm run orchestrator:plan -- --domain backend --max-roles 4
 npm run orchestrator:invoke -- --domain backend --roles lead --objective "Validate runtime wiring"
-npm run orchestrator:fork -- --execution branch-review-001 --roles lead,reviewer --objective "Run child branch"
-npm run orchestrator:tree -- --execution branch-review-001
 npm run orchestrator:drive -- --execution e2e-review-001 --wait
-npm run orchestrator:drive-group -- --group branch-review-001 --wait
 npm run orchestrator:drive-tree -- --execution branch-review-001 --wait
 npm run orchestrator:pause -- --execution branch-review-001 --reason "Operator pause"
-npm run orchestrator:pause-tree -- --execution branch-review-001 --reason "Pause whole family"
 npm run orchestrator:hold -- --execution branch-review-001 --reason "Waiting for grouped work"
-npm run orchestrator:hold-tree -- --execution branch-review-001 --reason "Hold whole family"
 npm run orchestrator:resume -- --execution branch-review-001 --comments "Resume after coordination barrier"
-npm run orchestrator:resume-tree -- --execution branch-review-001 --comments "Resume whole family"
-npm run orchestrator:spawn-branches -- --execution branch-review-001 --branches-json '[{"roles":["builder","tester"]},{"roles":["scout","reviewer"]}]'
 npm run orchestrator:review -- --execution e2e-review-001 --status approved
 npm run orchestrator:approve -- --execution e2e-review-001 --status approved
-npm run orchestrator:review-tree -- --execution branch-review-001 --status approved
-npm run orchestrator:approve-tree -- --execution branch-review-001 --status approved
-npm run orchestrator:resolve-escalation -- --execution branch-review-001 --escalation <id> --resume
-npm run orchestrator:history -- --execution branch-review-001
 npm run orchestrator:scenario-list
 npm run orchestrator:scenario-run -- --scenario cli-verification-pass --stub
-npm run orchestrator:scenario-run-show -- --run <run-id>
-npm run orchestrator:scenario-run-artifacts -- --run <run-id>
-npm run orchestrator:scenario-rerun -- --run <run-id>
-npm run orchestrator:scenario-trends -- --scenario backend-service-delivery
-npm run orchestrator:run-center
-npm run orchestrator:self-build-summary
-npm run orchestrator:self-build-dashboard
 npm run orchestrator:regression-run -- --regression local-fast --stub
-npm run orchestrator:regression-run-show -- --run <run-id>
-npm run orchestrator:regression-report -- --run <run-id>
-npm run orchestrator:regression-latest-report -- --regression local-fast
-npm run orchestrator:regression-rerun -- --run <run-id>
-npm run orchestrator:regression-trends -- --regression local-fast
-npm run orchestrator:work-item-template-list
-npm run orchestrator:work-item-template-show -- --template operator-ui-pass
 npm run orchestrator:goal-plan-create -- --goal "Stabilize CLI verification and proposal quality"
 npm run orchestrator:goal-plan-list
 npm run orchestrator:goal-plan-show -- --plan <goal-plan-id>
-npm run orchestrator:goal-plan-history -- --plan <goal-plan-id>
-npm run orchestrator:goal-plan-edit -- --plan <goal-plan-id> --file <edited-plan.json>
 npm run orchestrator:goal-plan-materialize -- --plan <goal-plan-id>
-npm run orchestrator:work-item-group-list
-npm run orchestrator:work-item-group-show -- --group <group-id>
-npm run orchestrator:work-item-group-run -- --group <group-id> --stub
-npm run orchestrator:work-item-group-retry-downstream -- --group <group-id> --reason "Retry blocked downstream items"
-npm run orchestrator:work-item-group-validate-bundle -- --group <group-id> --bundle proposal-ready-fast --stub
-npm run orchestrator:work-item-create -- --template operator-ui-pass
-npm run orchestrator:work-item-list
-npm run orchestrator:work-item-show -- --item <work-item-id>
-npm run orchestrator:work-item-runs -- --item <work-item-id>
-npm run orchestrator:work-item-run -- --item <work-item-id> --stub
-npm run orchestrator:work-item-run-show -- --run <work-item-run-id>
 npm run orchestrator:work-item-run-rerun -- --run <work-item-run-id>
-npm run orchestrator:workspace-show -- --run <work-item-run-id>
 npm run orchestrator:workspace-reconcile -- --workspace <workspace-id>
 npm run orchestrator:workspace-cleanup -- --workspace <workspace-id> --force
 npm run orchestrator:execution-workspaces -- --execution <execution-id>
 npm run orchestrator:work-item-validate -- --run <work-item-run-id> --stub
-npm run orchestrator:work-item-validate-bundle -- --run <work-item-run-id> --bundle proposal-ready-fast --stub
 npm run orchestrator:work-item-doc-suggestions -- --run <work-item-run-id>
 npm run orchestrator:proposal-show -- --run <work-item-run-id>
 npm run orchestrator:proposal-review-package -- --proposal <proposal-id>
 npm run orchestrator:proposal-review -- --proposal <proposal-id> --status reviewed
 npm run orchestrator:proposal-approve -- --proposal <proposal-id> --status approved
-npm run orchestrator:self-build-decisions -- --limit 20
-npm run orchestrator:self-build-quarantine -- --status active
-npm run orchestrator:self-build-rollback -- --limit 20
-npm run orchestrator:goal-plan-quarantine -- --plan <goal-plan-id> --reason "Unsafe autonomous plan"
-npm run orchestrator:integration-branch-rollback -- --name <branch-name> --reason "Rollback integration candidate"
-npm run orchestrator:integration-branch-list
-npm run orchestrator:integration-branch-show -- --branch <branch-name>
-npm run orchestrator:self-build-loop-status
-npm run orchestrator:self-build-loop-start -- --mode supervised
-npm run orchestrator:self-build-loop-stop -- --reason "Stop after one iteration"
 npm run orchestrator:project-plan -- --project config/projects/example-project.yaml --domains backend,frontend
 npm run orchestrator:project-invoke -- --project config/projects/example-project.yaml --domains backend,frontend --objective "Coordinate backend and frontend work for one project." --wait --stub
 npm run orchestrator:promotion-plan -- --execution <coordinator-root-execution-id> --target-branch main
 npm run orchestrator:promotion-invoke -- --execution <coordinator-root-execution-id> --target-branch main --wait --stub
 ```
 
+The full CLI surface is broader than the root npm alias list. For subcommands without a dedicated alias, invoke the package CLI directly:
+
+```bash
+npx tsx packages/orchestrator/src/cli/spore-orchestrator.ts history --execution <execution-id>
+npx tsx packages/orchestrator/src/cli/spore-orchestrator.ts goal-plan-history --plan <goal-plan-id>
+npx tsx packages/orchestrator/src/cli/spore-orchestrator.ts goal-plan-edit --plan <goal-plan-id> --recommendations-json '[...]'
+npx tsx packages/orchestrator/src/cli/spore-orchestrator.ts work-item-group-show --group <group-id>
+npx tsx packages/orchestrator/src/cli/spore-orchestrator.ts integration-branch-list
+npx tsx packages/orchestrator/src/cli/spore-orchestrator.ts self-build-decisions --limit 20
+```
+
 Planning without `--roles` is the easiest way to inspect domain-policy defaults in the returned `effectivePolicy` and `launches[]`.
 
-This is still a narrow bootstrap slice, not the final orchestrator policy engine. The current model is intentionally durable-first: group membership, lineage, pause/hold state, and recovery history should live in orchestrator state rather than only in runtime artifacts.
+This is the active orchestration core, not just a bootstrap stub. The current model remains intentionally durable-first: group membership, lineage, pause/hold state, and recovery history should live in orchestrator state rather than only in runtime artifacts.
 
 Coordinator and integrator flows are additive surfaces:
 

@@ -68,4 +68,4 @@ orchestrator
 - Workspace and cleanup logic must preserve integration workspaces while promotion is blocked or awaiting approval.
 - Existing domain workflow behavior should remain backward compatible because `integrator` is added as an explicit project-level lane rather than prepended to existing role sequences.
 
-This ADR is implemented in planning form by `docs/plans/feature-integrator-role-plan.md`. If accepted, the next implementation slice should follow that plan and add the matching config, schema, planner, execution, workspace, and operator-surface changes.
+This ADR has since been implemented. `docs/plans/feature-integrator-role-plan.md` remains as historical implementation context, while the current ground truth now lives in `docs/architecture/role-model.md`, `docs/architecture/workflow-model.md`, and the active orchestrator/operator surfaces.

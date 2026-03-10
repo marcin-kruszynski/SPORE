@@ -13,10 +13,13 @@ This package now owns the first executable session metadata layer for SPORE.
 ## Run
 
 ```bash
-node packages/session-manager/src/cli/session-manager.js list
-node packages/session-manager/src/cli/session-manager.js status
-node packages/session-manager/src/cli/session-manager.js events --session lead-session-002
-node packages/session-manager/src/cli/session-manager.js feed --type session.completed --pretty
-node packages/session-manager/src/cli/session-manager.js reconcile --pretty
-node packages/session-manager/src/cli/session-manager.js reconcile --watch --stop-on-settled --session builder-live-001 --pretty
+npm run session:list
+npm run session:status
+npm run session:events -- --session lead-session-002
+npm run session:feed -- --type session.completed
+npm run session:reconcile
+npm run session:reconcile:watch
+
+# Full CLI surface when you need flags not covered by the root aliases
+npx tsx packages/session-manager/src/cli/session-manager.ts reconcile --watch --stop-on-settled --session builder-live-001 --pretty
 ```

@@ -27,10 +27,10 @@ The current implementation indexes Markdown and QMD from `docs/`, chunks them de
 From the repository root:
 
 ```bash
-npm run docs-kb -- index
+npm run docs-kb:index
 npm run docs-kb -- search "session model"
-npm run docs-kb -- status
-npm run docs-kb -- rebuild
+npm run docs-kb:status
+npm run docs-kb:rebuild
 ```
 
 ## Next Step

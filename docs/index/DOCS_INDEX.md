@@ -1,113 +1,135 @@
 # SPORE Docs Operating Index
 
-## What Exists
+This file is the broader inventory view over `docs/`. It separates active ground-truth docs from historical notes, supplemental references, and compatibility stubs.
+
+## Canonical Current Docs
+
+### State, Direction, And Planning
+
+- `docs/plans/project-state-and-direction-handoff.md`
+- `docs/plans/self-build-status-and-next-steps.md`
+- `docs/plans/roadmap.md`
+- `docs/plans/long-range-self-build-roadmap.md`
+- `docs/plans/full-self-build-implementation-plan.md`
 
 ### Vision
+
 - `docs/vision/product-vision.md`
 - `docs/vision/principles.md`
 - `docs/vision/glossary.md`
 
 ### Architecture
+
 - `docs/architecture/system-overview.md`
 - `docs/architecture/role-model.md`
+- `docs/architecture/workflow-model.md`
 - `docs/architecture/runtime-model.md`
 - `docs/architecture/session-model.md`
+- `docs/architecture/clients-and-surfaces.md`
 - `docs/architecture/config-model.md`
-- `docs/architecture/workflow-model.md`
-- `docs/architecture/ui-model.md`
+- `docs/architecture/event-model.md`
+- `docs/architecture/observability-model.md`
 - `docs/architecture/knowledge-model.md`
 - `docs/architecture/embeddings-search.md`
-- `docs/architecture/EVENT_MODEL.md`
-- `docs/architecture/OBSERVABILITY_MODEL.md`
-- `docs/architecture/CLIENTS_AND_SURFACES.md`
-- `docs/architecture/PI_INTEGRATION_STRATEGY.md`
-- `docs/architecture/COMPARATIVE_ANALYSIS.md`
 
-### Planning and Governance
-- `docs/plans/roadmap.md`
-- `docs/plans/environment-phases.md`
-- `docs/plans/implementation-waves.md`
-- `docs/plans/backlog.md`
-- `docs/plans/bootstrap-completion-summary.md`
-- `docs/plans/self-build-status-and-next-steps.md`
-- `docs/plans/builder-tester-verification-workspaces.md`
-- `docs/plans/long-range-self-build-roadmap.md`
-- `docs/plans/full-self-build-implementation-plan.md`
-- `docs/plans/project-coordinator-role-plan.md`
-- `docs/plans/feature-integrator-role-plan.md`
-- `docs/plans/javascript-to-typescript-migration-plan.md`
-- `docs/roadmap/IMPLEMENTATION_ROADMAP.md`
-- `docs/operations/WORKSPACE_OPERATING_MODEL.md`
-- `docs/operations/BOOTSTRAP_STATUS.md`
-- `docs/operations/DOC_UPDATE_POLICY.md`
-- `docs/operations/KNOWLEDGE_CLASSIFICATION.md`
-- `docs/operations/DECISION_POLICY.md`
-- `docs/operations/SESSION_NOTES_POLICY.md`
+### Runbooks And Operations
+
+- `docs/runbooks/local-dev.md`
+- `docs/runbooks/scenario-library.md`
+- `docs/runbooks/documentation-maintenance.md`
+- `docs/operations/workspace-operating-model.md`
+
+### Specs
+
+- `docs/specs/worktree-and-workspace-isolation.md`
 
 ### Decisions
+
 - `docs/decisions/ADR-0001-project-scope.md`
 - `docs/decisions/ADR-0001-repo-foundation.md`
 - `docs/decisions/ADR-0002-runtime-pi-first.md`
-- `docs/decisions/ADR-0003-documentation-governance.md`
-- `docs/decisions/ADR-0004-docs-adr-pass-process.md`
 - `docs/decisions/ADR-0005-builder-tester-verification-workspaces.md`
 - `docs/decisions/ADR-0006-project-coordinator-role.md`
 - `docs/decisions/ADR-0007-feature-integrator-promotion-boundary.md`
 - `docs/decisions/ADR-0008-typescript-first-codebase.md`
+
+### References And Research
+
+- `docs/references/reference-synthesis.md`
+- `docs/architecture/comparative-analysis.md`
+- `docs/research/agent-to-agent-communication.md`
+- `docs/research/open-questions.md`
+
+## Historical But Kept
+
+These files remain useful as milestone records or implementation archaeology, but they are not the primary description of current SPORE behavior.
+
+- `docs/plans/bootstrap-completion-summary.md`
+- `docs/operations/BOOTSTRAP_STATUS.md`
+- `docs/roadmap/IMPLEMENTATION_ROADMAP.md`
+- `docs/plans/backlog.md`
+- `docs/plans/environment-phases.md`
+- `docs/plans/implementation-waves.md`
+- `docs/plans/builder-tester-verification-workspaces.md`
+- `docs/plans/project-coordinator-role-plan.md`
+- `docs/plans/feature-integrator-role-plan.md`
+- `docs/plans/javascript-to-typescript-migration-plan.md`
+- `docs/decisions/ADR-0011-docs-adr-pass-1773113810406.md`
+
+## Supplemental Notes
+
+These documents may still contain useful context, but they should not be read before the canonical docs above when establishing current project truth.
+
+- `docs/architecture/pi-integration-strategy.md`
+- `docs/architecture/boundaries-and-modules.md`
+- `docs/architecture/interfaces-overview.md`
+- `docs/architecture/ui-model.md`
+- `docs/specs/bootstrap-architect-instruction.md`
+- `docs/specs/docs-search-tool.md`
+- `docs/specs/environment-bootstrap.md`
+- `docs/decisions/ADR-0003-documentation-governance.md`
+- `docs/decisions/ADR-0004-docs-adr-pass-process.md`
 - `docs/decisions/ADR-0009-docs-adr-pass-open-question-handoff.md`
 - `docs/decisions/ADR-0010-docs-adr-pass-output-governance.md`
-- `docs/decisions/adr-template.md`
-
-### Specs
-- `docs/specs/spec-template.md`
-- `docs/specs/environment-bootstrap.md`
-- `docs/specs/docs-search-tool.md`
-- `docs/specs/bootstrap-architect-instruction.md`
-- `docs/specs/worktree-and-workspace-isolation.md`
-
-### References and Research
-- `references/README.md`
-- `references/REFERENCE_MANIFEST.md`
-- `docs/references/REFERENCE_SYNTHESIS.md`
 - `docs/research/overstory-notes.md`
 - `docs/research/gastown-notes.md`
-- `docs/research/pi-notes.md`
-- `docs/research/beads-notes.md`
 - `docs/research/mulch-notes.md`
+- `docs/research/beads-notes.md`
+- `docs/research/pi-notes.md`
 - `docs/research/agentic-engineering-notes.md`
-- `docs/research/agent-to-agent-communication.md`
+
+## Compatibility Stubs
+
+The following uppercase paths exist only to preserve older links. They should point to lowercase canonical files and should not accumulate separate content.
+
+- `docs/vision/PROJECT_VISION.md`
+- `docs/architecture/SYSTEM_OVERVIEW.md`
+- `docs/architecture/SESSION_MODEL.md`
+- `docs/architecture/CLIENTS_AND_SURFACES.md`
+- `docs/architecture/BOUNDARIES_AND_MODULES.md`
+- `docs/architecture/EVENT_MODEL.md`
+- `docs/architecture/INTERFACES_OVERVIEW.md`
+- `docs/architecture/OBSERVABILITY_MODEL.md`
+- `docs/architecture/COMPARATIVE_ANALYSIS.md`
+- `docs/architecture/PI_INTEGRATION_STRATEGY.md`
+- `docs/operations/WORKSPACE_OPERATING_MODEL.md`
+- `docs/references/REFERENCE_SYNTHESIS.md`
 - `docs/research/OPEN_QUESTIONS.md`
 
-### Domains
-- `docs/domains/frontend/`
-- `docs/domains/backend/`
-- `docs/domains/infra/`
-- `docs/domains/agent-runtime/`
-- `docs/domains/session-ui/`
-- `docs/domains/knowledge/`
-- `docs/domains/orchestration/`
-- plus architecture shorthand domains under `docs/domains/cli/` and `docs/domains/shared/`
+## Intentionally Removed Placeholder Areas
 
-## What Is Missing
+The old placeholder narrative docs under `docs/domains/`, `docs/profiles/`, `docs/sessions/`, and `docs/workflows/` were generic scaffolding and are no longer treated as current documentation.
 
-- Production runtime implementation.
-- Real event bus and session broker.
-- Write-side control API for live sessions.
-- Operationally complete Web UI surface.
-- Long-running PI session steering and richer event transport.
+Use these sources instead:
 
-## What Is Planned
+- `config/domains/*.yaml`
+- `config/profiles/*.yaml`
+- `config/workflows/*.yaml`
+- `docs/architecture/*.md`
+- `docs/runbooks/*.md`
 
-- Phase-driven execution in `docs/roadmap/IMPLEMENTATION_ROADMAP.md`.
-- Long-range supervised self-build execution in `docs/plans/long-range-self-build-roadmap.md`.
-- Full implementation sequencing for self-build in `docs/plans/full-self-build-implementation-plan.md`.
-- Knowledge retrieval foundation from `tools/docsearch/` and `packages/docs-kb/`.
-- PI-first runtime adapter strategy from `docs/architecture/PI_INTEGRATION_STRATEGY.md`.
-- Gateway-backed clients and richer runtime control paths.
+## Notes
 
-## Current Coordination Boundary
-
-- project-root coordination is now modeled explicitly as `orchestrator -> coordinator -> lead`
-- explicit promotion is now modeled as `coordinator -> integrator`
-- legacy domain workflow plan/invoke paths remain valid and unchanged
-- proposal approval is not treated as merge to the target branch
+- `docs/INDEX.md` is the human-first entrypoint.
+- `docs/index/docs_manifest.yaml` tracks the docs intentionally surfaced from `docs/INDEX.md`.
+- Early bootstrap history contains two accepted `ADR-0001` files; preserve both and do not reuse the number.

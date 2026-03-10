@@ -2,7 +2,9 @@
 
 ## Status
 
-Detailed implementation plan for the next agent.
+Historical implementation plan.
+
+The integrator promotion lane is now implemented. Use `docs/architecture/role-model.md`, `docs/architecture/workflow-model.md`, `docs/decisions/ADR-0007-feature-integrator-promotion-boundary.md`, and `docs/plans/project-state-and-direction-handoff.md` as current ground truth.
 
 ## Intent
 

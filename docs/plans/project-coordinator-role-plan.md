@@ -2,7 +2,9 @@
 
 ## Status
 
-Detailed implementation plan for the next agent.
+Historical implementation plan.
+
+The coordinator lane is now implemented. Use `docs/architecture/role-model.md`, `docs/architecture/workflow-model.md`, `docs/decisions/ADR-0006-project-coordinator-role.md`, and `docs/plans/project-state-and-direction-handoff.md` as current ground truth.
 
 ## Intent
 

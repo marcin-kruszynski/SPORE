@@ -1,3 +1,5 @@
 # `packages/shared-config`
 
-Future home of shared configuration helpers, defaults, and cross-package config conventions.
+Reserved package boundary for future shared configuration helpers and conventions.
+
+Current config source of truth lives under `config/` plus `packages/config-schema/`.

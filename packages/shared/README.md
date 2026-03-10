@@ -1,3 +1,5 @@
 # `packages/shared`
 
-Future home of shared utilities and helpers that do not justify their own package boundary.
+Reserved package boundary for future shared utilities that do not belong in `packages/core/` or `packages/shared-types/`.
+
+It is not part of the active SPORE product surface today.

@@ -1,5 +1,13 @@
-# Implementation Waves
+# Historical Wave Template
 
-For each phase, execute waves with objective, inputs, outputs, dependencies, risks, checklist, and definition of done.
+This file records the old bootstrap-era wave template.
 
-See expanded version in `docs/roadmap/IMPLEMENTATION_ROADMAP.md`.
+The template is still directionally useful, but it is not the current plan.
+
+Use:
+
+- `docs/plans/roadmap.md`
+- `docs/plans/self-build-status-and-next-steps.md`
+- `docs/plans/full-self-build-implementation-plan.md`
+
+for current sequencing.

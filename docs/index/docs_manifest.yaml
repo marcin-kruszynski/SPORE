@@ -1,251 +1,337 @@
-version: 1
+version: 2
 updated_at: 2026-03-10
-owner: bootstrap-agent
+owner: documentation-steward
+scope: canonical-docs-only
+notes:
+  - Tracks documents intentionally surfaced from docs/INDEX.md.
+  - Compatibility stubs and removed placeholder areas are excluded.
 documents:
   - id: docs-index
     type: index
     domain: shared
     status: active
-    owner: bootstrap-agent
+    owner: documentation-steward
     tags: [navigation, canonical]
     path: docs/INDEX.md
   - id: docs-operating-index
     type: index
     domain: shared
     status: active
-    owner: bootstrap-agent
-    tags: [navigation, operating-system]
+    owner: documentation-steward
+    tags: [inventory, navigation]
     path: docs/index/DOCS_INDEX.md
   - id: product-vision
     type: vision
-    domain: orchestration
+    domain: shared
     status: active
-    owner: future-architect
-    tags: [vision, mission]
+    owner: architecture-council
+    tags: [vision, product, direction]
     path: docs/vision/product-vision.md
-  - id: architecture-overview
-    type: architecture
-    domain: orchestration
+  - id: glossary
+    type: vision
+    domain: shared
     status: active
-    owner: future-architect
-    tags: [architecture, module-boundaries]
+    owner: architecture-council
+    tags: [glossary, vocabulary]
+    path: docs/vision/glossary.md
+  - id: principles
+    type: vision
+    domain: shared
+    status: active
+    owner: architecture-council
+    tags: [principles, operating-model]
+    path: docs/vision/principles.md
+  - id: system-overview
+    type: architecture
+    domain: shared
+    status: active
+    owner: architecture-council
+    tags: [architecture, layers, package-map]
     path: docs/architecture/system-overview.md
-  - id: runtime-model
-    type: architecture
-    domain: agent-runtime
-    status: active
-    owner: future-runtime-architect
-    tags: [pi-first, runtime]
-    path: docs/architecture/runtime-model.md
-  - id: session-model
-    type: architecture
-    domain: session-ui
-    status: active
-    owner: future-session-architect
-    tags: [sessions, inspectability, tmux]
-    path: docs/architecture/session-model.md
-  - id: config-model
-    type: architecture
-    domain: shared
-    status: active
-    owner: bootstrap-agent
-    tags: [configuration, profiles, workflows]
-    path: docs/architecture/config-model.md
-  - id: embeddings-search
-    type: architecture
-    domain: knowledge
-    status: active
-    owner: bootstrap-agent
-    tags: [kb, embeddings, local-first]
-    path: docs/architecture/embeddings-search.md
-  - id: comparative-analysis
-    type: architecture
-    domain: shared
-    status: active
-    owner: bootstrap-agent
-    tags: [comparison, references, architecture]
-    path: docs/architecture/comparative-analysis.md
-  - id: reference-synthesis
-    type: synthesis
-    domain: shared
-    status: active
-    owner: bootstrap-agent
-    tags: [references, research, synthesis]
-    path: docs/references/reference-synthesis.md
-  - id: bootstrap-instruction
-    type: spec
-    domain: shared
-    status: active
-    owner: bootstrap-agent
-    tags: [bootstrap, scope, instruction]
-    path: docs/specs/bootstrap-architect-instruction.md
-  - id: adr-scope
-    type: decision
-    domain: shared
-    status: accepted
-    owner: architecture-council
-    tags: [scope, boundary]
-    path: docs/decisions/ADR-0001-project-scope.md
-  - id: adr-runtime
-    type: decision
-    domain: agent-runtime
-    status: accepted
-    owner: architecture-council
-    tags: [pi-first, runtime]
-    path: docs/decisions/ADR-0002-runtime-pi-first.md
-  - id: adr-builder-tester-verification-workspaces
-    type: decision
-    domain: shared
-    status: accepted
-    owner: architecture-council
-    tags: [workspace, builder, tester, verification, worktree]
-    path: docs/decisions/ADR-0005-builder-tester-verification-workspaces.md
-  - id: adr-project-coordinator-role
-    type: decision
-    domain: orchestration
-    status: accepted
-    owner: architecture-council
-    tags: [coordinator, project, roles, orchestration, workflow]
-    path: docs/decisions/ADR-0006-project-coordinator-role.md
-  - id: adr-feature-integrator-promotion-boundary
-    type: decision
-    domain: orchestration
-    status: accepted
-    owner: architecture-council
-    tags: [integrator, promotion, merge, coordinator, workflow]
-    path: docs/decisions/ADR-0007-feature-integrator-promotion-boundary.md
   - id: role-model
     type: architecture
     domain: orchestration
     status: active
     owner: architecture-council
-    tags: [roles, coordinator, integrator, topology]
+    tags: [roles, coordinator, integrator]
     path: docs/architecture/role-model.md
   - id: workflow-model
     type: architecture
     domain: orchestration
     status: active
     owner: architecture-council
-    tags: [workflow, promotion, project-root, execution-family]
+    tags: [workflow, execution, promotion]
     path: docs/architecture/workflow-model.md
+  - id: runtime-model
+    type: architecture
+    domain: agent-runtime
+    status: active
+    owner: architecture-council
+    tags: [runtime, pi-first, launch]
+    path: docs/architecture/runtime-model.md
+  - id: session-model
+    type: architecture
+    domain: session-ui
+    status: active
+    owner: architecture-council
+    tags: [session, gateway, inspectability]
+    path: docs/architecture/session-model.md
   - id: clients-and-surfaces
     type: architecture
     domain: shared
     status: active
     owner: architecture-council
-    tags: [clients, surfaces, api, tui, web]
+    tags: [web, tui, cli, http]
     path: docs/architecture/clients-and-surfaces.md
+  - id: config-model
+    type: architecture
+    domain: shared
+    status: active
+    owner: architecture-council
+    tags: [config, policy, workflows]
+    path: docs/architecture/config-model.md
+  - id: event-model
+    type: architecture
+    domain: shared
+    status: active
+    owner: architecture-council
+    tags: [events, execution, observability]
+    path: docs/architecture/event-model.md
+  - id: observability-model
+    type: architecture
+    domain: shared
+    status: active
+    owner: architecture-council
+    tags: [observability, telemetry, operator]
+    path: docs/architecture/observability-model.md
+  - id: knowledge-model
+    type: architecture
+    domain: knowledge
+    status: active
+    owner: architecture-council
+    tags: [knowledge, docs, retrieval]
+    path: docs/architecture/knowledge-model.md
+  - id: embeddings-search
+    type: architecture
+    domain: knowledge
+    status: active
+    owner: architecture-council
+    tags: [docs-kb, embeddings, search]
+    path: docs/architecture/embeddings-search.md
+  - id: reference-synthesis
+    type: synthesis
+    domain: shared
+    status: active
+    owner: documentation-steward
+    tags: [references, synthesis]
+    path: docs/references/reference-synthesis.md
+  - id: comparative-analysis
+    type: architecture
+    domain: shared
+    status: active
+    owner: documentation-steward
+    tags: [references, comparison]
+    path: docs/architecture/comparative-analysis.md
+  - id: open-questions
+    type: research
+    domain: shared
+    status: active
+    owner: documentation-steward
+    tags: [open-questions, backlog, research]
+    path: docs/research/open-questions.md
+  - id: agent-to-agent-communication
+    type: research
+    domain: orchestration
+    status: active
+    owner: documentation-steward
+    tags: [coordination, research, messaging]
+    path: docs/research/agent-to-agent-communication.md
+  - id: worktree-workspace-isolation
+    type: spec
+    domain: shared
+    status: active
+    owner: architecture-council
+    tags: [workspace, worktree, isolation]
+    path: docs/specs/worktree-and-workspace-isolation.md
   - id: local-dev-runbook
     type: runbook
     domain: shared
     status: active
-    owner: bootstrap-agent
-    tags: [local-dev, smoke-test, runtime]
+    owner: documentation-steward
+    tags: [local-dev, verification]
     path: docs/runbooks/local-dev.md
-  - id: adr-typescript-first-codebase
-    type: decision
+  - id: scenario-library
+    type: runbook
     domain: shared
-    status: accepted
-    owner: architecture-council
-    tags: [typescript, javascript, modernization, package-boundaries, runtime, generated-output]
-    path: docs/decisions/ADR-0008-typescript-first-codebase.md
-  - id: adr-docs-adr-pass-open-question-handoff
-    type: decision
+    status: active
+    owner: documentation-steward
+    tags: [scenarios, regressions, validation]
+    path: docs/runbooks/scenario-library.md
+  - id: documentation-maintenance
+    type: runbook
     domain: shared
-    status: accepted
-    owner: architecture-council
-    tags: [docs, adr, governance, open-questions, handoff]
-    path: docs/decisions/ADR-0009-docs-adr-pass-open-question-handoff.md
-  - id: adr-docs-adr-pass-output-governance
-    type: decision
+    status: active
+    owner: documentation-steward
+    tags: [docs, maintenance, hygiene]
+    path: docs/runbooks/documentation-maintenance.md
+  - id: workspace-operating-model
+    type: operations
     domain: shared
-    status: accepted
+    status: active
+    owner: documentation-steward
+    tags: [workspace, operating-model]
+    path: docs/operations/workspace-operating-model.md
+  - id: project-state-direction-handoff
+    type: status
+    domain: shared
+    status: active
     owner: architecture-council
-    tags: [docs, adr, governance, pass-output, indexing]
-    path: docs/decisions/ADR-0010-docs-adr-pass-output-governance.md
-  - id: implementation-roadmap
+    tags: [current-state, handoff, direction]
+    path: docs/plans/project-state-and-direction-handoff.md
+  - id: self-build-status
+    type: status
+    domain: shared
+    status: active
+    owner: architecture-council
+    tags: [self-build, backlog, next-steps]
+    path: docs/plans/self-build-status-and-next-steps.md
+  - id: current-roadmap
     type: roadmap
     domain: shared
     status: active
-    owner: bootstrap-agent
-    tags: [phases, waves, execution]
-    path: docs/roadmap/IMPLEMENTATION_ROADMAP.md
-  - id: self-build-status
-    type: plan
-    domain: shared
-    status: active
-    owner: bootstrap-agent
-    tags: [status, self-build, next-steps]
-    path: docs/plans/self-build-status-and-next-steps.md
-  - id: builder-tester-verification-workspaces
-    type: plan
-    domain: shared
-    status: active
-    owner: bootstrap-agent
-    tags: [worktree, workspace, builder, tester, verification]
-    path: docs/plans/builder-tester-verification-workspaces.md
+    owner: architecture-council
+    tags: [roadmap, priorities, direction]
+    path: docs/plans/roadmap.md
   - id: long-range-self-build-roadmap
     type: roadmap
     domain: shared
     status: active
-    owner: future-architect
-    tags: [roadmap, self-build, long-range, execution]
+    owner: architecture-council
+    tags: [roadmap, self-build, long-range]
     path: docs/plans/long-range-self-build-roadmap.md
   - id: full-self-build-implementation-plan
     type: roadmap
     domain: shared
     status: active
-    owner: future-architect
-    tags: [roadmap, self-build, implementation, autonomy, execution]
+    owner: architecture-council
+    tags: [roadmap, self-build, execution]
     path: docs/plans/full-self-build-implementation-plan.md
-  - id: project-coordinator-role-plan
-    type: plan
-    domain: orchestration
-    status: active
-    owner: bootstrap-agent
-    tags: [coordinator, project, roles, orchestration, workflow]
-    path: docs/plans/project-coordinator-role-plan.md
-  - id: feature-integrator-role-plan
-    type: plan
-    domain: orchestration
-    status: active
-    owner: bootstrap-agent
-    tags: [integrator, promotion, merge, project, workflow]
-    path: docs/plans/feature-integrator-role-plan.md
-  - id: javascript-to-typescript-migration-plan
-    type: plan
+  - id: adr-bootstrap-scope
+    type: decision
     domain: shared
-    status: active
-    owner: bootstrap-agent
-    tags: [typescript, javascript, migration, tooling, quality, completed]
-    path: docs/plans/javascript-to-typescript-migration-plan.md
+    status: accepted
+    owner: architecture-council
+    tags: [bootstrap, scope]
+    path: docs/decisions/ADR-0001-project-scope.md
+  - id: adr-repo-foundation
+    type: decision
+    domain: shared
+    status: accepted
+    owner: architecture-council
+    tags: [bootstrap, repository, docs-os]
+    path: docs/decisions/ADR-0001-repo-foundation.md
+  - id: adr-runtime-pi-first
+    type: decision
+    domain: agent-runtime
+    status: accepted
+    owner: architecture-council
+    tags: [runtime, pi-first]
+    path: docs/decisions/ADR-0002-runtime-pi-first.md
+  - id: adr-builder-tester-verification-workspaces
+    type: decision
+    domain: shared
+    status: accepted
+    owner: architecture-council
+    tags: [builder, tester, workspace, verification]
+    path: docs/decisions/ADR-0005-builder-tester-verification-workspaces.md
+  - id: adr-project-coordinator-role
+    type: decision
+    domain: orchestration
+    status: accepted
+    owner: architecture-council
+    tags: [coordinator, project, orchestration]
+    path: docs/decisions/ADR-0006-project-coordinator-role.md
+  - id: adr-feature-integrator-promotion-boundary
+    type: decision
+    domain: orchestration
+    status: accepted
+    owner: architecture-council
+    tags: [integrator, promotion, governance]
+    path: docs/decisions/ADR-0007-feature-integrator-promotion-boundary.md
+  - id: adr-typescript-first-codebase
+    type: decision
+    domain: shared
+    status: accepted
+    owner: architecture-council
+    tags: [typescript, codebase, migration]
+    path: docs/decisions/ADR-0008-typescript-first-codebase.md
+  - id: bootstrap-completion-summary
+    type: historical
+    domain: shared
+    status: historical
+    owner: documentation-steward
+    tags: [bootstrap, history, milestone]
+    path: docs/plans/bootstrap-completion-summary.md
   - id: bootstrap-status
-    type: operations
+    type: historical
     domain: shared
-    status: active
-    owner: bootstrap-agent
-    tags: [audit, status]
+    status: historical
+    owner: documentation-steward
+    tags: [bootstrap, history, status]
     path: docs/operations/BOOTSTRAP_STATUS.md
-  - id: scenario-library
-    type: runbook
+  - id: bootstrap-implementation-roadmap
+    type: historical
     domain: shared
-    status: active
-    owner: bootstrap-agent
-    tags: [scenarios, validation, canonical]
-    path: docs/runbooks/scenario-library.md
-
-  - id: agent-to-agent-communication-research
-    type: research
+    status: historical
+    owner: documentation-steward
+    tags: [bootstrap, roadmap, history]
+    path: docs/roadmap/IMPLEMENTATION_ROADMAP.md
+  - id: builder-tester-implementation-note
+    type: historical
+    domain: shared
+    status: historical
+    owner: documentation-steward
+    tags: [builder, tester, verification, implementation-note]
+    path: docs/plans/builder-tester-verification-workspaces.md
+  - id: coordinator-implementation-note
+    type: historical
     domain: orchestration
-    status: active
-    owner: bootstrap-agent
-    tags: [agents, communication, coordination, messaging, nudge, mail]
-    path: docs/research/agent-to-agent-communication.md
-
-  - id: worktree-workspace-isolation
-    type: spec
+    status: historical
+    owner: documentation-steward
+    tags: [coordinator, implementation-note]
+    path: docs/plans/project-coordinator-role-plan.md
+  - id: integrator-implementation-note
+    type: historical
+    domain: orchestration
+    status: historical
+    owner: documentation-steward
+    tags: [integrator, implementation-note]
+    path: docs/plans/feature-integrator-role-plan.md
+  - id: typescript-migration-note
+    type: historical
     domain: shared
-    status: active
-    owner: future-architect
-    tags: [worktree, workspace, isolation, self-build]
-    path: docs/specs/worktree-and-workspace-isolation.md
+    status: historical
+    owner: documentation-steward
+    tags: [typescript, migration, completion]
+    path: docs/plans/javascript-to-typescript-migration-plan.md
+  - id: bootstrap-backlog
+    type: historical
+    domain: shared
+    status: historical
+    owner: documentation-steward
+    tags: [bootstrap, backlog, history]
+    path: docs/plans/backlog.md
+  - id: bootstrap-environment-phases
+    type: historical
+    domain: shared
+    status: historical
+    owner: documentation-steward
+    tags: [bootstrap, phases, history]
+    path: docs/plans/environment-phases.md
+  - id: bootstrap-implementation-waves
+    type: historical
+    domain: shared
+    status: historical
+    owner: documentation-steward
+    tags: [bootstrap, waves, history]
+    path: docs/plans/implementation-waves.md

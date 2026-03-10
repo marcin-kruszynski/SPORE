@@ -1,17 +1,3 @@
-# Clients and Surfaces
+# CLIENTS_AND_SURFACES
 
-SPORE must treat Web UI, CLI, and TUI as first-class clients over shared contracts.
-
-## Supported Surfaces
-
-- Web UI
-- CLI
-- TUI
-- future API/headless automation clients
-
-## Rules
-
-- keep domain logic out of UI clients,
-- use shared session/event/config contracts,
-- ensure feature parity for core operator workflows,
-- preserve human steering capabilities across interfaces.
+See canonical clients and surfaces documentation in `docs/architecture/clients-and-surfaces.md`.

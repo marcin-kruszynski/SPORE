@@ -1,23 +1,55 @@
-# Roadmap
+# Current Roadmap
 
-SPORE progresses through bootstrap-first phases before runtime implementation.
+This is the current strategic roadmap for SPORE.
 
-## Phases
+Use this file for direction. Use `docs/plans/self-build-status-and-next-steps.md` for the tactical next packages. Use `docs/roadmap/IMPLEMENTATION_ROADMAP.md` only as archived bootstrap history.
 
-- Phase 0: repository and docs foundation
-- Phase 1: research synthesis and architecture baseline
-- Phase 2: config/profile/workflow scaffolding
-- Phase 3: knowledge retrieval architecture and tooling
-- Phase 4: runtime/session/ui planning
-- Phase 5: readiness audit and handoff
+## Current Stage
 
-Detailed wave-level plan is in `docs/roadmap/IMPLEMENTATION_ROADMAP.md`.
+SPORE has crossed the bootstrap boundary.
 
-## Current Focus After Bootstrap
+The foundation is now executable across docs, config, runtime, orchestrator, session surfaces, web, TUI, and supervised self-build.
 
-The next implementation slice should build on the already landed durable orchestrator foundation:
+The current question is no longer "can SPORE run?" The current question is "how far can SPORE safely improve itself while preserving operator trust and architectural clarity?"
 
-1. harden multi-execution coordination-group policy and parent/child execution behavior,
-2. improve grouped execution visualization and lineage clarity in operator surfaces,
-3. formalize workflow-level `paused` and `held` semantics with stronger recovery guidance,
-4. connect domain-specific workflow templates to coordination behavior without overcommitting to one scheduler design.
+## Now
+
+The next waves should focus on five product priorities:
+
+1. Improve planner and autonomous scheduler quality.
+2. Deepen validation bundles, proposal readiness, and rework discipline.
+3. Strengthen integration-branch diagnostics and promotion visibility.
+4. Make the self-build dashboard and TUI the primary operator mission-control surface.
+5. Expand self-build-specific scenario and regression coverage.
+
+## Next
+
+After those land, the next layer should be:
+
+- learning-to-planning feedback loops,
+- clearer autonomy rollout tiers by repo scope,
+- broader template catalog coverage,
+- one reference end-to-end demo flow that shows SPORE's full operator story clearly.
+
+## Later
+
+Longer-range work can include:
+
+- productizing a dedicated `apps/cli/` experience,
+- broader autonomous operation over selected repo scopes,
+- richer packaging and onboarding for external users,
+- stronger release-quality operator experiences over web and terminal surfaces.
+
+## Explicit Non-Goals Right Now
+
+- auto-merging to `main`,
+- bypassing gateway/orchestrator read surfaces in favor of raw SQLite scraping,
+- shared mutable worktrees as a shortcut,
+- broadening autonomy faster than governance, diagnostics, and validation can support.
+
+## Related Documents
+
+- Current state handoff: `docs/plans/project-state-and-direction-handoff.md`
+- Tactical next work: `docs/plans/self-build-status-and-next-steps.md`
+- Long-range self-build plan: `docs/plans/long-range-self-build-roadmap.md`
+- Detailed execution plan: `docs/plans/full-self-build-implementation-plan.md`

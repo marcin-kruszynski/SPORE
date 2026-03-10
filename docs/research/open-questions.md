@@ -1,7 +1,10 @@
 # Open Questions
 
-- What is the smallest viable task-state subsystem for early SPORE execution work?
-- Should explicit knowledge capture begin with docs plus ADRs only, or include a structured expertise store in the first runtime milestone?
-- What PI hooks are necessary for human steering and session supervision?
-- How should workflow retries, escalation, and review outcomes be represented in event contracts?
-- Which data should live in local SQLite first, and which should remain plain files until usage patterns are proven?
+These are the highest-value open questions for the current SPORE stage.
+
+- How should autonomous prioritization combine blocker repetition, item age, validation debt, and integration-branch health?
+- What exact contract should separate `approved`, `validated`, `promotion_ready`, and `promotion_candidate` in the proposal lifecycle?
+- Which protected-scope override rules should expire automatically, and which should persist as reusable policy changes?
+- What signals should automatically create intake items or policy recommendations instead of waiting for an operator to notice them manually?
+- What is the single best reference end-to-end demo flow for external users: setup, run, review, validate, promote, and inspect recovery paths?
+- What measurable criteria should allow autonomy to expand from supervised self-build into broader repo scopes?
