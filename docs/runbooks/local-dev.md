@@ -192,10 +192,26 @@ curl -X POST http://127.0.0.1:8789/work-item-groups/<group-id>/validate-bundle \
 curl http://127.0.0.1:8789/workspaces
 curl http://127.0.0.1:8789/work-item-runs/<run-id>/workspace
 curl http://127.0.0.1:8789/executions/<execution-id>/workspaces
+curl http://127.0.0.1:8789/self-build/learnings
+curl http://127.0.0.1:8789/self-build/doc-suggestions
+curl http://127.0.0.1:8789/self-build/intake
+curl -X POST http://127.0.0.1:8789/self-build/intake/refresh \
+  -H 'content-type: application/json' \
+  -d '{"includeAccepted":true,"projectId":"spore","by":"operator"}'
 curl -X POST http://127.0.0.1:8789/work-item-runs/<run-id>/validate-bundle \
   -H 'content-type: application/json' \
   -d '{"bundleId":"proposal-ready-fast","stub":true,"source":"runbook"}'
+curl http://127.0.0.1:8789/doc-suggestions/<suggestion-id>
+curl -X POST http://127.0.0.1:8789/doc-suggestions/<suggestion-id>/review \
+  -H 'content-type: application/json' \
+  -d '{"status":"accepted","by":"operator","comments":"Turn this into managed work."}'
+curl -X POST http://127.0.0.1:8789/doc-suggestions/<suggestion-id>/materialize \
+  -H 'content-type: application/json' \
+  -d '{"safeMode":true,"by":"operator"}'
 curl http://127.0.0.1:8789/proposal-artifacts/<proposal-id>/review-package
+curl -X POST http://127.0.0.1:8789/proposal-artifacts/<proposal-id>/rework \
+  -H 'content-type: application/json' \
+  -d '{"rationale":"Route this blocked proposal back into managed self-work.","by":"operator"}'
 curl http://127.0.0.1:8789/integration-branches
 curl http://127.0.0.1:8789/self-build/decisions
 curl http://127.0.0.1:8789/self-build/quarantine

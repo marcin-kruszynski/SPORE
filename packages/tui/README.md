@@ -59,10 +59,18 @@ npx tsx packages/tui/src/cli/spore-ops.ts workspace-show --workspace <workspace-
 npx tsx packages/tui/src/cli/spore-ops.ts work-item-validate --run <work-item-run-id> --stub
 npx tsx packages/tui/src/cli/spore-ops.ts work-item-validate-bundle --run <work-item-run-id> --bundle proposal-ready-fast --stub
 npx tsx packages/tui/src/cli/spore-ops.ts work-item-doc-suggestions --run <work-item-run-id>
+npx tsx packages/tui/src/cli/spore-ops.ts self-build-learnings
+npx tsx packages/tui/src/cli/spore-ops.ts self-build-doc-suggestions --run <work-item-run-id>
+npx tsx packages/tui/src/cli/spore-ops.ts self-build-intake --project spore
+npx tsx packages/tui/src/cli/spore-ops.ts self-build-intake-refresh --include-accepted --project spore
+npx tsx packages/tui/src/cli/spore-ops.ts doc-suggestion-show --suggestion <suggestion-id>
+npx tsx packages/tui/src/cli/spore-ops.ts doc-suggestion-review --suggestion <suggestion-id> --status accepted
+npx tsx packages/tui/src/cli/spore-ops.ts doc-suggestion-materialize --suggestion <suggestion-id> --safe-mode
 npx tsx packages/tui/src/cli/spore-ops.ts proposal-show --run <work-item-run-id>
 npx tsx packages/tui/src/cli/spore-ops.ts proposal-review-package --proposal <proposal-id>
 npx tsx packages/tui/src/cli/spore-ops.ts proposal-review --proposal <proposal-id> --status reviewed
 npx tsx packages/tui/src/cli/spore-ops.ts proposal-approve --proposal <proposal-id> --status approved
+npx tsx packages/tui/src/cli/spore-ops.ts proposal-rework --proposal <proposal-id> --rationale "Need explicit rework"
 npx tsx packages/tui/src/cli/spore-ops.ts proposal-promotion-plan --proposal <proposal-id> --target-branch main
 npx tsx packages/tui/src/cli/spore-ops.ts proposal-promotion-invoke --proposal <proposal-id> --target-branch main --wait --stub
 npx tsx packages/tui/src/cli/spore-ops.ts integration-branch-list
@@ -110,6 +118,8 @@ The TUI/CLI operator surface now provides:
 - grouped recovery controls and named validation-bundle execution for managed work,
 - work-item rerun and workspace inspection parity over orchestrator HTTP surfaces,
 - work-item run validation and documentation-suggestion drilldowns,
+- durable learning, doc-suggestion, and autonomous-intake queue inspection,
+- doc-suggestion review/materialization and proposal rework controls,
 - proposal artifact inspection plus review/approval transitions,
 - explicit project coordination planning and invocation over the coordinator-root path,
 - explicit feature promotion planning and invocation over the integrator lane,

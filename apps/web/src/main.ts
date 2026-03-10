@@ -8081,18 +8081,31 @@ function renderSelfBuildDashboard() {
   }
 
   const summary = state.selfBuildSummary;
+  const urgentQueue = [
+    ...(summary.urgentWork || []),
+    ...(summary.autonomousIntake || []).filter(
+      (entry) => entry.status === "accepted" || entry.priority === "high",
+    ),
+  ];
+  const followUpQueue = [
+    ...(summary.followUpWork || []),
+    ...(summary.docSuggestionQueue || []),
+    ...(summary.autonomousIntake || []).filter(
+      (entry) => !(entry.status === "accepted" || entry.priority === "high"),
+    ),
+  ];
 
   renderSelfBuildOverview(summary);
   renderSelfBuildAttentionSummary(summary);
   renderGroupReadiness(summary.groups || []);
   renderWorkQueue(
-    summary.urgentWork || [],
+    urgentQueue,
     els.urgentWorkQueue,
     els.urgentWorkCount,
     "urgent",
   );
   renderWorkQueue(
-    summary.followUpWork || [],
+    followUpQueue,
     els.followUpQueue,
     els.followUpCount,
     "follow-up",
@@ -8194,6 +8207,16 @@ function renderSelfBuildOverview(summary) {
       highlight: (counts.validationRequiredProposals || 0) > 0,
     },
     {
+      label: "Doc Suggestions",
+      value: counts.pendingDocSuggestions || 0,
+      highlight: (counts.pendingDocSuggestions || 0) > 0,
+    },
+    {
+      label: "Autonomous Intake",
+      value: counts.queuedAutonomousIntake || 0,
+      highlight: (counts.queuedAutonomousIntake || 0) > 0,
+    },
+    {
       label: "Workspace Problems",
       value: counts.orphanedWorkspaces || 0,
       highlight: (counts.orphanedWorkspaces || 0) > 0,
@@ -8217,6 +8240,11 @@ function renderSelfBuildOverview(summary) {
       label: "Recent Rollbacks",
       value: counts.recentRollbacks || 0,
       highlight: (counts.recentRollbacks || 0) > 0,
+    },
+    {
+      label: "Branch Issues",
+      value: counts.integrationBranchIssues || 0,
+      highlight: (counts.integrationBranchIssues || 0) > 0,
     },
     { label: "Advisory Warnings", value: groupStates.advisoryWarnings || 0 },
   ];
@@ -8315,6 +8343,8 @@ function renderSelfBuildAttentionSummary(summary: AnyRecord) {
 
 function resolveSelfBuildEntryType(item: AnyRecord = {}) {
   if (item.itemType) return item.itemType;
+  if (item.targetType === "doc-suggestion") return "doc-suggestion";
+  if (item.targetType === "self-build-intake") return "self-build-intake";
   if (item.targetType) return item.targetType;
   if (item.branchName || item.name?.startsWith?.("spore/integration/"))
     return "integration-branch";
@@ -8589,7 +8619,7 @@ function renderSelfBuildWorkspaceHealth(
         <div class="work-item-info">
           <div class="work-item-title">${escapeHtml(branch.name)}</div>
           <div class="work-item-meta">${escapeHtml([branch.status || "unknown", branch.targetBranch ? `target:${branch.targetBranch}` : "", branch.proposalId ? `proposal:${branch.proposalId}` : ""].filter(Boolean).join(" • "))}</div>
-          <div class="work-item-reason">${escapeHtml(branch.reason || "Integration branch state for self-build promotion.")}</div>
+          <div class="work-item-reason">${escapeHtml(branch.diagnostics?.issues?.[0]?.reason || branch.reason || "Integration branch state for self-build promotion.")}</div>
         </div>
         <span class="work-item-badge ${["blocked", "quarantined", "integration_failed"].includes(branch.status) ? "urgent" : "follow-up"}">${escapeHtml(branch.status || "unknown")}</span>
         <span class="work-item-arrow">→</span>
@@ -8941,6 +8971,10 @@ async function openSelfBuildDetail(itemType, itemId) {
       endpoint = `/api/orchestrator/proposal-artifacts/${encodeURIComponent(itemId)}/review-package`;
     } else if (itemType === "work-item-run") {
       endpoint = `/api/orchestrator/work-item-runs/${encodeURIComponent(itemId)}`;
+    } else if (itemType === "doc-suggestion") {
+      endpoint = `/api/orchestrator/doc-suggestions/${encodeURIComponent(itemId)}`;
+    } else if (itemType === "self-build-intake") {
+      endpoint = `/api/orchestrator/self-build/intake/${encodeURIComponent(itemId)}`;
     } else if (itemType === "workspace") {
       endpoint = `/api/orchestrator/workspaces/${encodeURIComponent(itemId)}`;
     } else if (itemType === "integration-branch") {
@@ -9566,6 +9600,144 @@ function renderSelfBuildDetailView(itemType, detail) {
         ${renderSummaryObjectCard(detail.execution, "Execution", "No source execution linked to this proposal.")}
       </div>
     `;
+  } else if (itemType === "doc-suggestion") {
+    dependencySection = `
+      <section class="detail-section">
+        <div class="detail-section-heading">
+          <h3>Documentation Suggestion</h3>
+          <p class="detail-support">Follow-up documentation work generated from a managed run or proposal lifecycle event.</p>
+        </div>
+        ${renderSummaryObjectCard(detail, "Suggestion Summary", "No suggestion detail returned.")}
+        ${renderSuggestedActionsCard(detail.suggestedActions, "Suggested Actions", "No suggested actions returned for this suggestion.")}
+        ${renderSelfBuildOperatorForm({
+          endpoint: `/api/orchestrator/doc-suggestions/${encodeURIComponent(detail.id)}/review`,
+          refreshType: "doc-suggestion",
+          refreshId: detail.id,
+          label: "Review Suggestion",
+          help: "Accept or dismiss this suggestion before turning it into managed work.",
+          fields: [
+            {
+              type: "select",
+              name: "status",
+              label: "Decision",
+              value: "accepted",
+              options: [
+                { value: "accepted", label: "Accepted" },
+                { value: "dismissed", label: "Dismissed" },
+              ],
+            },
+            {
+              type: "text",
+              name: "comments",
+              label: "Comments",
+              placeholder: "Optional operator rationale",
+            },
+          ],
+        })}
+        ${renderSelfBuildOperatorForm({
+          endpoint: `/api/orchestrator/doc-suggestions/${encodeURIComponent(detail.id)}/materialize`,
+          refreshType: "doc-suggestion",
+          refreshId: detail.id,
+          label: "Materialize Suggestion",
+          help: "Create a managed work item from this suggestion.",
+          fields: [
+            {
+              type: "text",
+              name: "templateId",
+              label: "Template Override",
+              value: detail.metadata?.templateId || "",
+              placeholder: "Optional template id",
+            },
+            {
+              type: "text",
+              name: "title",
+              label: "Title Override",
+              placeholder: "Optional work item title",
+            },
+          ],
+        })}
+      </section>
+    `;
+    recentActivitySection = `
+      <div class="detail-section">
+        <div class="detail-section-heading">
+          <h3>Suggestion Lineage</h3>
+          <p class="detail-support">Inspect raw suggestion payload, metadata, and any materialized managed work item.</p>
+        </div>
+        ${renderSummaryObjectCard(detail.payload, "Suggestion Payload", "No suggestion payload returned.")}
+        ${renderSummaryObjectCard(detail.metadata, "Suggestion Metadata", "No suggestion metadata returned.")}
+        <div class="lineage-meta">
+          ${detail.links?.workItemRun ? `<a class="inline-link" href="/api/orchestrator${escapeHtml(detail.links.workItemRun)}" target="_blank" rel="noreferrer">work-item run</a>` : ""}
+          ${detail.links?.proposal ? `<a class="inline-link" href="/api/orchestrator${escapeHtml(detail.links.proposal)}" target="_blank" rel="noreferrer">proposal</a>` : ""}
+          ${detail.links?.materializedWorkItem ? `<button type="button" class="inline-detail-button strong-link" data-open-type="work-item" data-open-id="${escapeHtml(detail.links.materializedWorkItem.split("/").pop() || "")}">materialized work item</button>` : ""}
+        </div>
+      </div>
+    `;
+  } else if (itemType === "self-build-intake") {
+    dependencySection = `
+      <section class="detail-section">
+        <div class="detail-section-heading">
+          <h3>Autonomous Intake</h3>
+          <p class="detail-support">Queued autonomous intake is materialized into a goal plan before managed self-work runs.</p>
+        </div>
+        ${renderSummaryObjectCard(detail, "Intake Summary", "No intake detail returned.")}
+        ${renderSuggestedActionsCard(detail.suggestedActions, "Suggested Actions", "No suggested actions returned for this intake record.")}
+        ${renderSelfBuildOperatorForm({
+          endpoint: `/api/orchestrator/self-build/intake/${encodeURIComponent(detail.id)}/review`,
+          refreshType: "self-build-intake",
+          refreshId: detail.id,
+          label: "Review Intake",
+          help: "Accept or dismiss this intake candidate before materialization.",
+          fields: [
+            {
+              type: "select",
+              name: "status",
+              label: "Decision",
+              value: "accepted",
+              options: [
+                { value: "accepted", label: "Accepted" },
+                { value: "dismissed", label: "Dismissed" },
+              ],
+            },
+            {
+              type: "text",
+              name: "comments",
+              label: "Comments",
+              placeholder: "Optional operator notes",
+            },
+          ],
+        })}
+        ${renderSelfBuildOperatorForm({
+          endpoint: `/api/orchestrator/self-build/intake/${encodeURIComponent(detail.id)}/materialize`,
+          refreshType: "self-build-intake",
+          refreshId: detail.id,
+          label: "Materialize Intake",
+          help: "Create a goal plan from this queued autonomous intake.",
+          fields: [
+            {
+              type: "text",
+              name: "projectId",
+              label: "Project",
+              value: detail.projectId || "spore",
+            },
+          ],
+        })}
+      </section>
+    `;
+    recentActivitySection = `
+      <div class="detail-section">
+        <div class="detail-section-heading">
+          <h3>Intake Lineage</h3>
+          <p class="detail-support">Track the intake source and any goal plan produced from it.</p>
+        </div>
+        ${renderSummaryObjectCard(detail.metadata, "Intake Metadata", "No intake metadata returned.")}
+        <div class="lineage-meta">
+          ${detail.sourceType ? renderLineagePill("source", detail.sourceType, "inherited") : ""}
+          ${detail.kind ? renderLineagePill("kind", detail.kind, "inherited") : ""}
+          ${detail.links?.goalPlan ? `<button type="button" class="inline-detail-button strong-link" data-open-type="goal-plan" data-open-id="${escapeHtml(detail.links.goalPlan.split("/").pop() || "")}">goal plan</button>` : ""}
+        </div>
+      </div>
+    `;
   } else if (itemType === "integration-branch") {
     recentActivitySection = `
       <div class="detail-section">
@@ -9574,6 +9746,7 @@ function renderSelfBuildDetailView(itemType, detail) {
           <p class="detail-support">Promotion candidates land here first. This is not the canonical main branch.</p>
         </div>
         ${renderSummaryObjectCard(detail, "Integration Branch Summary", "No integration branch summary returned.")}
+        ${renderSummaryObjectCard(detail.diagnostics, "Diagnostics", "No integration diagnostics returned.")}
       </div>
     `;
   } else if (itemType === "work-item-run") {

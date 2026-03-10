@@ -86,7 +86,7 @@ Do not assign overlapping write ownership to parallel workers in the same sub-sl
 - [x] proposal readiness separated from approval in a stricter way
 - [x] autonomous queue runner and autonomous policy enforcement
 - [x] integration-branch lifecycle, rollback, and quarantine
-- [ ] stronger learning and doc-follow-up loops
+- [x] stronger learning and doc-follow-up loops
 
 ## Phase 1 — Editable Planning and Stronger Group Control
 
@@ -329,7 +329,7 @@ Do not assign overlapping write ownership to parallel workers in the same sub-sl
 - [x] Make queue runner status visible in self-build dashboard.
 
 ### 20. Autonomous Goal Intake
-- [ ] Introduce durable sources of self-work demand:
+- [x] Introduce durable sources of self-work demand:
   - operator-created goals
   - regression-failure goals
   - doc suggestion goals
@@ -337,9 +337,9 @@ Do not assign overlapping write ownership to parallel workers in the same sub-sl
   - stale workspace cleanup goals
   - stale integration branch goals
 - [ ] Add prioritization policy.
-- [ ] Make autonomous queue intake deterministic.
-- [ ] Keep operator override paths available.
-- [ ] Expose intake sources in dashboard and read APIs.
+- [x] Make autonomous queue intake deterministic.
+- [x] Keep operator override paths available.
+- [x] Expose intake sources in dashboard and read APIs.
 
 ### 21. Auto-Review, Auto-Materialize, Auto-Run
 - [x] Allow auto-review and auto-materialization only when policy permits.
@@ -397,26 +397,26 @@ Do not assign overlapping write ownership to parallel workers in the same sub-sl
 ## Phase 6 — Learning, Documentation, and Continuous Improvement
 
 ### 26. Learning Records v2
-- [ ] Improve learning records to capture:
+- [x] Improve learning records to capture:
   - failure pattern
   - validation lesson
   - review lesson
   - promotion blocker pattern
   - workspace/integration branch lesson
-- [ ] Link learnings to goals, groups, proposals, validations, and promotions.
+- [x] Link learnings to goals, groups, proposals, validations, and promotions.
 - [ ] Use repeated learnings to downgrade autonomous eligibility automatically.
 - [ ] Expose learning trends in self-build dashboard.
 
 ### 27. Documentation Suggestion Pipeline v2
-- [ ] Turn doc suggestions into a first-class queue.
+- [x] Turn doc suggestions into a first-class queue.
 - [ ] Distinguish:
   - README updates
   - runbook updates
   - ADR candidates
   - docs index updates
-- [ ] Allow accepted doc suggestions to become work items automatically.
-- [ ] Surface doc suggestion acceptance/dismissal state.
-- [ ] Link doc suggestions to self-build outcomes.
+- [x] Allow accepted doc suggestions to become work items automatically.
+- [x] Surface doc suggestion acceptance/dismissal state.
+- [x] Link doc suggestions to self-build outcomes.
 
 ### 28. Policy Recommendation Loop
 - [ ] Generate policy-pack suggestions from repeated self-build outcomes.

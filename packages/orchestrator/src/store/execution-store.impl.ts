@@ -1,12 +1,15 @@
 // biome-ignore-all lint/suspicious/noExplicitAny: the orchestrator store is a thin SQLite DAO over additive JSON payloads persisted across many workflow surfaces.
 import { DatabaseSync } from "node:sqlite";
 import type {
+  DocSuggestionRecordListOptions,
   QuarantineRecordListOptions,
   RollbackRecordListOptions,
   SelfBuildDecisionListOptions,
+  SelfBuildIntakeListOptions,
   WorkspaceAllocationListOptions,
 } from "../types/contracts.js";
 import {
+  mapDocSuggestionRecord,
   mapGoalPlan,
   mapIntegrationBranch,
   mapLearningRecord,
@@ -19,6 +22,7 @@ import {
   mapScenarioRunExecution,
   mapSchedulerEvaluation,
   mapSelfBuildDecision,
+  mapSelfBuildIntakeRecord,
   mapSelfBuildLoopState,
   mapWorkItem,
   mapWorkItemGroup,
@@ -341,6 +345,39 @@ export function openOrchestratorDatabase(dbPath) {
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS doc_suggestion_records (
+      id TEXT PRIMARY KEY,
+      work_item_id TEXT,
+      work_item_run_id TEXT,
+      proposal_artifact_id TEXT,
+      kind TEXT NOT NULL,
+      target_path TEXT,
+      status TEXT NOT NULL,
+      summary TEXT NOT NULL,
+      payload_json TEXT,
+      metadata_json TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      reviewed_at TEXT,
+      materialized_at TEXT
+    );
+    CREATE TABLE IF NOT EXISTS self_build_intake_records (
+      id TEXT PRIMARY KEY,
+      source_type TEXT NOT NULL,
+      source_id TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      status TEXT NOT NULL,
+      priority INTEGER NOT NULL DEFAULT 0,
+      goal TEXT NOT NULL,
+      project_id TEXT,
+      domain_id TEXT,
+      template_id TEXT,
+      goal_plan_id TEXT,
+      metadata_json TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      consumed_at TEXT
+    );
     CREATE TABLE IF NOT EXISTS integration_branches (
       name TEXT PRIMARY KEY,
       project_id TEXT,
@@ -429,6 +466,14 @@ export function openOrchestratorDatabase(dbPath) {
     CREATE INDEX IF NOT EXISTS idx_workspace_allocations_status
       ON workspace_allocations(status, updated_at DESC);
     CREATE INDEX IF NOT EXISTS idx_learning_records_source ON learning_records(source_type, source_id, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_doc_suggestion_records_run_id
+      ON doc_suggestion_records(work_item_run_id, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_doc_suggestion_records_status
+      ON doc_suggestion_records(status, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_self_build_intake_status
+      ON self_build_intake_records(status, priority DESC, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_self_build_intake_source
+      ON self_build_intake_records(source_type, source_id, updated_at DESC);
     CREATE INDEX IF NOT EXISTS idx_integration_branches_status
       ON integration_branches(status, updated_at DESC);
     CREATE INDEX IF NOT EXISTS idx_self_build_loop_state_status
@@ -2516,6 +2561,373 @@ export function listLearningRecords(db, sourceType = null, limit = 50) {
     ? statement.all(sourceType, limit)
     : statement.all(limit);
   return rows.map((record) => mapLearningRecord(record));
+}
+
+export function insertDocSuggestionRecord(db, record) {
+  db.prepare(`
+    INSERT INTO doc_suggestion_records (
+      id, work_item_id, work_item_run_id, proposal_artifact_id, kind, target_path,
+      status, summary, payload_json, metadata_json, created_at, updated_at, reviewed_at, materialized_at
+    ) VALUES (
+      @id, @workItemId, @workItemRunId, @proposalArtifactId, @kind, @targetPath,
+      @status, @summary, @payloadJson, @metadataJson, @createdAt, @updatedAt, @reviewedAt, @materializedAt
+    )
+  `).run({
+    id: record.id,
+    workItemId: record.workItemId ?? null,
+    workItemRunId: record.workItemRunId ?? null,
+    proposalArtifactId: record.proposalArtifactId ?? null,
+    kind: record.kind,
+    targetPath: record.targetPath ?? null,
+    status: record.status,
+    summary: record.summary,
+    payloadJson: JSON.stringify(record.payload ?? {}),
+    metadataJson: JSON.stringify(record.metadata ?? {}),
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
+    reviewedAt: record.reviewedAt ?? null,
+    materializedAt: record.materializedAt ?? null,
+  });
+}
+
+export function updateDocSuggestionRecord(db, record) {
+  db.prepare(`
+    UPDATE doc_suggestion_records SET
+      work_item_id = @workItemId,
+      work_item_run_id = @workItemRunId,
+      proposal_artifact_id = @proposalArtifactId,
+      kind = @kind,
+      target_path = @targetPath,
+      status = @status,
+      summary = @summary,
+      payload_json = @payloadJson,
+      metadata_json = @metadataJson,
+      updated_at = @updatedAt,
+      reviewed_at = @reviewedAt,
+      materialized_at = @materializedAt
+    WHERE id = @id
+  `).run({
+    id: record.id,
+    workItemId: record.workItemId ?? null,
+    workItemRunId: record.workItemRunId ?? null,
+    proposalArtifactId: record.proposalArtifactId ?? null,
+    kind: record.kind,
+    targetPath: record.targetPath ?? null,
+    status: record.status,
+    summary: record.summary,
+    payloadJson: JSON.stringify(record.payload ?? {}),
+    metadataJson: JSON.stringify(record.metadata ?? {}),
+    updatedAt: record.updatedAt,
+    reviewedAt: record.reviewedAt ?? null,
+    materializedAt: record.materializedAt ?? null,
+  });
+}
+
+export function getDocSuggestionRecord(db, id) {
+  const record = db
+    .prepare(`
+    SELECT
+      id,
+      work_item_id AS workItemId,
+      work_item_run_id AS workItemRunId,
+      proposal_artifact_id AS proposalArtifactId,
+      kind,
+      target_path AS targetPath,
+      status,
+      summary,
+      payload_json AS payloadJson,
+      metadata_json AS metadataJson,
+      created_at AS createdAt,
+      updated_at AS updatedAt,
+      reviewed_at AS reviewedAt,
+      materialized_at AS materializedAt
+    FROM doc_suggestion_records
+    WHERE id = ?
+  `)
+    .get(id);
+  return mapDocSuggestionRecord(record);
+}
+
+export function findDocSuggestionRecordByRunAndKind(
+  db,
+  workItemRunId,
+  kind,
+  targetPath = null,
+) {
+  const record = db
+    .prepare(`
+    SELECT
+      id,
+      work_item_id AS workItemId,
+      work_item_run_id AS workItemRunId,
+      proposal_artifact_id AS proposalArtifactId,
+      kind,
+      target_path AS targetPath,
+      status,
+      summary,
+      payload_json AS payloadJson,
+      metadata_json AS metadataJson,
+      created_at AS createdAt,
+      updated_at AS updatedAt,
+      reviewed_at AS reviewedAt,
+      materialized_at AS materializedAt
+    FROM doc_suggestion_records
+    WHERE work_item_run_id = ? AND kind = ? AND (target_path = ? OR (? IS NULL AND target_path IS NULL))
+    ORDER BY updated_at DESC
+    LIMIT 1
+  `)
+    .get(workItemRunId, kind, targetPath, targetPath);
+  return mapDocSuggestionRecord(record);
+}
+
+export function listDocSuggestionRecords(
+  db,
+  options: DocSuggestionRecordListOptions = {},
+) {
+  const where = [];
+  const params = [];
+  if (options.status) {
+    where.push("status = ?");
+    params.push(String(options.status).trim());
+  }
+  if (options.workItemId) {
+    where.push("work_item_id = ?");
+    params.push(String(options.workItemId).trim());
+  }
+  if (options.workItemRunId) {
+    where.push("work_item_run_id = ?");
+    params.push(String(options.workItemRunId).trim());
+  }
+  if (options.proposalArtifactId) {
+    where.push("proposal_artifact_id = ?");
+    params.push(String(options.proposalArtifactId).trim());
+  }
+  if (options.kind) {
+    where.push("kind = ?");
+    params.push(String(options.kind).trim());
+  }
+  const limit = Number.parseInt(String(options.limit ?? "50"), 10) || 50;
+  const sql = `
+    SELECT
+      id,
+      work_item_id AS workItemId,
+      work_item_run_id AS workItemRunId,
+      proposal_artifact_id AS proposalArtifactId,
+      kind,
+      target_path AS targetPath,
+      status,
+      summary,
+      payload_json AS payloadJson,
+      metadata_json AS metadataJson,
+      created_at AS createdAt,
+      updated_at AS updatedAt,
+      reviewed_at AS reviewedAt,
+      materialized_at AS materializedAt
+    FROM doc_suggestion_records
+    ${where.length > 0 ? `WHERE ${where.join(" AND ")}` : ""}
+    ORDER BY updated_at DESC
+    LIMIT ?
+  `;
+  return db
+    .prepare(sql)
+    .all(...params, limit)
+    .map((record) => mapDocSuggestionRecord(record));
+}
+
+export function upsertDocSuggestionRecord(db, record) {
+  const existing = getDocSuggestionRecord(db, record.id);
+  if (existing) {
+    updateDocSuggestionRecord(db, { ...existing, ...record });
+    return getDocSuggestionRecord(db, record.id);
+  }
+  insertDocSuggestionRecord(db, record);
+  return getDocSuggestionRecord(db, record.id);
+}
+
+export function insertSelfBuildIntakeRecord(db, record) {
+  db.prepare(`
+    INSERT INTO self_build_intake_records (
+      id, source_type, source_id, kind, status, priority, goal, project_id,
+      domain_id, template_id, goal_plan_id, metadata_json, created_at, updated_at, consumed_at
+    ) VALUES (
+      @id, @sourceType, @sourceId, @kind, @status, @priority, @goal, @projectId,
+      @domainId, @templateId, @goalPlanId, @metadataJson, @createdAt, @updatedAt, @consumedAt
+    )
+  `).run({
+    id: record.id,
+    sourceType: record.sourceType,
+    sourceId: record.sourceId,
+    kind: record.kind,
+    status: record.status,
+    priority: Number(record.priority ?? 0) || 0,
+    goal: record.goal,
+    projectId: record.projectId ?? null,
+    domainId: record.domainId ?? null,
+    templateId: record.templateId ?? null,
+    goalPlanId: record.goalPlanId ?? null,
+    metadataJson: JSON.stringify(record.metadata ?? {}),
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
+    consumedAt: record.consumedAt ?? null,
+  });
+}
+
+export function updateSelfBuildIntakeRecord(db, record) {
+  db.prepare(`
+    UPDATE self_build_intake_records SET
+      source_type = @sourceType,
+      source_id = @sourceId,
+      kind = @kind,
+      status = @status,
+      priority = @priority,
+      goal = @goal,
+      project_id = @projectId,
+      domain_id = @domainId,
+      template_id = @templateId,
+      goal_plan_id = @goalPlanId,
+      metadata_json = @metadataJson,
+      updated_at = @updatedAt,
+      consumed_at = @consumedAt
+    WHERE id = @id
+  `).run({
+    id: record.id,
+    sourceType: record.sourceType,
+    sourceId: record.sourceId,
+    kind: record.kind,
+    status: record.status,
+    priority: Number(record.priority ?? 0) || 0,
+    goal: record.goal,
+    projectId: record.projectId ?? null,
+    domainId: record.domainId ?? null,
+    templateId: record.templateId ?? null,
+    goalPlanId: record.goalPlanId ?? null,
+    metadataJson: JSON.stringify(record.metadata ?? {}),
+    updatedAt: record.updatedAt,
+    consumedAt: record.consumedAt ?? null,
+  });
+}
+
+export function getSelfBuildIntakeRecord(db, id) {
+  const record = db
+    .prepare(`
+    SELECT
+      id,
+      source_type AS sourceType,
+      source_id AS sourceId,
+      kind,
+      status,
+      priority,
+      goal,
+      project_id AS projectId,
+      domain_id AS domainId,
+      template_id AS templateId,
+      goal_plan_id AS goalPlanId,
+      metadata_json AS metadataJson,
+      created_at AS createdAt,
+      updated_at AS updatedAt,
+      consumed_at AS consumedAt
+    FROM self_build_intake_records
+    WHERE id = ?
+  `)
+    .get(id);
+  return mapSelfBuildIntakeRecord(record);
+}
+
+export function findSelfBuildIntakeRecordBySource(db, sourceType, sourceId) {
+  const record = db
+    .prepare(`
+    SELECT
+      id,
+      source_type AS sourceType,
+      source_id AS sourceId,
+      kind,
+      status,
+      priority,
+      goal,
+      project_id AS projectId,
+      domain_id AS domainId,
+      template_id AS templateId,
+      goal_plan_id AS goalPlanId,
+      metadata_json AS metadataJson,
+      created_at AS createdAt,
+      updated_at AS updatedAt,
+      consumed_at AS consumedAt
+    FROM self_build_intake_records
+    WHERE source_type = ? AND source_id = ?
+    ORDER BY updated_at DESC
+    LIMIT 1
+  `)
+    .get(sourceType, sourceId);
+  return mapSelfBuildIntakeRecord(record);
+}
+
+export function listSelfBuildIntakeRecords(
+  db,
+  options: SelfBuildIntakeListOptions = {},
+) {
+  const where = [];
+  const params = [];
+  if (options.status) {
+    where.push("status = ?");
+    params.push(String(options.status).trim());
+  }
+  if (options.sourceType) {
+    where.push("source_type = ?");
+    params.push(String(options.sourceType).trim());
+  }
+  if (options.kind) {
+    where.push("kind = ?");
+    params.push(String(options.kind).trim());
+  }
+  if (options.priority) {
+    where.push("priority = ?");
+    params.push(Number(options.priority) || 0);
+  }
+  const limit = Number.parseInt(String(options.limit ?? "50"), 10) || 50;
+  const sql = `
+    SELECT
+      id,
+      source_type AS sourceType,
+      source_id AS sourceId,
+      kind,
+      status,
+      priority,
+      goal,
+      project_id AS projectId,
+      domain_id AS domainId,
+      template_id AS templateId,
+      goal_plan_id AS goalPlanId,
+      metadata_json AS metadataJson,
+      created_at AS createdAt,
+      updated_at AS updatedAt,
+      consumed_at AS consumedAt
+    FROM self_build_intake_records
+    ${where.length > 0 ? `WHERE ${where.join(" AND ")}` : ""}
+    ORDER BY priority DESC, updated_at DESC
+    LIMIT ?
+  `;
+  return db
+    .prepare(sql)
+    .all(...params, limit)
+    .map((record) => mapSelfBuildIntakeRecord(record));
+}
+
+export function upsertSelfBuildIntakeRecord(db, record) {
+  const existing = findSelfBuildIntakeRecordBySource(
+    db,
+    record.sourceType,
+    record.sourceId,
+  );
+  if (existing) {
+    updateSelfBuildIntakeRecord(db, {
+      ...existing,
+      ...record,
+      id: existing.id,
+    });
+    return getSelfBuildIntakeRecord(db, existing.id);
+  }
+  insertSelfBuildIntakeRecord(db, record);
+  return getSelfBuildIntakeRecord(db, record.id);
 }
 
 export function insertIntegrationBranch(db, branch) {

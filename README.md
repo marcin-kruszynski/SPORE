@@ -1042,6 +1042,8 @@ npm run orchestrator:proposal-approve -- --proposal <proposal-id> --status appro
 | `POST` | `/goal-plans/:id/review` | Record explicit goal-plan review before materialization or execution |
 | `POST` | `/goal-plans/:id/materialize` | Materialize a goal plan into a work-item group and managed items |
 | `POST` | `/goal-plans/:id/run` | Review, materialize, run, and validate a goal plan through one operator flow |
+| `POST` | `/self-build/intake/:id/review` | Record review state for one autonomous intake item |
+| `POST` | `/self-build/intake/:id/materialize` | Convert one reviewed intake item into a durable goal plan |
 | `GET` | `/work-item-groups` | Durable work-item group list |
 | `GET` | `/work-item-groups/:id` | One work-item group detail |
 | `POST` | `/work-item-groups/:id/run` | Execute one work-item group through managed child work items |
@@ -1051,15 +1053,24 @@ npm run orchestrator:proposal-approve -- --proposal <proposal-id> --status appro
 | `POST` | `/work-item-groups/:id/requeue-item` | Return one child item to the runnable queue |
 | `POST` | `/work-item-groups/:id/skip-item` | Mark one child item skipped with durable rationale |
 | `POST` | `/work-item-groups/:id/validate-bundle` | Execute a named validation bundle across a whole work-item group |
+| `GET` | `/doc-suggestions/:id` | One durable documentation suggestion with lineage and follow-up hints |
+| `POST` | `/doc-suggestions/:id/review` | Accept or dismiss one durable documentation suggestion |
+| `POST` | `/doc-suggestions/:id/materialize` | Turn one documentation suggestion into managed self-work |
 | `GET` | `/proposal-artifacts/:id` | One proposal artifact with review/approval status |
 | `GET` | `/proposal-artifacts/:id/review-package` | Rich proposal drilldown including workspace, source run, promotion context, and suggested actions |
 | `POST` | `/proposal-artifacts/:id/review` | Review transition for one proposal artifact |
 | `POST` | `/proposal-artifacts/:id/approval` | Approval transition for one proposal artifact |
+| `POST` | `/proposal-artifacts/:id/rework` | Route one proposal back into managed self-work for explicit rework |
 | `POST` | `/proposal-artifacts/:id/promotion-plan` | Plan an explicit `coordinator -> integrator` promotion lane for one `promotion_ready` proposal |
 | `POST` | `/proposal-artifacts/:id/promotion-invoke` | Invoke that promotion lane and fail early when validation or durable promotion sources are missing |
 | `GET` | `/integration-branches` | Durable integration-branch inventory for promotion candidates and auto-landing lanes |
 | `GET` | `/integration-branches/:name` | One integration branch with linked proposals, promotions, and candidate state |
 | `GET` | `/self-build/decisions` | Durable autonomous and operator self-build decisions with policy evidence and blocked reasons |
+| `GET` | `/self-build/learnings` | Durable learning records extracted from self-build runs and reviews |
+| `GET` | `/self-build/doc-suggestions` | Durable documentation follow-up queue derived from self-build outcomes |
+| `GET` | `/self-build/intake` | Durable autonomous intake queue derived from learnings, doc suggestions, and branch diagnostics |
+| `POST` | `/self-build/intake/refresh` | Rebuild autonomous intake from current learnings, suggestions, and integration issues |
+| `GET` | `/self-build/intake/:id` | One autonomous intake item with lineage and suggested actions |
 | `GET` | `/self-build/quarantine` | Active and released quarantine records for self-build targets |
 | `GET` | `/self-build/rollback` | Rollback history for integration-branch and self-build recovery actions |
 | `GET` | `/workspaces` | Durable workspace allocation list for mutating self-work |

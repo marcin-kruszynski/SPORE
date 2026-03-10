@@ -118,6 +118,7 @@ Useful local overrides for isolated runs and tests:
 - Treat `goal plans` as durable planning artifacts that should be reviewed before materialization when review is required. Prefer `/goals/plan`, `/goal-plans*`, `/goal-plans/:id/edit`, `/goal-plans/:id/history`, `/goal-plans/:id/review`, `/goal-plans/:id/materialize`, and `/goal-plans/:id/run`.
 - Treat `work-item groups` as the execution unit for multi-item rollout. Prefer `/work-item-groups*` and `/work-item-groups/:id/run` over manually running each child item when grouped execution is intended.
 - Treat proposal artifacts as governed outputs for work-item runs. Prefer `/work-item-runs/:runId/proposal`, `/proposal-artifacts/:id/review-package`, `/proposal-artifacts/:id/review`, `/proposal-artifacts/:id/approval`, `/work-item-runs/:runId/validate-bundle`, `/proposal-artifacts/:id/promotion-plan`, and `/proposal-artifacts/:id/promotion-invoke` for proposal lifecycle and promotion transitions.
+- Treat proposal rework as an explicit lifecycle transition. Prefer `/proposal-artifacts/:id/rework` over manually cloning a failed proposal into ad hoc follow-up work.
 - Treat proposal approval, validation readiness, and promotion readiness as separate states. Do not assume `approved` implies `promotion_ready`.
 - Treat named validation bundles as first-class self-build gates. Prefer `/work-item-runs/:runId/validate-bundle` and `/work-item-groups/:id/validate-bundle` over ad hoc local validation heuristics when a reusable bundle exists.
 - Treat integration branches as the default durable landing target for self-build promotion lanes. Prefer `/integration-branches*` and proposal/integrator promotion surfaces over any direct root-branch mutation.
@@ -137,6 +138,8 @@ Useful local overrides for isolated runs and tests:
 - Treat `promotion_candidate` as the default approved promotion outcome unless project policy explicitly promotes further.
 - Fail promotion early when durable promotion source artifacts are missing; do not infer promotion sources from ad hoc filesystem state.
 - Treat run validation and docs follow-up as first-class read/write surfaces. Prefer `/work-item-runs/:runId/validate` and `/work-item-runs/:runId/doc-suggestions` for operator quality loops.
+- Treat durable doc suggestions as a first-class self-build queue. Prefer `/self-build/doc-suggestions`, `/doc-suggestions/:id`, and their review/materialize mutation routes over inferring follow-up work from raw run notes.
+- Treat self-build intake as the durable autonomous follow-up queue. Prefer `/self-build/intake`, `/self-build/intake/refresh`, `/self-build/intake/:id`, and their review/materialize mutation routes when converting learnings, doc suggestions, or integration diagnostics into new goal plans.
 - Use `/self-build/dashboard` (or `self-build-dashboard`) as the preferred aggregate self-build triage surface when building dedicated dashboards or operator consoles. Use `/self-build/summary` only when a lighter snapshot is sufficient.
 
 ## Minimum Verification Loop
@@ -246,12 +249,20 @@ Current CLI contract: `docs-kb index|search|status|rebuild`.
 - `services/orchestrator/` also exposes self-build/work-item surfaces:
   - `GET /self-build/dashboard`
   - `GET /self-build/summary`
+  - `GET /self-build/learnings`
+  - `GET /self-build/doc-suggestions`
+  - `GET /self-build/intake`
+  - `POST /self-build/intake/refresh`
+  - `GET /self-build/intake/:id`
+  - `POST /self-build/intake/:id/review`
+  - `POST /self-build/intake/:id/materialize`
   - `GET /work-item-templates` and `GET /work-item-templates/:id`
-  - `GET /goal-plans`, `POST /goals/plan`, `GET /goal-plans/:id`, `GET /goal-plans/:id/history`, `POST /goal-plans/:id/edit`, `POST /goal-plans/:id/materialize`, `POST /goal-plans/:id/run`
+  - `GET /goal-plans`, `POST /goals/plan`, `GET /goal-plans/:id`, `GET /goal-plans/:id/history`, `POST /goal-plans/:id/edit`, `POST /goal-plans/:id/review`, `POST /goal-plans/:id/materialize`, `POST /goal-plans/:id/run`
   - `GET /work-item-groups`, `GET /work-item-groups/:id`, `POST /work-item-groups/:id/run`, `POST /work-item-groups/:id/unblock`, `POST /work-item-groups/:id/reroute`, `POST /work-item-groups/:id/retry-downstream`, `POST /work-item-groups/:id/requeue-item`, `POST /work-item-groups/:id/skip-item`, `POST /work-item-groups/:id/validate-bundle`
   - `GET /work-items`, `POST /work-items`, `GET /work-items/:id`, `GET /work-items/:id/runs`, `POST /work-items/:id/run`
   - `GET /work-item-runs/:runId`, `POST /work-item-runs/:runId/rerun`, `GET /work-item-runs/:runId/workspace`, `GET /work-item-runs/:runId/proposal`, `POST /work-item-runs/:runId/validate`, `POST /work-item-runs/:runId/validate-bundle`, `GET /work-item-runs/:runId/doc-suggestions`
-  - `GET /proposal-artifacts/:id`, `GET /proposal-artifacts/:id/review-package`, `POST /proposal-artifacts/:id/review`, `POST /proposal-artifacts/:id/approval`, `POST /proposal-artifacts/:id/promotion-plan`, `POST /proposal-artifacts/:id/promotion-invoke`
+  - `GET /doc-suggestions/:id`, `POST /doc-suggestions/:id/review`, `POST /doc-suggestions/:id/materialize`
+  - `GET /proposal-artifacts/:id`, `GET /proposal-artifacts/:id/review-package`, `POST /proposal-artifacts/:id/review`, `POST /proposal-artifacts/:id/approval`, `POST /proposal-artifacts/:id/promotion-plan`, `POST /proposal-artifacts/:id/promotion-invoke`, `POST /proposal-artifacts/:id/rework`
   - `GET /integration-branches`, `GET /integration-branches/:name`
   - `GET /self-build/loop/status`, `POST /self-build/loop/start`, `POST /self-build/loop/stop`
   - `GET /self-build/decisions`, `GET /self-build/quarantine`, `GET /self-build/rollback`
@@ -265,6 +276,7 @@ Current CLI contract: `docs-kb index|search|status|rebuild`.
   - `POST /promotions/invoke`
 - `GET /run-center/summary` should be treated as the preferred aggregate route for operator alerts and recommendations across named validation flows.
 - `GET /self-build/dashboard` should be treated as the preferred aggregate route for self-build attention states, queue ordering, workspace health, and recent managed-work runs.
+- `GET /self-build/doc-suggestions`, `GET /self-build/intake`, and `GET /self-build/learnings` should be treated as the preferred aggregate follow-up feeds for autonomous self-build work.
 - Treat additive operator drilldown helpers such as `links.*`, `trendSnapshot`, `latestReports[]`, `recentRuns[]`, and `failureBreakdown` as first-class read-surface fields when they are present; clients should not reconstruct equivalent links heuristically.
 - `services/orchestrator/` now also exposes `/work-items`, `/work-items/:id`, `/work-items/:id/run`, and `/work-item-runs/:runId` for supervised self-work tracking.
 - UI and automation clients should treat additive execution metadata such as `projectRole`, `topology.kind`, `promotion`, and `promotionStatus` as the authoritative hints for rendering coordinator-root families and integrator promotion lanes.

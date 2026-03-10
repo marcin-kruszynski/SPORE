@@ -764,6 +764,109 @@ test("self-build summary and lineage routes expose operator-first visibility", a
   assert.equal(docSuggestions.json.detail.runId, runId);
   assert.ok(Array.isArray(docSuggestions.json.detail.suggestions));
 
+  const selfBuildLearnings = await getJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/self-build/learnings`,
+  );
+  assert.equal(selfBuildLearnings.status, 200);
+  assert.ok(selfBuildLearnings.json.ok);
+  assert.ok(Array.isArray(selfBuildLearnings.json.detail));
+
+  const selfBuildDocSuggestions = await getJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/self-build/doc-suggestions?runId=${encodeURIComponent(runId)}`,
+  );
+  assert.equal(selfBuildDocSuggestions.status, 200);
+  assert.ok(selfBuildDocSuggestions.json.ok);
+  assert.ok(Array.isArray(selfBuildDocSuggestions.json.detail));
+
+  const firstDocSuggestion = selfBuildDocSuggestions.json.detail[0] ?? null;
+  if (firstDocSuggestion) {
+    const docSuggestionDetail = await getJson(
+      `http://127.0.0.1:${ORCHESTRATOR_PORT}/doc-suggestions/${encodeURIComponent(firstDocSuggestion.id)}`,
+    );
+    assert.equal(docSuggestionDetail.status, 200);
+    assert.ok(docSuggestionDetail.json.ok);
+    assert.equal(docSuggestionDetail.json.detail.id, firstDocSuggestion.id);
+
+    const reviewedSuggestion = await postJson(
+      `http://127.0.0.1:${ORCHESTRATOR_PORT}/doc-suggestions/${encodeURIComponent(firstDocSuggestion.id)}/review`,
+      {
+        status: "accepted",
+        by: "test-runner",
+        source: "http-self-build-test",
+        comments: "Accept suggestion for intake coverage.",
+      },
+    );
+    assert.equal(reviewedSuggestion.status, 200);
+    assert.ok(reviewedSuggestion.json.ok);
+    assert.equal(reviewedSuggestion.json.detail.status, "accepted");
+
+    const materializedSuggestion = await postJson(
+      `http://127.0.0.1:${ORCHESTRATOR_PORT}/doc-suggestions/${encodeURIComponent(firstDocSuggestion.id)}/materialize`,
+      {
+        by: "test-runner",
+        source: "http-self-build-test",
+        safeMode: true,
+      },
+    );
+    assert.equal(materializedSuggestion.status, 200);
+    assert.ok(materializedSuggestion.json.ok);
+    assert.ok(materializedSuggestion.json.detail);
+  }
+
+  const refreshedIntake = await postJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/self-build/intake/refresh`,
+    {
+      includeAccepted: true,
+      projectId: "spore",
+      by: "test-runner",
+      source: "http-self-build-test",
+    },
+  );
+  assert.equal(refreshedIntake.status, 200);
+  assert.ok(refreshedIntake.json.ok);
+
+  const selfBuildIntake = await getJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/self-build/intake?projectId=spore`,
+  );
+  assert.equal(selfBuildIntake.status, 200);
+  assert.ok(selfBuildIntake.json.ok);
+  assert.ok(Array.isArray(selfBuildIntake.json.detail));
+
+  const firstIntake = selfBuildIntake.json.detail[0] ?? null;
+  if (firstIntake) {
+    const intakeDetail = await getJson(
+      `http://127.0.0.1:${ORCHESTRATOR_PORT}/self-build/intake/${encodeURIComponent(firstIntake.id)}`,
+    );
+    assert.equal(intakeDetail.status, 200);
+    assert.ok(intakeDetail.json.ok);
+    assert.equal(intakeDetail.json.detail.id, firstIntake.id);
+
+    const reviewedIntake = await postJson(
+      `http://127.0.0.1:${ORCHESTRATOR_PORT}/self-build/intake/${encodeURIComponent(firstIntake.id)}/review`,
+      {
+        status: "accepted",
+        by: "test-runner",
+        source: "http-self-build-test",
+        comments: "Accept intake item for materialization coverage.",
+      },
+    );
+    assert.equal(reviewedIntake.status, 200);
+    assert.ok(reviewedIntake.json.ok);
+    assert.equal(reviewedIntake.json.detail.status, "accepted");
+
+    const materializedIntake = await postJson(
+      `http://127.0.0.1:${ORCHESTRATOR_PORT}/self-build/intake/${encodeURIComponent(firstIntake.id)}/materialize`,
+      {
+        by: "test-runner",
+        source: "http-self-build-test",
+        projectId: "spore",
+      },
+    );
+    assert.equal(materializedIntake.status, 200);
+    assert.ok(materializedIntake.json.ok);
+    assert.ok(materializedIntake.json.detail);
+  }
+
   const rerun = await postJson(
     `http://127.0.0.1:${ORCHESTRATOR_PORT}/work-item-runs/${encodeURIComponent(runId)}/rerun`,
     {
@@ -846,6 +949,27 @@ test("self-build summary and lineage routes expose operator-first visibility", a
   assert.equal(webRollback.status, 200);
   assert.ok(webRollback.json.ok);
   assert.ok(Array.isArray(webRollback.json.detail));
+
+  const webLearnings = await getJson(
+    `http://127.0.0.1:${WEB_PORT}/api/orchestrator/self-build/learnings`,
+  );
+  assert.equal(webLearnings.status, 200);
+  assert.ok(webLearnings.json.ok);
+  assert.ok(Array.isArray(webLearnings.json.detail));
+
+  const webDocSuggestions = await getJson(
+    `http://127.0.0.1:${WEB_PORT}/api/orchestrator/self-build/doc-suggestions?runId=${encodeURIComponent(runId)}`,
+  );
+  assert.equal(webDocSuggestions.status, 200);
+  assert.ok(webDocSuggestions.json.ok);
+  assert.ok(Array.isArray(webDocSuggestions.json.detail));
+
+  const webIntake = await getJson(
+    `http://127.0.0.1:${WEB_PORT}/api/orchestrator/self-build/intake`,
+  );
+  assert.equal(webIntake.status, 200);
+  assert.ok(webIntake.json.ok);
+  assert.ok(Array.isArray(webIntake.json.detail));
 
   const webIntegrationBranches = await getJson(
     `http://127.0.0.1:${WEB_PORT}/api/orchestrator/integration-branches`,

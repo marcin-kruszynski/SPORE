@@ -134,6 +134,23 @@ export interface RollbackRecordListOptions extends JsonObject {
   limit?: number | string;
 }
 
+export interface DocSuggestionRecordListOptions extends JsonObject {
+  status?: string;
+  workItemId?: string;
+  workItemRunId?: string;
+  proposalArtifactId?: string;
+  kind?: string;
+  limit?: number | string;
+}
+
+export interface SelfBuildIntakeListOptions extends JsonObject {
+  status?: string;
+  sourceType?: string;
+  kind?: string;
+  priority?: string;
+  limit?: number | string;
+}
+
 export function isJsonObject(value: unknown): value is JsonObject {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }

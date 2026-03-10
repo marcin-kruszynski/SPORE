@@ -659,6 +659,121 @@ test("tui execution and family commands consume orchestrator HTTP surfaces", {
     workItemCreatePayload.detail.id,
   );
 
+  const workItemDocSuggestionsOutput = await runCli([
+    "work-item-doc-suggestions",
+    "--run",
+    workItemRunPayload.detail.run.id,
+    "--api",
+    `http://127.0.0.1:${orchestratorPort}`,
+  ]);
+  const workItemDocSuggestionsPayload = JSON.parse(
+    workItemDocSuggestionsOutput.stdout,
+  );
+  assert.equal(
+    workItemDocSuggestionsPayload.detail.runId,
+    workItemRunPayload.detail.run.id,
+  );
+  assert.ok(Array.isArray(workItemDocSuggestionsPayload.detail.suggestions));
+
+  const selfBuildLearningsOutput = await runCli([
+    "self-build-learnings",
+    "--api",
+    `http://127.0.0.1:${orchestratorPort}`,
+  ]);
+  const selfBuildLearningsPayload = JSON.parse(selfBuildLearningsOutput.stdout);
+  assert.ok(Array.isArray(selfBuildLearningsPayload.detail));
+
+  const selfBuildDocSuggestionsOutput = await runCli([
+    "self-build-doc-suggestions",
+    "--run",
+    workItemRunPayload.detail.run.id,
+    "--api",
+    `http://127.0.0.1:${orchestratorPort}`,
+  ]);
+  const selfBuildDocSuggestionsPayload = JSON.parse(
+    selfBuildDocSuggestionsOutput.stdout,
+  );
+  assert.ok(Array.isArray(selfBuildDocSuggestionsPayload.detail));
+
+  const firstDocSuggestion = selfBuildDocSuggestionsPayload.detail[0] ?? null;
+  if (firstDocSuggestion) {
+    const docSuggestionShowOutput = await runCli([
+      "doc-suggestion-show",
+      "--suggestion",
+      firstDocSuggestion.id,
+      "--api",
+      `http://127.0.0.1:${orchestratorPort}`,
+    ]);
+    const docSuggestionShowPayload = JSON.parse(docSuggestionShowOutput.stdout);
+    assert.equal(docSuggestionShowPayload.detail.id, firstDocSuggestion.id);
+
+    const docSuggestionReviewOutput = await runCli([
+      "doc-suggestion-review",
+      "--suggestion",
+      firstDocSuggestion.id,
+      "--status",
+      "accepted",
+      "--api",
+      `http://127.0.0.1:${orchestratorPort}`,
+    ]);
+    const docSuggestionReviewPayload = JSON.parse(
+      docSuggestionReviewOutput.stdout,
+    );
+    assert.equal(docSuggestionReviewPayload.detail.status, "accepted");
+  }
+
+  const selfBuildIntakeRefreshOutput = await runCli([
+    "self-build-intake-refresh",
+    "--include-accepted",
+    "--project",
+    "spore",
+    "--api",
+    `http://127.0.0.1:${orchestratorPort}`,
+  ]);
+  const selfBuildIntakeRefreshPayload = JSON.parse(
+    selfBuildIntakeRefreshOutput.stdout,
+  );
+  assert.ok(Array.isArray(selfBuildIntakeRefreshPayload.detail));
+
+  const selfBuildIntakeOutput = await runCli([
+    "self-build-intake",
+    "--project",
+    "spore",
+    "--api",
+    `http://127.0.0.1:${orchestratorPort}`,
+  ]);
+  const selfBuildIntakePayload = JSON.parse(selfBuildIntakeOutput.stdout);
+  assert.ok(Array.isArray(selfBuildIntakePayload.detail));
+
+  const firstIntake = selfBuildIntakePayload.detail[0] ?? null;
+  if (firstIntake) {
+    const selfBuildIntakeShowOutput = await runCli([
+      "self-build-intake-show",
+      "--intake",
+      firstIntake.id,
+      "--api",
+      `http://127.0.0.1:${orchestratorPort}`,
+    ]);
+    const selfBuildIntakeShowPayload = JSON.parse(
+      selfBuildIntakeShowOutput.stdout,
+    );
+    assert.equal(selfBuildIntakeShowPayload.detail.id, firstIntake.id);
+
+    const selfBuildIntakeReviewOutput = await runCli([
+      "self-build-intake-review",
+      "--intake",
+      firstIntake.id,
+      "--status",
+      "accepted",
+      "--api",
+      `http://127.0.0.1:${orchestratorPort}`,
+    ]);
+    const selfBuildIntakeReviewPayload = JSON.parse(
+      selfBuildIntakeReviewOutput.stdout,
+    );
+    assert.equal(selfBuildIntakeReviewPayload.detail.status, "accepted");
+  }
+
   const workItemTemplateListOutput = await runCli([
     "work-item-template-list",
     "--api",

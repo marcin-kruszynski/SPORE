@@ -62,6 +62,7 @@ import {
   createGoalPlan,
   createManagedWorkItem,
   editGoalPlan,
+  getDocSuggestionSummary,
   getDocSuggestionsForRun,
   getGoalPlanHistory,
   getGoalPlanSummary,
@@ -70,6 +71,7 @@ import {
   getProposalReviewPackage,
   getProposalSummary,
   getSelfBuildDashboard,
+  getSelfBuildIntakeSummary,
   getSelfBuildLoopStatus,
   getSelfBuildSummary,
   getSelfBuildWorkItem,
@@ -83,6 +85,9 @@ import {
   listGoalPlansSummary,
   listIntegrationBranchSummaries,
   listSelfBuildDecisionSummaries,
+  listSelfBuildDocSuggestionSummaries,
+  listSelfBuildIntakeSummaries,
+  listSelfBuildLearningSummaries,
   listSelfBuildQuarantineSummaries,
   listSelfBuildRollbackSummaries,
   listSelfBuildWorkItemRuns,
@@ -90,17 +95,23 @@ import {
   listWorkItemGroupsSummary,
   listWorkItemTemplates,
   listWorkspaceSummaries,
+  materializeDocSuggestionRecord,
   materializeGoalPlan,
+  materializeSelfBuildIntake,
   planProposalPromotion,
   quarantineSelfBuildTarget,
   reconcileManagedWorkspace,
+  refreshSelfBuildIntake,
   releaseSelfBuildQuarantine,
   requeueWorkItemGroupItem,
   rerouteWorkItemGroup,
   rerunSelfBuildWorkItemRun,
   retryDownstreamWorkItemGroup,
+  reviewDocSuggestionRecord,
   reviewGoalPlan,
   reviewProposalArtifact,
+  reviewSelfBuildIntake,
+  reworkProposalArtifact,
   rollbackIntegrationBranch,
   runGoalPlan,
   runSelfBuildWorkItem,
@@ -836,6 +847,98 @@ async function main() {
     return;
   }
 
+  if (command === "self-build-learnings") {
+    const detail = listSelfBuildLearningSummaries({
+      sourceType: flags["source-type"] ?? null,
+      status: flags.status ?? null,
+      limit: flags.limit ?? "50",
+    });
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
+  if (command === "self-build-doc-suggestions") {
+    const detail = listSelfBuildDocSuggestionSummaries({
+      status: flags.status ?? null,
+      workItemRunId: flags.run ?? null,
+      workItemId: flags.item ?? null,
+      proposalArtifactId: flags.proposal ?? null,
+      limit: flags.limit ?? "50",
+    });
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
+  if (command === "self-build-intake") {
+    const detail = listSelfBuildIntakeSummaries({
+      status: flags.status ?? null,
+      kind: flags.kind ?? null,
+      sourceType: flags["source-type"] ?? null,
+      projectId: flags.project ?? null,
+      limit: flags.limit ?? "50",
+    });
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
+  if (command === "self-build-intake-show") {
+    if (!flags.intake) {
+      throw new Error("use self-build-intake-show --intake <id>");
+    }
+    const detail = getSelfBuildIntakeSummary(flags.intake);
+    if (!detail) {
+      throw new Error(`self-build intake not found: ${flags.intake}`);
+    }
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
+  if (command === "self-build-intake-refresh") {
+    const detail = await refreshSelfBuildIntake({
+      includeAccepted: flags["include-accepted"] === true,
+      projectId: flags.project ?? null,
+      by: flags.by ?? "operator",
+      source: flags.source ?? "cli",
+    });
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
+  if (command === "self-build-intake-review") {
+    if (!flags.intake || !flags.status) {
+      throw new Error(
+        "use self-build-intake-review --intake <id> --status <accepted|dismissed>",
+      );
+    }
+    const detail = await reviewSelfBuildIntake(flags.intake, {
+      status: flags.status,
+      by: flags.by ?? "operator",
+      comments: flags.comments ?? "",
+      source: flags.source ?? "cli",
+    });
+    if (!detail) {
+      throw new Error(`self-build intake not found: ${flags.intake}`);
+    }
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
+  if (command === "self-build-intake-materialize") {
+    if (!flags.intake) {
+      throw new Error("use self-build-intake-materialize --intake <id>");
+    }
+    const detail = await materializeSelfBuildIntake(flags.intake, {
+      by: flags.by ?? "operator",
+      source: flags.source ?? "cli",
+      projectId: flags.project ?? null,
+    });
+    if (!detail) {
+      throw new Error(`self-build intake not found: ${flags.intake}`);
+    }
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
   if (command === "work-item-template-list") {
     const detail = await listWorkItemTemplates();
     console.log(JSON.stringify({ ok: true, detail }, null, 2));
@@ -1478,6 +1581,61 @@ async function main() {
     return;
   }
 
+  if (command === "doc-suggestion-show") {
+    if (!flags.suggestion) {
+      throw new Error("use doc-suggestion-show --suggestion <id>");
+    }
+    const detail = getDocSuggestionSummary(flags.suggestion);
+    if (!detail) {
+      throw new Error(`doc suggestion not found: ${flags.suggestion}`);
+    }
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
+  if (command === "doc-suggestion-review") {
+    if (!flags.suggestion || !flags.status) {
+      throw new Error(
+        "use doc-suggestion-review --suggestion <id> --status <accepted|dismissed>",
+      );
+    }
+    const detail = await reviewDocSuggestionRecord(flags.suggestion, {
+      status: flags.status,
+      by: flags.by ?? "operator",
+      comments: flags.comments ?? "",
+      source: flags.source ?? "cli",
+    });
+    if (!detail) {
+      throw new Error(`doc suggestion not found: ${flags.suggestion}`);
+    }
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
+  if (command === "doc-suggestion-materialize") {
+    if (!flags.suggestion) {
+      throw new Error("use doc-suggestion-materialize --suggestion <id>");
+    }
+    const detail = await materializeDocSuggestionRecord(flags.suggestion, {
+      templateId: flags.template ?? null,
+      title: flags.title ?? null,
+      goal: flags.goal ?? null,
+      priority: flags.priority ?? null,
+      domainId: flags.domain ?? null,
+      safeMode:
+        flags["safe-mode"] === undefined
+          ? undefined
+          : flags["safe-mode"] !== false,
+      by: flags.by ?? "operator",
+      source: flags.source ?? "cli",
+    });
+    if (!detail) {
+      throw new Error(`doc suggestion not found: ${flags.suggestion}`);
+    }
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
   if (command === "proposal-show") {
     if (!flags.proposal && !flags.run) {
       throw new Error(
@@ -1767,6 +1925,24 @@ async function main() {
     return;
   }
 
+  if (command === "proposal-rework") {
+    if (!flags.proposal) {
+      throw new Error("use proposal-rework --proposal <id>");
+    }
+    const detail = await reworkProposalArtifact(flags.proposal, {
+      rationale: flags.rationale ?? flags.comments ?? flags.reason ?? "",
+      title: flags.title ?? null,
+      goal: flags.goal ?? null,
+      source: flags.source ?? "cli",
+      by: flags.by ?? "operator",
+    });
+    if (!detail) {
+      throw new Error(`proposal artifact not found: ${flags.proposal}`);
+    }
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
   if (command === "drive") {
     if (!flags.execution) {
       throw new Error("use drive --execution <id>");
@@ -1959,7 +2135,7 @@ async function main() {
   }
 
   throw new Error(
-    `unknown command: ${command}. commands: plan | invoke | project-plan | project-invoke | promotion-plan | promotion-invoke | list | show | children | tree | groups | group | events | escalations | audit | history | policy-diff | execution-workspaces | run-center | scenario-* | regression-* | self-build-* | self-build-loop-* | self-build-decisions | self-build-quarantine | self-build-rollback | self-build-quarantine-release | work-item-* | work-item-group-* | goal-plan-* | proposal-* | integration-branch-* | workspace-* | drive | drive-tree | drive-group | fork | spawn-branches | pause | pause-tree | hold | hold-tree | resume | resume-tree | review | review-tree | approve | approve-tree | resolve-escalation`,
+    `unknown command: ${command}. commands: plan | invoke | project-plan | project-invoke | promotion-plan | promotion-invoke | list | show | children | tree | groups | group | events | escalations | audit | history | policy-diff | execution-workspaces | run-center | scenario-* | regression-* | self-build-* | self-build-loop-* | self-build-decisions | self-build-learnings | self-build-doc-suggestions | self-build-intake* | self-build-quarantine | self-build-rollback | self-build-quarantine-release | work-item-* | work-item-group-* | goal-plan-* | doc-suggestion-* | proposal-* | integration-branch-* | workspace-* | drive | drive-tree | drive-group | fork | spawn-branches | pause | pause-tree | hold | hold-tree | resume | resume-tree | review | review-tree | approve | approve-tree | resolve-escalation`,
   );
 }
 

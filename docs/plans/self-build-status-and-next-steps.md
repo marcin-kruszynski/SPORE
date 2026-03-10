@@ -44,9 +44,12 @@ SPORE already has a meaningful executable foundation.
 - `git worktree` provisioning for mutating self-work through `packages/workspace-manager/`
 - workspace linkage from work-item runs and proposal artifacts to a concrete worktree path and branch
 - `work-item run validation` and `doc suggestions`
+- durable `doc suggestion` queue with review and materialization flows
+- durable `self-build intake` queue built from learnings, doc suggestions, and integration diagnostics
 - `self-build summary` and `self-build dashboard` as aggregate read surfaces
 - `work-item run history` with trend, comparison, and rerun affordances
 - durable `attentionSummary`, queue ordering, and planner follow-up items for self-work
+- durable autonomous decision, quarantine, rollback, learning, doc-suggestion, and intake surfaces
 - Web run-center visibility into managed work items, work-item runs, proposal artifacts, and workspace health
 - TUI parity for `self-build-dashboard`, `work-item-queue`, `workspace-list`, `workspace-show`, and `work-item-run-rerun`
 
@@ -136,6 +139,8 @@ Delivered so far:
 - quarantine and rollback records for goal plans, work-item groups, proposals, and integration branches
 - explicit autonomous promotion-to-integration behavior guarded by policy and validation readiness
 - additive proposal promotion metadata and early promotion blockers when durable source artifacts are missing
+- durable doc-suggestion review/materialization flow and autonomous intake refresh/materialization flow
+- self-build dashboard visibility for doc-suggestion and intake queues
 - Web/TUI operator flows for proposal review, approval, promotion planning, and promotion invocation
 
 Still missing before phase 3 can be considered complete:

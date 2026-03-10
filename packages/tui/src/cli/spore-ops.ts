@@ -1943,6 +1943,87 @@ async function proposalPromotionInvoke(flags: CliFlags) {
   console.log(formatJson(payload));
 }
 
+async function proposalRework(flags: CliFlags) {
+  if (!flags.proposal) {
+    throw new Error("use proposal-rework --proposal <id>");
+  }
+  const payload = await orchestratorRequest(
+    flags,
+    `/proposal-artifacts/${encodeURIComponent(flags.proposal)}/rework`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        rationale: flags.rationale ?? flags.comments ?? flags.reason ?? "",
+        title: flags.title ?? null,
+        goal: flags.goal ?? null,
+        by: flags.by ?? "operator",
+        source: flags.source ?? "tui",
+      }),
+    },
+  );
+  console.log(formatJson(payload));
+}
+
+async function docSuggestionShow(flags: CliFlags) {
+  if (!flags.suggestion) {
+    throw new Error("use doc-suggestion-show --suggestion <id>");
+  }
+  const payload = await orchestratorRequest(
+    flags,
+    `/doc-suggestions/${encodeURIComponent(flags.suggestion)}`,
+  );
+  console.log(formatJson(payload));
+}
+
+async function docSuggestionReview(flags: CliFlags) {
+  if (!flags.suggestion || !flags.status) {
+    throw new Error(
+      "use doc-suggestion-review --suggestion <id> --status <accepted|dismissed>",
+    );
+  }
+  const payload = await orchestratorRequest(
+    flags,
+    `/doc-suggestions/${encodeURIComponent(flags.suggestion)}/review`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        status: flags.status,
+        by: flags.by ?? "operator",
+        comments: flags.comments ?? "",
+        source: flags.source ?? "tui",
+      }),
+    },
+  );
+  console.log(formatJson(payload));
+}
+
+async function docSuggestionMaterialize(flags: CliFlags) {
+  if (!flags.suggestion) {
+    throw new Error("use doc-suggestion-materialize --suggestion <id>");
+  }
+  const payload = await orchestratorRequest(
+    flags,
+    `/doc-suggestions/${encodeURIComponent(flags.suggestion)}/materialize`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        templateId: flags.template ?? null,
+        title: flags.title ?? null,
+        goal: flags.goal ?? null,
+        priority: flags.priority ?? null,
+        domainId: flags.domain ?? null,
+        safeMode:
+          flags["safe-mode"] === undefined
+            ? undefined
+            : flags["safe-mode"] !== false,
+        by: flags.by ?? "operator",
+        source: flags.source ?? "tui",
+      }),
+    },
+  );
+  console.log(formatJson(payload));
+}
+
 async function workspaceList(flags: CliFlags) {
   const search = new URLSearchParams();
   if (flags.status) search.set("status", String(flags.status));
@@ -2071,6 +2152,120 @@ async function selfBuildDecisions(flags: CliFlags) {
   const payload = await orchestratorRequest(
     flags,
     `/self-build/decisions${suffix}`,
+  );
+  console.log(formatJson(payload));
+}
+
+async function selfBuildLearnings(flags: CliFlags) {
+  const search = new URLSearchParams();
+  if (flags["source-type"])
+    search.set("sourceType", String(flags["source-type"]));
+  if (flags.status) search.set("status", String(flags.status));
+  if (flags.limit) search.set("limit", String(flags.limit));
+  const suffix = search.toString() ? `?${search.toString()}` : "";
+  const payload = await orchestratorRequest(
+    flags,
+    `/self-build/learnings${suffix}`,
+  );
+  console.log(formatJson(payload));
+}
+
+async function selfBuildDocSuggestions(flags: CliFlags) {
+  const search = new URLSearchParams();
+  if (flags.status) search.set("status", String(flags.status));
+  if (flags.run) search.set("runId", String(flags.run));
+  if (flags.item) search.set("itemId", String(flags.item));
+  if (flags.proposal) search.set("proposalId", String(flags.proposal));
+  if (flags.limit) search.set("limit", String(flags.limit));
+  const suffix = search.toString() ? `?${search.toString()}` : "";
+  const payload = await orchestratorRequest(
+    flags,
+    `/self-build/doc-suggestions${suffix}`,
+  );
+  console.log(formatJson(payload));
+}
+
+async function selfBuildIntake(flags: CliFlags) {
+  const search = new URLSearchParams();
+  if (flags.status) search.set("status", String(flags.status));
+  if (flags.kind) search.set("kind", String(flags.kind));
+  if (flags["source-type"])
+    search.set("sourceType", String(flags["source-type"]));
+  if (flags.project) search.set("projectId", String(flags.project));
+  if (flags.limit) search.set("limit", String(flags.limit));
+  const suffix = search.toString() ? `?${search.toString()}` : "";
+  const payload = await orchestratorRequest(
+    flags,
+    `/self-build/intake${suffix}`,
+  );
+  console.log(formatJson(payload));
+}
+
+async function selfBuildIntakeShow(flags: CliFlags) {
+  if (!flags.intake) {
+    throw new Error("use self-build-intake-show --intake <id>");
+  }
+  const payload = await orchestratorRequest(
+    flags,
+    `/self-build/intake/${encodeURIComponent(flags.intake)}`,
+  );
+  console.log(formatJson(payload));
+}
+
+async function selfBuildIntakeRefresh(flags: CliFlags) {
+  const payload = await orchestratorRequest(
+    flags,
+    "/self-build/intake/refresh",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        includeAccepted: flags["include-accepted"] === true,
+        projectId: flags.project,
+        by: flags.by ?? "operator",
+        source: flags.source ?? "tui",
+      }),
+    },
+  );
+  console.log(formatJson(payload));
+}
+
+async function selfBuildIntakeReview(flags: CliFlags) {
+  if (!flags.intake || !flags.status) {
+    throw new Error(
+      "use self-build-intake-review --intake <id> --status <accepted|dismissed>",
+    );
+  }
+  const payload = await orchestratorRequest(
+    flags,
+    `/self-build/intake/${encodeURIComponent(flags.intake)}/review`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        status: flags.status,
+        by: flags.by ?? "operator",
+        comments: flags.comments ?? "",
+        source: flags.source ?? "tui",
+      }),
+    },
+  );
+  console.log(formatJson(payload));
+}
+
+async function selfBuildIntakeMaterialize(flags: CliFlags) {
+  if (!flags.intake) {
+    throw new Error("use self-build-intake-materialize --intake <id>");
+  }
+  const payload = await orchestratorRequest(
+    flags,
+    `/self-build/intake/${encodeURIComponent(flags.intake)}/materialize`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        projectId: flags.project,
+        by: flags.by ?? "operator",
+        source: flags.source ?? "tui",
+      }),
+    },
   );
   console.log(formatJson(payload));
 }
@@ -2422,6 +2617,22 @@ async function main() {
     await proposalPromotionInvoke(flags);
     return;
   }
+  if (command === "proposal-rework") {
+    await proposalRework(flags);
+    return;
+  }
+  if (command === "doc-suggestion-show") {
+    await docSuggestionShow(flags);
+    return;
+  }
+  if (command === "doc-suggestion-review") {
+    await docSuggestionReview(flags);
+    return;
+  }
+  if (command === "doc-suggestion-materialize") {
+    await docSuggestionMaterialize(flags);
+    return;
+  }
   if (command === "workspace-list") {
     await workspaceList(flags);
     return;
@@ -2448,6 +2659,34 @@ async function main() {
   }
   if (command === "self-build-decisions") {
     await selfBuildDecisions(flags);
+    return;
+  }
+  if (command === "self-build-learnings") {
+    await selfBuildLearnings(flags);
+    return;
+  }
+  if (command === "self-build-doc-suggestions") {
+    await selfBuildDocSuggestions(flags);
+    return;
+  }
+  if (command === "self-build-intake") {
+    await selfBuildIntake(flags);
+    return;
+  }
+  if (command === "self-build-intake-show") {
+    await selfBuildIntakeShow(flags);
+    return;
+  }
+  if (command === "self-build-intake-refresh") {
+    await selfBuildIntakeRefresh(flags);
+    return;
+  }
+  if (command === "self-build-intake-review") {
+    await selfBuildIntakeReview(flags);
+    return;
+  }
+  if (command === "self-build-intake-materialize") {
+    await selfBuildIntakeMaterialize(flags);
     return;
   }
   if (command === "self-build-quarantine") {
@@ -2481,7 +2720,7 @@ async function main() {
     return;
   }
   throw new Error(
-    "commands: dashboard | inspect | execution | tree | family | audit | policy-diff | history | project-plan | project-invoke | promotion-plan | promotion-invoke | run-center | self-build | self-build-summary | self-build-dashboard | self-build-decisions | self-build-quarantine | self-build-rollback | self-build-loop-* | self-build-quarantine-release | work-item-queue | workspace-list | workspace-show | integration-branch-* | scenario-list | scenario-show | scenario-runs | scenario-run | scenario-run-show | scenario-run-artifacts | scenario-rerun | scenario-trends | regression-list | regression-show | regression-runs | regression-run | regression-run-show | regression-report | regression-latest-report | regression-rerun | regression-trends | regression-scheduler | regression-scheduler-status | work-item-template-list | work-item-template-show | goal-plan-create | goal-plan-list | goal-plan-show | goal-plan-history | goal-plan-edit | goal-plan-review | goal-plan-quarantine | goal-plan-materialize | goal-plan-run | work-item-group-list | work-item-group-show | work-item-group-unblock | work-item-group-quarantine | work-item-group-reroute | work-item-group-retry-downstream | work-item-group-requeue-item | work-item-group-skip-item | work-item-group-validate-bundle | work-item-group-run | work-item-list | work-item-show | work-item-runs | work-item-create | work-item-run | work-item-run-show | work-item-run-rerun | work-item-validate | work-item-validate-bundle | work-item-doc-suggestions | proposal-show | proposal-review-package | proposal-quarantine | proposal-review | proposal-approve | proposal-promotion-plan | proposal-promotion-invoke | drive | pause | hold | resume | review | approval",
+    "commands: dashboard | inspect | execution | tree | family | audit | policy-diff | history | project-plan | project-invoke | promotion-plan | promotion-invoke | run-center | self-build | self-build-summary | self-build-dashboard | self-build-decisions | self-build-learnings | self-build-doc-suggestions | self-build-intake | self-build-intake-show | self-build-intake-refresh | self-build-intake-review | self-build-intake-materialize | self-build-quarantine | self-build-rollback | self-build-loop-* | self-build-quarantine-release | work-item-queue | workspace-list | workspace-show | integration-branch-* | scenario-list | scenario-show | scenario-runs | scenario-run | scenario-run-show | scenario-run-artifacts | scenario-rerun | scenario-trends | regression-list | regression-show | regression-runs | regression-run | regression-run-show | regression-report | regression-latest-report | regression-rerun | regression-trends | regression-scheduler | regression-scheduler-status | work-item-template-list | work-item-template-show | goal-plan-create | goal-plan-list | goal-plan-show | goal-plan-history | goal-plan-edit | goal-plan-review | goal-plan-quarantine | goal-plan-materialize | goal-plan-run | work-item-group-list | work-item-group-show | work-item-group-unblock | work-item-group-quarantine | work-item-group-reroute | work-item-group-retry-downstream | work-item-group-requeue-item | work-item-group-skip-item | work-item-group-validate-bundle | work-item-group-run | work-item-list | work-item-show | work-item-runs | work-item-create | work-item-run | work-item-run-show | work-item-run-rerun | work-item-validate | work-item-validate-bundle | work-item-doc-suggestions | doc-suggestion-show | doc-suggestion-review | doc-suggestion-materialize | proposal-show | proposal-review-package | proposal-quarantine | proposal-review | proposal-approve | proposal-promotion-plan | proposal-promotion-invoke | proposal-rework | drive | pause | hold | resume | review | approval",
   );
 }
 

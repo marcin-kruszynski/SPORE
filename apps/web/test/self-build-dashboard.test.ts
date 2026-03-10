@@ -6,6 +6,7 @@ import {
   makeTempPaths,
   postJson,
   startProcess,
+  stopProcess,
   waitForHealth,
 } from "@spore/test-support";
 
@@ -50,6 +51,8 @@ type DashboardSummaryResponse = {
     counts: {
       workItems: number;
       groups: number;
+      pendingDocSuggestions: number;
+      queuedAutonomousIntake: number;
     };
   };
 };
@@ -116,9 +119,8 @@ test("self-build dashboard exposes dedicated operator-first surface with overvie
     SPORE_GATEWAY_ORIGIN: "http://127.0.0.1:65535",
   });
 
-  t.after(() => {
-    orchestrator.kill("SIGTERM");
-    web.kill("SIGTERM");
+  t.after(async () => {
+    await Promise.all([stopProcess(orchestrator), stopProcess(web)]);
   });
 
   await waitForHealth(`http://127.0.0.1:${ORCHESTRATOR_PORT}/health`);
@@ -301,4 +303,38 @@ test("self-build dashboard exposes dedicated operator-first surface with overvie
     refreshedSummary.json.detail.counts.groups >= 1,
     "Summary should reflect at least one group",
   );
+  assert.ok(
+    typeof refreshedSummary.json.detail.counts.pendingDocSuggestions ===
+      "number",
+  );
+  assert.ok(
+    typeof refreshedSummary.json.detail.counts.queuedAutonomousIntake ===
+      "number",
+  );
+
+  const docSuggestionsViaWeb = await getJson(
+    `http://127.0.0.1:${WEB_PORT}/api/orchestrator/self-build/doc-suggestions`,
+  );
+  assert.equal(docSuggestionsViaWeb.status, 200);
+  assert.ok(docSuggestionsViaWeb.json.ok);
+  assert.ok(Array.isArray(docSuggestionsViaWeb.json.detail));
+
+  const intakeRefreshViaWeb = await postJson(
+    `http://127.0.0.1:${WEB_PORT}/api/orchestrator/self-build/intake/refresh`,
+    {
+      includeAccepted: true,
+      projectId: "spore",
+      by: "web-test-runner",
+      source: "web-self-build-dashboard-test",
+    },
+  );
+  assert.equal(intakeRefreshViaWeb.status, 200);
+  assert.ok(intakeRefreshViaWeb.json.ok);
+
+  const intakeViaWeb = await getJson(
+    `http://127.0.0.1:${WEB_PORT}/api/orchestrator/self-build/intake?projectId=spore`,
+  );
+  assert.equal(intakeViaWeb.status, 200);
+  assert.ok(intakeViaWeb.json.ok);
+  assert.ok(Array.isArray(intakeViaWeb.json.detail));
 });

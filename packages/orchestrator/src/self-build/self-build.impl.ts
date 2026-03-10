@@ -32,11 +32,14 @@ import {
 } from "../scenarios/run-history.js";
 import {
   findActiveQuarantineRecord,
+  findDocSuggestionRecordByRunAndKind,
+  getDocSuggestionRecord,
   getGoalPlan,
   getIntegrationBranch,
   getProposalArtifact,
   getProposalArtifactByRunId,
   getQuarantineRecord,
+  getSelfBuildIntakeRecord,
   getSelfBuildLoopState,
   getWorkItem,
   getWorkItemGroup,
@@ -51,6 +54,7 @@ import {
   insertSelfBuildDecision,
   insertWorkItemGroup,
   insertWorkspaceAllocation,
+  listDocSuggestionRecords,
   listGoalPlans,
   listIntegrationBranches,
   listLearningRecords,
@@ -58,25 +62,32 @@ import {
   listQuarantineRecords,
   listRollbackRecords,
   listSelfBuildDecisions,
+  listSelfBuildIntakeRecords,
   listSelfBuildLoopStates,
   listWorkItemGroups,
   listWorkItemRuns,
   listWorkspaceAllocations,
   openOrchestratorDatabase,
+  updateDocSuggestionRecord,
   updateGoalPlan,
   updateProposalArtifact,
   updateQuarantineRecord,
+  updateSelfBuildIntakeRecord,
   updateWorkItem,
   updateWorkItemGroup,
   updateWorkItemRun,
   updateWorkspaceAllocation,
+  upsertDocSuggestionRecord,
   upsertIntegrationBranch,
+  upsertSelfBuildIntakeRecord,
   upsertSelfBuildLoopState,
 } from "../store/execution-store.js";
 import type {
+  DocSuggestionRecordListOptions,
   QuarantineRecordListOptions,
   RollbackRecordListOptions,
   SelfBuildDecisionListOptions,
+  SelfBuildIntakeListOptions,
   WorkspaceAllocationListOptions,
   WorkspaceCleanupPolicy,
   WorkspaceCleanupResult,
@@ -2270,12 +2281,777 @@ async function maybeCreateLearningRecord(item, run, proposal, dbPath) {
     metadata: {
       runStatus: run.status,
       itemKind: item.kind,
+      domainId: item.metadata?.domainId ?? null,
+      projectId: item.metadata?.projectId ?? null,
+      templateId: item.metadata?.templateId ?? null,
+      safeMode: item.metadata?.safeMode !== false,
+      mutationScope: dedupe(item.metadata?.mutationScope ?? []),
     },
     createdAt: now,
     updatedAt: now,
   };
   withDatabase(dbPath, (db) => insertLearningRecord(db, record));
   return record;
+}
+
+function inferDocSuggestionTemplateId(record) {
+  const targetPath = String(record?.targetPath ?? "").trim();
+  if (targetPath.startsWith("config/") || targetPath.startsWith("schemas/")) {
+    return "config-schema-maintenance";
+  }
+  if (targetPath.startsWith("apps/web/")) {
+    return "operator-ui-pass";
+  }
+  return "docs-maintenance-pass";
+}
+
+function buildDocSuggestionGoal(record) {
+  const target = toText(record.targetPath, "project documentation");
+  const summary = toText(record.summary, "");
+  if (summary) {
+    return `${summary} Apply and verify the suggested follow-up in ${target}.`;
+  }
+  return `Apply documentation or operator follow-up for ${target}.`;
+}
+
+function buildDocSuggestionSummary(
+  record,
+  dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
+) {
+  if (!record) {
+    return null;
+  }
+  const workItem = record.workItemId
+    ? withDatabase(dbPath, (db) => getWorkItem(db, record.workItemId))
+    : null;
+  const proposal = record.proposalArtifactId
+    ? withDatabase(dbPath, (db) =>
+        getProposalArtifact(db, record.proposalArtifactId),
+      )
+    : null;
+  const materializedWorkItemId =
+    record.metadata?.materializedWorkItemId ?? null;
+  const targetType =
+    record.status === "materialized" ? "work-item" : "doc-suggestion";
+  const targetId = materializedWorkItemId ?? record.id;
+  return {
+    ...record,
+    itemType: "doc-suggestion",
+    targetType,
+    targetId,
+    workItemTitle: workItem?.title ?? null,
+    proposalTitle: proposal?.summary?.title ?? null,
+    suggestedActions: [
+      record.status === "pending" || record.status === "accepted"
+        ? {
+            action:
+              record.status === "accepted"
+                ? "materialize-doc-suggestion"
+                : "review-doc-suggestion",
+            targetType: "doc-suggestion",
+            targetId: record.id,
+            reason:
+              record.status === "accepted"
+                ? "This accepted doc suggestion can now be turned into managed self-work."
+                : "This doc suggestion needs a review decision before it becomes managed work.",
+            expectedOutcome:
+              record.status === "accepted"
+                ? "Create a managed work item from the doc suggestion."
+                : "Accept or dismiss the doc suggestion with durable rationale.",
+            commandHint:
+              record.status === "accepted"
+                ? `npm run orchestrator:doc-suggestion-materialize -- --suggestion ${record.id}`
+                : `npm run orchestrator:doc-suggestion-review -- --suggestion ${record.id} --status accepted`,
+            httpHint:
+              record.status === "accepted"
+                ? `/doc-suggestions/${encodeURIComponent(record.id)}/materialize`
+                : `/doc-suggestions/${encodeURIComponent(record.id)}/review`,
+            priority: record.status === "accepted" ? "medium" : "low",
+          }
+        : null,
+    ].filter(Boolean),
+    links: {
+      self: `/doc-suggestions/${encodeURIComponent(record.id)}`,
+      review: `/doc-suggestions/${encodeURIComponent(record.id)}/review`,
+      materialize: `/doc-suggestions/${encodeURIComponent(record.id)}/materialize`,
+      run: record.workItemRunId
+        ? `/work-item-runs/${encodeURIComponent(record.workItemRunId)}`
+        : null,
+      proposal: record.proposalArtifactId
+        ? `/proposal-artifacts/${encodeURIComponent(record.proposalArtifactId)}`
+        : null,
+      workItem: materializedWorkItemId
+        ? `/work-items/${encodeURIComponent(materializedWorkItemId)}`
+        : record.workItemId
+          ? `/work-items/${encodeURIComponent(record.workItemId)}`
+          : null,
+    },
+  };
+}
+
+export function listSelfBuildDocSuggestionSummaries(
+  options: DocSuggestionRecordListOptions = {},
+  dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
+) {
+  return withDatabase(dbPath, (db) =>
+    listDocSuggestionRecords(db, options),
+  ).map((record) => buildDocSuggestionSummary(record, dbPath));
+}
+
+export function getDocSuggestionSummary(
+  suggestionId,
+  dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
+) {
+  const record = withDatabase(dbPath, (db) =>
+    getDocSuggestionRecord(db, suggestionId),
+  );
+  return buildDocSuggestionSummary(record, dbPath);
+}
+
+async function syncDocSuggestionRecordsForRun(
+  item,
+  run,
+  proposal,
+  dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
+) {
+  if (!item || !run) {
+    return [];
+  }
+  const suggestions = buildDocSuggestionsHelper(item, run, proposal);
+  const now = nowIso();
+  const records = [];
+  for (const suggestion of suggestions) {
+    const existing = withDatabase(dbPath, (db) =>
+      findDocSuggestionRecordByRunAndKind(
+        db,
+        run.id,
+        String(suggestion.kind ?? "").trim(),
+        suggestion.targetPath ?? null,
+      ),
+    );
+    const next = {
+      id: existing?.id ?? createId("doc-suggestion"),
+      workItemId: item.id,
+      workItemRunId: run.id,
+      proposalArtifactId: proposal?.id ?? null,
+      kind: String(suggestion.kind ?? "generic").trim(),
+      targetPath: suggestion.targetPath ?? null,
+      status:
+        existing?.status &&
+        ["accepted", "dismissed", "materialized"].includes(existing.status)
+          ? existing.status
+          : "pending",
+      summary: toText(suggestion.summary, `Follow up on ${item.title}.`),
+      payload: suggestion,
+      metadata: mergeMetadata(existing?.metadata ?? {}, {
+        projectId: item.metadata?.projectId ?? "spore",
+        domainId: item.metadata?.domainId ?? null,
+        templateId: inferDocSuggestionTemplateId({
+          ...existing,
+          ...suggestion,
+        }),
+        mutationScope: dedupe(item.metadata?.mutationScope ?? []),
+        safeMode: item.metadata?.safeMode !== false,
+      }),
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+      reviewedAt: existing?.reviewedAt ?? null,
+      materializedAt: existing?.materializedAt ?? null,
+    };
+    const stored = withDatabase(dbPath, (db) =>
+      upsertDocSuggestionRecord(db, next),
+    );
+    records.push(stored);
+  }
+  return records.map((record) => buildDocSuggestionSummary(record, dbPath));
+}
+
+export function listSelfBuildLearningSummaries(
+  options: LooseRecord = {},
+  dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
+) {
+  const sourceType = toText(options.sourceType, "") || null;
+  const limit = Number.parseInt(String(options.limit ?? "50"), 10) || 50;
+  const records = withDatabase(dbPath, (db) =>
+    listLearningRecords(db, sourceType, limit),
+  );
+  const status = toText(options.status, "");
+  return records
+    .filter((record) => !status || String(record.status) === status)
+    .map((record) => ({
+      ...buildLearningSummary(record),
+      links: {
+        self: "/self-build/learnings",
+        source:
+          record.sourceType === "work-item-run"
+            ? `/work-item-runs/${encodeURIComponent(record.sourceId)}`
+            : null,
+      },
+    }));
+}
+
+export async function reviewDocSuggestionRecord(
+  suggestionId,
+  decision: LooseRecord = {},
+  dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
+) {
+  const record = withDatabase(dbPath, (db) =>
+    getDocSuggestionRecord(db, suggestionId),
+  );
+  if (!record) {
+    return null;
+  }
+  const reviewedAt = nowIso();
+  const status =
+    String(decision.status ?? "accepted").trim() === "dismissed"
+      ? "dismissed"
+      : "accepted";
+  const updated = {
+    ...record,
+    status,
+    reviewedAt,
+    updatedAt: reviewedAt,
+    metadata: mergeMetadata(record.metadata ?? {}, {
+      review: {
+        status,
+        by: decision.by ?? "operator",
+        comments: decision.comments ?? "",
+        reviewedAt,
+      },
+    }),
+  };
+  withDatabase(dbPath, (db) => updateDocSuggestionRecord(db, updated));
+  return buildDocSuggestionSummary(updated, dbPath);
+}
+
+export async function materializeDocSuggestionRecord(
+  suggestionId,
+  payload: LooseRecord = {},
+  dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
+) {
+  const record = withDatabase(dbPath, (db) =>
+    getDocSuggestionRecord(db, suggestionId),
+  );
+  if (!record) {
+    return null;
+  }
+  const templateId = toText(
+    payload.templateId,
+    record.metadata?.templateId ?? inferDocSuggestionTemplateId(record),
+  );
+  const detail = await createManagedWorkItem(
+    {
+      templateId,
+      title: payload.title ?? `Follow-up: ${record.summary}`,
+      goal: payload.goal ?? buildDocSuggestionGoal(record),
+      priority: payload.priority ?? "medium",
+      source: payload.source ?? "doc-suggestion-materialize",
+      relatedDocs: dedupe([
+        record.targetPath ?? null,
+        ...(record.payload?.relatedDocs ?? []),
+      ]),
+      metadata: mergeMetadata(record.metadata ?? {}, {
+        sourceDocSuggestionId: record.id,
+        projectId: record.metadata?.projectId ?? "spore",
+        domainId: payload.domainId ?? record.metadata?.domainId ?? "docs",
+        safeMode:
+          payload.safeMode !== undefined
+            ? payload.safeMode
+            : record.metadata?.safeMode !== false,
+        templateId,
+      }),
+    },
+    dbPath,
+  );
+  const materializedAt = nowIso();
+  const updated = {
+    ...record,
+    status: "materialized",
+    materializedAt,
+    updatedAt: materializedAt,
+    metadata: mergeMetadata(record.metadata ?? {}, {
+      materializedWorkItemId: detail.id,
+      materializedBy: payload.by ?? "operator",
+      materializedSource: payload.source ?? "doc-suggestion-materialize",
+    }),
+  };
+  withDatabase(dbPath, (db) => updateDocSuggestionRecord(db, updated));
+  return {
+    suggestion: buildDocSuggestionSummary(updated, dbPath),
+    workItem: getSelfBuildWorkItem(detail.id, dbPath),
+  };
+}
+
+function inferLearningTemplateId(record) {
+  const templateId = toText(record.metadata?.templateId, "");
+  if (templateId) {
+    return templateId;
+  }
+  const mutationScope = dedupe(record.metadata?.mutationScope ?? []);
+  if (mutationScope.some((scope) => String(scope).startsWith("apps/web"))) {
+    return "operator-ui-pass";
+  }
+  if (
+    mutationScope.some((scope) =>
+      ["config", "schemas", "docs", "runbooks"].includes(String(scope)),
+    )
+  ) {
+    return "config-schema-maintenance";
+  }
+  return "runtime-validation-pass";
+}
+
+function buildIntakeGoalFromLearning(record) {
+  if (record.kind === "failure-pattern") {
+    return `Investigate and repair the failure pattern recorded in learning ${record.id}. Use durable evidence from source ${record.sourceId}.`;
+  }
+  return `Review the successful self-work outcome recorded in learning ${record.id} and determine whether it should trigger another managed improvement pass.`;
+}
+
+function buildIntakeGoalFromDocSuggestion(record) {
+  return buildDocSuggestionGoal(record);
+}
+
+function buildIntakeGoalFromIntegrationBranch(branch) {
+  return `Investigate integration branch ${branch.name} and restore promotion flow without mutating canonical root directly.`;
+}
+
+function buildIntegrationBranchDiagnostics(branch) {
+  if (!branch) {
+    return null;
+  }
+  const issues = [];
+  const nowMs = Date.now();
+  const updatedAtMs = new Date(
+    branch.updatedAt ?? branch.createdAt ?? 0,
+  ).getTime();
+  const staleMs = nowMs - updatedAtMs;
+  if (
+    ["blocked", "integration_failed", "quarantined"].includes(
+      String(branch.status),
+    )
+  ) {
+    issues.push({
+      code: "integration_branch_blocked",
+      severity: "high",
+      reason:
+        branch.reason ??
+        `Integration branch ${branch.name} is ${branch.status} and needs follow-up.`,
+    });
+  }
+  if (
+    ["promotion_candidate", "integration_running", "blocked"].includes(
+      String(branch.status),
+    ) &&
+    staleMs > 24 * 60 * 60 * 1000
+  ) {
+    issues.push({
+      code: "integration_branch_stale",
+      severity: "medium",
+      reason: `Integration branch ${branch.name} has been stale for more than 24 hours.`,
+    });
+  }
+  if (!asArray(branch.proposalArtifactIds).length) {
+    issues.push({
+      code: "missing_proposal_sources",
+      severity: "high",
+      reason:
+        "Integration branch has no durable proposal artifact sources attached.",
+    });
+  }
+  if (branch.quarantine?.status === "active") {
+    issues.push({
+      code: "integration_branch_quarantined",
+      severity: "high",
+      reason: branch.quarantine.reason ?? "Integration branch is quarantined.",
+    });
+  }
+  return {
+    stale: issues.some((issue) => issue.code === "integration_branch_stale"),
+    issueCount: issues.length,
+    issues,
+    healthStatus: issues.length > 0 ? "needs-attention" : "healthy",
+    suggestedActions: [
+      issues.length > 0
+        ? {
+            action: "inspect-integration-branch",
+            targetType: "integration-branch",
+            targetId: branch.name,
+            reason: issues[0]?.reason ?? "Integration branch needs review.",
+            expectedOutcome:
+              "Inspect the branch and decide between recovery, quarantine release, or rollback.",
+            commandHint: `npm run orchestrator:integration-branch-show -- --name ${branch.name}`,
+            httpHint: `/integration-branches/${encodeURIComponent(branch.name)}`,
+            priority: "high",
+          }
+        : null,
+    ].filter(Boolean),
+  };
+}
+
+function buildSelfBuildIntakeSummary(record) {
+  if (!record) {
+    return null;
+  }
+  return {
+    ...record,
+    itemType: "self-build-intake",
+    targetType: "self-build-intake",
+    targetId: record.id,
+    links: {
+      self: `/self-build/intake/${encodeURIComponent(record.id)}`,
+      review: `/self-build/intake/${encodeURIComponent(record.id)}/review`,
+      materialize: `/self-build/intake/${encodeURIComponent(record.id)}/materialize`,
+      goalPlan: record.goalPlanId
+        ? `/goal-plans/${encodeURIComponent(record.goalPlanId)}`
+        : null,
+    },
+  };
+}
+
+export function listSelfBuildIntakeSummaries(
+  options: SelfBuildIntakeListOptions = {},
+  dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
+) {
+  return withDatabase(dbPath, (db) =>
+    listSelfBuildIntakeRecords(db, options),
+  ).map(buildSelfBuildIntakeSummary);
+}
+
+export function getSelfBuildIntakeSummary(
+  intakeId,
+  dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
+) {
+  const record = withDatabase(dbPath, (db) =>
+    getSelfBuildIntakeRecord(db, intakeId),
+  );
+  return buildSelfBuildIntakeSummary(record);
+}
+
+export async function refreshSelfBuildIntake(
+  options: LooseRecord = {},
+  dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
+) {
+  const now = nowIso();
+  const activeKeys = new Set();
+  const projectId = toText(options.projectId, "spore");
+  const learnings = listSelfBuildLearningSummaries(
+    { status: "active", limit: 100 },
+    dbPath,
+  );
+  const docSuggestions = listSelfBuildDocSuggestionSummaries(
+    {
+      status: options.includeAccepted === true ? undefined : "pending",
+      limit: 100,
+    },
+    dbPath,
+  ).concat(
+    options.includeAccepted === true
+      ? listSelfBuildDocSuggestionSummaries(
+          { status: "accepted", limit: 100 },
+          dbPath,
+        )
+      : [],
+  );
+  const integrationBranches = listIntegrationBranchSummaries(
+    { limit: 100 },
+    dbPath,
+  );
+  const branchIssues = integrationBranches
+    .map((branch) => ({
+      ...branch,
+      diagnostics: buildIntegrationBranchDiagnostics(branch),
+    }))
+    .filter((branch) => (branch.diagnostics?.issueCount ?? 0) > 0);
+
+  const createOrUpdate = (candidate) => {
+    activeKeys.add(`${candidate.sourceType}:${candidate.sourceId}`);
+    return withDatabase(dbPath, (db) =>
+      upsertSelfBuildIntakeRecord(db, {
+        ...candidate,
+        projectId: candidate.projectId ?? projectId,
+        updatedAt: now,
+        createdAt: candidate.createdAt ?? now,
+      }),
+    );
+  };
+
+  for (const learning of learnings) {
+    createOrUpdate({
+      id: createId("intake"),
+      sourceType: "learning-record",
+      sourceId: learning.id,
+      kind: "learning-follow-up",
+      status: "queued",
+      priority: learning.kind === "failure-pattern" ? 90 : 40,
+      goal: buildIntakeGoalFromLearning(learning),
+      projectId,
+      domainId: learning.metadata?.domainId ?? "docs",
+      templateId: inferLearningTemplateId(learning),
+      goalPlanId: null,
+      metadata: {
+        sourceSummary: learning.summary,
+        sourceKind: learning.kind,
+        projectId,
+      },
+      consumedAt: null,
+    });
+  }
+
+  for (const suggestion of docSuggestions) {
+    createOrUpdate({
+      id: createId("intake"),
+      sourceType: "doc-suggestion",
+      sourceId: suggestion.id,
+      kind: "doc-follow-up",
+      status: "queued",
+      priority: suggestion.status === "accepted" ? 80 : 50,
+      goal: buildIntakeGoalFromDocSuggestion(suggestion),
+      projectId: suggestion.metadata?.projectId ?? projectId,
+      domainId: suggestion.metadata?.domainId ?? "docs",
+      templateId:
+        suggestion.metadata?.templateId ??
+        inferDocSuggestionTemplateId(suggestion),
+      goalPlanId: null,
+      metadata: {
+        targetPath: suggestion.targetPath ?? null,
+        sourceSummary: suggestion.summary,
+      },
+      consumedAt: null,
+    });
+  }
+
+  for (const branch of branchIssues) {
+    createOrUpdate({
+      id: createId("intake"),
+      sourceType: "integration-branch",
+      sourceId: branch.name,
+      kind: "integration-repair",
+      status: "queued",
+      priority: 100,
+      goal: buildIntakeGoalFromIntegrationBranch(branch),
+      projectId: branch.projectId ?? projectId,
+      domainId: "backend",
+      templateId: "runtime-validation-pass",
+      goalPlanId: null,
+      metadata: {
+        branchStatus: branch.status,
+        diagnostics: branch.diagnostics,
+      },
+      consumedAt: null,
+    });
+  }
+
+  const existing = listSelfBuildIntakeSummaries({ limit: 200 }, dbPath);
+  for (const record of existing) {
+    const key = `${record.sourceType}:${record.sourceId}`;
+    if (
+      !activeKeys.has(key) &&
+      ["queued", "accepted"].includes(String(record.status))
+    ) {
+      withDatabase(dbPath, (db) =>
+        updateSelfBuildIntakeRecord(db, {
+          ...record,
+          status: "blocked",
+          updatedAt: now,
+          metadata: mergeMetadata(record.metadata ?? {}, {
+            blockedReason: "source-no-longer-active",
+          }),
+        }),
+      );
+    }
+  }
+  return listSelfBuildIntakeSummaries({ limit: 100 }, dbPath);
+}
+
+export async function reviewSelfBuildIntake(
+  intakeId,
+  decision: LooseRecord = {},
+  dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
+) {
+  const record = withDatabase(dbPath, (db) =>
+    getSelfBuildIntakeRecord(db, intakeId),
+  );
+  if (!record) {
+    return null;
+  }
+  const reviewedAt = nowIso();
+  const status =
+    String(decision.status ?? "accepted").trim() === "dismissed"
+      ? "dismissed"
+      : "accepted";
+  const updated = {
+    ...record,
+    status,
+    updatedAt: reviewedAt,
+    metadata: mergeMetadata(record.metadata ?? {}, {
+      review: {
+        status,
+        by: decision.by ?? "operator",
+        comments: decision.comments ?? "",
+        reviewedAt,
+      },
+    }),
+  };
+  withDatabase(dbPath, (db) => updateSelfBuildIntakeRecord(db, updated));
+  return buildSelfBuildIntakeSummary(updated);
+}
+
+export async function materializeSelfBuildIntake(
+  intakeId,
+  payload: LooseRecord = {},
+  dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
+) {
+  const record = withDatabase(dbPath, (db) =>
+    getSelfBuildIntakeRecord(db, intakeId),
+  );
+  if (!record) {
+    return null;
+  }
+  const plan = await createGoalPlan(
+    {
+      title: payload.title ?? `Intake: ${record.kind}`,
+      goal: payload.goal ?? record.goal,
+      domain: payload.domain ?? record.domainId,
+      mode: payload.mode ?? "autonomous",
+      projectId: payload.projectId ?? record.projectId ?? "spore",
+      safeMode: payload.safeMode !== undefined ? payload.safeMode : true,
+      by: payload.by ?? "operator",
+      source: payload.source ?? "self-build-intake-materialize",
+      constraints: mergeMetadata(payload.constraints ?? {}, {
+        templateHint: record.templateId ?? null,
+        sourceIntakeId: record.id,
+      }),
+    },
+    dbPath,
+  );
+  const materializedAt = nowIso();
+  const updated = {
+    ...record,
+    status: "materialized",
+    goalPlanId: plan.id,
+    consumedAt: materializedAt,
+    updatedAt: materializedAt,
+    metadata: mergeMetadata(record.metadata ?? {}, {
+      materializedBy: payload.by ?? "operator",
+      materializedSource: payload.source ?? "self-build-intake-materialize",
+      goalPlanId: plan.id,
+    }),
+  };
+  withDatabase(dbPath, (db) => updateSelfBuildIntakeRecord(db, updated));
+  return {
+    intake: buildSelfBuildIntakeSummary(updated),
+    goalPlan: getGoalPlanSummary(plan.id, dbPath),
+  };
+}
+
+export async function reworkProposalArtifact(
+  artifactId,
+  payload: LooseRecord = {},
+  dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
+) {
+  const proposal = withDatabase(dbPath, (db) =>
+    getProposalArtifact(db, artifactId),
+  );
+  if (!proposal) {
+    return null;
+  }
+  const workItem = proposal.workItemId
+    ? withDatabase(dbPath, (db) => getWorkItem(db, proposal.workItemId))
+    : null;
+  const group = workItem?.metadata?.groupId
+    ? withDatabase(dbPath, (db) =>
+        getWorkItemGroup(db, workItem.metadata.groupId),
+      )
+    : null;
+  const title =
+    payload.title ??
+    `${proposal.summary?.title ?? workItem?.title ?? "Proposal"} rework`;
+  const goal =
+    payload.goal ??
+    proposal.summary?.goal ??
+    workItem?.goal ??
+    "Address proposal review, validation, or promotion blockers.";
+  const reworkItem = await createManagedWorkItem(
+    {
+      templateId:
+        payload.templateId ??
+        workItem?.metadata?.templateId ??
+        proposal.metadata?.templateId ??
+        "docs-maintenance-pass",
+      title,
+      kind: payload.kind ?? workItem?.kind ?? proposal.kind ?? "workflow",
+      goal,
+      source: payload.source ?? "proposal-rework",
+      priority: payload.priority ?? workItem?.priority ?? "high",
+      acceptanceCriteria:
+        payload.acceptanceCriteria ?? workItem?.acceptanceCriteria ?? [],
+      relatedDocs: dedupe([
+        ...(workItem?.relatedDocs ?? []),
+        ...(payload.relatedDocs ?? []),
+      ]),
+      relatedScenarios: dedupe([
+        ...(workItem?.relatedScenarios ?? []),
+        ...(payload.relatedScenarios ?? []),
+      ]),
+      relatedRegressions: dedupe([
+        ...(workItem?.relatedRegressions ?? []),
+        ...(payload.relatedRegressions ?? []),
+      ]),
+      metadata: mergeMetadata(
+        workItem?.metadata ?? {},
+        payload.metadata ?? {},
+        {
+          projectId:
+            payload.projectId ?? workItem?.metadata?.projectId ?? "spore",
+          projectPath:
+            payload.projectPath ?? workItem?.metadata?.projectPath ?? null,
+          domainId: payload.domainId ?? workItem?.metadata?.domainId ?? null,
+          templateId:
+            payload.templateId ??
+            workItem?.metadata?.templateId ??
+            proposal.metadata?.templateId ??
+            null,
+          safeMode:
+            payload.safeMode !== undefined
+              ? payload.safeMode
+              : (workItem?.metadata?.safeMode ?? true),
+          mutationScope:
+            payload.mutationScope ?? workItem?.metadata?.mutationScope ?? null,
+          groupId: payload.groupId ?? workItem?.metadata?.groupId ?? null,
+          goalPlanId:
+            payload.goalPlanId ?? workItem?.metadata?.goalPlanId ?? null,
+          reworkOfProposalId: proposal.id,
+          reworkOfWorkItemId: workItem?.id ?? null,
+          reworkOfRunId: proposal.workItemRunId ?? null,
+          originatingProposalId: proposal.id,
+        },
+      ),
+    },
+    dbPath,
+  );
+  const updatedProposal = {
+    ...proposal,
+    status: "rework_required",
+    updatedAt: nowIso(),
+    metadata: mergeMetadata(proposal.metadata ?? {}, {
+      rework: {
+        createdAt: nowIso(),
+        by: payload.by ?? "operator",
+        source: payload.source ?? "proposal-rework",
+        comments: payload.comments ?? "",
+        rationale: payload.rationale ?? payload.comments ?? "",
+        reworkItemId: reworkItem?.id ?? null,
+        groupId: group?.id ?? null,
+      },
+    }),
+  };
+  withDatabase(dbPath, (db) => updateProposalArtifact(db, updatedProposal));
+  return {
+    proposal: buildProposalSummary(updatedProposal),
+    reworkItem: reworkItem ? getSelfBuildWorkItem(reworkItem.id, dbPath) : null,
+    group: group ? getWorkItemGroupSummary(group.id, dbPath) : null,
+  };
 }
 
 export async function listWorkItemTemplates() {
@@ -2768,11 +3544,21 @@ export async function runSelfBuildWorkItem(
             dbPath,
           )
         : null;
+    const docSuggestions =
+      failedItem && failedRun
+        ? await syncDocSuggestionRecordsForRun(
+            failedItem,
+            failedRun,
+            proposal,
+            dbPath,
+          )
+        : [];
     return {
       item: failedItem,
       run: failedRun,
       proposal: buildProposalSummary(proposal),
       learningRecord: buildLearningSummary(learningRecord),
+      docSuggestions,
       error: error.message,
     };
   }
@@ -2852,11 +3638,18 @@ export async function runSelfBuildWorkItem(
     proposal,
     dbPath,
   );
+  const docSuggestions = await syncDocSuggestionRecordsForRun(
+    settledItem,
+    runDetail,
+    proposal,
+    dbPath,
+  );
   return {
     item: settledItem,
     run: getManagedWorkItemRun(runDetail.id, dbPath),
     proposal: buildProposalSummary(proposal),
     learningRecord: buildLearningSummary(learningRecord),
+    docSuggestions,
   };
 }
 
@@ -5071,6 +5864,9 @@ export async function validateWorkItemRun(
     },
   };
   withDatabase(dbPath, (db) => updateWorkItemRun(db, updatedRun));
+  const refreshedProposal = withDatabase(dbPath, (db) =>
+    getProposalArtifactByRunId(db, runId),
+  );
   if (proposal) {
     const validationStatus = buildProposalValidationStatus({
       ...proposal,
@@ -5123,7 +5919,19 @@ export async function validateWorkItemRun(
       }),
     );
   }
-  return getSelfBuildWorkItemRun(runId, dbPath);
+  const docSuggestions = await syncDocSuggestionRecordsForRun(
+    item,
+    updatedRun,
+    refreshedProposal,
+    dbPath,
+  );
+  const detail = getSelfBuildWorkItemRun(runId, dbPath);
+  return detail
+    ? {
+        ...detail,
+        docSuggestions,
+      }
+    : detail;
 }
 
 export function getDocSuggestionsForRun(
@@ -5134,10 +5942,15 @@ export function getDocSuggestionsForRun(
   if (!detail) {
     return null;
   }
+  const suggestions = listSelfBuildDocSuggestionSummaries(
+    { workItemRunId: runId, limit: 100 },
+    dbPath,
+  );
   return {
     runId,
     itemId: detail.workItemId,
-    suggestions: detail.docSuggestions ?? [],
+    suggestions:
+      suggestions.length > 0 ? suggestions : (detail.docSuggestions ?? []),
   };
 }
 
@@ -5743,6 +6556,7 @@ export function listIntegrationBranchSummaries(
     listIntegrationBranches(db, status, limit),
   ).map((branch) => ({
     ...branch,
+    diagnostics: buildIntegrationBranchDiagnostics(branch),
     quarantine:
       quarantines.find((record) => record.targetId === branch.name) ?? null,
     latestRollback:
@@ -5775,6 +6589,7 @@ export function getIntegrationBranchSummary(
   ).find((record) => record.targetId === branch.name);
   return {
     ...branch,
+    diagnostics: buildIntegrationBranchDiagnostics(branch),
     quarantine: quarantine ?? null,
     latestRollback: rollback ?? null,
     links: {
@@ -5886,6 +6701,92 @@ async function runSelfBuildLoopIteration(
   const policy = normalizeAutonomousPolicy(
     loopState?.policy ?? options.policy ?? {},
   );
+  const intakeRecords = await refreshSelfBuildIntake(
+    { includeAccepted: true },
+    dbPath,
+  );
+  const queuedIntake = intakeRecords.find((entry) =>
+    ["queued", "accepted"].includes(String(entry.status)),
+  );
+  if (queuedIntake) {
+    const decisionRationale =
+      "Autonomous loop evaluated self-build intake for goal-plan materialization.";
+    await recordSelfBuildDecision(
+      {
+        loopId: loopState?.id ?? "default",
+        mode: policy.mode,
+        state: policy.autoReviewGoalPlans === true ? "eligible" : "blocked",
+        action: "evaluate-intake",
+        targetType: "self-build-intake",
+        targetId: queuedIntake.id,
+        rationale:
+          policy.autoReviewGoalPlans === true
+            ? decisionRationale
+            : "Autonomous policy allows intake refresh but not autonomous goal-plan review/materialization.",
+        policy,
+        metadata: {
+          intake: queuedIntake,
+        },
+      },
+      dbPath,
+    );
+    if (policy.autoReviewGoalPlans === true) {
+      const materialized = await materializeSelfBuildIntake(
+        queuedIntake.id,
+        {
+          by,
+          source,
+          mode: policy.mode === "supervised" ? "supervised" : "autonomous",
+          safeMode:
+            queuedIntake.safeMode !== undefined ? queuedIntake.safeMode : true,
+        },
+        dbPath,
+      );
+      if (materialized?.goalPlan?.id) {
+        const reviewStatus =
+          materialized.goalPlan.metadata?.reviewRequired !== false
+            ? "reviewed"
+            : null;
+        if (reviewStatus) {
+          await reviewGoalPlan(
+            materialized.goalPlan.id,
+            {
+              status: reviewStatus,
+              by,
+              source,
+              comments:
+                "Autonomous loop reviewed a self-build intake-derived goal plan.",
+              reason:
+                "Autonomous intake materialization created a goal plan eligible for auto-review.",
+            },
+            dbPath,
+          );
+        }
+        await recordSelfBuildDecision(
+          {
+            loopId: loopState?.id ?? "default",
+            mode: policy.mode,
+            state: "executed",
+            action: "materialize-intake",
+            targetType: "self-build-intake",
+            targetId: queuedIntake.id,
+            rationale: "Autonomous loop materialized intake into a goal plan.",
+            policy,
+            metadata: {
+              goalPlanId: materialized.goalPlan.id,
+              intakeId: queuedIntake.id,
+            },
+          },
+          dbPath,
+        );
+        return {
+          action: "materialize-intake",
+          intakeId: queuedIntake.id,
+          result: materialized,
+        };
+      }
+    }
+  }
   const plannedGoal = listGoalPlansSummary({ limit: 20 }, dbPath).find((plan) =>
     ["planned", "reviewed"].includes(String(plan.status)),
   );
@@ -6396,6 +7297,11 @@ export function getSelfBuildSummary(dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
   const learnings = withDatabase(dbPath, (db) =>
     listLearningRecords(db, null, 100),
   ).map(buildLearningSummary);
+  const docSuggestions = listSelfBuildDocSuggestionSummaries(
+    { limit: 100 },
+    dbPath,
+  );
+  const queuedIntake = listSelfBuildIntakeSummaries({ limit: 100 }, dbPath);
   const integrationBranches = listIntegrationBranchSummaries(
     { limit: 50 },
     dbPath,
@@ -6460,6 +7366,12 @@ export function getSelfBuildSummary(dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
   const recentLearnings = learnings
     .filter((learning) => learning.status === "active")
     .slice(0, 10);
+  const pendingDocSuggestions = docSuggestions.filter((entry) =>
+    ["pending", "accepted"].includes(String(entry.status)),
+  );
+  const queuedAutonomousIntake = queuedIntake.filter((entry) =>
+    ["queued", "accepted"].includes(String(entry.status)),
+  );
   const plannerFollowUpPlans = goalPlans.filter(
     (plan) => plan.status === "planned",
   );
@@ -6735,6 +7647,47 @@ export function getSelfBuildSummary(dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
         timestamp: run.endedAt ?? run.startedAt,
       }),
     ),
+    ...pendingDocSuggestions.slice(0, 10).map((entry) =>
+      buildAttentionItem({
+        id: `attention:${entry.id}:doc-suggestion`,
+        attentionState:
+          entry.status === "accepted" ? "planner-follow-up" : "docs-follow-up",
+        targetType: "doc-suggestion",
+        targetId: entry.id,
+        runId: entry.workItemRunId ?? null,
+        itemId: entry.workItemId ?? null,
+        title: entry.summary,
+        reason:
+          entry.status === "accepted"
+            ? "Accepted doc suggestion is waiting to be materialized into managed work."
+            : "Doc suggestion is waiting for review.",
+        httpHint: entry.links?.self ?? null,
+        commandHint:
+          entry.status === "accepted"
+            ? `npm run orchestrator:doc-suggestion-materialize -- --suggestion ${entry.id}`
+            : `npm run orchestrator:doc-suggestion-review -- --suggestion ${entry.id} --status accepted`,
+        timestamp: entry.updatedAt ?? entry.createdAt,
+      }),
+    ),
+    ...queuedAutonomousIntake.slice(0, 10).map((entry) =>
+      buildAttentionItem({
+        id: `attention:${entry.id}:intake`,
+        attentionState: "planner-follow-up",
+        targetType: "self-build-intake",
+        targetId: entry.id,
+        title: entry.goal,
+        reason:
+          entry.status === "accepted"
+            ? "Accepted self-build intake is waiting for materialization."
+            : "Queued self-build intake is waiting for autonomous or operator materialization.",
+        httpHint: entry.links?.self ?? null,
+        commandHint:
+          entry.status === "accepted"
+            ? `npm run orchestrator:self-build-intake-materialize -- --intake ${entry.id}`
+            : `npm run orchestrator:self-build-intake-review -- --intake ${entry.id} --status accepted`,
+        timestamp: entry.updatedAt ?? entry.createdAt,
+      }),
+    ),
     ...plannerFollowUpPlans.slice(0, 10).map((plan) =>
       buildAttentionItem({
         id: `attention:${plan.id}:planner`,
@@ -6839,9 +7792,16 @@ export function getSelfBuildSummary(dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
       pendingValidationRuns: pendingValidationRuns.length,
       validationsPendingExecution: validationsPendingExecution.length,
       learningRecords: learnings.length,
+      docSuggestions: docSuggestions.length,
+      pendingDocSuggestions: pendingDocSuggestions.length,
+      autonomousIntake: queuedIntake.length,
+      queuedAutonomousIntake: queuedAutonomousIntake.length,
       goalPlans: goalPlans.length,
       plannedGoalPlans: plannerFollowUpPlans.length,
       integrationBranches: integrationBranches.length,
+      integrationBranchIssues: integrationBranches.filter(
+        (branch) => (branch.diagnostics?.issueCount ?? 0) > 0,
+      ).length,
       activeQuarantines: activeQuarantines.length,
       recentRollbacks: recentRollbacks.length,
       autonomousBlockedDecisions: autonomousBlockedDecisions.length,
@@ -6863,6 +7823,8 @@ export function getSelfBuildSummary(dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
     waitingReviewProposals,
     waitingApprovalProposals,
     integrationBranches,
+    docSuggestionQueue: pendingDocSuggestions.slice(0, 20),
+    autonomousIntake: queuedAutonomousIntake.slice(0, 20),
     loopStatus,
     recentDecisions,
     activeQuarantines,
@@ -7055,6 +8017,8 @@ export function getSelfBuildDashboard(
     validationRequiredProposals,
     proposalsBlockedForPromotion,
     workspaces,
+    docSuggestionQueue: base.docSuggestionQueue,
+    autonomousIntake: base.autonomousIntake,
     integrationBranches: base.integrationBranches,
     loopStatus: base.loopStatus,
     recentDecisions: base.recentDecisions,

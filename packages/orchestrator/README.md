@@ -97,6 +97,7 @@ Recommended interpretation:
 - `self-build-dashboard` returns the dedicated self-build dashboard aggregate with attention states, queue summaries, recent work-item runs, and workspace health.
 - `work-item-template-list` and `work-item-template-show --template <id>` expose reusable work-item creation templates from `config/work-item-templates/`.
 - `goal-plan-create`, `goal-plan-list`, `goal-plan-show --plan <id>`, `goal-plan-history --plan <id>`, `goal-plan-edit --plan <id>`, `goal-plan-review --plan <id>`, `goal-plan-materialize --plan <id>`, and `goal-plan-run --plan <id>` expose durable goal planning, editable review before materialization, and one-shot operator execution of a reviewed goal plan.
+- `self-build-learnings`, `self-build-doc-suggestions`, `self-build-intake`, `self-build-intake-show --intake <id>`, `self-build-intake-refresh`, `self-build-intake-review`, and `self-build-intake-materialize` expose the durable follow-up queues that autonomous self-build uses to turn learnings, documentation deltas, and branch diagnostics back into new goal plans.
 - `work-item-group-list`, `work-item-group-show --group <id>`, `work-item-group-run --group <id>`, `work-item-group-unblock`, `work-item-group-reroute`, `work-item-group-retry-downstream`, `work-item-group-requeue-item`, `work-item-group-skip-item`, and `work-item-group-validate-bundle` expose grouped managed-work execution plus explicit recovery and validation controls.
 - `work-item-list`, `work-item-show`, `work-item-create`, `work-item-run`, and `work-item-run-show` expose the first durable managed self-work surface for SPORE itself.
 - `work-item-runs --item <id>` exposes durable run history for one managed work item.
@@ -107,10 +108,12 @@ Recommended interpretation:
 - `execution-workspaces --execution <id>` returns the workspace allocations linked to one workflow execution.
 - `work-item-validate --run <id>` records durable validation/evaluation artifacts for one managed run.
 - `work-item-doc-suggestions --run <id>` returns persisted documentation follow-up suggestions for one managed run.
+- `doc-suggestion-show --suggestion <id>`, `doc-suggestion-review --suggestion <id>`, and `doc-suggestion-materialize --suggestion <id>` let operators inspect, accept/dismiss, and turn documentation suggestions into new managed work.
 - `proposal-show --proposal <id>` (or `--run <work-item-run-id>`) exposes durable proposal artifact summary.
 - `proposal-review-package --proposal <id>` returns the richer operator review package with proposal, source run, workspace, execution, promotion context, and suggested actions.
 - `proposal-review --proposal <id> --status <ready_for_review|reviewed|rejected>` records proposal review state transitions.
 - `proposal-approve --proposal <id> --status <approved|rejected>` records proposal approval state transitions.
+- `proposal-rework --proposal <id>` routes a rejected or blocked proposal back into managed self-work with durable rationale.
 - `proposal-promotion-plan --proposal <id>` and `proposal-promotion-invoke --proposal <id>` bridge a `promotion_ready` proposal into the explicit `coordinator -> integrator` promotion lane.
 - `integration-branch-list` and `integration-branch-show --branch <name>` expose durable integration-branch summaries for promotion candidates and landed integration work.
 - `self-build-loop-status`, `self-build-loop-start`, and `self-build-loop-stop` expose the managed self-build loop as an explicit operator/autonomous surface.

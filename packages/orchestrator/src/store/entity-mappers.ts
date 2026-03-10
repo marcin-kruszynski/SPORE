@@ -176,3 +176,22 @@ export function mapRollbackRecord(record) {
       }
     : null;
 }
+
+export function mapDocSuggestionRecord(record) {
+  return record
+    ? {
+        ...record,
+        payload: parseJsonField(record.payloadJson, {}),
+        metadata: parseJsonField(record.metadataJson, {}),
+      }
+    : null;
+}
+
+export function mapSelfBuildIntakeRecord(record) {
+  return record
+    ? {
+        ...record,
+        metadata: parseJsonField(record.metadataJson, {}),
+      }
+    : null;
+}

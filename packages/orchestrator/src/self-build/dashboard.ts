@@ -1,10 +1,16 @@
 export {
+  getDocSuggestionSummary,
   getSelfBuildDashboard,
+  getSelfBuildIntakeSummary,
   getSelfBuildLoopStatus,
   getSelfBuildSummary,
   listSelfBuildDecisionSummaries,
+  listSelfBuildDocSuggestionSummaries,
+  listSelfBuildIntakeSummaries,
+  listSelfBuildLearningSummaries,
   listSelfBuildQuarantineSummaries,
   listSelfBuildRollbackSummaries,
+  refreshSelfBuildIntake,
   startSelfBuildLoop,
   stopSelfBuildLoop,
 } from "./self-build.impl.js";

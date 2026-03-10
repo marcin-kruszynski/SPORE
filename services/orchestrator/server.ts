@@ -10,6 +10,7 @@ import {
   createGoalPlan,
   createManagedWorkItem,
   editGoalPlan,
+  getDocSuggestionSummary,
   getDocSuggestionsForRun,
   getGoalPlanHistory,
   getGoalPlanSummary,
@@ -27,6 +28,7 @@ import {
   getScenarioRunSummaryById,
   getScenarioTrends,
   getSelfBuildDashboard,
+  getSelfBuildIntakeSummary,
   getSelfBuildLoopStatus,
   getSelfBuildSummary,
   getSelfBuildWorkItem,
@@ -41,6 +43,9 @@ import {
   listGoalPlansSummary,
   listIntegrationBranchSummaries,
   listSelfBuildDecisionSummaries,
+  listSelfBuildDocSuggestionSummaries,
+  listSelfBuildIntakeSummaries,
+  listSelfBuildLearningSummaries,
   listSelfBuildQuarantineSummaries,
   listSelfBuildRollbackSummaries,
   listSelfBuildWorkItemRuns,
@@ -48,17 +53,23 @@ import {
   listWorkItemGroupsSummary,
   listWorkItemTemplates,
   listWorkspaceSummaries,
+  materializeDocSuggestionRecord,
   materializeGoalPlan,
+  materializeSelfBuildIntake,
   planProposalPromotion,
   quarantineSelfBuildTarget,
   reconcileManagedWorkspace,
+  refreshSelfBuildIntake,
   releaseSelfBuildQuarantine,
   requeueWorkItemGroupItem,
   rerouteWorkItemGroup,
   rerunSelfBuildWorkItemRun,
   retryDownstreamWorkItemGroup,
+  reviewDocSuggestionRecord,
   reviewGoalPlan,
   reviewProposalArtifact,
+  reviewSelfBuildIntake,
+  reworkProposalArtifact,
   rollbackIntegrationBranch,
   runGoalPlan,
   runSelfBuildWorkItem,
@@ -448,6 +459,60 @@ const server = http.createServer(async (request, response) => {
           limit: url.searchParams.get("limit")?.trim() || "50",
         }),
       });
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/self-build/learnings") {
+      json(response, 200, {
+        ok: true,
+        detail: listSelfBuildLearningSummaries({
+          sourceType: url.searchParams.get("sourceType")?.trim() || null,
+          status: url.searchParams.get("status")?.trim() || null,
+          limit: url.searchParams.get("limit")?.trim() || "50",
+        }),
+      });
+      return;
+    }
+
+    if (
+      request.method === "GET" &&
+      url.pathname === "/self-build/doc-suggestions"
+    ) {
+      json(response, 200, {
+        ok: true,
+        detail: listSelfBuildDocSuggestionSummaries({
+          status: url.searchParams.get("status")?.trim() || null,
+          workItemRunId: url.searchParams.get("runId")?.trim() || null,
+          workItemId: url.searchParams.get("itemId")?.trim() || null,
+          proposalArtifactId:
+            url.searchParams.get("proposalId")?.trim() || null,
+          limit: url.searchParams.get("limit")?.trim() || "50",
+        }),
+      });
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/self-build/intake") {
+      json(response, 200, {
+        ok: true,
+        detail: listSelfBuildIntakeSummaries({
+          status: url.searchParams.get("status")?.trim() || null,
+          kind: url.searchParams.get("kind")?.trim() || null,
+          sourceType: url.searchParams.get("sourceType")?.trim() || null,
+          projectId: url.searchParams.get("projectId")?.trim() || null,
+          limit: url.searchParams.get("limit")?.trim() || "50",
+        }),
+      });
+      return;
+    }
+
+    if (
+      request.method === "POST" &&
+      url.pathname === "/self-build/intake/refresh"
+    ) {
+      const body = await readJsonBody(request);
+      const detail = await refreshSelfBuildIntake(body);
+      json(response, 200, { ok: true, detail });
       return;
     }
 
@@ -1218,6 +1283,67 @@ const server = http.createServer(async (request, response) => {
       return;
     }
 
+    if (
+      request.method === "GET" &&
+      parts.length === 3 &&
+      parts[0] === "self-build" &&
+      parts[1] === "intake"
+    ) {
+      const detail = getSelfBuildIntakeSummary(parts[2]);
+      if (!detail) {
+        json(response, 404, {
+          ok: false,
+          error: "not_found",
+          message: `self-build intake not found: ${parts[2]}`,
+        });
+        return;
+      }
+      json(response, 200, { ok: true, detail });
+      return;
+    }
+
+    if (
+      request.method === "POST" &&
+      parts.length === 4 &&
+      parts[0] === "self-build" &&
+      parts[1] === "intake" &&
+      parts[3] === "review"
+    ) {
+      const body = await readJsonBody(request);
+      const detail = await reviewSelfBuildIntake(parts[2], body);
+      if (!detail) {
+        json(response, 404, {
+          ok: false,
+          error: "not_found",
+          message: `self-build intake not found: ${parts[2]}`,
+        });
+        return;
+      }
+      json(response, 200, { ok: true, detail });
+      return;
+    }
+
+    if (
+      request.method === "POST" &&
+      parts.length === 4 &&
+      parts[0] === "self-build" &&
+      parts[1] === "intake" &&
+      parts[3] === "materialize"
+    ) {
+      const body = await readJsonBody(request);
+      const detail = await materializeSelfBuildIntake(parts[2], body);
+      if (!detail) {
+        json(response, 404, {
+          ok: false,
+          error: "not_found",
+          message: `self-build intake not found: ${parts[2]}`,
+        });
+        return;
+      }
+      json(response, 200, { ok: true, detail });
+      return;
+    }
+
     if (request.method === "GET" && url.pathname === "/work-item-groups") {
       json(response, 200, {
         ok: true,
@@ -1689,6 +1815,64 @@ const server = http.createServer(async (request, response) => {
     if (
       request.method === "GET" &&
       parts.length === 2 &&
+      parts[0] === "doc-suggestions"
+    ) {
+      const detail = getDocSuggestionSummary(parts[1]);
+      if (!detail) {
+        json(response, 404, {
+          ok: false,
+          error: "not_found",
+          message: `doc suggestion not found: ${parts[1]}`,
+        });
+        return;
+      }
+      json(response, 200, { ok: true, detail });
+      return;
+    }
+
+    if (
+      request.method === "POST" &&
+      parts.length === 3 &&
+      parts[0] === "doc-suggestions" &&
+      parts[2] === "review"
+    ) {
+      const body = await readJsonBody(request);
+      const detail = await reviewDocSuggestionRecord(parts[1], body);
+      if (!detail) {
+        json(response, 404, {
+          ok: false,
+          error: "not_found",
+          message: `doc suggestion not found: ${parts[1]}`,
+        });
+        return;
+      }
+      json(response, 200, { ok: true, detail });
+      return;
+    }
+
+    if (
+      request.method === "POST" &&
+      parts.length === 3 &&
+      parts[0] === "doc-suggestions" &&
+      parts[2] === "materialize"
+    ) {
+      const body = await readJsonBody(request);
+      const detail = await materializeDocSuggestionRecord(parts[1], body);
+      if (!detail) {
+        json(response, 404, {
+          ok: false,
+          error: "not_found",
+          message: `doc suggestion not found: ${parts[1]}`,
+        });
+        return;
+      }
+      json(response, 200, { ok: true, detail });
+      return;
+    }
+
+    if (
+      request.method === "GET" &&
+      parts.length === 2 &&
       parts[0] === "proposal-artifacts"
     ) {
       const detail = getProposalSummary(parts[1]);
@@ -1731,6 +1915,26 @@ const server = http.createServer(async (request, response) => {
     ) {
       const body = await readJsonBody(request);
       const detail = await reviewProposalArtifact(parts[1], body);
+      if (!detail) {
+        json(response, 404, {
+          ok: false,
+          error: "not_found",
+          message: `proposal artifact not found: ${parts[1]}`,
+        });
+        return;
+      }
+      json(response, 200, { ok: true, detail });
+      return;
+    }
+
+    if (
+      request.method === "POST" &&
+      parts.length === 3 &&
+      parts[0] === "proposal-artifacts" &&
+      parts[2] === "rework"
+    ) {
+      const body = await readJsonBody(request);
+      const detail = await reworkProposalArtifact(parts[1], body);
       if (!detail) {
         json(response, 404, {
           ok: false,
