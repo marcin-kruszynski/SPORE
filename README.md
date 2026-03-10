@@ -646,7 +646,7 @@ tmp/
 
 ### Web Console (port 8788)
 
-A vanilla JavaScript SPA that proxies to both services, providing:
+A TypeScript-authored browser surface compiled into `apps/web/public/` that proxies to both services, providing:
 - Status dashboard with session counts by state
 - Coordination-group aware execution list with root/child grouping and branch cues
 - Execution detail view (coordination/lineage board, step/session tree, event timeline, decision log, escalation history)
@@ -656,6 +656,8 @@ A vanilla JavaScript SPA that proxies to both services, providing:
 - Session control actions (stop, mark-complete, steer)
 - Workflow invocation form
 - Live SSE event streaming
+
+The generated files under `apps/web/public/*.js` are build output from `npm run web:build`, not hand-authored source. The source of truth for the browser app lives under `apps/web/src/`.
 
 ### Terminal UI
 
@@ -836,6 +838,9 @@ npm run ops:dashboard          # Terminal dashboard
 ### Smoke Test
 
 ```bash
+npm run typecheck
+npm run lint
+npm run format:check
 npm run docs-kb:index
 npm run config:validate
 npm run runtime-pi:plan -- --profile config/profiles/lead.yaml \
@@ -861,6 +866,7 @@ For isolated local runs, you can redirect durable state with `SPORE_ORCHESTRATOR
 See [docs/runbooks/local-dev.md](docs/runbooks/local-dev.md) for the full setup and smoke test guide.
 See [docs/runbooks/scenario-library.md](docs/runbooks/scenario-library.md) for canonical named scenarios.
 Executable scenario and regression catalogs live in `config/scenarios/` and `config/regressions/`.
+Generated browser assets and `*.tsbuildinfo` files are local build output and should not be treated as hand-edited source.
 
 ---
 
@@ -869,6 +875,9 @@ Executable scenario and regression catalogs live in `config/scenarios/` and `con
 ### Documentation & Configuration
 
 ```bash
+npm run typecheck                           # TypeScript graph check across apps/packages/services
+npm run lint                                # Biome check for code, docs, and config
+npm run format:check                        # Formatting verification
 npm run docs-kb -- index                   # Build/refresh docs search index
 npm run docs-kb -- search "session model"  # Search documentation
 npm run docs-kb -- status                  # Index metadata
@@ -928,10 +937,11 @@ npm run test:e2e:gateway-control         # opt-in real gateway control E2E
 npm run ops:dashboard                      # Terminal dashboard
 npm run ops:dashboard -- --watch           # Continuous refresh
 npm run ops:inspect -- --session <id>      # Deep session inspection
-node packages/tui/src/cli/spore-ops.js family --execution <id> --api http://127.0.0.1:8789
+npx tsx packages/tui/src/cli/spore-ops.ts family --execution <id> --api http://127.0.0.1:8789
 npm run gateway:start                      # HTTP gateway on :8787
 npm run orchestrator:start                 # Orchestrator service on :8789
-npm run web:start                          # Web console on :8788
+npm run web:build                          # Compile browser TS into apps/web/public/
+npm run web:start                          # Web console on :8788 (build + serve)
 npm run orchestrator:groups                # Coordination-group summaries
 npm run orchestrator:group -- --group <id> # One coordination-group detail
 npm run orchestrator:pause -- --execution <id> --reason "Operator pause"

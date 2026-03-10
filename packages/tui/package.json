@@ -3,5 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Terminal operator surface for SPORE"
+  "description": "Terminal operator surface for SPORE",
+  "exports": {
+    ".": "./src/index.ts"
+  }
 }

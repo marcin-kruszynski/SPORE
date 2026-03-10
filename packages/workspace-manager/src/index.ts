@@ -1,0 +1,20 @@
+export {
+  buildWorkspaceBranchName,
+  buildWorkspacePath,
+  buildWorkspaceSnapshotRef,
+  createWorkspace,
+  createWorkspaceFromSnapshot,
+  DEFAULT_WORKTREE_ROOT,
+  deriveWorkspaceDiagnostics,
+  inspectWorkspace,
+  listGitWorktrees,
+  publishWorkspaceSnapshot,
+  reconcileWorkspace,
+  removeWorkspace,
+  renderWorkspaceShellSummary,
+  resolveCanonicalGitRoot,
+  summarizeWorkspaceChanges,
+  workspaceCommandHint,
+  writeWorkspacePatchArtifact,
+} from "./manager.js";
+export * from "./types.js";

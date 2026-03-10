@@ -3,5 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Session metadata and lifecycle management for SPORE"
+  "description": "Session metadata and lifecycle management for SPORE",
+  "exports": {
+    ".": "./src/index.ts"
+  }
 }

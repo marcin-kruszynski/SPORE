@@ -3,5 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "PI runtime planning for SPORE"
+  "description": "PI runtime planning for SPORE",
+  "exports": {
+    ".": "./src/index.ts"
+  }
 }

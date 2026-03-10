@@ -1,0 +1,15 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.4.6/schema.json",
+  "formatter": { "enabled": true, "indentStyle": "space" },
+  "linter": { "enabled": true },
+  "files": {
+    "includes": [
+      "apps/**",
+      "packages/**",
+      "services/**",
+      "docs/**",
+      "*.json",
+      "*.md"
+    ]
+  }
+}

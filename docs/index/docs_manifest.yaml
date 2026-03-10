@@ -1,5 +1,5 @@
 version: 1
-updated_at: 2026-03-09
+updated_at: 2026-03-10
 owner: bootstrap-agent
 documents:
   - id: docs-index
@@ -145,10 +145,24 @@ documents:
   - id: adr-typescript-first-codebase
     type: decision
     domain: shared
-    status: proposed
+    status: accepted
     owner: architecture-council
-    tags: [typescript, javascript, modernization, package-boundaries, runtime]
+    tags: [typescript, javascript, modernization, package-boundaries, runtime, generated-output]
     path: docs/decisions/ADR-0008-typescript-first-codebase.md
+  - id: adr-docs-adr-pass-open-question-handoff
+    type: decision
+    domain: shared
+    status: accepted
+    owner: architecture-council
+    tags: [docs, adr, governance, open-questions, handoff]
+    path: docs/decisions/ADR-0009-docs-adr-pass-open-question-handoff.md
+  - id: adr-docs-adr-pass-output-governance
+    type: decision
+    domain: shared
+    status: accepted
+    owner: architecture-council
+    tags: [docs, adr, governance, pass-output, indexing]
+    path: docs/decisions/ADR-0010-docs-adr-pass-output-governance.md
   - id: implementation-roadmap
     type: roadmap
     domain: shared
@@ -196,7 +210,7 @@ documents:
     domain: shared
     status: active
     owner: bootstrap-agent
-    tags: [typescript, javascript, migration, tooling, quality]
+    tags: [typescript, javascript, migration, tooling, quality, completed]
     path: docs/plans/javascript-to-typescript-migration-plan.md
   - id: bootstrap-status
     type: operations
@@ -212,6 +226,14 @@ documents:
     owner: bootstrap-agent
     tags: [scenarios, validation, canonical]
     path: docs/runbooks/scenario-library.md
+
+  - id: agent-to-agent-communication-research
+    type: research
+    domain: orchestration
+    status: active
+    owner: bootstrap-agent
+    tags: [agents, communication, coordination, messaging, nudge, mail]
+    path: docs/research/agent-to-agent-communication.md
 
   - id: worktree-workspace-isolation
     type: spec

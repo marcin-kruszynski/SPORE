@@ -39,6 +39,15 @@ Do not implement production orchestrator runtime, production Web UI, or full exe
 - Keep docs indices synchronized when adding/moving docs.
 - Prefer updating canonical docs over creating redundant fragments.
 
+## TypeScript-First Baseline
+
+- Treat `.ts` and `.tsx` files under `apps/`, `packages/`, and `services/` as the source of truth for first-party code and tests.
+- Treat `apps/web/public/*.js` as generated browser output from `npm run web:build`, not hand-edited source.
+- Treat `*.tsbuildinfo` files as generated local compiler state, not reviewable source artifacts.
+- Prefer `tsx` entrypoints, `node --import=tsx --test`, and `npm run typecheck` when validating implementation work.
+- Prefer `@spore/test-support` for reusable cross-package test harnesses and fixtures instead of importing sibling `test/helpers/*` directly across package boundaries.
+- Do not introduce new hand-authored first-party `.js` files under `apps/`, `packages/`, or `services/` unless a later ADR explicitly changes that boundary.
+
 ## Environment Baseline
 
 Assume the repository is expected to run with:

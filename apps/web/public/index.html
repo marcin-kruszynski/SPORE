@@ -19,10 +19,10 @@
         </div>
         <div class="hero-actions">
           <nav class="view-nav">
-            <button id="view-run-center" class="view-button active" data-view="run-center">Run Center</button>
-            <button id="view-self-build" class="view-button" data-view="self-build">Self-Build</button>
+            <button type="button" id="view-run-center" class="view-button active" data-view="run-center">Run Center</button>
+            <button type="button" id="view-self-build" class="view-button" data-view="self-build">Self-Build</button>
           </nav>
-          <button id="refresh-button" class="primary-button">Refresh</button>
+          <button type="button" id="refresh-button" class="primary-button">Refresh</button>
           <label class="toggle">
             <input id="auto-refresh" type="checkbox" checked />
             <span>Auto refresh</span>
@@ -168,7 +168,7 @@
           <!-- Drilldown Detail View -->
           <div id="self-build-detail-overlay" class="detail-overlay" style="display: none;">
             <div class="detail-overlay-header">
-              <button id="self-build-back-button" class="secondary-button">← Back to Dashboard</button>
+              <button type="button" id="self-build-back-button" class="secondary-button">← Back to Dashboard</button>
               <h2 id="self-build-detail-title">Detail View</h2>
             </div>
             <div id="self-build-detail-content" class="detail-content"></div>
@@ -497,6 +497,6 @@
       <!-- End Run Center View -->
     </main>
 
-    <script type="module" src="/app.js"></script>
+    <script type="module" src="/main.js"></script>
   </body>
 </html>

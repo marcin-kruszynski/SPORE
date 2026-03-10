@@ -3,5 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Configuration validation for SPORE"
+  "description": "Configuration validation for SPORE",
+  "exports": {
+    ".": "./src/index.ts"
+  }
 }

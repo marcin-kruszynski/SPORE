@@ -5,6 +5,9 @@
   "type": "module",
   "description": "Local-first documentation indexing and search for SPORE",
   "bin": {
-    "docs-kb": "./src/cli/docs-kb.js"
+    "docs-kb": "./src/cli/docs-kb.ts"
+  },
+  "exports": {
+    ".": "./src/index.ts"
   }
 }

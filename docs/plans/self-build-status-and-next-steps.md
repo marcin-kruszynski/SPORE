@@ -65,6 +65,17 @@ The current supervised self-work shape is:
 
 That is not full autonomy. It is a controlled self-improvement loop with durable traceability.
 
+## TypeScript Adaptation Checkpoint
+
+The final large post-migration TypeScript adaptation batch is complete.
+
+That means:
+- orchestrator execution, store, and self-build responsibilities now have explicit module boundaries
+- heavy HTTP/TUI suites have stable teardown behavior again
+- the repository is no longer blocked on old-code TypeScript cleanup before new feature work
+
+The next implementation work should focus on new SPORE capabilities rather than more migration catch-up.
+
 ## Phase 1 Status
 
 Phase 1 from the long-range self-build roadmap is complete.

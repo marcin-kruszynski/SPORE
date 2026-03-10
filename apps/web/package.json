@@ -3,5 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Minimal gateway-backed web operator surface for SPORE"
+  "description": "Minimal gateway-backed web operator surface for SPORE",
+  "exports": {
+    ".": "./src/index.ts"
+  }
 }

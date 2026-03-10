@@ -21,8 +21,16 @@ body {
   font-family: var(--sans);
   color: var(--ink);
   background:
-    radial-gradient(circle at top left, rgba(180, 69, 45, 0.18), transparent 30%),
-    radial-gradient(circle at bottom right, rgba(39, 82, 110, 0.18), transparent 25%),
+    radial-gradient(
+      circle at top left,
+      rgba(180, 69, 45, 0.18),
+      transparent 30%
+    ),
+    radial-gradient(
+      circle at bottom right,
+      rgba(39, 82, 110, 0.18),
+      transparent 25%
+    ),
     linear-gradient(135deg, #efe7da, #f7f2ea 40%, #ede6dc);
   min-height: 100vh;
 }
@@ -182,7 +190,10 @@ h1 {
 
 .session-item {
   cursor: pointer;
-  transition: transform 160ms ease, border-color 160ms ease, background 160ms ease;
+  transition:
+    transform 160ms ease,
+    border-color 160ms ease,
+    background 160ms ease;
 }
 
 .execution-group-card {
@@ -232,7 +243,10 @@ h1 {
 
 .run-history-item {
   cursor: pointer;
-  transition: transform 160ms ease, border-color 160ms ease, background 160ms ease;
+  transition:
+    transform 160ms ease,
+    border-color 160ms ease,
+    background 160ms ease;
 }
 
 .run-history-item.active {
@@ -543,7 +557,11 @@ h1 {
 
 .session-live-v2 {
   border-color: rgba(24, 84, 138, 0.14);
-  background: linear-gradient(180deg, rgba(242, 247, 255, 0.9), rgba(255, 255, 255, 0.82));
+  background: linear-gradient(
+    180deg,
+    rgba(242, 247, 255, 0.9),
+    rgba(255, 255, 255, 0.82)
+  );
 }
 
 .detail-span {
@@ -609,7 +627,9 @@ button {
   padding: 12px 18px;
   font: inherit;
   cursor: pointer;
-  transition: transform 160ms ease, opacity 160ms ease;
+  transition:
+    transform 160ms ease,
+    opacity 160ms ease;
 }
 
 button:hover:not(:disabled) {
@@ -845,8 +865,11 @@ button:disabled {
 }
 
 .policy-diff-panel {
-  background:
-    linear-gradient(180deg, rgba(255, 249, 242, 0.86), rgba(255, 255, 255, 0.8));
+  background: linear-gradient(
+    180deg,
+    rgba(255, 249, 242, 0.86),
+    rgba(255, 255, 255, 0.8)
+  );
 }
 
 .workflow-launch-card {
@@ -1039,10 +1062,6 @@ button:disabled {
   gap: 8px;
 }
 
-.execution-branch-card .lineage-card {
-  margin: 0;
-}
-
 .lineage-cluster {
   border-radius: 14px;
   border: 1px solid rgba(24, 34, 44, 0.08);
@@ -1060,6 +1079,10 @@ button:disabled {
 .lineage-card.selected {
   border-color: rgba(180, 69, 45, 0.3);
   box-shadow: inset 0 0 0 1px rgba(180, 69, 45, 0.1);
+}
+
+.execution-branch-card .lineage-card {
+  margin: 0;
 }
 
 .execution-timeline {
@@ -1668,7 +1691,10 @@ button:disabled {
   background: var(--paper);
   box-shadow: 0 10px 24px rgba(24, 34, 44, 0.08);
   cursor: pointer;
-  transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease;
+  transition:
+    transform 160ms ease,
+    box-shadow 160ms ease,
+    border-color 160ms ease;
 }
 
 .group-readiness-row:hover {

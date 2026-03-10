@@ -1,67 +1,50 @@
 # ADR-0008: Adopt a TypeScript-First First-Party Codebase
 
-- Status: Proposed
-- Date: 2026-03-09
+- Status: Accepted
+- Date: 2026-03-10
 
 ## Context
 
-SPORE has grown into a multi-package system with durable workflow state, PI runtime integration, tmux-backed sessions, HTTP services, a TUI, and a browser operator surface.
+As of 2026-03-10, SPORE operates as a Node 24 and npm workspace with TypeScript as the canonical implementation language for first-party code.
 
-The current first-party implementation is still primarily plain JavaScript:
+The current repository state is:
 
-- source and tests under `apps/`, `packages/`, and `services/` are still JavaScript
-- there is no root TypeScript project configuration
-- there are no package-level TypeScript boundaries
-- cross-package imports often reach directly into another package's `src/` tree
-- shared payloads and state shapes are reconstructed in multiple places instead of being enforced as shared contracts
+- first-party source and test code under `apps/`, `packages/`, and `services/` is authored in TypeScript
+- root and package-level TypeScript project configuration exists
+- Node-side entrypoints run from TypeScript through `tsx`
+- tests run through `node --import=tsx --test`
+- browser assets under `apps/web/public/` are generated from `apps/web/src/` through `npm run web:build`
+- `npm run typecheck` passes
+- the shared compiler config has `allowJs` and `checkJs` disabled for first-party source paths
+- the current compiler posture is still not fully strict
+- some internal cross-package `src` imports still exist as implementation debt
 
-As SPORE grows, this increases the chance of:
-
-- workflow, session, review, approval, escalation, and self-build state drift
-- HTTP payload mismatches between services, TUI, and web clients
-- unsafe refactors in large modules
-- runtime-only discovery of integration mistakes that should be caught earlier
-
-There is also active interest in modernizing the repository. One option considered was a runtime move from Node.js to Bun. However, SPORE currently depends on Node 24 behavior and APIs such as `node:sqlite`, `node:test`, `child_process`, tmux-backed process handling, and PI execution flows. A runtime change now would add unnecessary risk to a system that is still stabilizing its core execution foundation.
-
-SPORE therefore needs a modernization decision that improves correctness, maintainability, and package discipline without destabilizing the runtime model.
+This outcome preserves the existing runtime model. SPORE still depends on Node 24 behavior and APIs such as `node:sqlite`, `node:test`, `child_process`, tmux-backed process handling, and PI execution flows. A runtime switch to Bun remains unnecessary risk for the current architecture.
 
 ## Decision
 
-SPORE will adopt TypeScript as the canonical implementation language for all first-party source and test code under `apps/`, `packages/`, and `services/`.
+SPORE adopts and keeps this TypeScript-first operating model:
 
-This migration is governed by `docs/plans/javascript-to-typescript-migration-plan.md` and will be executed in three phases:
+- TypeScript is the canonical source-of-truth language for first-party source and test code under `apps/`, `packages/`, and `services/`
+- Node `>= 24` remains the canonical runtime
+- `npm` remains the canonical package manager
+- the repository remains ESM-first and uses `NodeNext`-compatible TypeScript settings
+- Node-side CLIs and services run directly from TypeScript source via `tsx`
+- repository tests run through `node --import=tsx --test`
+- browser assets are emitted from TypeScript into `apps/web/public/` via `npm run web:build`
+- generated browser JavaScript is acceptable only as build output, not as hand-authored source-of-truth code
+- workspace packages and exported package APIs are the default cross-package boundary model
+- new hand-authored first-party `.js` files under `apps/`, `packages/`, or `services/` should not be introduced unless a later ADR explicitly changes that boundary
 
-1. foundation and shared contracts
-2. core runtime and service migration
-3. operator surfaces, final cutover, and enforcement
-
-The decision includes these mandatory constraints:
-
-- keep `Node >= 24` as the canonical runtime during the migration
-- keep `npm` as the canonical package manager during the migration
-- do not adopt Bun as the primary runtime as part of this migration
-- keep the repository ESM-first
-- use Node-compatible TypeScript settings based on `NodeNext`
-- introduce shared typed contracts for workflow, session, runtime, gateway, orchestrator, and operator-surface payloads
-- introduce formal package boundaries through workspaces and exported package APIs
-- remove deep cross-package imports into another package's `src/` tree where a public API should exist
-- keep the repository runnable at the end of each migration phase
-- treat the migration as incomplete until the full verification matrix passes and all failures have been repaired through a fix-until-green loop
+This ADR does not require repository-wide strict mode or immediate removal of every compatibility escape hatch. TS-first status in SPORE means TypeScript owns the source of truth and execution path; stricter compiler enforcement can continue incrementally.
 
 ## Consequences
 
-- SPORE gains compiler-enforced contracts for cross-package state, payloads, and refactors.
-- Shared DTOs and state vocabularies become reusable repository assets instead of duplicated ad hoc objects.
-- The migration requires structural cleanup, not only file renames, especially in oversized modules and deep import chains.
-- Tooling will expand to include TypeScript configuration, typechecking, formatting/linting enforcement, and TS-aware test execution.
-- The browser operator surface and orchestrator internals will need modularization during migration.
-- Contributors will need to follow stricter package API, import-boundary, and typing rules.
-- Runtime validation remains mandatory; compile success alone is not enough.
-- Documentation must be updated alongside implementation changes, including indexes, runbooks, and operator instructions when commands or workflows change.
-- Bun stays out of scope as the primary runtime unless a future ADR revisits that choice after the TypeScript migration is complete and runtime compatibility risk is lower.
-
-## Open Questions
-
-- Should development execution standardize on direct TS loading, explicit build output, or a mixed model by package type?
-- Which shared contracts should live in `packages/shared-types/` versus `packages/core/` once phase 2 decomposition begins?
+- cross-package and cross-surface contracts now have a canonical TypeScript home
+- `npm run typecheck` becomes a baseline repository verification step
+- runtime and service entrypoints are documented and maintained as TS-first workflows
+- emitted browser JavaScript in `apps/web/public/` should be treated as generated output and not edited by hand
+- `*.tsbuildinfo` should be treated as generated local compiler state and not as reviewable repository source
+- contributors should prefer `@spore/*` package imports and exported APIs over new deep sibling imports
+- remaining hardening work, such as tighter compiler settings and cleanup of residual internal deep imports, is follow-up work rather than a blocker to this architectural choice
+- Bun remains out of scope as the primary runtime unless a later ADR revisits that boundary

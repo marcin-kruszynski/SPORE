@@ -70,6 +70,9 @@ rg --version
 Run:
 
 ```bash
+npm run typecheck
+npm run lint
+npm run format:check
 npm run docs-kb:index
 npm run config:validate
 npm run docs-kb -- search "session model"
@@ -234,11 +237,13 @@ curl http://127.0.0.1:8789/executions/e2e-review-002
 
 Use the terminal surface against the same orchestrator HTTP APIs as the web client:
 
+For TUI subcommands without dedicated root npm aliases, execute the TypeScript CLI directly through `tsx`:
+
 ```bash
-node packages/tui/src/cli/spore-ops.js execution --execution e2e-review-002 --api http://127.0.0.1:8789
-node packages/tui/src/cli/spore-ops.js family --execution e2e-review-002 --api http://127.0.0.1:8789
-node packages/tui/src/cli/spore-ops.js audit --execution e2e-review-002 --api http://127.0.0.1:8789
-node packages/tui/src/cli/spore-ops.js policy-diff --execution e2e-review-002 --api http://127.0.0.1:8789
+npx tsx packages/tui/src/cli/spore-ops.ts execution --execution e2e-review-002 --api http://127.0.0.1:8789
+npx tsx packages/tui/src/cli/spore-ops.ts family --execution e2e-review-002 --api http://127.0.0.1:8789
+npx tsx packages/tui/src/cli/spore-ops.ts audit --execution e2e-review-002 --api http://127.0.0.1:8789
+npx tsx packages/tui/src/cli/spore-ops.ts policy-diff --execution e2e-review-002 --api http://127.0.0.1:8789
 ```
 
 ## TUI Self-Build Triage
@@ -247,24 +252,24 @@ The TUI provides a dedicated self-build triage view for scanning urgent and foll
 
 ```bash
 # Terminal-native triage view (default)
-node packages/tui/src/cli/spore-ops.js self-build --api http://127.0.0.1:8789
-node packages/tui/src/cli/spore-ops.js self-build-dashboard --api http://127.0.0.1:8789
+npx tsx packages/tui/src/cli/spore-ops.ts self-build --api http://127.0.0.1:8789
+npx tsx packages/tui/src/cli/spore-ops.ts self-build-dashboard --api http://127.0.0.1:8789
 
 # Raw JSON output (use --json flag)
-node packages/tui/src/cli/spore-ops.js self-build --json --api http://127.0.0.1:8789
+npx tsx packages/tui/src/cli/spore-ops.ts self-build --json --api http://127.0.0.1:8789
 
 # Drilldown into specific records without leaving the TUI
-node packages/tui/src/cli/spore-ops.js self-build --item <work-item-id> --api http://127.0.0.1:8789
-node packages/tui/src/cli/spore-ops.js self-build --proposal <proposal-id> --api http://127.0.0.1:8789
-node packages/tui/src/cli/spore-ops.js self-build --group <group-id> --api http://127.0.0.1:8789
-node packages/tui/src/cli/spore-ops.js self-build --run <work-item-run-id> --api http://127.0.0.1:8789
-node packages/tui/src/cli/spore-ops.js self-build --plan <goal-plan-id> --api http://127.0.0.1:8789
-node packages/tui/src/cli/spore-ops.js work-item-queue --api http://127.0.0.1:8789
-node packages/tui/src/cli/spore-ops.js workspace-list --api http://127.0.0.1:8789
-node packages/tui/src/cli/spore-ops.js workspace-show --workspace <workspace-id> --api http://127.0.0.1:8789
+npx tsx packages/tui/src/cli/spore-ops.ts self-build --item <work-item-id> --api http://127.0.0.1:8789
+npx tsx packages/tui/src/cli/spore-ops.ts self-build --proposal <proposal-id> --api http://127.0.0.1:8789
+npx tsx packages/tui/src/cli/spore-ops.ts self-build --group <group-id> --api http://127.0.0.1:8789
+npx tsx packages/tui/src/cli/spore-ops.ts self-build --run <work-item-run-id> --api http://127.0.0.1:8789
+npx tsx packages/tui/src/cli/spore-ops.ts self-build --plan <goal-plan-id> --api http://127.0.0.1:8789
+npx tsx packages/tui/src/cli/spore-ops.ts work-item-queue --api http://127.0.0.1:8789
+npx tsx packages/tui/src/cli/spore-ops.ts workspace-list --api http://127.0.0.1:8789
+npx tsx packages/tui/src/cli/spore-ops.ts workspace-show --workspace <workspace-id> --api http://127.0.0.1:8789
 
 # Legacy raw JSON command (still supported)
-node packages/tui/src/cli/spore-ops.js self-build-summary --api http://127.0.0.1:8789
+npx tsx packages/tui/src/cli/spore-ops.ts self-build-summary --api http://127.0.0.1:8789
 ```
 
 The triage view displays:
@@ -279,10 +284,10 @@ To inspect one group in the same dependency language as the web surface:
 
 ```bash
 # Formatted dependency-aware group detail
-node packages/tui/src/cli/spore-ops.js work-item-group-show --group <group-id> --api http://127.0.0.1:8789
+npx tsx packages/tui/src/cli/spore-ops.ts work-item-group-show --group <group-id> --api http://127.0.0.1:8789
 
 # Raw JSON for scripting or parity checks
-node packages/tui/src/cli/spore-ops.js work-item-group-show --group <group-id> --json --api http://127.0.0.1:8789
+npx tsx packages/tui/src/cli/spore-ops.ts work-item-group-show --group <group-id> --json --api http://127.0.0.1:8789
 ```
 
 Interpret dependency states consistently across web and TUI:
@@ -380,6 +385,10 @@ Those fields may appear incrementally as the durable execution model grows.
 ## Web Smoke Test
 
 Start the browser app after gateway and orchestrator:
+
+`npm run web:start` first runs `npm run web:build`, which compiles `apps/web/src/*.ts` into `apps/web/public/`.
+
+Treat the emitted `apps/web/public/*.js` files and any `*.tsbuildinfo` files as local build artifacts rather than source-of-truth code.
 
 ```bash
 npm run web:start

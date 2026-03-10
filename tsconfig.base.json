@@ -1,0 +1,44 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "verbatimModuleSyntax": true,
+    "strict": false,
+    "noImplicitOverride": false,
+    "noUncheckedIndexedAccess": false,
+    "exactOptionalPropertyTypes": false,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "allowJs": false,
+    "checkJs": false,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "esModuleInterop": true,
+    "types": ["node"],
+    "baseUrl": ".",
+    "paths": {
+      "@spore/core": ["packages/core/src/index.ts"],
+      "@spore/shared-types": ["packages/shared-types/src/index.ts"],
+      "@spore/test-support": ["packages/test-support/src/index.ts"],
+      "@spore/config-schema": ["packages/config-schema/src/index.ts"],
+      "@spore/docs-kb": ["packages/docs-kb/src/index.ts"],
+      "@spore/workspace-manager": ["packages/workspace-manager/src/index.ts"],
+      "@spore/session-manager": ["packages/session-manager/src/index.ts"],
+      "@spore/runtime-pi": ["packages/runtime-pi/src/index.ts"],
+      "@spore/orchestrator": ["packages/orchestrator/src/index.ts"],
+      "@spore/tui": ["packages/tui/src/index.ts"]
+    },
+    "allowSyntheticDefaultImports": true
+  },
+  "exclude": [
+    "node_modules",
+    "references",
+    "tmp",
+    ".spore",
+    "data",
+    "artifacts"
+  ]
+}

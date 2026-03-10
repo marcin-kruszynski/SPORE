@@ -53,6 +53,8 @@
 - `docs/decisions/ADR-0006-project-coordinator-role.md`
 - `docs/decisions/ADR-0007-feature-integrator-promotion-boundary.md`
 - `docs/decisions/ADR-0008-typescript-first-codebase.md`
+- `docs/decisions/ADR-0009-docs-adr-pass-open-question-handoff.md`
+- `docs/decisions/ADR-0010-docs-adr-pass-output-governance.md`
 - `docs/decisions/adr-template.md`
 
 ### Specs
@@ -72,6 +74,7 @@
 - `docs/research/beads-notes.md`
 - `docs/research/mulch-notes.md`
 - `docs/research/agentic-engineering-notes.md`
+- `docs/research/agent-to-agent-communication.md`
 - `docs/research/OPEN_QUESTIONS.md`
 
 ### Domains

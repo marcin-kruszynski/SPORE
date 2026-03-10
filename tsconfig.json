@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true
+  },
+  "include": ["apps/**/*.ts", "packages/**/*.ts", "services/**/*.ts"],
+  "exclude": [
+    "node_modules",
+    "references",
+    "tmp",
+    ".spore",
+    "data",
+    "artifacts"
+  ]
+}

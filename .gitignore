@@ -23,10 +23,15 @@ dist/
 build/
 coverage/
 .tmp/
+*.tsbuildinfo
 artifacts/*
 !artifacts/README.md
 scripts/*
 !scripts/README.md
+
+# Generated browser assets
+apps/web/public/*.js
+apps/web/public/*.js.map
 
 # Runtime state and caches
 data/cache/*
