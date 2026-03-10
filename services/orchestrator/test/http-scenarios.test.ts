@@ -528,12 +528,30 @@ test("scenario, regression, and execution history routes work through orchestrat
     },
   );
   assert.equal(proposalApproved.status, 200);
-  assert.equal(proposalApproved.json.detail.status, "approved");
   assert.ok(
-    ["promotion_candidate", "blocked"].includes(
+    ["validation_required", "promotion_ready"].includes(
+      proposalApproved.json.detail.status,
+    ),
+  );
+  assert.ok(
+    ["blocked", "ready", "promotion_candidate"].includes(
       String(proposalApproved.json.detail.promotionStatus),
     ),
   );
+
+  const proposalValidation = await postJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/work-item-runs/${encodeURIComponent(templateWorkItemRun.json.detail.run.id)}/validate-bundle`,
+    {
+      bundleIds: ["proposal-ready-fast", "integration-ready-core"],
+      stub: true,
+      timeout: 12000,
+      interval: 250,
+      by: "test-promoter",
+      source: "http-scenarios-test",
+    },
+  );
+  assert.equal(proposalValidation.status, 200);
+  assert.ok(proposalValidation.json.ok);
 
   const proposalReviewPackage = await getJson(
     `http://127.0.0.1:${ORCHESTRATOR_PORT}/proposal-artifacts/${encodeURIComponent(proposal.json.detail.id)}/review-package`,

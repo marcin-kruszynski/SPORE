@@ -26,6 +26,9 @@ Workflow templates may also define `stepSets`, which the service exposes back th
 - `GET /run-center/summary`
 - `GET /self-build/dashboard`
 - `GET /self-build/summary`
+- `GET /self-build/decisions`
+- `GET /self-build/quarantine`
+- `GET /self-build/rollback`
 - `GET /scenarios/:id/trends`
 - `GET /scenario-runs/:runId`
 - `GET /scenario-runs/:runId/artifacts`
@@ -39,12 +42,20 @@ Workflow templates may also define `stepSets`, which the service exposes back th
 - `GET /goal-plans`
 - `POST /goals/plan`
 - `GET /goal-plans/:id`
+- `GET /goal-plans/:id/history`
+- `POST /goal-plans/:id/edit`
 - `POST /goal-plans/:id/review`
 - `POST /goal-plans/:id/materialize`
 - `POST /goal-plans/:id/run`
 - `GET /work-item-groups`
 - `GET /work-item-groups/:id`
 - `POST /work-item-groups/:id/run`
+- `POST /work-item-groups/:id/unblock`
+- `POST /work-item-groups/:id/reroute`
+- `POST /work-item-groups/:id/retry-downstream`
+- `POST /work-item-groups/:id/requeue-item`
+- `POST /work-item-groups/:id/skip-item`
+- `POST /work-item-groups/:id/validate-bundle`
 - `GET /work-items`
 - `GET /work-items/:id`
 - `GET /work-items/:id/runs`
@@ -53,6 +64,7 @@ Workflow templates may also define `stepSets`, which the service exposes back th
 - `GET /work-item-runs/:runId/workspace`
 - `GET /work-item-runs/:runId/proposal`
 - `POST /work-item-runs/:runId/validate`
+- `POST /work-item-runs/:runId/validate-bundle`
 - `GET /work-item-runs/:runId/doc-suggestions`
 - `GET /proposal-artifacts/:id`
 - `GET /proposal-artifacts/:id/review-package`
@@ -60,6 +72,17 @@ Workflow templates may also define `stepSets`, which the service exposes back th
 - `POST /proposal-artifacts/:id/approval`
 - `POST /proposal-artifacts/:id/promotion-plan`
 - `POST /proposal-artifacts/:id/promotion-invoke`
+- `GET /integration-branches`
+- `GET /integration-branches/:name`
+- `GET /self-build/loop/status`
+- `POST /self-build/loop/start`
+- `POST /self-build/loop/stop`
+- `POST /goal-plans/:id/quarantine`
+- `POST /work-item-groups/:id/quarantine`
+- `POST /proposal-artifacts/:id/quarantine`
+- `POST /integration-branches/:name/quarantine`
+- `POST /integration-branches/:name/rollback`
+- `POST /self-build/quarantine/:id/release`
 - `GET /workspaces`
 - `GET /workspaces/:id`
 - `POST /workspaces/:id/reconcile`
@@ -130,12 +153,19 @@ curl -N http://127.0.0.1:8789/stream/executions?execution=branch-approval-001
 curl http://127.0.0.1:8789/run-center/summary
 curl http://127.0.0.1:8789/self-build/dashboard
 curl http://127.0.0.1:8789/self-build/summary
+curl http://127.0.0.1:8789/self-build/decisions
+curl http://127.0.0.1:8789/self-build/quarantine
+curl http://127.0.0.1:8789/self-build/rollback
 curl http://127.0.0.1:8789/work-item-templates
 curl http://127.0.0.1:8789/work-item-templates/operator-ui-pass
 curl -X POST http://127.0.0.1:8789/goals/plan \
   -H 'content-type: application/json' \
   -d '{"goal":"Stabilize CLI verification and proposal quality","projectId":"spore","mode":"supervised","safeMode":true}'
 curl http://127.0.0.1:8789/goal-plans
+curl http://127.0.0.1:8789/goal-plans/<plan-id>/history
+curl -X POST http://127.0.0.1:8789/goal-plans/<plan-id>/edit \
+  -H 'content-type: application/json' \
+  -d '{"editedRecommendations":[{"title":"Operator-adjusted item","kind":"scenario","priority":1}],"reviewRationale":"Drop lower-value follow-up work before materialization."}'
 curl -X POST http://127.0.0.1:8789/goal-plans/<plan-id>/materialize \
   -H 'content-type: application/json' \
   -d '{"by":"operator","source":"curl"}'
@@ -143,6 +173,12 @@ curl http://127.0.0.1:8789/work-item-groups
 curl -X POST http://127.0.0.1:8789/work-item-groups/<group-id>/run \
   -H 'content-type: application/json' \
   -d '{"stub":true,"wait":true}'
+curl -X POST http://127.0.0.1:8789/work-item-groups/<group-id>/retry-downstream \
+  -H 'content-type: application/json' \
+  -d '{"by":"operator","reason":"Retry blocked downstream items after an upstream fix."}'
+curl -X POST http://127.0.0.1:8789/work-item-groups/<group-id>/validate-bundle \
+  -H 'content-type: application/json' \
+  -d '{"bundleId":"proposal-ready-fast","stub":true,"source":"curl"}'
 
 curl http://127.0.0.1:8789/regressions/scheduler/status
 
@@ -196,12 +232,16 @@ curl -X POST http://127.0.0.1:8789/promotions/invoke \
 curl -X POST http://127.0.0.1:8789/work-item-runs/<run-id>/validate \
   -H 'content-type: application/json' \
   -d '{"stub":true,"source":"curl"}'
+curl -X POST http://127.0.0.1:8789/work-item-runs/<run-id>/validate-bundle \
+  -H 'content-type: application/json' \
+  -d '{"bundleId":"proposal-ready-fast","stub":true,"source":"curl"}'
 
 curl http://127.0.0.1:8789/work-item-runs/<run-id>/doc-suggestions
 
 curl http://127.0.0.1:8789/work-item-runs/<run-id>/proposal
 
 curl http://127.0.0.1:8789/proposal-artifacts/<proposal-id>
+curl http://127.0.0.1:8789/proposal-artifacts/<proposal-id>/review-package
 
 curl -X POST http://127.0.0.1:8789/proposal-artifacts/<proposal-id>/review \
   -H 'content-type: application/json' \
@@ -209,7 +249,22 @@ curl -X POST http://127.0.0.1:8789/proposal-artifacts/<proposal-id>/review \
 
 curl -X POST http://127.0.0.1:8789/proposal-artifacts/<proposal-id>/approval \
   -H 'content-type: application/json' \
-  -d '{"status":"approved","by":"operator","comments":"Approved for merge."}'
+  -d '{"status":"approved","by":"operator","comments":"Approved for validation-gated promotion."}'
+curl http://127.0.0.1:8789/integration-branches
+curl http://127.0.0.1:8789/integration-branches/spore-auto-main
+curl -X POST http://127.0.0.1:8789/goal-plans/<plan-id>/quarantine \
+  -H 'content-type: application/json' \
+  -d '{"by":"operator","reason":"Freeze one unsafe autonomous plan."}'
+curl -X POST http://127.0.0.1:8789/integration-branches/spore-auto-main/rollback \
+  -H 'content-type: application/json' \
+  -d '{"by":"operator","reason":"Rollback bad integration candidate."}'
+curl http://127.0.0.1:8789/self-build/loop/status
+curl -X POST http://127.0.0.1:8789/self-build/loop/start \
+  -H 'content-type: application/json' \
+  -d '{"mode":"supervised","by":"operator"}'
+curl -X POST http://127.0.0.1:8789/self-build/loop/stop \
+  -H 'content-type: application/json' \
+  -d '{"by":"operator","reason":"Stop after one controlled iteration."}'
 
 curl -X POST http://127.0.0.1:8789/coordination-groups/branch-review-001/drive \
   -H 'content-type: application/json' \

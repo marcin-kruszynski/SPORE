@@ -115,9 +115,14 @@ Useful local overrides for isolated runs and tests:
 - Treat failure classification as a first-class operator contract. Prefer `failure`, `failureClassification`, `failureReason`, and `suggestedActions` from orchestrator read surfaces over inventing local heuristics in clients.
 - Treat managed `work-items` as the durable unit of supervised self-work. Prefer creating or running work through `/work-items*` or the matching orchestrator CLI commands instead of ad hoc shell notes when the task should leave an execution trail.
 - Treat `work-item templates` as canonical bootstrap recipes for repeatable self-work creation. Prefer `/work-item-templates*` or matching CLI commands instead of hand-crafting repeated item payloads.
-- Treat `goal plans` as durable planning artifacts that should be reviewed before materialization when review is required. Prefer `/goals/plan`, `/goal-plans*`, `/goal-plans/:id/review`, `/goal-plans/:id/materialize`, and `/goal-plans/:id/run`.
+- Treat `goal plans` as durable planning artifacts that should be reviewed before materialization when review is required. Prefer `/goals/plan`, `/goal-plans*`, `/goal-plans/:id/edit`, `/goal-plans/:id/history`, `/goal-plans/:id/review`, `/goal-plans/:id/materialize`, and `/goal-plans/:id/run`.
 - Treat `work-item groups` as the execution unit for multi-item rollout. Prefer `/work-item-groups*` and `/work-item-groups/:id/run` over manually running each child item when grouped execution is intended.
-- Treat proposal artifacts as governed outputs for work-item runs. Prefer `/work-item-runs/:runId/proposal`, `/proposal-artifacts/:id/review-package`, `/proposal-artifacts/:id/review`, `/proposal-artifacts/:id/approval`, `/proposal-artifacts/:id/promotion-plan`, and `/proposal-artifacts/:id/promotion-invoke` for proposal lifecycle and promotion transitions.
+- Treat proposal artifacts as governed outputs for work-item runs. Prefer `/work-item-runs/:runId/proposal`, `/proposal-artifacts/:id/review-package`, `/proposal-artifacts/:id/review`, `/proposal-artifacts/:id/approval`, `/work-item-runs/:runId/validate-bundle`, `/proposal-artifacts/:id/promotion-plan`, and `/proposal-artifacts/:id/promotion-invoke` for proposal lifecycle and promotion transitions.
+- Treat proposal approval, validation readiness, and promotion readiness as separate states. Do not assume `approved` implies `promotion_ready`.
+- Treat named validation bundles as first-class self-build gates. Prefer `/work-item-runs/:runId/validate-bundle` and `/work-item-groups/:id/validate-bundle` over ad hoc local validation heuristics when a reusable bundle exists.
+- Treat integration branches as the default durable landing target for self-build promotion lanes. Prefer `/integration-branches*` and proposal/integrator promotion surfaces over any direct root-branch mutation.
+- Treat the self-build loop as an explicit operator/autonomous surface. Prefer `/self-build/loop/status`, `/self-build/loop/start`, and `/self-build/loop/stop` over home-grown background automation scripts.
+- Treat autonomous decisions, quarantine, and rollback as first-class self-build artifacts. Prefer `/self-build/decisions`, `/self-build/quarantine`, `/self-build/rollback`, and the matching quarantine/release/rollback mutation routes over inferring automation state from scattered history rows.
 - Treat workspace allocations as durable self-work infrastructure. Prefer `/workspaces*`, `/work-item-runs/:runId/workspace`, and `/executions/:id/workspaces` over inferring worktree state from filesystem paths alone.
 - Prefer `/workspaces/:id/reconcile` before manual cleanup when a workspace looks orphaned, missing, or dirty.
 - Treat workspace cleanup as governance-aware. Do not remove a proposal-backed or review-pending workspace unless the operator is making an explicit forced recovery decision.
@@ -242,11 +247,15 @@ Current CLI contract: `docs-kb index|search|status|rebuild`.
   - `GET /self-build/dashboard`
   - `GET /self-build/summary`
   - `GET /work-item-templates` and `GET /work-item-templates/:id`
-  - `GET /goal-plans`, `POST /goals/plan`, `GET /goal-plans/:id`, `POST /goal-plans/:id/materialize`
-  - `GET /work-item-groups`, `GET /work-item-groups/:id`, `POST /work-item-groups/:id/run`
+  - `GET /goal-plans`, `POST /goals/plan`, `GET /goal-plans/:id`, `GET /goal-plans/:id/history`, `POST /goal-plans/:id/edit`, `POST /goal-plans/:id/materialize`, `POST /goal-plans/:id/run`
+  - `GET /work-item-groups`, `GET /work-item-groups/:id`, `POST /work-item-groups/:id/run`, `POST /work-item-groups/:id/unblock`, `POST /work-item-groups/:id/reroute`, `POST /work-item-groups/:id/retry-downstream`, `POST /work-item-groups/:id/requeue-item`, `POST /work-item-groups/:id/skip-item`, `POST /work-item-groups/:id/validate-bundle`
   - `GET /work-items`, `POST /work-items`, `GET /work-items/:id`, `GET /work-items/:id/runs`, `POST /work-items/:id/run`
-  - `GET /work-item-runs/:runId`, `POST /work-item-runs/:runId/rerun`, `GET /work-item-runs/:runId/workspace`, `GET /work-item-runs/:runId/proposal`, `POST /work-item-runs/:runId/validate`, `GET /work-item-runs/:runId/doc-suggestions`
-  - `GET /proposal-artifacts/:id`, `POST /proposal-artifacts/:id/review`, `POST /proposal-artifacts/:id/approval`
+  - `GET /work-item-runs/:runId`, `POST /work-item-runs/:runId/rerun`, `GET /work-item-runs/:runId/workspace`, `GET /work-item-runs/:runId/proposal`, `POST /work-item-runs/:runId/validate`, `POST /work-item-runs/:runId/validate-bundle`, `GET /work-item-runs/:runId/doc-suggestions`
+  - `GET /proposal-artifacts/:id`, `GET /proposal-artifacts/:id/review-package`, `POST /proposal-artifacts/:id/review`, `POST /proposal-artifacts/:id/approval`, `POST /proposal-artifacts/:id/promotion-plan`, `POST /proposal-artifacts/:id/promotion-invoke`
+  - `GET /integration-branches`, `GET /integration-branches/:name`
+  - `GET /self-build/loop/status`, `POST /self-build/loop/start`, `POST /self-build/loop/stop`
+  - `GET /self-build/decisions`, `GET /self-build/quarantine`, `GET /self-build/rollback`
+  - `POST /goal-plans/:id/quarantine`, `POST /work-item-groups/:id/quarantine`, `POST /proposal-artifacts/:id/quarantine`, `POST /integration-branches/:name/quarantine`, `POST /integration-branches/:name/rollback`, `POST /self-build/quarantine/:id/release`
   - `GET /workspaces`, `GET /workspaces/:id`, `POST /workspaces/:id/reconcile`, `POST /workspaces/:id/cleanup`
   - `GET /executions/:id/workspaces`
 - `services/orchestrator/` also exposes explicit project coordination and promotion surfaces:

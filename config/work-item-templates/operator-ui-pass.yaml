@@ -19,6 +19,7 @@ relatedDocs:
   - apps/web/README.md
 recommendedScenarios: [frontend-ui-pass]
 recommendedRegressions: [local-fast]
+recommendedValidationBundles: [proposal-ready-fast, integration-ready-core]
 allowedDomains: [frontend]
 safeModeEligible: true
 selfBuildEligible: true

@@ -62,3 +62,12 @@ export async function getWorkItemTemplateDefinition(templateId) {
   const templates = await listWorkItemTemplateDefinitions();
   return templates.find((template) => template.id === templateId) ?? null;
 }
+
+export async function listValidationBundleDefinitions() {
+  return readConfigDirectory("config/validation-bundles");
+}
+
+export async function getValidationBundleDefinition(bundleId) {
+  const bundles = await listValidationBundleDefinitions();
+  return bundles.find((bundle) => bundle.id === bundleId) ?? null;
+}

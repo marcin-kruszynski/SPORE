@@ -148,7 +148,32 @@ runtimePolicies:
 selfWorkDefaults:
   safeMode: true
   defaultGoalPlannerPolicy: supervised
+  defaultValidationBundles: [proposal-ready-fast]
   defaultValidationBundle:
     scenarios: [docs-adr-pass, cli-verification-pass]
     regressions: [local-fast]
   allowedMutationScope: [docs, config, apps/web]
+  autonomousPolicy:
+    enabled: true
+    mode: auto_execute_auto_promote_to_integration
+    allowedTemplates:
+      - docs-maintenance-pass
+      - config-schema-maintenance
+      - operator-ui-pass
+      - runtime-validation-pass
+    allowedDomains: [docs, backend, cli, frontend]
+    allowedMutationScopes: [docs, config, apps/web]
+    requiredValidationBundles: [proposal-ready-fast]
+    requireSafeMode: true
+    autoReviewGoalPlans: true
+    autoMaterializeGoalPlans: true
+    autoRunGroups: true
+    autoValidateBundles: true
+    autoPromoteToIntegration: true
+    quarantineOnFailureCount: 2
+    quarantineOnBlockedCount: 2
+    protectedScopes:
+      - packages/runtime-pi
+      - packages/session-manager
+      - services/session-gateway
+      - services/orchestrator

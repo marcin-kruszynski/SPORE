@@ -1,0 +1,23 @@
+id: integration-ready-core
+label: Integration Ready Core
+description: Promotion gate for integrator lanes targeting integration branches.
+scenarios:
+  - docs-adr-pass
+  - cli-verification-pass
+regressions:
+  - local-fast
+requiredForProposalReadiness: true
+requiredForPromotionReadiness: true
+allowedAutoSkip: false
+allowedFailureClassifications: []
+maxDurationMs: 600000
+appliesToTemplates:
+  - operator-ui-pass
+  - runtime-validation-pass
+  - config-schema-maintenance
+appliesToMutationScopes:
+  - docs
+  - config
+  - apps/web
+appliesToProjectRoles:
+  - integrator

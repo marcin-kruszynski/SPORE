@@ -1,0 +1,22 @@
+id: proposal-ready-fast
+label: Proposal Ready Fast
+description: Fast proposal-readiness bundle for reviewed self-work before promotion planning.
+scenarios:
+  - docs-adr-pass
+  - frontend-ui-pass
+regressions:
+  - local-fast
+requiredForProposalReadiness: true
+requiredForPromotionReadiness: false
+allowedAutoSkip: false
+allowedFailureClassifications: []
+maxDurationMs: 420000
+appliesToTemplates:
+  - operator-ui-pass
+  - runtime-validation-pass
+appliesToMutationScopes:
+  - docs
+  - config
+  - apps/web
+appliesToProjectRoles:
+  - coordinator

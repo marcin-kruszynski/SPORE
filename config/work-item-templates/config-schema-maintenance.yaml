@@ -19,6 +19,7 @@ relatedDocs:
   - docs/architecture/config-model.md
 recommendedScenarios: [docs-adr-pass]
 recommendedRegressions: [local-fast]
+recommendedValidationBundles: [proposal-ready-fast]
 allowedDomains: [docs, backend]
 safeModeEligible: true
 selfBuildEligible: true

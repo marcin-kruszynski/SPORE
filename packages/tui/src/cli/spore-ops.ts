@@ -1236,6 +1236,41 @@ async function goalPlanShow(flags: CliFlags) {
   console.log(formatJson(payload));
 }
 
+async function goalPlanHistory(flags: CliFlags) {
+  if (!flags.plan) {
+    throw new Error("use goal-plan-history --plan <id>");
+  }
+  const payload = await orchestratorRequest(
+    flags,
+    `/goal-plans/${encodeURIComponent(flags.plan)}/history`,
+  );
+  console.log(formatJson(payload));
+}
+
+async function goalPlanEdit(flags: CliFlags) {
+  if (!flags.plan) {
+    throw new Error(
+      "use goal-plan-edit --plan <id> --recommendations-json '[...]'",
+    );
+  }
+  const payload = await orchestratorRequest(
+    flags,
+    `/goal-plans/${encodeURIComponent(flags.plan)}/edit`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        recommendations: flags["recommendations-json"]
+          ? JSON.parse(String(flags["recommendations-json"]))
+          : undefined,
+        rationale: flags.rationale ?? flags.comments ?? "",
+        by: flags.by ?? "operator",
+        source: "tui",
+      }),
+    },
+  );
+  console.log(formatJson(payload));
+}
+
 async function goalPlanMaterialize(flags: CliFlags) {
   if (!flags.plan) {
     throw new Error("use goal-plan-materialize --plan <id>");
@@ -1270,6 +1305,26 @@ async function goalPlanReview(flags: CliFlags) {
         by: flags.by ?? "operator",
         comments: flags.comments ?? "",
         reason: flags.reason ?? flags.comments ?? "",
+      }),
+    },
+  );
+  console.log(formatJson(payload));
+}
+
+async function goalPlanQuarantine(flags: CliFlags) {
+  if (!flags.plan) {
+    throw new Error("use goal-plan-quarantine --plan <id>");
+  }
+  const payload = await orchestratorRequest(
+    flags,
+    `/goal-plans/${encodeURIComponent(flags.plan)}/quarantine`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        by: flags.by ?? "operator",
+        sourceType: flags.source ?? "tui",
+        reason: flags.reason ?? flags.comments ?? "",
+        rationale: flags.rationale ?? flags.comments ?? "",
       }),
     },
   );
@@ -1353,6 +1408,175 @@ async function workItemGroupRun(flags: CliFlags) {
         interval: flags.interval ? toNumber(flags.interval, null) : undefined,
         noMonitor: flags["no-monitor"] === true,
         stub: flags.stub === true,
+        launcher: flags.launcher,
+        by: flags.by ?? "operator",
+        source: "tui",
+      }),
+    },
+  );
+  console.log(formatJson(payload));
+}
+
+async function workItemGroupUnblock(flags: CliFlags) {
+  if (!flags.group) {
+    throw new Error("use work-item-group-unblock --group <id> [--items a,b]");
+  }
+  const payload = await orchestratorRequest(
+    flags,
+    `/work-item-groups/${encodeURIComponent(flags.group)}/unblock`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        itemIds: flags.items
+          ? String(flags.items)
+              .split(",")
+              .map((v) => v.trim())
+              .filter(Boolean)
+          : [],
+        rationale: flags.rationale ?? flags.comments ?? "",
+        by: flags.by ?? "operator",
+        source: "tui",
+      }),
+    },
+  );
+  console.log(formatJson(payload));
+}
+
+async function workItemGroupQuarantine(flags: CliFlags) {
+  if (!flags.group) {
+    throw new Error("use work-item-group-quarantine --group <id>");
+  }
+  const payload = await orchestratorRequest(
+    flags,
+    `/work-item-groups/${encodeURIComponent(flags.group)}/quarantine`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        by: flags.by ?? "operator",
+        sourceType: flags.source ?? "tui",
+        reason: flags.reason ?? flags.comments ?? "",
+        rationale: flags.rationale ?? flags.comments ?? "",
+      }),
+    },
+  );
+  console.log(formatJson(payload));
+}
+
+async function workItemGroupReroute(flags: CliFlags) {
+  if (!flags.group || !flags.item) {
+    throw new Error(
+      "use work-item-group-reroute --group <id> --item <id> [--title <text>]",
+    );
+  }
+  const payload = await orchestratorRequest(
+    flags,
+    `/work-item-groups/${encodeURIComponent(flags.group)}/reroute`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        itemId: flags.item,
+        title: flags.title ?? null,
+        goal: flags.goal ?? null,
+        rationale: flags.rationale ?? flags.comments ?? "",
+        by: flags.by ?? "operator",
+        source: "tui",
+      }),
+    },
+  );
+  console.log(formatJson(payload));
+}
+
+async function workItemGroupRetryDownstream(flags: CliFlags) {
+  if (!flags.group) {
+    throw new Error(
+      "use work-item-group-retry-downstream --group <id> [--items a,b]",
+    );
+  }
+  const payload = await orchestratorRequest(
+    flags,
+    `/work-item-groups/${encodeURIComponent(flags.group)}/retry-downstream`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        itemIds: flags.items
+          ? String(flags.items)
+              .split(",")
+              .map((v) => v.trim())
+              .filter(Boolean)
+          : [],
+        rationale: flags.rationale ?? flags.comments ?? "",
+        by: flags.by ?? "operator",
+        source: "tui",
+      }),
+    },
+  );
+  console.log(formatJson(payload));
+}
+
+async function workItemGroupRequeueItem(flags: CliFlags) {
+  if (!flags.group || !flags.item) {
+    throw new Error(
+      "use work-item-group-requeue-item --group <id> --item <id>",
+    );
+  }
+  const payload = await orchestratorRequest(
+    flags,
+    `/work-item-groups/${encodeURIComponent(flags.group)}/requeue-item`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        itemId: flags.item,
+        rationale: flags.rationale ?? flags.comments ?? "",
+        by: flags.by ?? "operator",
+        source: "tui",
+      }),
+    },
+  );
+  console.log(formatJson(payload));
+}
+
+async function workItemGroupSkipItem(flags: CliFlags) {
+  if (!flags.group || !flags.item) {
+    throw new Error("use work-item-group-skip-item --group <id> --item <id>");
+  }
+  const payload = await orchestratorRequest(
+    flags,
+    `/work-item-groups/${encodeURIComponent(flags.group)}/skip-item`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        itemId: flags.item,
+        rationale: flags.rationale ?? flags.comments ?? "",
+        by: flags.by ?? "operator",
+        source: "tui",
+      }),
+    },
+  );
+  console.log(formatJson(payload));
+}
+
+async function workItemGroupValidateBundle(flags: CliFlags) {
+  if (!flags.group) {
+    throw new Error(
+      "use work-item-group-validate-bundle --group <id> [--bundles a,b]",
+    );
+  }
+  const payload = await orchestratorRequest(
+    flags,
+    `/work-item-groups/${encodeURIComponent(flags.group)}/validate-bundle`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        bundleIds: flags.bundles
+          ? String(flags.bundles)
+              .split(",")
+              .map((v) => v.trim())
+              .filter(Boolean)
+          : [],
+        timeout: flags.timeout ? toNumber(flags.timeout, null) : undefined,
+        interval: flags.interval ? toNumber(flags.interval, null) : undefined,
+        noMonitor: flags["no-monitor"] === true,
+        stub: flags.stub !== false,
         launcher: flags.launcher,
         by: flags.by ?? "operator",
         source: "tui",
@@ -1545,6 +1769,35 @@ async function workItemValidate(flags: CliFlags) {
   console.log(formatJson(payload));
 }
 
+async function workItemValidateBundle(flags: CliFlags) {
+  if (!flags.run) {
+    throw new Error("use work-item-validate-bundle --run <id> [--bundles a,b]");
+  }
+  const payload = await orchestratorRequest(
+    flags,
+    `/work-item-runs/${encodeURIComponent(flags.run)}/validate-bundle`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        bundleIds: flags.bundles
+          ? String(flags.bundles)
+              .split(",")
+              .map((v) => v.trim())
+              .filter(Boolean)
+          : [],
+        timeout: flags.timeout ? toNumber(flags.timeout, null) : undefined,
+        interval: flags.interval ? toNumber(flags.interval, null) : undefined,
+        noMonitor: flags["no-monitor"] === true,
+        stub: flags.stub !== false,
+        launcher: flags.launcher,
+        by: flags.by ?? "operator",
+        source: "tui",
+      }),
+    },
+  );
+  console.log(formatJson(payload));
+}
+
 async function workItemDocSuggestions(flags: CliFlags) {
   if (!flags.run) {
     throw new Error("use work-item-doc-suggestions --run <id>");
@@ -1622,6 +1875,26 @@ async function proposalReviewPackage(flags: CliFlags) {
   console.log(formatJson(payload));
 }
 
+async function proposalQuarantine(flags: CliFlags) {
+  if (!flags.proposal) {
+    throw new Error("use proposal-quarantine --proposal <id>");
+  }
+  const payload = await orchestratorRequest(
+    flags,
+    `/proposal-artifacts/${encodeURIComponent(flags.proposal)}/quarantine`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        by: flags.by ?? "operator",
+        sourceType: flags.source ?? "tui",
+        reason: flags.reason ?? flags.comments ?? "",
+        rationale: flags.rationale ?? flags.comments ?? "",
+      }),
+    },
+  );
+  console.log(formatJson(payload));
+}
+
 async function proposalPromotionPlan(flags: CliFlags) {
   if (!flags.proposal) {
     throw new Error("use proposal-promotion-plan --proposal <id>");
@@ -1686,6 +1959,166 @@ async function workspaceShow(flags: CliFlags) {
   const payload = await orchestratorRequest(
     flags,
     `/workspaces/${encodeURIComponent(flags.workspace)}`,
+  );
+  console.log(formatJson(payload));
+}
+
+async function integrationBranchList(flags: CliFlags) {
+  const search = new URLSearchParams();
+  if (flags.status) search.set("status", String(flags.status));
+  if (flags.limit) search.set("limit", String(flags.limit));
+  const suffix = search.toString() ? `?${search.toString()}` : "";
+  const payload = await orchestratorRequest(
+    flags,
+    `/integration-branches${suffix}`,
+  );
+  console.log(formatJson(payload));
+}
+
+async function integrationBranchShow(flags: CliFlags) {
+  if (!flags.name) {
+    throw new Error("use integration-branch-show --name <branch>");
+  }
+  const payload = await orchestratorRequest(
+    flags,
+    `/integration-branches/${encodeURIComponent(flags.name)}`,
+  );
+  console.log(formatJson(payload));
+}
+
+async function integrationBranchQuarantine(flags: CliFlags) {
+  if (!flags.name) {
+    throw new Error("use integration-branch-quarantine --name <branch>");
+  }
+  const payload = await orchestratorRequest(
+    flags,
+    `/integration-branches/${encodeURIComponent(flags.name)}/quarantine`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        by: flags.by ?? "operator",
+        sourceType: flags.source ?? "tui",
+        reason: flags.reason ?? flags.comments ?? "",
+        rationale: flags.rationale ?? flags.comments ?? "",
+      }),
+    },
+  );
+  console.log(formatJson(payload));
+}
+
+async function integrationBranchRollback(flags: CliFlags) {
+  if (!flags.name) {
+    throw new Error("use integration-branch-rollback --name <branch>");
+  }
+  const payload = await orchestratorRequest(
+    flags,
+    `/integration-branches/${encodeURIComponent(flags.name)}/rollback`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        by: flags.by ?? "operator",
+        source: flags.source ?? "tui",
+        reason: flags.reason ?? flags.comments ?? "",
+      }),
+    },
+  );
+  console.log(formatJson(payload));
+}
+
+async function selfBuildLoopStatus(flags: CliFlags) {
+  const payload = await orchestratorRequest(flags, "/self-build/loop/status");
+  console.log(formatJson(payload));
+}
+
+async function selfBuildLoopStart(flags: CliFlags) {
+  const payload = await orchestratorRequest(flags, "/self-build/loop/start", {
+    method: "POST",
+    body: JSON.stringify({
+      by: flags.by ?? "operator",
+      source: "tui",
+      project: flags.project,
+      timeout: flags.timeout ? toNumber(flags.timeout, null) : undefined,
+      interval: flags.interval ? toNumber(flags.interval, null) : undefined,
+      noMonitor: flags["no-monitor"] === true,
+      stub: flags.stub !== false,
+      launcher: flags.launcher,
+    }),
+  });
+  console.log(formatJson(payload));
+}
+
+async function selfBuildLoopStop(flags: CliFlags) {
+  const payload = await orchestratorRequest(flags, "/self-build/loop/stop", {
+    method: "POST",
+    body: JSON.stringify({
+      by: flags.by ?? "operator",
+      source: "tui",
+      reason: flags.reason ?? flags.comments ?? "",
+    }),
+  });
+  console.log(formatJson(payload));
+}
+
+async function selfBuildDecisions(flags: CliFlags) {
+  const search = new URLSearchParams();
+  if (flags.state) search.set("state", String(flags.state));
+  if (flags.action) search.set("action", String(flags.action));
+  if (flags["target-type"])
+    search.set("targetType", String(flags["target-type"]));
+  if (flags["target-id"]) search.set("targetId", String(flags["target-id"]));
+  if (flags.limit) search.set("limit", String(flags.limit));
+  const suffix = search.toString() ? `?${search.toString()}` : "";
+  const payload = await orchestratorRequest(
+    flags,
+    `/self-build/decisions${suffix}`,
+  );
+  console.log(formatJson(payload));
+}
+
+async function selfBuildQuarantine(flags: CliFlags) {
+  const search = new URLSearchParams();
+  if (flags.status) search.set("status", String(flags.status));
+  if (flags["target-type"])
+    search.set("targetType", String(flags["target-type"]));
+  if (flags["target-id"]) search.set("targetId", String(flags["target-id"]));
+  if (flags.limit) search.set("limit", String(flags.limit));
+  const suffix = search.toString() ? `?${search.toString()}` : "";
+  const payload = await orchestratorRequest(
+    flags,
+    `/self-build/quarantine${suffix}`,
+  );
+  console.log(formatJson(payload));
+}
+
+async function selfBuildRollback(flags: CliFlags) {
+  const search = new URLSearchParams();
+  if (flags["target-type"])
+    search.set("targetType", String(flags["target-type"]));
+  if (flags["target-id"]) search.set("targetId", String(flags["target-id"]));
+  if (flags.limit) search.set("limit", String(flags.limit));
+  const suffix = search.toString() ? `?${search.toString()}` : "";
+  const payload = await orchestratorRequest(
+    flags,
+    `/self-build/rollback${suffix}`,
+  );
+  console.log(formatJson(payload));
+}
+
+async function selfBuildQuarantineRelease(flags: CliFlags) {
+  if (!flags.quarantine) {
+    throw new Error("use self-build-quarantine-release --quarantine <id>");
+  }
+  const payload = await orchestratorRequest(
+    flags,
+    `/self-build/quarantine/${encodeURIComponent(flags.quarantine)}/release`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        by: flags.by ?? "operator",
+        reason: flags.reason ?? flags.comments ?? "",
+        nextStatus: flags["next-status"],
+      }),
+    },
   );
   console.log(formatJson(payload));
 }
@@ -1857,8 +2290,20 @@ async function main() {
     await goalPlanShow(flags);
     return;
   }
+  if (command === "goal-plan-history") {
+    await goalPlanHistory(flags);
+    return;
+  }
+  if (command === "goal-plan-edit") {
+    await goalPlanEdit(flags);
+    return;
+  }
   if (command === "goal-plan-review") {
     await goalPlanReview(flags);
+    return;
+  }
+  if (command === "goal-plan-quarantine") {
+    await goalPlanQuarantine(flags);
     return;
   }
   if (command === "goal-plan-materialize") {
@@ -1875,6 +2320,34 @@ async function main() {
   }
   if (command === "work-item-group-show") {
     await workItemGroupShow(flags);
+    return;
+  }
+  if (command === "work-item-group-unblock") {
+    await workItemGroupUnblock(flags);
+    return;
+  }
+  if (command === "work-item-group-quarantine") {
+    await workItemGroupQuarantine(flags);
+    return;
+  }
+  if (command === "work-item-group-reroute") {
+    await workItemGroupReroute(flags);
+    return;
+  }
+  if (command === "work-item-group-retry-downstream") {
+    await workItemGroupRetryDownstream(flags);
+    return;
+  }
+  if (command === "work-item-group-requeue-item") {
+    await workItemGroupRequeueItem(flags);
+    return;
+  }
+  if (command === "work-item-group-skip-item") {
+    await workItemGroupSkipItem(flags);
+    return;
+  }
+  if (command === "work-item-group-validate-bundle") {
+    await workItemGroupValidateBundle(flags);
     return;
   }
   if (command === "work-item-group-run") {
@@ -1913,6 +2386,10 @@ async function main() {
     await workItemValidate(flags);
     return;
   }
+  if (command === "work-item-validate-bundle") {
+    await workItemValidateBundle(flags);
+    return;
+  }
   if (command === "work-item-doc-suggestions") {
     await workItemDocSuggestions(flags);
     return;
@@ -1923,6 +2400,10 @@ async function main() {
   }
   if (command === "proposal-review-package") {
     await proposalReviewPackage(flags);
+    return;
+  }
+  if (command === "proposal-quarantine") {
+    await proposalQuarantine(flags);
     return;
   }
   if (command === "proposal-review") {
@@ -1949,6 +2430,50 @@ async function main() {
     await workspaceShow(flags);
     return;
   }
+  if (command === "integration-branch-list") {
+    await integrationBranchList(flags);
+    return;
+  }
+  if (command === "integration-branch-show") {
+    await integrationBranchShow(flags);
+    return;
+  }
+  if (command === "integration-branch-quarantine") {
+    await integrationBranchQuarantine(flags);
+    return;
+  }
+  if (command === "integration-branch-rollback") {
+    await integrationBranchRollback(flags);
+    return;
+  }
+  if (command === "self-build-decisions") {
+    await selfBuildDecisions(flags);
+    return;
+  }
+  if (command === "self-build-quarantine") {
+    await selfBuildQuarantine(flags);
+    return;
+  }
+  if (command === "self-build-rollback") {
+    await selfBuildRollback(flags);
+    return;
+  }
+  if (command === "self-build-loop-status") {
+    await selfBuildLoopStatus(flags);
+    return;
+  }
+  if (command === "self-build-loop-start") {
+    await selfBuildLoopStart(flags);
+    return;
+  }
+  if (command === "self-build-loop-stop") {
+    await selfBuildLoopStop(flags);
+    return;
+  }
+  if (command === "self-build-quarantine-release") {
+    await selfBuildQuarantineRelease(flags);
+    return;
+  }
   if (
     ["pause", "hold", "resume", "review", "approval", "drive"].includes(command)
   ) {
@@ -1956,7 +2481,7 @@ async function main() {
     return;
   }
   throw new Error(
-    "commands: dashboard | inspect | execution | tree | family | audit | policy-diff | history | project-plan | project-invoke | promotion-plan | promotion-invoke | run-center | self-build | self-build-summary | self-build-dashboard | work-item-queue | workspace-list | workspace-show | scenario-list | scenario-show | scenario-runs | scenario-run | scenario-run-show | scenario-run-artifacts | scenario-rerun | scenario-trends | regression-list | regression-show | regression-runs | regression-run | regression-run-show | regression-report | regression-latest-report | regression-rerun | regression-trends | regression-scheduler | regression-scheduler-status | work-item-template-list | work-item-template-show | goal-plan-create | goal-plan-list | goal-plan-show | goal-plan-review | goal-plan-materialize | goal-plan-run | work-item-group-list | work-item-group-show | work-item-group-run | work-item-list | work-item-show | work-item-runs | work-item-create | work-item-run | work-item-run-show | work-item-run-rerun | work-item-validate | work-item-doc-suggestions | proposal-show | proposal-review-package | proposal-review | proposal-approve | proposal-promotion-plan | proposal-promotion-invoke | drive | pause | hold | resume | review | approval",
+    "commands: dashboard | inspect | execution | tree | family | audit | policy-diff | history | project-plan | project-invoke | promotion-plan | promotion-invoke | run-center | self-build | self-build-summary | self-build-dashboard | self-build-decisions | self-build-quarantine | self-build-rollback | self-build-loop-* | self-build-quarantine-release | work-item-queue | workspace-list | workspace-show | integration-branch-* | scenario-list | scenario-show | scenario-runs | scenario-run | scenario-run-show | scenario-run-artifacts | scenario-rerun | scenario-trends | regression-list | regression-show | regression-runs | regression-run | regression-run-show | regression-report | regression-latest-report | regression-rerun | regression-trends | regression-scheduler | regression-scheduler-status | work-item-template-list | work-item-template-show | goal-plan-create | goal-plan-list | goal-plan-show | goal-plan-history | goal-plan-edit | goal-plan-review | goal-plan-quarantine | goal-plan-materialize | goal-plan-run | work-item-group-list | work-item-group-show | work-item-group-unblock | work-item-group-quarantine | work-item-group-reroute | work-item-group-retry-downstream | work-item-group-requeue-item | work-item-group-skip-item | work-item-group-validate-bundle | work-item-group-run | work-item-list | work-item-show | work-item-runs | work-item-create | work-item-run | work-item-run-show | work-item-run-rerun | work-item-validate | work-item-validate-bundle | work-item-doc-suggestions | proposal-show | proposal-review-package | proposal-quarantine | proposal-review | proposal-approve | proposal-promotion-plan | proposal-promotion-invoke | drive | pause | hold | resume | review | approval",
   );
 }
 

@@ -4,6 +4,8 @@
 
 This document is the current operator-facing snapshot of where SPORE stands after the executable-foundation phase and what should happen next.
 
+For the full execution-facing implementation sequence, use `docs/plans/full-self-build-implementation-plan.md`.
+
 Use it when you need one place that answers all of the following:
 - what is already implemented,
 - what the next 16 implementation steps are,
@@ -122,19 +124,25 @@ Phase 3 is now in progress.
 Delivered so far:
 
 - explicit `goal plan review` before materialization through CLI, HTTP, TUI, and Web
+- editable `goal plan` recommendations with durable edit history and review rationale
 - explicit `goal plan run` flow that can review, materialize, run, and validate a managed group in one operator path
-- dependency-aware `work-item groups` operating as real execution batches with durable batch history
+- dependency-aware `work-item groups` operating as real execution batches with durable batch history and explicit recovery controls
 - richer `proposal review package` reads that aggregate proposal, originating run, workspace, execution, promotion context, and suggested actions
 - explicit proposal promotion planning and invocation through `coordinator -> integrator` lanes
+- named validation bundles that can gate proposal readiness and promotion planning
+- explicit self-build loop control and loop status surfaces
+- durable integration-branch summaries for promotion targets
+- durable autonomous decision summaries with policy evidence and blocked reasons
+- quarantine and rollback records for goal plans, work-item groups, proposals, and integration branches
+- explicit autonomous promotion-to-integration behavior guarded by policy and validation readiness
 - additive proposal promotion metadata and early promotion blockers when durable source artifacts are missing
 - Web/TUI operator flows for proposal review, approval, promotion planning, and promotion invocation
 
 Still missing before phase 3 can be considered complete:
 
-- editable goal-plan recommendations before materialization
 - broader template catalog expansion
-- stronger batch-level editing and recovery controls
-- tighter validation bundle reuse and proposal validation gating
+- tighter validation bundle reuse across more templates and group types
+- stronger learning/doc-follow-up loops and policy tuning from repeated autonomous blockers
 
 ## The Next 16 Steps
 

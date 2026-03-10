@@ -94,7 +94,27 @@
         "requiresProposalArtifacts": { "type": "boolean" },
         "requiresReview": { "type": "boolean" },
         "requiresHumanApproval": { "type": "boolean" },
-        "safeModeDefault": { "type": "boolean" }
+        "safeModeDefault": { "type": "boolean" },
+        "autonomousEligible": { "type": "boolean" },
+        "allowedAutonomousTemplates": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "allowedAutonomousMutationScopes": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "requiredAutonomousValidationBundles": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "quarantineThresholds": {
+          "type": "object",
+          "properties": {
+            "failureCount": { "type": "integer" },
+            "blockedCount": { "type": "integer" }
+          }
+        }
       }
     }
   }

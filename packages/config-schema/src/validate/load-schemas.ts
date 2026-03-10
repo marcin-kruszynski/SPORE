@@ -17,6 +17,7 @@ const schemaDirectoryMap = new Map<string, string>([
   ["domains", "domain"],
   ["scenarios", "scenario"],
   ["regressions", "regression"],
+  ["validation-bundles", "validation-bundle"],
   ["work-item-templates", "work-item-template"],
   ["policy-packs", "policy-pack"],
   ["system", "system"],

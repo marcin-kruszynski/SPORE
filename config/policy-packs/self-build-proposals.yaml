@@ -14,3 +14,12 @@ selfWorkPolicy:
   requiresReview: true
   requiresHumanApproval: true
   safeModeDefault: true
+  autonomousEligible: true
+  allowedAutonomousTemplates:
+    - operator-ui-pass
+    - config-schema-maintenance
+  allowedAutonomousMutationScopes: [docs, config, apps/web]
+  requiredAutonomousValidationBundles: [proposal-ready-fast, integration-ready-core]
+  quarantineThresholds:
+    failureCount: 1
+    blockedCount: 1

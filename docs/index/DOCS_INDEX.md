@@ -32,6 +32,7 @@
 - `docs/plans/self-build-status-and-next-steps.md`
 - `docs/plans/builder-tester-verification-workspaces.md`
 - `docs/plans/long-range-self-build-roadmap.md`
+- `docs/plans/full-self-build-implementation-plan.md`
 - `docs/plans/project-coordinator-role-plan.md`
 - `docs/plans/feature-integrator-role-plan.md`
 - `docs/plans/javascript-to-typescript-migration-plan.md`
@@ -99,6 +100,7 @@
 
 - Phase-driven execution in `docs/roadmap/IMPLEMENTATION_ROADMAP.md`.
 - Long-range supervised self-build execution in `docs/plans/long-range-self-build-roadmap.md`.
+- Full implementation sequencing for self-build in `docs/plans/full-self-build-implementation-plan.md`.
 - Knowledge retrieval foundation from `tools/docsearch/` and `packages/docs-kb/`.
 - PI-first runtime adapter strategy from `docs/architecture/PI_INTEGRATION_STRATEGY.md`.
 - Gateway-backed clients and richer runtime control paths.

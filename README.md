@@ -1037,23 +1037,46 @@ npm run orchestrator:proposal-approve -- --proposal <proposal-id> --status appro
 | `GET` | `/goal-plans` | Durable goal-plan list for planning before execution |
 | `POST` | `/goals/plan` | Create one goal plan |
 | `GET` | `/goal-plans/:id` | One goal-plan detail |
+| `GET` | `/goal-plans/:id/history` | Durable goal-plan review, edit, and materialization lineage |
+| `POST` | `/goal-plans/:id/edit` | Persist operator edits to recommended work items before materialization |
 | `POST` | `/goal-plans/:id/review` | Record explicit goal-plan review before materialization or execution |
 | `POST` | `/goal-plans/:id/materialize` | Materialize a goal plan into a work-item group and managed items |
 | `POST` | `/goal-plans/:id/run` | Review, materialize, run, and validate a goal plan through one operator flow |
 | `GET` | `/work-item-groups` | Durable work-item group list |
 | `GET` | `/work-item-groups/:id` | One work-item group detail |
 | `POST` | `/work-item-groups/:id/run` | Execute one work-item group through managed child work items |
+| `POST` | `/work-item-groups/:id/unblock` | Clear a durable blocked state with explicit operator rationale |
+| `POST` | `/work-item-groups/:id/reroute` | Replace or split blocked work into new managed work items |
+| `POST` | `/work-item-groups/:id/retry-downstream` | Retry blocked downstream items after an upstream fix |
+| `POST` | `/work-item-groups/:id/requeue-item` | Return one child item to the runnable queue |
+| `POST` | `/work-item-groups/:id/skip-item` | Mark one child item skipped with durable rationale |
+| `POST` | `/work-item-groups/:id/validate-bundle` | Execute a named validation bundle across a whole work-item group |
 | `GET` | `/proposal-artifacts/:id` | One proposal artifact with review/approval status |
 | `GET` | `/proposal-artifacts/:id/review-package` | Rich proposal drilldown including workspace, source run, promotion context, and suggested actions |
 | `POST` | `/proposal-artifacts/:id/review` | Review transition for one proposal artifact |
 | `POST` | `/proposal-artifacts/:id/approval` | Approval transition for one proposal artifact |
-| `POST` | `/proposal-artifacts/:id/promotion-plan` | Plan an explicit `coordinator -> integrator` promotion lane for one approved proposal |
-| `POST` | `/proposal-artifacts/:id/promotion-invoke` | Invoke that promotion lane with early blockers if durable promotion sources are missing |
+| `POST` | `/proposal-artifacts/:id/promotion-plan` | Plan an explicit `coordinator -> integrator` promotion lane for one `promotion_ready` proposal |
+| `POST` | `/proposal-artifacts/:id/promotion-invoke` | Invoke that promotion lane and fail early when validation or durable promotion sources are missing |
+| `GET` | `/integration-branches` | Durable integration-branch inventory for promotion candidates and auto-landing lanes |
+| `GET` | `/integration-branches/:name` | One integration branch with linked proposals, promotions, and candidate state |
+| `GET` | `/self-build/decisions` | Durable autonomous and operator self-build decisions with policy evidence and blocked reasons |
+| `GET` | `/self-build/quarantine` | Active and released quarantine records for self-build targets |
+| `GET` | `/self-build/rollback` | Rollback history for integration-branch and self-build recovery actions |
 | `GET` | `/workspaces` | Durable workspace allocation list for mutating self-work |
 | `GET` | `/workspaces/:id` | One workspace allocation with worktree metadata |
 | `POST` | `/workspaces/:id/reconcile` | Compare allocation state with `git worktree list` and on-disk reality |
 | `POST` | `/workspaces/:id/cleanup` | Apply governance-aware workspace cleanup with optional force and branch retention |
 | `GET` | `/executions/:id/workspaces` | Workspace allocations linked to one workflow execution |
+| `POST` | `/work-item-runs/:runId/validate-bundle` | Execute a named validation bundle over one work-item run |
+| `GET` | `/self-build/loop/status` | Current autonomous self-build loop state, blockers, and last action |
+| `POST` | `/self-build/loop/start` | Start the managed self-build loop when policy allows it |
+| `POST` | `/self-build/loop/stop` | Stop the managed self-build loop while preserving durable state |
+| `POST` | `/goal-plans/:id/quarantine` | Quarantine one goal plan when autonomy or operator policy must stop further work |
+| `POST` | `/work-item-groups/:id/quarantine` | Quarantine one work-item group and block autonomous retries until release |
+| `POST` | `/proposal-artifacts/:id/quarantine` | Quarantine one proposal artifact before further promotion attempts |
+| `POST` | `/integration-branches/:name/quarantine` | Quarantine one integration branch candidate |
+| `POST` | `/integration-branches/:name/rollback` | Record and apply one integration-branch rollback action |
+| `POST` | `/self-build/quarantine/:id/release` | Release one quarantine record with explicit rationale |
 | `GET` | `/sessions/:id/live` | Combined live session metadata, events, artifacts, workspace linkage, control history, diagnostics, and operator suggestions |
 | `GET` | `/sessions/:id/control-history` | Durable control request history for one session |
 | `GET` | `/sessions/:id/control-status/:requestId` | One durable control request with ack/result status |
@@ -1067,6 +1090,14 @@ Recent operator payloads also expose additive drilldown helpers where available:
 - `failureBreakdown`
 
 SPORE now also ships a first-class managed project profile in [spore.yaml](/home/antman/projects/SPORE/config/projects/spore.yaml), so new supervised self-work items can target the repository itself instead of the generic example project.
+
+Recent self-build gating rules to keep in mind:
+
+- editable goal-plan review can change effective work-item order before materialization
+- `approved` proposals are not automatically `promotion_ready`
+- named validation bundles can gate both proposal readiness and promotion planning
+- promotion lands to a durable integration branch before any later `main` decision
+- autonomous self-build decisions, quarantine, and rollback are durable operator surfaces rather than implicit loop side effects
 
 ### Canonical Scenario Invocations
 

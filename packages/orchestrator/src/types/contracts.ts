@@ -115,6 +115,25 @@ export interface WorkspaceCleanupResult extends JsonObject {
   reason?: string;
 }
 
+export interface SelfBuildDecisionListOptions extends JsonObject {
+  state?: string;
+  targetType?: string;
+  targetId?: string;
+  limit?: number | string;
+}
+
+export interface QuarantineRecordListOptions extends JsonObject {
+  status?: string;
+  targetType?: string;
+  limit?: number | string;
+}
+
+export interface RollbackRecordListOptions extends JsonObject {
+  status?: string;
+  targetType?: string;
+  limit?: number | string;
+}
+
 export function isJsonObject(value: unknown): value is JsonObject {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }

@@ -127,3 +127,52 @@ export function mapLearningRecord(record) {
       }
     : null;
 }
+
+export function mapIntegrationBranch(record) {
+  return record
+    ? {
+        ...record,
+        proposalArtifactIds: parseJsonField(record.proposalArtifactIdsJson, []),
+        workspaceIds: parseJsonField(record.workspaceIdsJson, []),
+        metadata: parseJsonField(record.metadataJson, {}),
+      }
+    : null;
+}
+
+export function mapSelfBuildLoopState(record) {
+  return record
+    ? {
+        ...record,
+        policy: parseJsonField(record.policyJson, {}),
+        metadata: parseJsonField(record.metadataJson, {}),
+      }
+    : null;
+}
+
+export function mapSelfBuildDecision(record) {
+  return record
+    ? {
+        ...record,
+        policy: parseJsonField(record.policyJson, {}),
+        metadata: parseJsonField(record.metadataJson, {}),
+      }
+    : null;
+}
+
+export function mapQuarantineRecord(record) {
+  return record
+    ? {
+        ...record,
+        metadata: parseJsonField(record.metadataJson, {}),
+      }
+    : null;
+}
+
+export function mapRollbackRecord(record) {
+  return record
+    ? {
+        ...record,
+        metadata: parseJsonField(record.metadataJson, {}),
+      }
+    : null;
+}

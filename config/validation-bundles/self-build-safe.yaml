@@ -1,0 +1,26 @@
+id: self-build-safe
+label: Self Build Safe
+description: Minimal safe-mode validation for docs/config/operator-facing self-work.
+scenarios:
+  - docs-adr-pass
+  - cli-verification-pass
+regressions:
+  - local-fast
+requiredForProposalReadiness: true
+requiredForPromotionReadiness: true
+allowedAutoSkip: false
+allowedFailureClassifications: []
+maxDurationMs: 300000
+appliesToTemplates:
+  - docs-maintenance-pass
+  - config-schema-maintenance
+  - operator-ui-pass
+appliesToMutationScopes:
+  - docs
+  - config
+  - apps/web
+appliesToProjectRoles:
+  - coordinator
+  - integrator
+metadata:
+  severity: safe

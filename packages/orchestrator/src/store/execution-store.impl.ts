@@ -1,15 +1,25 @@
 // biome-ignore-all lint/suspicious/noExplicitAny: the orchestrator store is a thin SQLite DAO over additive JSON payloads persisted across many workflow surfaces.
 import { DatabaseSync } from "node:sqlite";
-import type { WorkspaceAllocationListOptions } from "../types/contracts.js";
+import type {
+  QuarantineRecordListOptions,
+  RollbackRecordListOptions,
+  SelfBuildDecisionListOptions,
+  WorkspaceAllocationListOptions,
+} from "../types/contracts.js";
 import {
   mapGoalPlan,
+  mapIntegrationBranch,
   mapLearningRecord,
   mapProposalArtifact,
+  mapQuarantineRecord,
   mapRegressionRun,
   mapRegressionRunItem,
+  mapRollbackRecord,
   mapScenarioRun,
   mapScenarioRunExecution,
   mapSchedulerEvaluation,
+  mapSelfBuildDecision,
+  mapSelfBuildLoopState,
   mapWorkItem,
   mapWorkItemGroup,
   mapWorkItemRun,
@@ -331,6 +341,68 @@ export function openOrchestratorDatabase(dbPath) {
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS integration_branches (
+      name TEXT PRIMARY KEY,
+      project_id TEXT,
+      status TEXT NOT NULL,
+      target_branch TEXT,
+      source_execution_id TEXT,
+      proposal_artifact_ids_json TEXT,
+      workspace_ids_json TEXT,
+      metadata_json TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      last_promotion_at TEXT
+    );
+    CREATE TABLE IF NOT EXISTS self_build_loop_state (
+      id TEXT PRIMARY KEY,
+      status TEXT NOT NULL,
+      mode TEXT,
+      project_id TEXT,
+      policy_json TEXT,
+      metadata_json TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      heartbeat_at TEXT,
+      started_at TEXT,
+      stopped_at TEXT
+    );
+    CREATE TABLE IF NOT EXISTS self_build_decisions (
+      id TEXT PRIMARY KEY,
+      loop_id TEXT,
+      mode TEXT,
+      state TEXT NOT NULL,
+      action TEXT NOT NULL,
+      target_type TEXT,
+      target_id TEXT,
+      rationale TEXT,
+      policy_json TEXT,
+      metadata_json TEXT,
+      created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS quarantine_records (
+      id TEXT PRIMARY KEY,
+      target_type TEXT NOT NULL,
+      target_id TEXT NOT NULL,
+      status TEXT NOT NULL,
+      reason TEXT NOT NULL,
+      source_type TEXT,
+      source_id TEXT,
+      metadata_json TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      released_at TEXT
+    );
+    CREATE TABLE IF NOT EXISTS rollback_records (
+      id TEXT PRIMARY KEY,
+      target_type TEXT NOT NULL,
+      target_id TEXT NOT NULL,
+      status TEXT NOT NULL,
+      reason TEXT NOT NULL,
+      metadata_json TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
     CREATE INDEX IF NOT EXISTS idx_workflow_executions_state ON workflow_executions(state);
     CREATE INDEX IF NOT EXISTS idx_workflow_steps_execution_id ON workflow_steps(execution_id);
     CREATE INDEX IF NOT EXISTS idx_workflow_reviews_execution_id ON workflow_reviews(execution_id);
@@ -357,6 +429,18 @@ export function openOrchestratorDatabase(dbPath) {
     CREATE INDEX IF NOT EXISTS idx_workspace_allocations_status
       ON workspace_allocations(status, updated_at DESC);
     CREATE INDEX IF NOT EXISTS idx_learning_records_source ON learning_records(source_type, source_id, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_integration_branches_status
+      ON integration_branches(status, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_self_build_loop_state_status
+      ON self_build_loop_state(status, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_self_build_decisions_created_at
+      ON self_build_decisions(created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_self_build_decisions_target
+      ON self_build_decisions(target_type, target_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_quarantine_records_target
+      ON quarantine_records(target_type, target_id, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_rollback_records_target
+      ON rollback_records(target_type, target_id, updated_at DESC);
   `);
   ensureColumn(
     db,
@@ -2432,4 +2516,501 @@ export function listLearningRecords(db, sourceType = null, limit = 50) {
     ? statement.all(sourceType, limit)
     : statement.all(limit);
   return rows.map((record) => mapLearningRecord(record));
+}
+
+export function insertIntegrationBranch(db, branch) {
+  db.prepare(`
+    INSERT INTO integration_branches (
+      name, project_id, status, target_branch, source_execution_id,
+      proposal_artifact_ids_json, workspace_ids_json, metadata_json,
+      created_at, updated_at, last_promotion_at
+    ) VALUES (
+      @name, @projectId, @status, @targetBranch, @sourceExecutionId,
+      @proposalArtifactIdsJson, @workspaceIdsJson, @metadataJson,
+      @createdAt, @updatedAt, @lastPromotionAt
+    )
+  `).run({
+    name: branch.name,
+    projectId: branch.projectId ?? null,
+    status: branch.status,
+    targetBranch: branch.targetBranch ?? null,
+    sourceExecutionId: branch.sourceExecutionId ?? null,
+    proposalArtifactIdsJson: JSON.stringify(branch.proposalArtifactIds ?? []),
+    workspaceIdsJson: JSON.stringify(branch.workspaceIds ?? []),
+    metadataJson: JSON.stringify(branch.metadata ?? {}),
+    createdAt: branch.createdAt,
+    updatedAt: branch.updatedAt,
+    lastPromotionAt: branch.lastPromotionAt ?? null,
+  });
+}
+
+export function updateIntegrationBranch(db, branch) {
+  db.prepare(`
+    UPDATE integration_branches SET
+      project_id = @projectId,
+      status = @status,
+      target_branch = @targetBranch,
+      source_execution_id = @sourceExecutionId,
+      proposal_artifact_ids_json = @proposalArtifactIdsJson,
+      workspace_ids_json = @workspaceIdsJson,
+      metadata_json = @metadataJson,
+      updated_at = @updatedAt,
+      last_promotion_at = @lastPromotionAt
+    WHERE name = @name
+  `).run({
+    name: branch.name,
+    projectId: branch.projectId ?? null,
+    status: branch.status,
+    targetBranch: branch.targetBranch ?? null,
+    sourceExecutionId: branch.sourceExecutionId ?? null,
+    proposalArtifactIdsJson: JSON.stringify(branch.proposalArtifactIds ?? []),
+    workspaceIdsJson: JSON.stringify(branch.workspaceIds ?? []),
+    metadataJson: JSON.stringify(branch.metadata ?? {}),
+    updatedAt: branch.updatedAt,
+    lastPromotionAt: branch.lastPromotionAt ?? null,
+  });
+}
+
+export function getIntegrationBranch(db, name) {
+  const record = db
+    .prepare(`
+    SELECT
+      name,
+      project_id AS projectId,
+      status,
+      target_branch AS targetBranch,
+      source_execution_id AS sourceExecutionId,
+      proposal_artifact_ids_json AS proposalArtifactIdsJson,
+      workspace_ids_json AS workspaceIdsJson,
+      metadata_json AS metadataJson,
+      created_at AS createdAt,
+      updated_at AS updatedAt,
+      last_promotion_at AS lastPromotionAt
+    FROM integration_branches
+    WHERE name = ?
+  `)
+    .get(name);
+  return mapIntegrationBranch(record);
+}
+
+export function listIntegrationBranches(db, status = null, limit = 50) {
+  const sql = `
+    SELECT
+      name,
+      project_id AS projectId,
+      status,
+      target_branch AS targetBranch,
+      source_execution_id AS sourceExecutionId,
+      proposal_artifact_ids_json AS proposalArtifactIdsJson,
+      workspace_ids_json AS workspaceIdsJson,
+      metadata_json AS metadataJson,
+      created_at AS createdAt,
+      updated_at AS updatedAt,
+      last_promotion_at AS lastPromotionAt
+    FROM integration_branches
+    ${status ? "WHERE status = ?" : ""}
+    ORDER BY updated_at DESC
+    LIMIT ?
+  `;
+  const statement = db.prepare(sql);
+  const rows = status ? statement.all(status, limit) : statement.all(limit);
+  return rows.map((record) => mapIntegrationBranch(record));
+}
+
+export function upsertIntegrationBranch(db, branch) {
+  const existing = getIntegrationBranch(db, branch.name);
+  if (existing) {
+    updateIntegrationBranch(db, { ...existing, ...branch });
+    return getIntegrationBranch(db, branch.name);
+  }
+  insertIntegrationBranch(db, branch);
+  return getIntegrationBranch(db, branch.name);
+}
+
+export function insertSelfBuildLoopState(db, loopState) {
+  db.prepare(`
+    INSERT INTO self_build_loop_state (
+      id, status, mode, project_id, policy_json, metadata_json,
+      created_at, updated_at, heartbeat_at, started_at, stopped_at
+    ) VALUES (
+      @id, @status, @mode, @projectId, @policyJson, @metadataJson,
+      @createdAt, @updatedAt, @heartbeatAt, @startedAt, @stoppedAt
+    )
+  `).run({
+    id: loopState.id,
+    status: loopState.status,
+    mode: loopState.mode ?? null,
+    projectId: loopState.projectId ?? null,
+    policyJson: JSON.stringify(loopState.policy ?? {}),
+    metadataJson: JSON.stringify(loopState.metadata ?? {}),
+    createdAt: loopState.createdAt,
+    updatedAt: loopState.updatedAt,
+    heartbeatAt: loopState.heartbeatAt ?? null,
+    startedAt: loopState.startedAt ?? null,
+    stoppedAt: loopState.stoppedAt ?? null,
+  });
+}
+
+export function updateSelfBuildLoopState(db, loopState) {
+  db.prepare(`
+    UPDATE self_build_loop_state SET
+      status = @status,
+      mode = @mode,
+      project_id = @projectId,
+      policy_json = @policyJson,
+      metadata_json = @metadataJson,
+      updated_at = @updatedAt,
+      heartbeat_at = @heartbeatAt,
+      started_at = @startedAt,
+      stopped_at = @stoppedAt
+    WHERE id = @id
+  `).run({
+    id: loopState.id,
+    status: loopState.status,
+    mode: loopState.mode ?? null,
+    projectId: loopState.projectId ?? null,
+    policyJson: JSON.stringify(loopState.policy ?? {}),
+    metadataJson: JSON.stringify(loopState.metadata ?? {}),
+    updatedAt: loopState.updatedAt,
+    heartbeatAt: loopState.heartbeatAt ?? null,
+    startedAt: loopState.startedAt ?? null,
+    stoppedAt: loopState.stoppedAt ?? null,
+  });
+}
+
+export function getSelfBuildLoopState(db, id = "default") {
+  const record = db
+    .prepare(`
+    SELECT
+      id,
+      status,
+      mode,
+      project_id AS projectId,
+      policy_json AS policyJson,
+      metadata_json AS metadataJson,
+      created_at AS createdAt,
+      updated_at AS updatedAt,
+      heartbeat_at AS heartbeatAt,
+      started_at AS startedAt,
+      stopped_at AS stoppedAt
+    FROM self_build_loop_state
+    WHERE id = ?
+  `)
+    .get(id);
+  return mapSelfBuildLoopState(record);
+}
+
+export function listSelfBuildLoopStates(db, status = null, limit = 10) {
+  const sql = `
+    SELECT
+      id,
+      status,
+      mode,
+      project_id AS projectId,
+      policy_json AS policyJson,
+      metadata_json AS metadataJson,
+      created_at AS createdAt,
+      updated_at AS updatedAt,
+      heartbeat_at AS heartbeatAt,
+      started_at AS startedAt,
+      stopped_at AS stoppedAt
+    FROM self_build_loop_state
+    ${status ? "WHERE status = ?" : ""}
+    ORDER BY updated_at DESC
+    LIMIT ?
+  `;
+  const statement = db.prepare(sql);
+  const rows = status ? statement.all(status, limit) : statement.all(limit);
+  return rows.map((record) => mapSelfBuildLoopState(record));
+}
+
+export function upsertSelfBuildLoopState(db, loopState) {
+  const existing = getSelfBuildLoopState(db, loopState.id);
+  if (existing) {
+    updateSelfBuildLoopState(db, { ...existing, ...loopState });
+    return getSelfBuildLoopState(db, loopState.id);
+  }
+  insertSelfBuildLoopState(db, loopState);
+  return getSelfBuildLoopState(db, loopState.id);
+}
+
+export function insertSelfBuildDecision(db, decision) {
+  db.prepare(`
+    INSERT INTO self_build_decisions (
+      id, loop_id, mode, state, action, target_type, target_id, rationale,
+      policy_json, metadata_json, created_at
+    ) VALUES (
+      @id, @loopId, @mode, @state, @action, @targetType, @targetId, @rationale,
+      @policyJson, @metadataJson, @createdAt
+    )
+  `).run({
+    id: decision.id,
+    loopId: decision.loopId ?? null,
+    mode: decision.mode ?? null,
+    state: decision.state,
+    action: decision.action,
+    targetType: decision.targetType ?? null,
+    targetId: decision.targetId ?? null,
+    rationale: decision.rationale ?? null,
+    policyJson: JSON.stringify(decision.policy ?? {}),
+    metadataJson: JSON.stringify(decision.metadata ?? {}),
+    createdAt: decision.createdAt,
+  });
+}
+
+export function listSelfBuildDecisions(
+  db,
+  options: SelfBuildDecisionListOptions = {},
+) {
+  const status = options.state ? String(options.state).trim() : null;
+  const targetType = options.targetType
+    ? String(options.targetType).trim()
+    : null;
+  const targetId = options.targetId ? String(options.targetId).trim() : null;
+  const limit = Number.parseInt(String(options.limit ?? "50"), 10) || 50;
+  const where = [];
+  const params = [];
+  if (status) {
+    where.push("state = ?");
+    params.push(status);
+  }
+  if (targetType) {
+    where.push("target_type = ?");
+    params.push(targetType);
+  }
+  if (targetId) {
+    where.push("target_id = ?");
+    params.push(targetId);
+  }
+  const sql = `
+    SELECT
+      id,
+      loop_id AS loopId,
+      mode,
+      state,
+      action,
+      target_type AS targetType,
+      target_id AS targetId,
+      rationale,
+      policy_json AS policyJson,
+      metadata_json AS metadataJson,
+      created_at AS createdAt
+    FROM self_build_decisions
+    ${where.length > 0 ? `WHERE ${where.join(" AND ")}` : ""}
+    ORDER BY created_at DESC
+    LIMIT ?
+  `;
+  return db
+    .prepare(sql)
+    .all(...params, limit)
+    .map((record) => mapSelfBuildDecision(record));
+}
+
+export function insertQuarantineRecord(db, record) {
+  db.prepare(`
+    INSERT INTO quarantine_records (
+      id, target_type, target_id, status, reason, source_type, source_id,
+      metadata_json, created_at, updated_at, released_at
+    ) VALUES (
+      @id, @targetType, @targetId, @status, @reason, @sourceType, @sourceId,
+      @metadataJson, @createdAt, @updatedAt, @releasedAt
+    )
+  `).run({
+    id: record.id,
+    targetType: record.targetType,
+    targetId: record.targetId,
+    status: record.status,
+    reason: record.reason,
+    sourceType: record.sourceType ?? null,
+    sourceId: record.sourceId ?? null,
+    metadataJson: JSON.stringify(record.metadata ?? {}),
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
+    releasedAt: record.releasedAt ?? null,
+  });
+}
+
+export function updateQuarantineRecord(db, record) {
+  db.prepare(`
+    UPDATE quarantine_records SET
+      target_type = @targetType,
+      target_id = @targetId,
+      status = @status,
+      reason = @reason,
+      source_type = @sourceType,
+      source_id = @sourceId,
+      metadata_json = @metadataJson,
+      updated_at = @updatedAt,
+      released_at = @releasedAt
+    WHERE id = @id
+  `).run({
+    id: record.id,
+    targetType: record.targetType,
+    targetId: record.targetId,
+    status: record.status,
+    reason: record.reason,
+    sourceType: record.sourceType ?? null,
+    sourceId: record.sourceId ?? null,
+    metadataJson: JSON.stringify(record.metadata ?? {}),
+    updatedAt: record.updatedAt,
+    releasedAt: record.releasedAt ?? null,
+  });
+}
+
+export function getQuarantineRecord(db, id) {
+  const record = db
+    .prepare(`
+    SELECT
+      id,
+      target_type AS targetType,
+      target_id AS targetId,
+      status,
+      reason,
+      source_type AS sourceType,
+      source_id AS sourceId,
+      metadata_json AS metadataJson,
+      created_at AS createdAt,
+      updated_at AS updatedAt,
+      released_at AS releasedAt
+    FROM quarantine_records
+    WHERE id = ?
+  `)
+    .get(id);
+  return mapQuarantineRecord(record);
+}
+
+export function findActiveQuarantineRecord(db, targetType, targetId) {
+  const record = db
+    .prepare(`
+    SELECT
+      id,
+      target_type AS targetType,
+      target_id AS targetId,
+      status,
+      reason,
+      source_type AS sourceType,
+      source_id AS sourceId,
+      metadata_json AS metadataJson,
+      created_at AS createdAt,
+      updated_at AS updatedAt,
+      released_at AS releasedAt
+    FROM quarantine_records
+    WHERE target_type = ? AND target_id = ? AND status = 'active'
+    ORDER BY updated_at DESC
+    LIMIT 1
+  `)
+    .get(targetType, targetId);
+  return mapQuarantineRecord(record);
+}
+
+export function listQuarantineRecords(
+  db,
+  options: QuarantineRecordListOptions = {},
+) {
+  const status = options.status ? String(options.status).trim() : null;
+  const targetType = options.targetType
+    ? String(options.targetType).trim()
+    : null;
+  const limit = Number.parseInt(String(options.limit ?? "50"), 10) || 50;
+  const where = [];
+  const params = [];
+  if (status) {
+    where.push("status = ?");
+    params.push(status);
+  }
+  if (targetType) {
+    where.push("target_type = ?");
+    params.push(targetType);
+  }
+  const sql = `
+    SELECT
+      id,
+      target_type AS targetType,
+      target_id AS targetId,
+      status,
+      reason,
+      source_type AS sourceType,
+      source_id AS sourceId,
+      metadata_json AS metadataJson,
+      created_at AS createdAt,
+      updated_at AS updatedAt,
+      released_at AS releasedAt
+    FROM quarantine_records
+    ${where.length > 0 ? `WHERE ${where.join(" AND ")}` : ""}
+    ORDER BY updated_at DESC
+    LIMIT ?
+  `;
+  return db
+    .prepare(sql)
+    .all(...params, limit)
+    .map((record) => mapQuarantineRecord(record));
+}
+
+export function upsertQuarantineRecord(db, record) {
+  const existing = record.id ? getQuarantineRecord(db, record.id) : null;
+  if (existing) {
+    updateQuarantineRecord(db, { ...existing, ...record });
+    return getQuarantineRecord(db, record.id);
+  }
+  insertQuarantineRecord(db, record);
+  return getQuarantineRecord(db, record.id);
+}
+
+export function insertRollbackRecord(db, record) {
+  db.prepare(`
+    INSERT INTO rollback_records (
+      id, target_type, target_id, status, reason, metadata_json, created_at, updated_at
+    ) VALUES (
+      @id, @targetType, @targetId, @status, @reason, @metadataJson, @createdAt, @updatedAt
+    )
+  `).run({
+    id: record.id,
+    targetType: record.targetType,
+    targetId: record.targetId,
+    status: record.status,
+    reason: record.reason,
+    metadataJson: JSON.stringify(record.metadata ?? {}),
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
+  });
+}
+
+export function listRollbackRecords(
+  db,
+  options: RollbackRecordListOptions = {},
+) {
+  const status = options.status ? String(options.status).trim() : null;
+  const targetType = options.targetType
+    ? String(options.targetType).trim()
+    : null;
+  const limit = Number.parseInt(String(options.limit ?? "50"), 10) || 50;
+  const where = [];
+  const params = [];
+  if (status) {
+    where.push("status = ?");
+    params.push(status);
+  }
+  if (targetType) {
+    where.push("target_type = ?");
+    params.push(targetType);
+  }
+  const sql = `
+    SELECT
+      id,
+      target_type AS targetType,
+      target_id AS targetId,
+      status,
+      reason,
+      metadata_json AS metadataJson,
+      created_at AS createdAt,
+      updated_at AS updatedAt
+    FROM rollback_records
+    ${where.length > 0 ? `WHERE ${where.join(" AND ")}` : ""}
+    ORDER BY updated_at DESC
+    LIMIT ?
+  `;
+  return db
+    .prepare(sql)
+    .all(...params, limit)
+    .map((record) => mapRollbackRecord(record));
 }

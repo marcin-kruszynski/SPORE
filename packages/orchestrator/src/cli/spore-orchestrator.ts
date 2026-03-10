@@ -61,12 +61,16 @@ import {
   cleanupManagedWorkspace,
   createGoalPlan,
   createManagedWorkItem,
+  editGoalPlan,
   getDocSuggestionsForRun,
+  getGoalPlanHistory,
   getGoalPlanSummary,
+  getIntegrationBranchSummary,
   getProposalByRun,
   getProposalReviewPackage,
   getProposalSummary,
   getSelfBuildDashboard,
+  getSelfBuildLoopStatus,
   getSelfBuildSummary,
   getSelfBuildWorkItem,
   getSelfBuildWorkItemRun,
@@ -77,6 +81,10 @@ import {
   invokeProposalPromotion,
   listExecutionWorkspaces,
   listGoalPlansSummary,
+  listIntegrationBranchSummaries,
+  listSelfBuildDecisionSummaries,
+  listSelfBuildQuarantineSummaries,
+  listSelfBuildRollbackSummaries,
   listSelfBuildWorkItemRuns,
   listSelfBuildWorkItems,
   listWorkItemGroupsSummary,
@@ -84,14 +92,25 @@ import {
   listWorkspaceSummaries,
   materializeGoalPlan,
   planProposalPromotion,
+  quarantineSelfBuildTarget,
   reconcileManagedWorkspace,
+  releaseSelfBuildQuarantine,
+  requeueWorkItemGroupItem,
+  rerouteWorkItemGroup,
   rerunSelfBuildWorkItemRun,
+  retryDownstreamWorkItemGroup,
   reviewGoalPlan,
   reviewProposalArtifact,
+  rollbackIntegrationBranch,
   runGoalPlan,
   runSelfBuildWorkItem,
   runWorkItemGroup,
   setWorkItemGroupDependencies,
+  skipWorkItemGroupItem,
+  startSelfBuildLoop,
+  stopSelfBuildLoop,
+  unblockWorkItemGroup,
+  validateWorkItemGroupBundle,
   validateWorkItemRun,
 } from "../self-build/self-build.js";
 
@@ -784,6 +803,39 @@ async function main() {
     return;
   }
 
+  if (command === "self-build-decisions") {
+    const detail = listSelfBuildDecisionSummaries({
+      state: flags.state ?? null,
+      action: flags.action ?? null,
+      targetType: flags["target-type"] ?? null,
+      targetId: flags["target-id"] ?? null,
+      limit: flags.limit ?? "50",
+    });
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
+  if (command === "self-build-quarantine") {
+    const detail = listSelfBuildQuarantineSummaries({
+      status: flags.status ?? null,
+      targetType: flags["target-type"] ?? null,
+      targetId: flags["target-id"] ?? null,
+      limit: flags.limit ?? "50",
+    });
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
+  if (command === "self-build-rollback") {
+    const detail = listSelfBuildRollbackSummaries({
+      targetType: flags["target-type"] ?? null,
+      targetId: flags["target-id"] ?? null,
+      limit: flags.limit ?? "50",
+    });
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
   if (command === "work-item-template-list") {
     const detail = await listWorkItemTemplates();
     console.log(JSON.stringify({ ok: true, detail }, null, 2));
@@ -844,6 +896,39 @@ async function main() {
     return;
   }
 
+  if (command === "goal-plan-history") {
+    if (!flags.plan) {
+      throw new Error("use goal-plan-history --plan <id>");
+    }
+    const detail = getGoalPlanHistory(flags.plan);
+    if (!detail) {
+      throw new Error(`goal plan not found: ${flags.plan}`);
+    }
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
+  if (command === "goal-plan-edit") {
+    if (!flags.plan) {
+      throw new Error(
+        "use goal-plan-edit --plan <id> --recommendations-json '[...]'",
+      );
+    }
+    const detail = await editGoalPlan(flags.plan, {
+      recommendations: flags["recommendations-json"]
+        ? JSON.parse(String(flags["recommendations-json"]))
+        : undefined,
+      rationale: flags.rationale ?? flags.comments ?? "",
+      by: flags.by ?? "operator",
+      source: flags.source ?? "cli",
+    });
+    if (!detail) {
+      throw new Error(`goal plan not found: ${flags.plan}`);
+    }
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
   if (command === "goal-plan-review") {
     if (!flags.plan || !flags.status) {
       throw new Error(
@@ -859,6 +944,23 @@ async function main() {
     if (!detail) {
       throw new Error(`goal plan not found: ${flags.plan}`);
     }
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
+  if (command === "goal-plan-quarantine") {
+    if (!flags.plan) {
+      throw new Error("use goal-plan-quarantine --plan <id>");
+    }
+    const detail = await quarantineSelfBuildTarget("goal-plan", flags.plan, {
+      reason: flags.reason ?? flags.comments ?? "",
+      rationale: flags.rationale ?? flags.comments ?? "",
+      by: flags.by ?? "operator",
+      sourceType: flags.source ?? "cli",
+      metadata: {
+        nextStatus: flags["next-status"] ?? null,
+      },
+    });
     console.log(JSON.stringify({ ok: true, detail }, null, 2));
     return;
   }
@@ -956,6 +1058,144 @@ async function main() {
       launcher: flags.launcher ?? null,
       by: flags.by ?? "operator",
       source: flags.source ?? "cli",
+    });
+    if (!detail) {
+      throw new Error(`work item group not found: ${flags.group}`);
+    }
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
+  if (command === "work-item-group-unblock") {
+    if (!flags.group) {
+      throw new Error("use work-item-group-unblock --group <id> [--items a,b]");
+    }
+    const detail = unblockWorkItemGroup(flags.group, {
+      itemIds: flags.items ? parseCsv(flags.items) : [],
+      rationale: flags.rationale ?? flags.comments ?? "",
+      by: flags.by ?? "operator",
+      source: flags.source ?? "cli",
+    });
+    if (!detail) {
+      throw new Error(`work item group not found: ${flags.group}`);
+    }
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
+  if (command === "work-item-group-quarantine") {
+    if (!flags.group) {
+      throw new Error("use work-item-group-quarantine --group <id>");
+    }
+    const detail = await quarantineSelfBuildTarget(
+      "work-item-group",
+      flags.group,
+      {
+        reason: flags.reason ?? flags.comments ?? "",
+        rationale: flags.rationale ?? flags.comments ?? "",
+        by: flags.by ?? "operator",
+        sourceType: flags.source ?? "cli",
+      },
+    );
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
+  if (command === "work-item-group-reroute") {
+    if (!flags.group || !flags.item) {
+      throw new Error(
+        "use work-item-group-reroute --group <id> --item <id> [--title <text>]",
+      );
+    }
+    const detail = await rerouteWorkItemGroup(flags.group, {
+      itemId: flags.item,
+      title: flags.title ?? null,
+      goal: flags.goal ?? null,
+      rationale: flags.rationale ?? flags.comments ?? "",
+      by: flags.by ?? "operator",
+      source: flags.source ?? "cli",
+    });
+    if (!detail) {
+      throw new Error(
+        `work item group or item not found: ${flags.group}/${flags.item}`,
+      );
+    }
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
+  if (command === "work-item-group-retry-downstream") {
+    if (!flags.group) {
+      throw new Error(
+        "use work-item-group-retry-downstream --group <id> [--items a,b]",
+      );
+    }
+    const detail = await retryDownstreamWorkItemGroup(flags.group, {
+      itemIds: flags.items ? parseCsv(flags.items) : [],
+      rationale: flags.rationale ?? flags.comments ?? "",
+      by: flags.by ?? "operator",
+      source: flags.source ?? "cli",
+    });
+    if (!detail) {
+      throw new Error(`work item group not found: ${flags.group}`);
+    }
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
+  if (command === "work-item-group-requeue-item") {
+    if (!flags.group || !flags.item) {
+      throw new Error(
+        "use work-item-group-requeue-item --group <id> --item <id>",
+      );
+    }
+    const detail = requeueWorkItemGroupItem(flags.group, flags.item, {
+      rationale: flags.rationale ?? flags.comments ?? "",
+      by: flags.by ?? "operator",
+      source: flags.source ?? "cli",
+    });
+    if (!detail) {
+      throw new Error(
+        `work item group or item not found: ${flags.group}/${flags.item}`,
+      );
+    }
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
+  if (command === "work-item-group-skip-item") {
+    if (!flags.group || !flags.item) {
+      throw new Error("use work-item-group-skip-item --group <id> --item <id>");
+    }
+    const detail = skipWorkItemGroupItem(flags.group, flags.item, {
+      rationale: flags.rationale ?? flags.comments ?? "",
+      by: flags.by ?? "operator",
+      source: flags.source ?? "cli",
+    });
+    if (!detail) {
+      throw new Error(
+        `work item group or item not found: ${flags.group}/${flags.item}`,
+      );
+    }
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
+  if (command === "work-item-group-validate-bundle") {
+    if (!flags.group) {
+      throw new Error(
+        "use work-item-group-validate-bundle --group <id> [--bundles a,b]",
+      );
+    }
+    const detail = await validateWorkItemGroupBundle(flags.group, {
+      bundleIds: flags.bundles ? parseCsv(flags.bundles) : [],
+      by: flags.by ?? "operator",
+      source: flags.source ?? "cli",
+      stub: flags.stub !== false,
+      launcher: flags.launcher ?? null,
+      timeout: flags.timeout ?? "180000",
+      interval: flags.interval ?? "1500",
+      noMonitor: flags["no-monitor"] === true,
     });
     if (!detail) {
       throw new Error(`work item group not found: ${flags.group}`);
@@ -1203,6 +1443,29 @@ async function main() {
     return;
   }
 
+  if (command === "work-item-validate-bundle") {
+    if (!flags.run) {
+      throw new Error(
+        "use work-item-validate-bundle --run <id> [--bundles a,b]",
+      );
+    }
+    const detail = await validateWorkItemRun(flags.run, {
+      bundleIds: flags.bundles ? parseCsv(flags.bundles) : [],
+      timeout: flags.timeout ?? "180000",
+      interval: flags.interval ?? "1500",
+      noMonitor: flags["no-monitor"] === true,
+      stub: flags.stub !== false,
+      launcher: flags.launcher ?? null,
+      by: flags.by ?? "operator",
+      source: flags.source ?? "cli",
+    });
+    if (!detail) {
+      throw new Error(`work item run not found: ${flags.run}`);
+    }
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
   if (command === "work-item-doc-suggestions") {
     if (!flags.run) {
       throw new Error("use work-item-doc-suggestions --run <id>");
@@ -1243,6 +1506,20 @@ async function main() {
     return;
   }
 
+  if (command === "proposal-quarantine") {
+    if (!flags.proposal) {
+      throw new Error("use proposal-quarantine --proposal <id>");
+    }
+    const detail = await quarantineSelfBuildTarget("proposal", flags.proposal, {
+      reason: flags.reason ?? flags.comments ?? "",
+      rationale: flags.rationale ?? flags.comments ?? "",
+      by: flags.by ?? "operator",
+      sourceType: flags.source ?? "cli",
+    });
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
   if (command === "workspace-list") {
     console.log(
       JSON.stringify(
@@ -1273,6 +1550,108 @@ async function main() {
       throw new Error(`workspace not found: ${flags.workspace ?? flags.run}`);
     }
     console.log(JSON.stringify(detail, null, 2));
+    return;
+  }
+
+  if (command === "integration-branch-list") {
+    const detail = listIntegrationBranchSummaries({
+      status: flags.status ?? null,
+      limit: flags.limit ?? "50",
+    });
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
+  if (command === "integration-branch-show") {
+    if (!flags.name) {
+      throw new Error("use integration-branch-show --name <branch>");
+    }
+    const detail = getIntegrationBranchSummary(flags.name);
+    if (!detail) {
+      throw new Error(`integration branch not found: ${flags.name}`);
+    }
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
+  if (command === "integration-branch-quarantine") {
+    if (!flags.name) {
+      throw new Error("use integration-branch-quarantine --name <branch>");
+    }
+    const detail = await quarantineSelfBuildTarget(
+      "integration-branch",
+      flags.name,
+      {
+        reason: flags.reason ?? flags.comments ?? "",
+        rationale: flags.rationale ?? flags.comments ?? "",
+        by: flags.by ?? "operator",
+        sourceType: flags.source ?? "cli",
+      },
+    );
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
+  if (command === "integration-branch-rollback") {
+    if (!flags.name) {
+      throw new Error("use integration-branch-rollback --name <branch>");
+    }
+    const detail = await rollbackIntegrationBranch(flags.name, {
+      reason: flags.reason ?? flags.comments ?? "",
+      by: flags.by ?? "operator",
+      source: flags.source ?? "cli",
+    });
+    if (!detail) {
+      throw new Error(`integration branch not found: ${flags.name}`);
+    }
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
+  if (command === "self-build-loop-status") {
+    const detail = getSelfBuildLoopStatus();
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
+  if (command === "self-build-loop-start") {
+    const detail = await startSelfBuildLoop({
+      by: flags.by ?? "operator",
+      source: flags.source ?? "cli",
+      project: flags.project ?? null,
+      stub: flags.stub !== false,
+      launcher: flags.launcher ?? null,
+      timeout: flags.timeout ?? "180000",
+      interval: flags.interval ?? "1500",
+      noMonitor: flags["no-monitor"] === true,
+    });
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
+  if (command === "self-build-loop-stop") {
+    const detail = await stopSelfBuildLoop({
+      by: flags.by ?? "operator",
+      source: flags.source ?? "cli",
+      reason: flags.reason ?? flags.comments ?? "",
+    });
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
+  if (command === "self-build-quarantine-release") {
+    if (!flags.quarantine) {
+      throw new Error("use self-build-quarantine-release --quarantine <id>");
+    }
+    const detail = await releaseSelfBuildQuarantine(flags.quarantine, {
+      by: flags.by ?? "operator",
+      reason: flags.reason ?? flags.comments ?? "",
+      nextStatus: flags["next-status"] ?? null,
+    });
+    if (!detail) {
+      throw new Error(`quarantine not found: ${flags.quarantine}`);
+    }
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
     return;
   }
 
@@ -1580,7 +1959,7 @@ async function main() {
   }
 
   throw new Error(
-    `unknown command: ${command}. commands: plan | invoke | project-plan | project-invoke | promotion-plan | promotion-invoke | list | show | children | tree | groups | group | events | escalations | audit | history | policy-diff | execution-workspaces | run-center | scenario-* | regression-* | self-build-* | work-item-* | goal-plan-* | proposal-* | workspace-* | drive | drive-tree | drive-group | fork | spawn-branches | pause | pause-tree | hold | hold-tree | resume | resume-tree | review | review-tree | approve | approve-tree | resolve-escalation`,
+    `unknown command: ${command}. commands: plan | invoke | project-plan | project-invoke | promotion-plan | promotion-invoke | list | show | children | tree | groups | group | events | escalations | audit | history | policy-diff | execution-workspaces | run-center | scenario-* | regression-* | self-build-* | self-build-loop-* | self-build-decisions | self-build-quarantine | self-build-rollback | self-build-quarantine-release | work-item-* | work-item-group-* | goal-plan-* | proposal-* | integration-branch-* | workspace-* | drive | drive-tree | drive-group | fork | spawn-branches | pause | pause-tree | hold | hold-tree | resume | resume-tree | review | review-tree | approve | approve-tree | resolve-escalation`,
   );
 }
 

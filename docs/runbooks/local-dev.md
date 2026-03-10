@@ -172,6 +172,10 @@ curl -X POST http://127.0.0.1:8789/goals/plan \
   -H 'content-type: application/json' \
   -d '{"goal":"Stabilize CLI verification and proposal quality","projectId":"spore","mode":"supervised","safeMode":true}'
 curl http://127.0.0.1:8789/goal-plans
+curl http://127.0.0.1:8789/goal-plans/<plan-id>/history
+curl -X POST http://127.0.0.1:8789/goal-plans/<plan-id>/edit \
+  -H 'content-type: application/json' \
+  -d '{"editedRecommendations":[{"title":"Operator-adjusted item","kind":"scenario","priority":1}],"reviewRationale":"Trim lower-value follow-up work before materialization."}'
 curl -X POST http://127.0.0.1:8789/goal-plans/<plan-id>/materialize \
   -H 'content-type: application/json' \
   -d '{"by":"operator","source":"runbook"}'
@@ -179,9 +183,36 @@ curl http://127.0.0.1:8789/work-item-groups
 curl -X POST http://127.0.0.1:8789/work-item-groups/<group-id>/run \
   -H 'content-type: application/json' \
   -d '{"stub":true,"wait":true}'
+curl -X POST http://127.0.0.1:8789/work-item-groups/<group-id>/retry-downstream \
+  -H 'content-type: application/json' \
+  -d '{"by":"operator","reason":"Retry blocked downstream items after an upstream fix."}'
+curl -X POST http://127.0.0.1:8789/work-item-groups/<group-id>/validate-bundle \
+  -H 'content-type: application/json' \
+  -d '{"bundleId":"proposal-ready-fast","stub":true,"source":"runbook"}'
 curl http://127.0.0.1:8789/workspaces
 curl http://127.0.0.1:8789/work-item-runs/<run-id>/workspace
 curl http://127.0.0.1:8789/executions/<execution-id>/workspaces
+curl -X POST http://127.0.0.1:8789/work-item-runs/<run-id>/validate-bundle \
+  -H 'content-type: application/json' \
+  -d '{"bundleId":"proposal-ready-fast","stub":true,"source":"runbook"}'
+curl http://127.0.0.1:8789/proposal-artifacts/<proposal-id>/review-package
+curl http://127.0.0.1:8789/integration-branches
+curl http://127.0.0.1:8789/self-build/decisions
+curl http://127.0.0.1:8789/self-build/quarantine
+curl http://127.0.0.1:8789/self-build/rollback
+curl http://127.0.0.1:8789/self-build/loop/status
+curl -X POST http://127.0.0.1:8789/self-build/loop/start \
+  -H 'content-type: application/json' \
+  -d '{"mode":"supervised","by":"operator"}'
+curl -X POST http://127.0.0.1:8789/self-build/loop/stop \
+  -H 'content-type: application/json' \
+  -d '{"by":"operator","reason":"Stop after one controlled iteration."}'
+curl -X POST http://127.0.0.1:8789/goal-plans/<plan-id>/quarantine \
+  -H 'content-type: application/json' \
+  -d '{"by":"operator","reason":"Quarantine one unsafe plan."}'
+curl -X POST http://127.0.0.1:8789/integration-branches/<branch-name>/rollback \
+  -H 'content-type: application/json' \
+  -d '{"by":"operator","reason":"Rollback failed autonomous integration attempt."}'
 
 curl -X POST http://127.0.0.1:8789/workflows/invoke \
   -H 'content-type: application/json' \

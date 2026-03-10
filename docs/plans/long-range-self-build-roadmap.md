@@ -14,6 +14,7 @@ Use this file as the main planning surface for ongoing implementation work after
 ## How to Use This Roadmap
 
 - Treat this file as the active long-range plan.
+- Use `docs/plans/full-self-build-implementation-plan.md` as the execution-facing implementation sequence for the next self-build buildout.
 - Mark completed items by changing `[ ]` to `[x]`.
 - Do not silently remove scope; if a step becomes obsolete, mark it as `[x]` with a short note or replace it with a better-scoped successor.
 - When a step lands, update both this roadmap and the relevant architecture/runbook docs in the same implementation wave.
@@ -234,8 +235,8 @@ The biggest remaining gaps before SPORE can safely and usefully work on itself a
 
 ### 12. Goal Plan Review and Materialization Flow
 - [x] Add a stronger review stage for goal plans before materialization.
-- [ ] Allow operators to edit, reorder, or drop recommended work items before materializing them.
-- [ ] Persist plan edits and rationale.
+- [x] Allow operators to edit, reorder, or drop recommended work items before materializing them.
+- [x] Persist plan edits and rationale.
 - [x] Record who approved plan materialization.
 - [x] Ensure goal plan lineage into work-item groups remains durable and queryable.
 
@@ -257,6 +258,7 @@ The biggest remaining gaps before SPORE can safely and usefully work on itself a
 - [x] Integrate dependency-aware group execution deeply into self-build rather than leaving it as a side slice.
 - [x] Support hard and advisory dependencies consistently in self-build queues and dashboards.
 - [x] Show blocked reasons clearly and persist recovery actions.
+- [x] Add explicit operator recovery controls for blocked groups and blocked downstream work.
 - [ ] Add operator controls for unblocking or rerouting downstream items after failures.
 - [x] Ensure validation and proposal generation respect dependency state.
 

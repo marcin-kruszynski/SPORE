@@ -8098,7 +8098,10 @@ function renderSelfBuildDashboard() {
     "follow-up",
   );
   renderSelfBuildRecentRuns(summary.recentWorkItemRuns || []);
-  renderSelfBuildWorkspaceHealth(summary.workspaces || []);
+  renderSelfBuildWorkspaceHealth(
+    summary.workspaces || [],
+    summary.integrationBranches || [],
+  );
 
   if (els.selfBuildFreshness && summary.freshness) {
     const lastRefresh =
@@ -8108,7 +8111,10 @@ function renderSelfBuildDashboard() {
   if (els.selfBuildDashboardState) {
     const attentionCount = summary.attentionSummary?.total ?? 0;
     const queueTotal = summary.queueSummary?.total ?? 0;
-    els.selfBuildDashboardState.textContent = `route: ready · attention:${attentionCount} queue:${queueTotal}`;
+    const loopState = summary.loopStatus?.state || "idle";
+    const loopDecision = summary.loopStatus?.lastDecision?.decision || "none";
+    const quarantineCount = summary.counts?.activeQuarantines ?? 0;
+    els.selfBuildDashboardState.textContent = `route: ready · attention:${attentionCount} queue:${queueTotal} quarantines:${quarantineCount} · loop:${loopState} · last:${loopDecision}`;
   }
 }
 
@@ -8170,13 +8176,47 @@ function renderSelfBuildOverview(summary) {
     },
     {
       label: "Needs Validation",
-      value: counts.pendingValidationRuns || 0,
-      highlight: (counts.pendingValidationRuns || 0) > 0,
+      value:
+        counts.validationsPendingExecution || counts.pendingValidationRuns || 0,
+      highlight:
+        (counts.validationsPendingExecution ||
+          counts.pendingValidationRuns ||
+          0) > 0,
+    },
+    {
+      label: "Promotion Blocked",
+      value: counts.proposalsBlockedForPromotion || 0,
+      highlight: (counts.proposalsBlockedForPromotion || 0) > 0,
+    },
+    {
+      label: "Validation Required",
+      value: counts.validationRequiredProposals || 0,
+      highlight: (counts.validationRequiredProposals || 0) > 0,
     },
     {
       label: "Workspace Problems",
       value: counts.orphanedWorkspaces || 0,
       highlight: (counts.orphanedWorkspaces || 0) > 0,
+    },
+    {
+      label: "Integration Branches",
+      value: counts.integrationBranches || 0,
+      highlight: (counts.integrationBranches || 0) > 0,
+    },
+    {
+      label: "Active Quarantines",
+      value: counts.activeQuarantines || 0,
+      highlight: (counts.activeQuarantines || 0) > 0,
+    },
+    {
+      label: "Autonomy Blocked",
+      value: counts.autonomousBlockedDecisions || 0,
+      highlight: (counts.autonomousBlockedDecisions || 0) > 0,
+    },
+    {
+      label: "Recent Rollbacks",
+      value: counts.recentRollbacks || 0,
+      highlight: (counts.recentRollbacks || 0) > 0,
     },
     { label: "Advisory Warnings", value: groupStates.advisoryWarnings || 0 },
   ];
@@ -8196,17 +8236,23 @@ function renderSelfBuildOverview(summary) {
 function renderSelfBuildAttentionSummary(summary: AnyRecord) {
   if (!els.selfBuildAttentionSummary) return;
   const attention = summary.attentionSummary || {};
+  const loopStatus = summary.loopStatus || {};
   const byState = attention.byState || {};
   const entries = Object.entries(byState) as Array<[string, number]>;
   if (els.selfBuildAttentionCount) {
     els.selfBuildAttentionCount.textContent = `${attention.total || 0} ${attention.total === 1 ? "item" : "items"}`;
   }
   if (entries.length === 0) {
-    els.selfBuildAttentionSummary.innerHTML =
-      '<div class="overview-card"><span class="label">Attention</span><span class="value">0</span></div>';
+    els.selfBuildAttentionSummary.innerHTML = `
+      <div class="overview-card"><span class="label">Attention</span><span class="value">0</span></div>
+      <div class="overview-card ${loopStatus.state === "running" ? "highlight" : ""}">
+        <span class="label">Loop</span>
+        <span class="value">${escapeHtml(String(loopStatus.state || "idle"))}</span>
+      </div>
+    `;
     return;
   }
-  els.selfBuildAttentionSummary.innerHTML = entries
+  const cards = entries
     .sort((left, right) => left[0].localeCompare(right[0]))
     .map(
       ([key, value]) => `
@@ -8215,12 +8261,64 @@ function renderSelfBuildAttentionSummary(summary: AnyRecord) {
         <span class="value">${escapeHtml(String(value))}</span>
       </div>
     `,
-    )
-    .join("");
+    );
+  cards.push(`
+      <div class="overview-card ${loopStatus.state === "running" ? "highlight" : ""}">
+        <span class="label">Loop</span>
+        <span class="value">${escapeHtml(String(loopStatus.state || "idle"))}</span>
+      </div>
+    `);
+  cards.push(`
+      <div class="overview-card ${(summary.counts?.activeQuarantines || 0) > 0 ? "highlight" : ""}">
+        <span class="label">Quarantines</span>
+        <span class="value">${escapeHtml(String(summary.counts?.activeQuarantines || 0))}</span>
+      </div>
+    `);
+  cards.push(`
+      <div class="overview-card ${(summary.counts?.autonomousBlockedDecisions || 0) > 0 ? "highlight" : ""}">
+        <span class="label">Autonomy Blocked</span>
+        <span class="value">${escapeHtml(String(summary.counts?.autonomousBlockedDecisions || 0))}</span>
+      </div>
+    `);
+  cards.push(`
+    <div class="detail-card compact-empty">
+      ${renderSelfBuildOperatorForm({
+        endpoint: "/api/orchestrator/self-build/loop/start",
+        label: "Start Self-Build Loop",
+        help: "Run one autonomous self-build iteration under current policy.",
+        fields: [
+          {
+            type: "checkbox",
+            name: "stub",
+            label: "Use stub runtime",
+            checked: true,
+          },
+        ],
+      })}
+      ${renderSelfBuildOperatorForm({
+        endpoint: "/api/orchestrator/self-build/loop/stop",
+        label: "Stop Self-Build Loop",
+        help: "Persist a stop decision for the autonomous loop.",
+        fields: [
+          {
+            type: "text",
+            name: "reason",
+            label: "Reason",
+            placeholder: "Optional stop rationale",
+          },
+        ],
+      })}
+    </div>
+  `);
+  els.selfBuildAttentionSummary.innerHTML = cards.join("");
 }
 
 function resolveSelfBuildEntryType(item: AnyRecord = {}) {
   if (item.itemType) return item.itemType;
+  if (item.targetType) return item.targetType;
+  if (item.branchName || item.name?.startsWith?.("spore/integration/"))
+    return "integration-branch";
+  if (item.goalPlanId) return "goal-plan";
   if (item.workspaceId) return "workspace";
   if (item.runId) return "work-item-run";
   if (item.proposalId) return "proposal";
@@ -8230,7 +8328,10 @@ function resolveSelfBuildEntryType(item: AnyRecord = {}) {
 
 function resolveSelfBuildEntryId(item: AnyRecord = {}) {
   return (
+    item.name ||
     item.id ||
+    item.targetId ||
+    item.goalPlanId ||
     item.itemId ||
     item.workItemId ||
     item.groupId ||
@@ -8452,19 +8553,22 @@ function renderSelfBuildRecentRuns(runs = []) {
     .join("");
 }
 
-function renderSelfBuildWorkspaceHealth(workspaces = []) {
+function renderSelfBuildWorkspaceHealth(
+  workspaces = [],
+  integrationBranches = [],
+) {
   if (!els.selfBuildWorkspaceHealth) return;
   if (els.selfBuildWorkspaceCount) {
-    els.selfBuildWorkspaceCount.textContent = `${workspaces.length} ${workspaces.length === 1 ? "workspace" : "workspaces"}`;
+    const total = workspaces.length + integrationBranches.length;
+    els.selfBuildWorkspaceCount.textContent = `${total} ${total === 1 ? "resource" : "resources"}`;
   }
-  if (workspaces.length === 0) {
+  if (workspaces.length === 0 && integrationBranches.length === 0) {
     els.selfBuildWorkspaceHealth.innerHTML =
       '<div class="empty-work-queue quiet">No workspace allocations in the current dashboard scope.</div>';
     return;
   }
-  els.selfBuildWorkspaceHealth.innerHTML = workspaces
-    .slice(0, 12)
-    .map(
+  els.selfBuildWorkspaceHealth.innerHTML = [
+    ...workspaces.slice(0, 12).map(
       (workspace) => `
       <div class="work-item-row" data-open-type="workspace" data-open-id="${escapeHtml(workspace.id)}">
         <div class="work-item-status ${stateClass(workspace.status)}"></div>
@@ -8477,8 +8581,22 @@ function renderSelfBuildWorkspaceHealth(workspaces = []) {
         <span class="work-item-arrow">→</span>
       </div>
     `,
-    )
-    .join("");
+    ),
+    ...integrationBranches.slice(0, 8).map(
+      (branch) => `
+      <div class="work-item-row" data-open-type="integration-branch" data-open-id="${escapeHtml(branch.name)}">
+        <div class="work-item-status ${stateClass(branch.status)}"></div>
+        <div class="work-item-info">
+          <div class="work-item-title">${escapeHtml(branch.name)}</div>
+          <div class="work-item-meta">${escapeHtml([branch.status || "unknown", branch.targetBranch ? `target:${branch.targetBranch}` : "", branch.proposalId ? `proposal:${branch.proposalId}` : ""].filter(Boolean).join(" • "))}</div>
+          <div class="work-item-reason">${escapeHtml(branch.reason || "Integration branch state for self-build promotion.")}</div>
+        </div>
+        <span class="work-item-badge ${["blocked", "quarantined", "integration_failed"].includes(branch.status) ? "urgent" : "follow-up"}">${escapeHtml(branch.status || "unknown")}</span>
+        <span class="work-item-arrow">→</span>
+      </div>
+    `,
+    ),
+  ].join("");
 }
 
 function renderDependencyEdges(edges = []) {
@@ -8739,10 +8857,18 @@ function renderSelfBuildOperatorForm(config: AnyRecord = {}) {
               </label>
             `;
           }
+          if (field.type === "textarea") {
+            return `
+              <label class="textarea-row">
+                <span class="detail-label">${escapeHtml(field.label)}</span>
+                <textarea name="${escapeHtml(field.name)}" ${field.json ? 'data-json="true"' : ""} placeholder="${escapeHtml(String(field.placeholder ?? ""))}">${escapeHtml(String(field.value ?? ""))}</textarea>
+              </label>
+            `;
+          }
           return `
             <label>
               <span class="detail-label">${escapeHtml(field.label)}</span>
-              <input type="${escapeHtml(field.type || "text")}" name="${escapeHtml(field.name)}" value="${escapeHtml(String(field.value ?? ""))}" placeholder="${escapeHtml(String(field.placeholder ?? ""))}">
+              <input type="${escapeHtml(field.type || "text")}" name="${escapeHtml(field.name)}" ${field.json ? 'data-json="true"' : ""} value="${escapeHtml(String(field.value ?? ""))}" placeholder="${escapeHtml(String(field.placeholder ?? ""))}">
             </label>
           `;
         })
@@ -8772,6 +8898,14 @@ function parseOperatorForm(form: HTMLFormElement) {
     const text = String(value);
     body[key] = text;
   }
+  form
+    .querySelectorAll<
+      HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
+    >("[data-json='true']")
+    .forEach((input) => {
+      const raw = String(body[input.name] ?? "").trim();
+      body[input.name] = raw ? JSON.parse(raw) : [];
+    });
   form
     .querySelectorAll<HTMLInputElement>('input[type="checkbox"]')
     .forEach((checkbox) => {
@@ -8809,6 +8943,8 @@ async function openSelfBuildDetail(itemType, itemId) {
       endpoint = `/api/orchestrator/work-item-runs/${encodeURIComponent(itemId)}`;
     } else if (itemType === "workspace") {
       endpoint = `/api/orchestrator/workspaces/${encodeURIComponent(itemId)}`;
+    } else if (itemType === "integration-branch") {
+      endpoint = `/api/orchestrator/integration-branches/${encodeURIComponent(itemId)}`;
     } else {
       throw new Error(`Unknown item type: ${itemType}`);
     }
@@ -8907,6 +9043,35 @@ function renderSelfBuildDetailView(itemType, detail) {
           ${recommendations.length ? renderLineagePill("recommendations", recommendations.length, "inherited") : ""}
         </div>
         ${renderSelfBuildOperatorForm({
+          endpoint: `/api/orchestrator/goal-plans/${encodeURIComponent(detail.id)}/edit`,
+          refreshType: "goal-plan",
+          refreshId: detail.id,
+          label: "Edit Goal Plan",
+          help: "Reorder or drop recommended work items before materialization and persist the operator rationale.",
+          fields: [
+            {
+              type: "textarea",
+              name: "recommendations",
+              label: "Recommendations JSON",
+              value: JSON.stringify(
+                detail.editedRecommendations?.length
+                  ? detail.editedRecommendations
+                  : recommendations,
+                null,
+                2,
+              ),
+              placeholder: "Edit recommendations as JSON array",
+              json: true,
+            },
+            {
+              type: "text",
+              name: "rationale",
+              label: "Edit Rationale",
+              placeholder: "Why are you reordering or dropping items?",
+            },
+          ],
+        })}
+        ${renderSelfBuildOperatorForm({
           endpoint: `/api/orchestrator/goal-plans/${encodeURIComponent(detail.id)}/review`,
           refreshType: "goal-plan",
           refreshId: detail.id,
@@ -9000,6 +9165,15 @@ function renderSelfBuildDetailView(itemType, detail) {
               </article>`
             : ""
         }
+        ${renderSummaryObjectCard(
+          {
+            reviewRationale: detail.reviewRationale,
+            editHistory: detail.editHistory,
+            history: detail.history,
+          },
+          "Plan History",
+          "No review or edit history recorded yet.",
+        )}
       </div>
     `;
   } else if (itemType === "work-item") {
@@ -9107,6 +9281,144 @@ function renderSelfBuildDetailView(itemType, detail) {
         <div class="transition-list">
           ${renderTransitionLog(detail)}
         </div>
+        ${renderSelfBuildOperatorForm({
+          endpoint: `/api/orchestrator/work-item-groups/${encodeURIComponent(detail.id)}/unblock`,
+          refreshType: "work-item-group",
+          refreshId: detail.id,
+          label: "Unblock Group Items",
+          help: "Manually unblock dependency-gated items when operator judgement overrides blockers.",
+          fields: [
+            {
+              type: "text",
+              name: "items",
+              label: "Item IDs (comma separated)",
+              placeholder: "leave blank for all blocked items",
+            },
+            {
+              type: "text",
+              name: "rationale",
+              label: "Rationale",
+              placeholder: "Why is manual unblock justified?",
+            },
+          ],
+        })}
+        ${renderSelfBuildOperatorForm({
+          endpoint: `/api/orchestrator/work-item-groups/${encodeURIComponent(detail.id)}/retry-downstream`,
+          refreshType: "work-item-group",
+          refreshId: detail.id,
+          label: "Retry Downstream",
+          help: "Requeue blocked or failed downstream items after a recovery action.",
+          fields: [
+            {
+              type: "text",
+              name: "items",
+              label: "Item IDs (comma separated)",
+              placeholder: "leave blank for targeted downstream items",
+            },
+            {
+              type: "text",
+              name: "rationale",
+              label: "Rationale",
+              placeholder: "Why retry downstream items now?",
+            },
+          ],
+        })}
+        ${renderSelfBuildOperatorForm({
+          endpoint: `/api/orchestrator/work-item-groups/${encodeURIComponent(detail.id)}/reroute`,
+          refreshType: "work-item-group",
+          refreshId: detail.id,
+          label: "Reroute Item",
+          help: "Create a repair lane for one item and repoint downstream dependencies to it.",
+          fields: [
+            {
+              type: "text",
+              name: "itemId",
+              label: "Item ID",
+              placeholder: "item to reroute",
+            },
+            {
+              type: "text",
+              name: "title",
+              label: "Repair Item Title",
+              placeholder: "optional title override",
+            },
+            {
+              type: "text",
+              name: "goal",
+              label: "Repair Goal",
+              placeholder: "optional repair goal",
+            },
+            {
+              type: "text",
+              name: "rationale",
+              label: "Rationale",
+              placeholder: "Why reroute this item?",
+            },
+          ],
+        })}
+        ${renderSelfBuildOperatorForm({
+          endpoint: `/api/orchestrator/work-item-groups/${encodeURIComponent(detail.id)}/requeue-item`,
+          refreshType: "work-item-group",
+          refreshId: detail.id,
+          label: "Requeue Item",
+          help: "Move one item back to pending.",
+          fields: [
+            {
+              type: "text",
+              name: "itemId",
+              label: "Item ID",
+              placeholder: "item id",
+            },
+            {
+              type: "text",
+              name: "rationale",
+              label: "Rationale",
+              placeholder: "Why requeue this item?",
+            },
+          ],
+        })}
+        ${renderSelfBuildOperatorForm({
+          endpoint: `/api/orchestrator/work-item-groups/${encodeURIComponent(detail.id)}/skip-item`,
+          refreshType: "work-item-group",
+          refreshId: detail.id,
+          label: "Skip Item",
+          help: "Mark one item as skipped with explicit rationale.",
+          fields: [
+            {
+              type: "text",
+              name: "itemId",
+              label: "Item ID",
+              placeholder: "item id",
+            },
+            {
+              type: "text",
+              name: "rationale",
+              label: "Rationale",
+              placeholder: "Why skip this item?",
+            },
+          ],
+        })}
+        ${renderSelfBuildOperatorForm({
+          endpoint: `/api/orchestrator/work-item-groups/${encodeURIComponent(detail.id)}/validate-bundle`,
+          refreshType: "work-item-group",
+          refreshId: detail.id,
+          label: "Validate Bundle",
+          help: "Run named validation bundles across the latest runs for this group.",
+          fields: [
+            {
+              type: "text",
+              name: "bundleIds",
+              label: "Bundle IDs (comma separated)",
+              placeholder: "proposal-ready-fast",
+            },
+            {
+              type: "checkbox",
+              name: "stub",
+              label: "Use stub runtime for validation",
+              checked: true,
+            },
+          ],
+        })}
       </section>
     `;
     recentActivitySection = `
@@ -9145,6 +9457,7 @@ function renderSelfBuildDetailView(itemType, detail) {
           <p class="detail-support">Proposal governance is separate from promotion. Approval does not merge to main.</p>
         </div>
         ${renderSummaryObjectCard(proposal, "Proposal Summary", "No proposal summary returned.")}
+        ${renderSummaryObjectCard(detail.readiness, "Readiness", "No readiness state returned for this proposal.")}
         ${renderSummaryObjectCard(detail.promotion, "Promotion Context", "No promotion context returned for this proposal.")}
         ${renderSuggestedActionsCard(detail.suggestedActions, "Suggested Actions", "No suggested actions returned for this proposal.")}
         ${renderSelfBuildOperatorForm({
@@ -9251,6 +9564,16 @@ function renderSelfBuildDetailView(itemType, detail) {
         ${renderSummaryObjectCard(detail.workItem, "Managed Work Item", "No work item linked to this proposal.")}
         ${renderSummaryObjectCard(detail.workspace, "Workspace", "No workspace linked to this proposal.")}
         ${renderSummaryObjectCard(detail.execution, "Execution", "No source execution linked to this proposal.")}
+      </div>
+    `;
+  } else if (itemType === "integration-branch") {
+    recentActivitySection = `
+      <div class="detail-section">
+        <div class="detail-section-heading">
+          <h3>Integration Branch</h3>
+          <p class="detail-support">Promotion candidates land here first. This is not the canonical main branch.</p>
+        </div>
+        ${renderSummaryObjectCard(detail, "Integration Branch Summary", "No integration branch summary returned.")}
       </div>
     `;
   } else if (itemType === "work-item-run") {
@@ -9516,6 +9839,12 @@ if (els.selfBuildDetailContent) {
     handleOperatorFormSubmit,
   );
 }
+
+[els.selfBuildAttentionSummary, els.selfBuildOverview].forEach((element) => {
+  if (element) {
+    element.addEventListener("submit", handleOperatorFormSubmit);
+  }
+});
 
 // Initialize view (default to run-center)
 switchView("run-center");

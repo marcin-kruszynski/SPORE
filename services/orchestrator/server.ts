@@ -9,8 +9,11 @@ import {
   cleanupManagedWorkspace,
   createGoalPlan,
   createManagedWorkItem,
+  editGoalPlan,
   getDocSuggestionsForRun,
+  getGoalPlanHistory,
   getGoalPlanSummary,
+  getIntegrationBranchSummary,
   getProposalByRun,
   getProposalReviewPackage,
   getProposalSummary,
@@ -24,6 +27,7 @@ import {
   getScenarioRunSummaryById,
   getScenarioTrends,
   getSelfBuildDashboard,
+  getSelfBuildLoopStatus,
   getSelfBuildSummary,
   getSelfBuildWorkItem,
   getSelfBuildWorkItemRun,
@@ -35,6 +39,10 @@ import {
   listExecutionEvents,
   listExecutionWorkspaces,
   listGoalPlansSummary,
+  listIntegrationBranchSummaries,
+  listSelfBuildDecisionSummaries,
+  listSelfBuildQuarantineSummaries,
+  listSelfBuildRollbackSummaries,
   listSelfBuildWorkItemRuns,
   listSelfBuildWorkItems,
   listWorkItemGroupsSummary,
@@ -42,14 +50,25 @@ import {
   listWorkspaceSummaries,
   materializeGoalPlan,
   planProposalPromotion,
+  quarantineSelfBuildTarget,
   reconcileManagedWorkspace,
+  releaseSelfBuildQuarantine,
+  requeueWorkItemGroupItem,
+  rerouteWorkItemGroup,
   rerunSelfBuildWorkItemRun,
+  retryDownstreamWorkItemGroup,
   reviewGoalPlan,
   reviewProposalArtifact,
+  rollbackIntegrationBranch,
   runGoalPlan,
   runSelfBuildWorkItem,
   runWorkItemGroup,
   setWorkItemGroupDependencies,
+  skipWorkItemGroupItem,
+  startSelfBuildLoop,
+  stopSelfBuildLoop,
+  unblockWorkItemGroup,
+  validateWorkItemGroupBundle,
   validateWorkItemRun,
 } from "@spore/orchestrator";
 
@@ -388,6 +407,45 @@ const server = http.createServer(async (request, response) => {
           group: url.searchParams.get("group")?.trim() || null,
           template: url.searchParams.get("template")?.trim() || null,
           domain: url.searchParams.get("domain")?.trim() || null,
+        }),
+      });
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/self-build/decisions") {
+      json(response, 200, {
+        ok: true,
+        detail: listSelfBuildDecisionSummaries({
+          state: url.searchParams.get("state")?.trim() || null,
+          action: url.searchParams.get("action")?.trim() || null,
+          targetType: url.searchParams.get("targetType")?.trim() || null,
+          targetId: url.searchParams.get("targetId")?.trim() || null,
+          limit: url.searchParams.get("limit")?.trim() || "50",
+        }),
+      });
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/self-build/quarantine") {
+      json(response, 200, {
+        ok: true,
+        detail: listSelfBuildQuarantineSummaries({
+          status: url.searchParams.get("status")?.trim() || null,
+          targetType: url.searchParams.get("targetType")?.trim() || null,
+          targetId: url.searchParams.get("targetId")?.trim() || null,
+          limit: url.searchParams.get("limit")?.trim() || "50",
+        }),
+      });
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/self-build/rollback") {
+      json(response, 200, {
+        ok: true,
+        detail: listSelfBuildRollbackSummaries({
+          targetType: url.searchParams.get("targetType")?.trim() || null,
+          targetId: url.searchParams.get("targetId")?.trim() || null,
+          limit: url.searchParams.get("limit")?.trim() || "50",
         }),
       });
       return;
@@ -997,6 +1055,45 @@ const server = http.createServer(async (request, response) => {
     }
 
     if (
+      request.method === "GET" &&
+      parts.length === 3 &&
+      parts[0] === "goal-plans" &&
+      parts[2] === "history"
+    ) {
+      const detail = getGoalPlanHistory(parts[1]);
+      if (!detail) {
+        json(response, 404, {
+          ok: false,
+          error: "not_found",
+          message: `goal plan not found: ${parts[1]}`,
+        });
+        return;
+      }
+      json(response, 200, { ok: true, detail });
+      return;
+    }
+
+    if (
+      request.method === "POST" &&
+      parts.length === 3 &&
+      parts[0] === "goal-plans" &&
+      parts[2] === "edit"
+    ) {
+      const body = await readJsonBody(request);
+      const detail = await editGoalPlan(parts[1], body);
+      if (!detail) {
+        json(response, 404, {
+          ok: false,
+          error: "not_found",
+          message: `goal plan not found: ${parts[1]}`,
+        });
+        return;
+      }
+      json(response, 200, { ok: true, detail });
+      return;
+    }
+
+    if (
       request.method === "POST" &&
       parts.length === 3 &&
       parts[0] === "goal-plans" &&
@@ -1013,6 +1110,39 @@ const server = http.createServer(async (request, response) => {
         return;
       }
       json(response, 200, { ok: true, detail });
+      return;
+    }
+
+    if (
+      request.method === "POST" &&
+      parts.length === 3 &&
+      parts[0] === "goal-plans" &&
+      parts[2] === "quarantine"
+    ) {
+      const body = await readJsonBody(request);
+      try {
+        const detail = await quarantineSelfBuildTarget("goal-plan", parts[1], {
+          ...body,
+          by: body.by ?? "operator",
+          sourceType: body.sourceType ?? "http",
+        });
+        json(response, 200, { ok: true, detail });
+      } catch (error) {
+        if (
+          (error as { code?: string }).code === "self_build_target_not_found"
+        ) {
+          json(response, 404, {
+            ok: false,
+            error: "not_found",
+            message:
+              error instanceof Error
+                ? error.message
+                : `goal plan not found: ${parts[1]}`,
+          });
+          return;
+        }
+        throw error;
+      }
       return;
     }
 
@@ -1145,6 +1275,181 @@ const server = http.createServer(async (request, response) => {
     ) {
       const body = await readJsonBody(request);
       const detail = await runWorkItemGroup(parts[1], body);
+      if (!detail) {
+        json(response, 404, {
+          ok: false,
+          error: "not_found",
+          message: `work item group not found: ${parts[1]}`,
+        });
+        return;
+      }
+      json(response, 200, { ok: true, detail });
+      return;
+    }
+
+    if (
+      request.method === "POST" &&
+      parts.length === 3 &&
+      parts[0] === "work-item-groups" &&
+      parts[2] === "unblock"
+    ) {
+      const body = await readJsonBody(request);
+      const detail = unblockWorkItemGroup(parts[1], body);
+      if (!detail) {
+        json(response, 404, {
+          ok: false,
+          error: "not_found",
+          message: `work item group not found: ${parts[1]}`,
+        });
+        return;
+      }
+      json(response, 200, { ok: true, detail });
+      return;
+    }
+
+    if (
+      request.method === "POST" &&
+      parts.length === 3 &&
+      parts[0] === "work-item-groups" &&
+      parts[2] === "quarantine"
+    ) {
+      const body = await readJsonBody(request);
+      try {
+        const detail = await quarantineSelfBuildTarget(
+          "work-item-group",
+          parts[1],
+          {
+            ...body,
+            by: body.by ?? "operator",
+            sourceType: body.sourceType ?? "http",
+          },
+        );
+        json(response, 200, { ok: true, detail });
+      } catch (error) {
+        if (
+          (error as { code?: string }).code === "self_build_target_not_found"
+        ) {
+          json(response, 404, {
+            ok: false,
+            error: "not_found",
+            message:
+              error instanceof Error
+                ? error.message
+                : `work item group not found: ${parts[1]}`,
+          });
+          return;
+        }
+        throw error;
+      }
+      return;
+    }
+
+    if (
+      request.method === "POST" &&
+      parts.length === 3 &&
+      parts[0] === "work-item-groups" &&
+      parts[2] === "reroute"
+    ) {
+      const body = await readJsonBody(request);
+      const detail = await rerouteWorkItemGroup(parts[1], body);
+      if (!detail) {
+        json(response, 404, {
+          ok: false,
+          error: "not_found",
+          message: `work item group or item not found: ${parts[1]}`,
+        });
+        return;
+      }
+      json(response, 200, { ok: true, detail });
+      return;
+    }
+
+    if (
+      request.method === "POST" &&
+      parts.length === 3 &&
+      parts[0] === "work-item-groups" &&
+      parts[2] === "retry-downstream"
+    ) {
+      const body = await readJsonBody(request);
+      const detail = await retryDownstreamWorkItemGroup(parts[1], body);
+      if (!detail) {
+        json(response, 404, {
+          ok: false,
+          error: "not_found",
+          message: `work item group not found: ${parts[1]}`,
+        });
+        return;
+      }
+      json(response, 200, { ok: true, detail });
+      return;
+    }
+
+    if (
+      request.method === "POST" &&
+      parts.length === 3 &&
+      parts[0] === "work-item-groups" &&
+      parts[2] === "requeue-item"
+    ) {
+      const body = await readJsonBody(request);
+      const itemId = body.itemId?.trim?.() || body.itemId;
+      if (!itemId) {
+        json(response, 400, {
+          ok: false,
+          error: "missing_item_id",
+          message: "requeue-item requires itemId",
+        });
+        return;
+      }
+      const detail = requeueWorkItemGroupItem(parts[1], itemId, body);
+      if (!detail) {
+        json(response, 404, {
+          ok: false,
+          error: "not_found",
+          message: `work item group or item not found: ${parts[1]}/${itemId}`,
+        });
+        return;
+      }
+      json(response, 200, { ok: true, detail });
+      return;
+    }
+
+    if (
+      request.method === "POST" &&
+      parts.length === 3 &&
+      parts[0] === "work-item-groups" &&
+      parts[2] === "skip-item"
+    ) {
+      const body = await readJsonBody(request);
+      const itemId = body.itemId?.trim?.() || body.itemId;
+      if (!itemId) {
+        json(response, 400, {
+          ok: false,
+          error: "missing_item_id",
+          message: "skip-item requires itemId",
+        });
+        return;
+      }
+      const detail = skipWorkItemGroupItem(parts[1], itemId, body);
+      if (!detail) {
+        json(response, 404, {
+          ok: false,
+          error: "not_found",
+          message: `work item group or item not found: ${parts[1]}/${itemId}`,
+        });
+        return;
+      }
+      json(response, 200, { ok: true, detail });
+      return;
+    }
+
+    if (
+      request.method === "POST" &&
+      parts.length === 3 &&
+      parts[0] === "work-item-groups" &&
+      parts[2] === "validate-bundle"
+    ) {
+      const body = await readJsonBody(request);
+      const detail = await validateWorkItemGroupBundle(parts[1], body);
       if (!detail) {
         json(response, 404, {
           ok: false,
@@ -1343,6 +1648,26 @@ const server = http.createServer(async (request, response) => {
     }
 
     if (
+      request.method === "POST" &&
+      parts.length === 3 &&
+      parts[0] === "work-item-runs" &&
+      parts[2] === "validate-bundle"
+    ) {
+      const body = await readJsonBody(request);
+      const detail = await validateWorkItemRun(parts[1], body);
+      if (!detail) {
+        json(response, 404, {
+          ok: false,
+          error: "not_found",
+          message: `work item run not found: ${parts[1]}`,
+        });
+        return;
+      }
+      json(response, 200, { ok: true, detail });
+      return;
+    }
+
+    if (
       request.method === "GET" &&
       parts.length === 3 &&
       parts[0] === "work-item-runs" &&
@@ -1415,6 +1740,39 @@ const server = http.createServer(async (request, response) => {
         return;
       }
       json(response, 200, { ok: true, detail });
+      return;
+    }
+
+    if (
+      request.method === "POST" &&
+      parts.length === 3 &&
+      parts[0] === "proposal-artifacts" &&
+      parts[2] === "quarantine"
+    ) {
+      const body = await readJsonBody(request);
+      try {
+        const detail = await quarantineSelfBuildTarget("proposal", parts[1], {
+          ...body,
+          by: body.by ?? "operator",
+          sourceType: body.sourceType ?? "http",
+        });
+        json(response, 200, { ok: true, detail });
+      } catch (error) {
+        if (
+          (error as { code?: string }).code === "self_build_target_not_found"
+        ) {
+          json(response, 404, {
+            ok: false,
+            error: "not_found",
+            message:
+              error instanceof Error
+                ? error.message
+                : `proposal artifact not found: ${parts[1]}`,
+          });
+          return;
+        }
+        throw error;
+      }
       return;
     }
 
@@ -1517,6 +1875,145 @@ const server = http.createServer(async (request, response) => {
           limit: url.searchParams.get("limit")?.trim() || "50",
         }),
       });
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/integration-branches") {
+      json(response, 200, {
+        ok: true,
+        detail: listIntegrationBranchSummaries({
+          status: url.searchParams.get("status")?.trim() || null,
+          limit: url.searchParams.get("limit")?.trim() || "50",
+        }),
+      });
+      return;
+    }
+
+    if (
+      request.method === "GET" &&
+      parts.length === 2 &&
+      parts[0] === "integration-branches"
+    ) {
+      const detail = getIntegrationBranchSummary(parts[1]);
+      if (!detail) {
+        json(response, 404, {
+          ok: false,
+          error: "not_found",
+          message: `integration branch not found: ${parts[1]}`,
+        });
+        return;
+      }
+      json(response, 200, { ok: true, detail });
+      return;
+    }
+
+    if (
+      request.method === "POST" &&
+      parts.length === 3 &&
+      parts[0] === "integration-branches" &&
+      parts[2] === "quarantine"
+    ) {
+      const body = await readJsonBody(request);
+      try {
+        const detail = await quarantineSelfBuildTarget(
+          "integration-branch",
+          parts[1],
+          {
+            ...body,
+            by: body.by ?? "operator",
+            sourceType: body.sourceType ?? "http",
+          },
+        );
+        json(response, 200, { ok: true, detail });
+      } catch (error) {
+        if (
+          (error as { code?: string }).code === "self_build_target_not_found"
+        ) {
+          json(response, 404, {
+            ok: false,
+            error: "not_found",
+            message:
+              error instanceof Error
+                ? error.message
+                : `integration branch not found: ${parts[1]}`,
+          });
+          return;
+        }
+        throw error;
+      }
+      return;
+    }
+
+    if (
+      request.method === "POST" &&
+      parts.length === 3 &&
+      parts[0] === "integration-branches" &&
+      parts[2] === "rollback"
+    ) {
+      const body = await readJsonBody(request);
+      const detail = await rollbackIntegrationBranch(parts[1], {
+        ...body,
+        by: body.by ?? "operator",
+        source: body.source ?? "http",
+      });
+      if (!detail) {
+        json(response, 404, {
+          ok: false,
+          error: "not_found",
+          message: `integration branch not found: ${parts[1]}`,
+        });
+        return;
+      }
+      json(response, 200, { ok: true, detail });
+      return;
+    }
+
+    if (
+      request.method === "GET" &&
+      url.pathname === "/self-build/loop/status"
+    ) {
+      json(response, 200, { ok: true, detail: getSelfBuildLoopStatus() });
+      return;
+    }
+
+    if (
+      request.method === "POST" &&
+      url.pathname === "/self-build/loop/start"
+    ) {
+      const body = await readJsonBody(request);
+      const detail = await startSelfBuildLoop(body);
+      json(response, 200, { ok: true, detail });
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/self-build/loop/stop") {
+      const body = await readJsonBody(request);
+      const detail = await stopSelfBuildLoop(body);
+      json(response, 200, { ok: true, detail });
+      return;
+    }
+
+    if (
+      request.method === "POST" &&
+      parts.length === 4 &&
+      parts[0] === "self-build" &&
+      parts[1] === "quarantine" &&
+      parts[3] === "release"
+    ) {
+      const body = await readJsonBody(request);
+      const detail = await releaseSelfBuildQuarantine(parts[2], {
+        ...body,
+        by: body.by ?? "operator",
+      });
+      if (!detail) {
+        json(response, 404, {
+          ok: false,
+          error: "not_found",
+          message: `quarantine record not found: ${parts[2]}`,
+        });
+        return;
+      }
+      json(response, 200, { ok: true, detail });
       return;
     }
 

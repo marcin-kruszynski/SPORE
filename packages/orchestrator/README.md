@@ -96,8 +96,8 @@ Recommended interpretation:
 - `self-build-summary` returns one top-level summary of goal plans, groups, work items, runs, proposals, and evaluation/doc-suggestion readiness.
 - `self-build-dashboard` returns the dedicated self-build dashboard aggregate with attention states, queue summaries, recent work-item runs, and workspace health.
 - `work-item-template-list` and `work-item-template-show --template <id>` expose reusable work-item creation templates from `config/work-item-templates/`.
-- `goal-plan-create`, `goal-plan-list`, `goal-plan-show --plan <id>`, `goal-plan-review --plan <id>`, `goal-plan-materialize --plan <id>`, and `goal-plan-run --plan <id>` expose durable goal planning, explicit review before materialization, and one-shot operator execution of a reviewed goal plan.
-- `work-item-group-list`, `work-item-group-show --group <id>`, and `work-item-group-run --group <id>` expose grouped managed-work execution.
+- `goal-plan-create`, `goal-plan-list`, `goal-plan-show --plan <id>`, `goal-plan-history --plan <id>`, `goal-plan-edit --plan <id>`, `goal-plan-review --plan <id>`, `goal-plan-materialize --plan <id>`, and `goal-plan-run --plan <id>` expose durable goal planning, editable review before materialization, and one-shot operator execution of a reviewed goal plan.
+- `work-item-group-list`, `work-item-group-show --group <id>`, `work-item-group-run --group <id>`, `work-item-group-unblock`, `work-item-group-reroute`, `work-item-group-retry-downstream`, `work-item-group-requeue-item`, `work-item-group-skip-item`, and `work-item-group-validate-bundle` expose grouped managed-work execution plus explicit recovery and validation controls.
 - `work-item-list`, `work-item-show`, `work-item-create`, `work-item-run`, and `work-item-run-show` expose the first durable managed self-work surface for SPORE itself.
 - `work-item-runs --item <id>` exposes durable run history for one managed work item.
 - `work-item-run-rerun --run <id>` creates a new durable managed run linked back to the original run.
@@ -111,7 +111,11 @@ Recommended interpretation:
 - `proposal-review-package --proposal <id>` returns the richer operator review package with proposal, source run, workspace, execution, promotion context, and suggested actions.
 - `proposal-review --proposal <id> --status <ready_for_review|reviewed|rejected>` records proposal review state transitions.
 - `proposal-approve --proposal <id> --status <approved|rejected>` records proposal approval state transitions.
-- `proposal-promotion-plan --proposal <id>` and `proposal-promotion-invoke --proposal <id>` bridge an approved proposal into the explicit `coordinator -> integrator` promotion lane.
+- `proposal-promotion-plan --proposal <id>` and `proposal-promotion-invoke --proposal <id>` bridge a `promotion_ready` proposal into the explicit `coordinator -> integrator` promotion lane.
+- `integration-branch-list` and `integration-branch-show --branch <name>` expose durable integration-branch summaries for promotion candidates and landed integration work.
+- `self-build-loop-status`, `self-build-loop-start`, and `self-build-loop-stop` expose the managed self-build loop as an explicit operator/autonomous surface.
+- `self-build-decisions`, `self-build-quarantine`, and `self-build-rollback` expose durable autonomous decisions, quarantine state, and rollback history.
+- `goal-plan-quarantine`, `work-item-group-quarantine`, `proposal-quarantine`, `integration-branch-quarantine`, `integration-branch-rollback`, and `self-build-quarantine-release` expose explicit autonomy safety controls.
 - `project-plan --project <project-config> --domains <csv>` returns the explicit coordinator-root execution plan for one project.
 - `project-invoke --project <project-config> --domains <csv>` launches the explicit `orchestrator -> coordinator -> lead` family without mutating existing domain workflow role lists.
 - `promotion-plan --execution <coordinator-root-execution-id> --target-branch <branch>` returns an explicit integrator promotion lane plan and fails early if durable promotion sources are missing.
@@ -176,10 +180,14 @@ npm run orchestrator:work-item-template-show -- --template operator-ui-pass
 npm run orchestrator:goal-plan-create -- --goal "Stabilize CLI verification and proposal quality"
 npm run orchestrator:goal-plan-list
 npm run orchestrator:goal-plan-show -- --plan <goal-plan-id>
+npm run orchestrator:goal-plan-history -- --plan <goal-plan-id>
+npm run orchestrator:goal-plan-edit -- --plan <goal-plan-id> --file <edited-plan.json>
 npm run orchestrator:goal-plan-materialize -- --plan <goal-plan-id>
 npm run orchestrator:work-item-group-list
 npm run orchestrator:work-item-group-show -- --group <group-id>
 npm run orchestrator:work-item-group-run -- --group <group-id> --stub
+npm run orchestrator:work-item-group-retry-downstream -- --group <group-id> --reason "Retry blocked downstream items"
+npm run orchestrator:work-item-group-validate-bundle -- --group <group-id> --bundle proposal-ready-fast --stub
 npm run orchestrator:work-item-create -- --template operator-ui-pass
 npm run orchestrator:work-item-list
 npm run orchestrator:work-item-show -- --item <work-item-id>
@@ -192,10 +200,22 @@ npm run orchestrator:workspace-reconcile -- --workspace <workspace-id>
 npm run orchestrator:workspace-cleanup -- --workspace <workspace-id> --force
 npm run orchestrator:execution-workspaces -- --execution <execution-id>
 npm run orchestrator:work-item-validate -- --run <work-item-run-id> --stub
+npm run orchestrator:work-item-validate-bundle -- --run <work-item-run-id> --bundle proposal-ready-fast --stub
 npm run orchestrator:work-item-doc-suggestions -- --run <work-item-run-id>
 npm run orchestrator:proposal-show -- --run <work-item-run-id>
+npm run orchestrator:proposal-review-package -- --proposal <proposal-id>
 npm run orchestrator:proposal-review -- --proposal <proposal-id> --status reviewed
 npm run orchestrator:proposal-approve -- --proposal <proposal-id> --status approved
+npm run orchestrator:self-build-decisions -- --limit 20
+npm run orchestrator:self-build-quarantine -- --status active
+npm run orchestrator:self-build-rollback -- --limit 20
+npm run orchestrator:goal-plan-quarantine -- --plan <goal-plan-id> --reason "Unsafe autonomous plan"
+npm run orchestrator:integration-branch-rollback -- --name <branch-name> --reason "Rollback integration candidate"
+npm run orchestrator:integration-branch-list
+npm run orchestrator:integration-branch-show -- --branch <branch-name>
+npm run orchestrator:self-build-loop-status
+npm run orchestrator:self-build-loop-start -- --mode supervised
+npm run orchestrator:self-build-loop-stop -- --reason "Stop after one iteration"
 npm run orchestrator:project-plan -- --project config/projects/example-project.yaml --domains backend,frontend
 npm run orchestrator:project-invoke -- --project config/projects/example-project.yaml --domains backend,frontend --objective "Coordinate backend and frontend work for one project." --wait --stub
 npm run orchestrator:promotion-plan -- --execution <coordinator-root-execution-id> --target-branch main

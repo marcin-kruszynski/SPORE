@@ -39,6 +39,7 @@ The docs system is the operational backbone of the project. It organizes vision,
 - Current self-build status: [plans/self-build-status-and-next-steps.md](plans/self-build-status-and-next-steps.md)
 - Builder/tester verification workspaces: [plans/builder-tester-verification-workspaces.md](plans/builder-tester-verification-workspaces.md)
 - Long-range self-build roadmap: [plans/long-range-self-build-roadmap.md](plans/long-range-self-build-roadmap.md)
+- Full self-build implementation plan: [plans/full-self-build-implementation-plan.md](plans/full-self-build-implementation-plan.md)
 - Project coordinator role plan: [plans/project-coordinator-role-plan.md](plans/project-coordinator-role-plan.md)
 - Feature integrator role plan: [plans/feature-integrator-role-plan.md](plans/feature-integrator-role-plan.md)
 - JavaScript to TypeScript migration plan: [plans/javascript-to-typescript-migration-plan.md](plans/javascript-to-typescript-migration-plan.md)

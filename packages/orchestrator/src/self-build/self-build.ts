@@ -1,3 +1,4 @@
+export * from "./autonomy-controls.js";
 export * from "./dashboard.js";
 export * from "./goal-plans.js";
 export * from "./managed-work.js";

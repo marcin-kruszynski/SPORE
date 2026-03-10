@@ -1,6 +1,7 @@
 export {
   approveProposalArtifact,
   cleanupManagedWorkspace,
+  getIntegrationBranchSummary,
   getProposalByRun,
   getProposalReviewPackage,
   getProposalSummary,
@@ -10,8 +11,13 @@ export {
   getWorkspaceSummary,
   invokeProposalPromotion,
   listExecutionWorkspaces,
+  listIntegrationBranchSummaries,
+  listSelfBuildQuarantineSummaries,
+  listSelfBuildRollbackSummaries,
   listWorkspaceSummaries,
   planProposalPromotion,
+  quarantineSelfBuildTarget,
   reconcileManagedWorkspace,
   reviewProposalArtifact,
+  rollbackIntegrationBranch,
 } from "./self-build.impl.js";

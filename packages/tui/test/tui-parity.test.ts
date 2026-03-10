@@ -684,6 +684,33 @@ test("tui execution and family commands consume orchestrator HTTP surfaces", {
   const goalPlanCreatePayload = JSON.parse(goalPlanCreateOutput.stdout);
   assert.ok(goalPlanCreatePayload.detail.id);
 
+  const goalPlanHistoryOutput = await runCli([
+    "goal-plan-history",
+    "--plan",
+    goalPlanCreatePayload.detail.id,
+    "--api",
+    `http://127.0.0.1:${orchestratorPort}`,
+  ]);
+  const goalPlanHistoryPayload = JSON.parse(goalPlanHistoryOutput.stdout);
+  assert.ok(Array.isArray(goalPlanHistoryPayload.detail.history));
+
+  const reversedRecommendations = [
+    ...(goalPlanCreatePayload.detail.recommendations ?? []),
+  ].reverse();
+  const goalPlanEditOutput = await runCli([
+    "goal-plan-edit",
+    "--plan",
+    goalPlanCreatePayload.detail.id,
+    "--recommendations-json",
+    JSON.stringify(reversedRecommendations),
+    "--rationale",
+    "Exercise editable goal-plan review through TUI parity.",
+    "--api",
+    `http://127.0.0.1:${orchestratorPort}`,
+  ]);
+  const goalPlanEditPayload = JSON.parse(goalPlanEditOutput.stdout);
+  assert.ok(Array.isArray(goalPlanEditPayload.detail.editedRecommendations));
+
   const goalPlanReviewOutput = await runCli([
     "goal-plan-review",
     "--plan",
@@ -769,7 +796,173 @@ test("tui execution and family commands consume orchestrator HTTP surfaces", {
     `http://127.0.0.1:${orchestratorPort}`,
   ]);
   const proposalApprovePayload = JSON.parse(proposalApproveOutput.stdout);
-  assert.equal(proposalApprovePayload.detail.status, "approved");
+  assert.ok(
+    ["validation_required", "promotion_ready"].includes(
+      proposalApprovePayload.detail.status,
+    ),
+  );
+
+  const proposalValidateOutput = await runCli([
+    "work-item-validate-bundle",
+    "--run",
+    proposalWorkItemRunPayload.detail.run.id,
+    "--bundles",
+    "proposal-ready-fast,integration-ready-core",
+    "--stub",
+    "--api",
+    `http://127.0.0.1:${orchestratorPort}`,
+  ]);
+  const proposalValidatePayload = JSON.parse(proposalValidateOutput.stdout);
+  assert.ok(proposalValidatePayload.detail.validation);
+
+  const integrationBranchListOutput = await runCli([
+    "integration-branch-list",
+    "--api",
+    `http://127.0.0.1:${orchestratorPort}`,
+  ]);
+  const integrationBranchListPayload = JSON.parse(
+    integrationBranchListOutput.stdout,
+  );
+  assert.ok(Array.isArray(integrationBranchListPayload.detail));
+
+  const selfBuildLoopStatusOutput = await runCli([
+    "self-build-loop-status",
+    "--api",
+    `http://127.0.0.1:${orchestratorPort}`,
+  ]);
+  const selfBuildLoopStatusPayload = JSON.parse(
+    selfBuildLoopStatusOutput.stdout,
+  );
+  assert.ok(selfBuildLoopStatusPayload.detail);
+  assert.ok(selfBuildLoopStatusPayload.detail.status);
+
+  const selfBuildLoopStartOutput = await runCli([
+    "self-build-loop-start",
+    "--stub",
+    "--api",
+    `http://127.0.0.1:${orchestratorPort}`,
+  ]);
+  const selfBuildLoopStartPayload = JSON.parse(selfBuildLoopStartOutput.stdout);
+  assert.ok(selfBuildLoopStartPayload.detail);
+  assert.ok(selfBuildLoopStartPayload.detail.status);
+
+  const selfBuildLoopStopOutput = await runCli([
+    "self-build-loop-stop",
+    "--reason",
+    "TUI parity coverage complete.",
+    "--api",
+    `http://127.0.0.1:${orchestratorPort}`,
+  ]);
+  const selfBuildLoopStopPayload = JSON.parse(selfBuildLoopStopOutput.stdout);
+  assert.equal(selfBuildLoopStopPayload.detail.status, "stopped");
+
+  const selfBuildDecisionsOutput = await runCli([
+    "self-build-decisions",
+    "--api",
+    `http://127.0.0.1:${orchestratorPort}`,
+  ]);
+  const selfBuildDecisionsPayload = JSON.parse(selfBuildDecisionsOutput.stdout);
+  assert.ok(Array.isArray(selfBuildDecisionsPayload.detail));
+  assert.ok(
+    selfBuildDecisionsPayload.detail.some(
+      (entry) => entry.action === "start-loop" || entry.action === "stop-loop",
+    ),
+  );
+
+  const goalPlanQuarantineOutput = await runCli([
+    "goal-plan-quarantine",
+    "--plan",
+    goalPlanCreatePayload.detail.id,
+    "--reason",
+    "Exercise TUI quarantine controls.",
+    "--api",
+    `http://127.0.0.1:${orchestratorPort}`,
+  ]);
+  const goalPlanQuarantinePayload = JSON.parse(goalPlanQuarantineOutput.stdout);
+  assert.equal(goalPlanQuarantinePayload.detail.targetType, "goal-plan");
+
+  const selfBuildQuarantineOutput = await runCli([
+    "self-build-quarantine",
+    "--api",
+    `http://127.0.0.1:${orchestratorPort}`,
+  ]);
+  const selfBuildQuarantinePayload = JSON.parse(
+    selfBuildQuarantineOutput.stdout,
+  );
+  assert.ok(Array.isArray(selfBuildQuarantinePayload.detail));
+  const goalPlanQuarantineRecord = selfBuildQuarantinePayload.detail.find(
+    (entry) =>
+      entry.targetType === "goal-plan" &&
+      entry.targetId === goalPlanCreatePayload.detail.id &&
+      entry.status === "active",
+  );
+  assert.ok(goalPlanQuarantineRecord);
+
+  const goalPlanQuarantineReleaseOutput = await runCli([
+    "self-build-quarantine-release",
+    "--quarantine",
+    goalPlanQuarantineRecord.id,
+    "--reason",
+    "Release quarantine after CLI parity coverage.",
+    "--api",
+    `http://127.0.0.1:${orchestratorPort}`,
+  ]);
+  const goalPlanQuarantineReleasePayload = JSON.parse(
+    goalPlanQuarantineReleaseOutput.stdout,
+  );
+  assert.equal(goalPlanQuarantineReleasePayload.detail.status, "released");
+
+  const integrationBranchName = integrationBranchListPayload.detail[0]?.name;
+  if (integrationBranchName) {
+    const integrationBranchQuarantineOutput = await runCli([
+      "integration-branch-quarantine",
+      "--name",
+      integrationBranchName,
+      "--reason",
+      "Exercise integration branch quarantine coverage.",
+      "--api",
+      `http://127.0.0.1:${orchestratorPort}`,
+    ]);
+    const integrationBranchQuarantinePayload = JSON.parse(
+      integrationBranchQuarantineOutput.stdout,
+    );
+    assert.equal(
+      integrationBranchQuarantinePayload.detail.targetType,
+      "integration-branch",
+    );
+
+    const integrationBranchRollbackOutput = await runCli([
+      "integration-branch-rollback",
+      "--name",
+      integrationBranchName,
+      "--reason",
+      "Exercise integration branch rollback coverage.",
+      "--api",
+      `http://127.0.0.1:${orchestratorPort}`,
+    ]);
+    const integrationBranchRollbackPayload = JSON.parse(
+      integrationBranchRollbackOutput.stdout,
+    );
+    assert.equal(
+      integrationBranchRollbackPayload.detail.rollback.targetType,
+      "integration-branch",
+    );
+
+    const selfBuildRollbackOutput = await runCli([
+      "self-build-rollback",
+      "--api",
+      `http://127.0.0.1:${orchestratorPort}`,
+    ]);
+    const selfBuildRollbackPayload = JSON.parse(selfBuildRollbackOutput.stdout);
+    assert.ok(Array.isArray(selfBuildRollbackPayload.detail));
+    assert.ok(
+      selfBuildRollbackPayload.detail.some(
+        (entry) =>
+          entry.targetType === "integration-branch" &&
+          entry.targetId === integrationBranchName,
+      ),
+    );
+  }
 
   // Test self-build drilldown commands use orchestrator HTTP surfaces
   const selfBuildItemOutput = await runCli([

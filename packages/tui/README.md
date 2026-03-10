@@ -5,66 +5,83 @@ This package contains a lightweight terminal operator surface for SPORE.
 ## Current Commands
 
 ```bash
-node packages/tui/src/cli/spore-ops.js dashboard
-node packages/tui/src/cli/spore-ops.js dashboard --watch
-node packages/tui/src/cli/spore-ops.js inspect --session lead-session-002
-node packages/tui/src/cli/spore-ops.js execution --execution e2e-review-001
-node packages/tui/src/cli/spore-ops.js tree --execution e2e-review-001
-node packages/tui/src/cli/spore-ops.js family --execution e2e-review-001
-node packages/tui/src/cli/spore-ops.js audit --execution e2e-review-001
-node packages/tui/src/cli/spore-ops.js policy-diff --execution e2e-review-001
-node packages/tui/src/cli/spore-ops.js history --execution e2e-review-001
-node packages/tui/src/cli/spore-ops.js run-center
-node packages/tui/src/cli/spore-ops.js self-build-summary
-node packages/tui/src/cli/spore-ops.js self-build-dashboard
-node packages/tui/src/cli/spore-ops.js work-item-queue
-node packages/tui/src/cli/spore-ops.js scenario-list
-node packages/tui/src/cli/spore-ops.js scenario-run --scenario cli-verification-pass
-node packages/tui/src/cli/spore-ops.js scenario-run-show --run <run-id>
-node packages/tui/src/cli/spore-ops.js scenario-run-artifacts --run <run-id>
-node packages/tui/src/cli/spore-ops.js scenario-rerun --run <run-id>
-node packages/tui/src/cli/spore-ops.js scenario-trends --scenario backend-service-delivery
-node packages/tui/src/cli/spore-ops.js regression-list
-node packages/tui/src/cli/spore-ops.js regression-run --regression local-fast
-node packages/tui/src/cli/spore-ops.js regression-run-show --run <run-id>
-node packages/tui/src/cli/spore-ops.js regression-report --run <run-id>
-node packages/tui/src/cli/spore-ops.js regression-rerun --run <run-id>
-node packages/tui/src/cli/spore-ops.js regression-trends --regression local-fast
-node packages/tui/src/cli/spore-ops.js regression-scheduler-status
-node packages/tui/src/cli/spore-ops.js work-item-template-list
-node packages/tui/src/cli/spore-ops.js work-item-template-show --template operator-ui-pass
-node packages/tui/src/cli/spore-ops.js goal-plan-create --goal "Stabilize CLI verification and proposal quality"
-node packages/tui/src/cli/spore-ops.js goal-plan-list
-node packages/tui/src/cli/spore-ops.js goal-plan-show --plan <goal-plan-id>
-node packages/tui/src/cli/spore-ops.js goal-plan-review --plan <goal-plan-id> --status reviewed
-node packages/tui/src/cli/spore-ops.js goal-plan-materialize --plan <goal-plan-id>
-node packages/tui/src/cli/spore-ops.js goal-plan-run --plan <goal-plan-id> --stub
-node packages/tui/src/cli/spore-ops.js work-item-group-list
-node packages/tui/src/cli/spore-ops.js work-item-group-show --group <group-id>
-node packages/tui/src/cli/spore-ops.js work-item-group-run --group <group-id> --stub
-node packages/tui/src/cli/spore-ops.js work-item-create --title "CLI verification work item" --kind scenario --scenario cli-verification-pass
-node packages/tui/src/cli/spore-ops.js work-item-list
-node packages/tui/src/cli/spore-ops.js work-item-show --item <work-item-id>
-node packages/tui/src/cli/spore-ops.js work-item-runs --item <work-item-id>
-node packages/tui/src/cli/spore-ops.js work-item-run --item <work-item-id> --stub
-node packages/tui/src/cli/spore-ops.js work-item-run-show --run <work-item-run-id>
-node packages/tui/src/cli/spore-ops.js work-item-run-rerun --run <work-item-run-id>
-node packages/tui/src/cli/spore-ops.js workspace-list
-node packages/tui/src/cli/spore-ops.js workspace-show --workspace <workspace-id>
-node packages/tui/src/cli/spore-ops.js work-item-validate --run <work-item-run-id> --stub
-node packages/tui/src/cli/spore-ops.js work-item-doc-suggestions --run <work-item-run-id>
-node packages/tui/src/cli/spore-ops.js proposal-show --run <work-item-run-id>
-node packages/tui/src/cli/spore-ops.js proposal-review-package --proposal <proposal-id>
-node packages/tui/src/cli/spore-ops.js proposal-review --proposal <proposal-id> --status reviewed
-node packages/tui/src/cli/spore-ops.js proposal-approve --proposal <proposal-id> --status approved
-node packages/tui/src/cli/spore-ops.js proposal-promotion-plan --proposal <proposal-id> --target-branch main
-node packages/tui/src/cli/spore-ops.js proposal-promotion-invoke --proposal <proposal-id> --target-branch main --wait --stub
-node packages/tui/src/cli/spore-ops.js project-plan --project config/projects/example-project.yaml --domains backend,frontend
-node packages/tui/src/cli/spore-ops.js project-invoke --project config/projects/example-project.yaml --domains backend,frontend --objective "Coordinate backend and frontend work for one project." --wait --stub
-node packages/tui/src/cli/spore-ops.js promotion-plan --execution <coordinator-root-execution-id> --target-branch main
-node packages/tui/src/cli/spore-ops.js promotion-invoke --execution <coordinator-root-execution-id> --target-branch main --wait --stub
-node packages/tui/src/cli/spore-ops.js hold --execution e2e-review-001 --reason "Operator hold"
-node packages/tui/src/cli/spore-ops.js review --execution e2e-review-001 --status approved --comments "Ready"
+npx tsx packages/tui/src/cli/spore-ops.ts dashboard
+npx tsx packages/tui/src/cli/spore-ops.ts dashboard --watch
+npx tsx packages/tui/src/cli/spore-ops.ts inspect --session lead-session-002
+npx tsx packages/tui/src/cli/spore-ops.ts execution --execution e2e-review-001
+npx tsx packages/tui/src/cli/spore-ops.ts tree --execution e2e-review-001
+npx tsx packages/tui/src/cli/spore-ops.ts family --execution e2e-review-001
+npx tsx packages/tui/src/cli/spore-ops.ts audit --execution e2e-review-001
+npx tsx packages/tui/src/cli/spore-ops.ts policy-diff --execution e2e-review-001
+npx tsx packages/tui/src/cli/spore-ops.ts history --execution e2e-review-001
+npx tsx packages/tui/src/cli/spore-ops.ts run-center
+npx tsx packages/tui/src/cli/spore-ops.ts self-build-summary
+npx tsx packages/tui/src/cli/spore-ops.ts self-build-dashboard
+npx tsx packages/tui/src/cli/spore-ops.ts self-build-loop-status
+npx tsx packages/tui/src/cli/spore-ops.ts work-item-queue
+npx tsx packages/tui/src/cli/spore-ops.ts scenario-list
+npx tsx packages/tui/src/cli/spore-ops.ts scenario-run --scenario cli-verification-pass
+npx tsx packages/tui/src/cli/spore-ops.ts scenario-run-show --run <run-id>
+npx tsx packages/tui/src/cli/spore-ops.ts scenario-run-artifacts --run <run-id>
+npx tsx packages/tui/src/cli/spore-ops.ts scenario-rerun --run <run-id>
+npx tsx packages/tui/src/cli/spore-ops.ts scenario-trends --scenario backend-service-delivery
+npx tsx packages/tui/src/cli/spore-ops.ts regression-list
+npx tsx packages/tui/src/cli/spore-ops.ts regression-run --regression local-fast
+npx tsx packages/tui/src/cli/spore-ops.ts regression-run-show --run <run-id>
+npx tsx packages/tui/src/cli/spore-ops.ts regression-report --run <run-id>
+npx tsx packages/tui/src/cli/spore-ops.ts regression-rerun --run <run-id>
+npx tsx packages/tui/src/cli/spore-ops.ts regression-trends --regression local-fast
+npx tsx packages/tui/src/cli/spore-ops.ts regression-scheduler-status
+npx tsx packages/tui/src/cli/spore-ops.ts work-item-template-list
+npx tsx packages/tui/src/cli/spore-ops.ts work-item-template-show --template operator-ui-pass
+npx tsx packages/tui/src/cli/spore-ops.ts goal-plan-create --goal "Stabilize CLI verification and proposal quality"
+npx tsx packages/tui/src/cli/spore-ops.ts goal-plan-list
+npx tsx packages/tui/src/cli/spore-ops.ts goal-plan-show --plan <goal-plan-id>
+npx tsx packages/tui/src/cli/spore-ops.ts goal-plan-history --plan <goal-plan-id>
+npx tsx packages/tui/src/cli/spore-ops.ts goal-plan-edit --plan <goal-plan-id> --file <edited-plan.json>
+npx tsx packages/tui/src/cli/spore-ops.ts goal-plan-review --plan <goal-plan-id> --status reviewed
+npx tsx packages/tui/src/cli/spore-ops.ts goal-plan-materialize --plan <goal-plan-id>
+npx tsx packages/tui/src/cli/spore-ops.ts goal-plan-run --plan <goal-plan-id> --stub
+npx tsx packages/tui/src/cli/spore-ops.ts work-item-group-list
+npx tsx packages/tui/src/cli/spore-ops.ts work-item-group-show --group <group-id>
+npx tsx packages/tui/src/cli/spore-ops.ts work-item-group-run --group <group-id> --stub
+npx tsx packages/tui/src/cli/spore-ops.ts work-item-group-retry-downstream --group <group-id> --reason "Retry blocked downstream items"
+npx tsx packages/tui/src/cli/spore-ops.ts work-item-group-validate-bundle --group <group-id> --bundle proposal-ready-fast --stub
+npx tsx packages/tui/src/cli/spore-ops.ts work-item-create --title "CLI verification work item" --kind scenario --scenario cli-verification-pass
+npx tsx packages/tui/src/cli/spore-ops.ts work-item-list
+npx tsx packages/tui/src/cli/spore-ops.ts work-item-show --item <work-item-id>
+npx tsx packages/tui/src/cli/spore-ops.ts work-item-runs --item <work-item-id>
+npx tsx packages/tui/src/cli/spore-ops.ts work-item-run --item <work-item-id> --stub
+npx tsx packages/tui/src/cli/spore-ops.ts work-item-run-show --run <work-item-run-id>
+npx tsx packages/tui/src/cli/spore-ops.ts work-item-run-rerun --run <work-item-run-id>
+npx tsx packages/tui/src/cli/spore-ops.ts workspace-list
+npx tsx packages/tui/src/cli/spore-ops.ts workspace-show --workspace <workspace-id>
+npx tsx packages/tui/src/cli/spore-ops.ts work-item-validate --run <work-item-run-id> --stub
+npx tsx packages/tui/src/cli/spore-ops.ts work-item-validate-bundle --run <work-item-run-id> --bundle proposal-ready-fast --stub
+npx tsx packages/tui/src/cli/spore-ops.ts work-item-doc-suggestions --run <work-item-run-id>
+npx tsx packages/tui/src/cli/spore-ops.ts proposal-show --run <work-item-run-id>
+npx tsx packages/tui/src/cli/spore-ops.ts proposal-review-package --proposal <proposal-id>
+npx tsx packages/tui/src/cli/spore-ops.ts proposal-review --proposal <proposal-id> --status reviewed
+npx tsx packages/tui/src/cli/spore-ops.ts proposal-approve --proposal <proposal-id> --status approved
+npx tsx packages/tui/src/cli/spore-ops.ts proposal-promotion-plan --proposal <proposal-id> --target-branch main
+npx tsx packages/tui/src/cli/spore-ops.ts proposal-promotion-invoke --proposal <proposal-id> --target-branch main --wait --stub
+npx tsx packages/tui/src/cli/spore-ops.ts integration-branch-list
+npx tsx packages/tui/src/cli/spore-ops.ts integration-branch-show --branch <branch-name>
+npx tsx packages/tui/src/cli/spore-ops.ts integration-branch-quarantine --name <branch-name> --reason "Freeze unsafe candidate"
+npx tsx packages/tui/src/cli/spore-ops.ts integration-branch-rollback --name <branch-name> --reason "Rollback bad integration candidate"
+npx tsx packages/tui/src/cli/spore-ops.ts self-build-decisions
+npx tsx packages/tui/src/cli/spore-ops.ts self-build-quarantine --status active
+npx tsx packages/tui/src/cli/spore-ops.ts self-build-rollback
+npx tsx packages/tui/src/cli/spore-ops.ts goal-plan-quarantine --plan <goal-plan-id> --reason "Unsafe autonomous plan"
+npx tsx packages/tui/src/cli/spore-ops.ts self-build-quarantine-release --quarantine <quarantine-id> --reason "Operator release"
+npx tsx packages/tui/src/cli/spore-ops.ts self-build-loop-start --mode supervised
+npx tsx packages/tui/src/cli/spore-ops.ts self-build-loop-stop --reason "Stop after one iteration"
+npx tsx packages/tui/src/cli/spore-ops.ts project-plan --project config/projects/example-project.yaml --domains backend,frontend
+npx tsx packages/tui/src/cli/spore-ops.ts project-invoke --project config/projects/example-project.yaml --domains backend,frontend --objective "Coordinate backend and frontend work for one project." --wait --stub
+npx tsx packages/tui/src/cli/spore-ops.ts promotion-plan --execution <coordinator-root-execution-id> --target-branch main
+npx tsx packages/tui/src/cli/spore-ops.ts promotion-invoke --execution <coordinator-root-execution-id> --target-branch main --wait --stub
+npx tsx packages/tui/src/cli/spore-ops.ts hold --execution e2e-review-001 --reason "Operator hold"
+npx tsx packages/tui/src/cli/spore-ops.ts review --execution e2e-review-001 --status approved --comments "Ready"
 ```
 
 ## Coverage
@@ -85,8 +102,12 @@ The TUI/CLI operator surface now provides:
 - scenario and regression launch actions over orchestrator HTTP surfaces,
 - self-build summary inspection for plan/group/work-item/proposal progress snapshots,
 - dedicated self-build dashboard inspection with queue and workspace visibility,
+- explicit self-build loop inspection and control,
+- autonomous decision, quarantine, and rollback inspection plus release controls,
 - work-item template and goal-plan management from the same orchestrator API contract,
+- editable goal-plan review before materialization,
 - grouped managed-work inspection and grouped run execution controls,
+- grouped recovery controls and named validation-bundle execution for managed work,
 - work-item rerun and workspace inspection parity over orchestrator HTTP surfaces,
 - work-item run validation and documentation-suggestion drilldowns,
 - proposal artifact inspection plus review/approval transitions,

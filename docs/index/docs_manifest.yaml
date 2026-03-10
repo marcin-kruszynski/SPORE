@@ -191,6 +191,13 @@ documents:
     owner: future-architect
     tags: [roadmap, self-build, long-range, execution]
     path: docs/plans/long-range-self-build-roadmap.md
+  - id: full-self-build-implementation-plan
+    type: roadmap
+    domain: shared
+    status: active
+    owner: future-architect
+    tags: [roadmap, self-build, implementation, autonomy, execution]
+    path: docs/plans/full-self-build-implementation-plan.md
   - id: project-coordinator-role-plan
     type: plan
     domain: orchestration

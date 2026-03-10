@@ -13,6 +13,7 @@ acceptanceCriteria:
   - Produce durable regression history.
   - Recommend next action based on regression outcome.
 recommendedRegressions: [local-fast]
+recommendedValidationBundles: [self-build-safe]
 allowedDomains: [backend, cli, docs]
 safeModeEligible: true
 selfBuildEligible: true

@@ -17,6 +17,7 @@ relatedDocs:
   - README.md
 recommendedScenarios: [docs-adr-pass]
 recommendedRegressions: [local-fast]
+recommendedValidationBundles: [proposal-ready-fast]
 allowedDomains: [docs]
 safeModeEligible: true
 selfBuildEligible: true

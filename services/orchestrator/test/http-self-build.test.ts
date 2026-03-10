@@ -187,6 +187,37 @@ test("self-build summary and lineage routes expose operator-first visibility", a
   assert.ok(goalPlanDetail.json.detail.links);
   assert.ok(Array.isArray(goalPlanDetail.json.detail.recommendations));
 
+  const goalPlanHistoryBeforeEdit = await getJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/goal-plans/${encodeURIComponent(goalPlan.json.detail.id)}/history`,
+  );
+  assert.equal(goalPlanHistoryBeforeEdit.status, 200);
+  assert.ok(goalPlanHistoryBeforeEdit.json.ok);
+  assert.ok(Array.isArray(goalPlanHistoryBeforeEdit.json.detail.history));
+
+  const editedRecommendations = [
+    ...(goalPlanDetail.json.detail.recommendations ?? []),
+  ].reverse();
+  const edited = await postJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/goal-plans/${encodeURIComponent(goalPlan.json.detail.id)}/edit`,
+    {
+      recommendations: editedRecommendations,
+      rationale:
+        "Reverse recommendations to exercise editable goal-plan review.",
+      by: "test-runner",
+      source: "http-self-build-test",
+    },
+  );
+  assert.equal(edited.status, 200);
+  assert.ok(edited.json.ok);
+  assert.ok(Array.isArray(edited.json.detail.editedRecommendations));
+  assert.ok(Array.isArray(edited.json.detail.editHistory));
+  if (editedRecommendations.length > 0) {
+    assert.equal(
+      edited.json.detail.editedRecommendations[0].id,
+      editedRecommendations[0].id,
+    );
+  }
+
   const reviewed = await postJson(
     `http://127.0.0.1:${ORCHESTRATOR_PORT}/goal-plans/${encodeURIComponent(goalPlan.json.detail.id)}/review`,
     {
@@ -199,6 +230,17 @@ test("self-build summary and lineage routes expose operator-first visibility", a
   assert.ok(reviewed.json.ok);
   assert.equal(reviewed.json.detail.status, "reviewed");
   assert.ok(Array.isArray(reviewed.json.detail.reviewHistory));
+
+  const goalPlanHistoryAfterReview = await getJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/goal-plans/${encodeURIComponent(goalPlan.json.detail.id)}/history`,
+  );
+  assert.equal(goalPlanHistoryAfterReview.status, 200);
+  assert.ok(goalPlanHistoryAfterReview.json.ok);
+  assert.ok(
+    goalPlanHistoryAfterReview.json.detail.history.some(
+      (entry) => entry.type === "reviewed",
+    ),
+  );
 
   // Test 5: materialize goal plan into work-item group
   const materialized = await postJson(
@@ -307,10 +349,30 @@ test("self-build summary and lineage routes expose operator-first visibility", a
     assert.equal(approvedProposal.status, 200);
     assert.ok(approvedProposal.json.ok);
     assert.ok(
-      ["promotion_candidate", "blocked"].includes(
+      ["validation_required", "promotion_ready"].includes(
+        String(approvedProposal.json.detail.status),
+      ),
+    );
+    assert.ok(
+      ["blocked", "ready", "promotion_candidate"].includes(
         String(approvedProposal.json.detail.promotionStatus),
       ),
     );
+
+    const validationBundle = await postJson(
+      `http://127.0.0.1:${ORCHESTRATOR_PORT}/work-item-runs/${encodeURIComponent(runId)}/validate-bundle`,
+      {
+        bundleIds: ["proposal-ready-fast", "integration-ready-core"],
+        stub: true,
+        timeout: 12000,
+        interval: 250,
+        by: "test-runner",
+        source: "http-self-build-test",
+      },
+    );
+    assert.equal(validationBundle.status, 200);
+    assert.ok(validationBundle.json.ok);
+    assert.ok(validationBundle.json.detail.validation);
 
     const promotionPlan = await postJson(
       `http://127.0.0.1:${ORCHESTRATOR_PORT}/proposal-artifacts/${encodeURIComponent(runDetail.json.detail.proposal.id)}/promotion-plan`,
@@ -348,6 +410,30 @@ test("self-build summary and lineage routes expose operator-first visibility", a
       promotionInvoke.json.detail.detail.execution.role,
       "integrator",
     );
+
+    const integrationBranches = await getJson(
+      `http://127.0.0.1:${ORCHESTRATOR_PORT}/integration-branches`,
+    );
+    assert.equal(integrationBranches.status, 200);
+    assert.ok(integrationBranches.json.ok);
+    assert.ok(Array.isArray(integrationBranches.json.detail));
+    const integrationBranch = integrationBranches.json.detail.find(
+      (entry) =>
+        entry.proposalArtifactId === runDetail.json.detail.proposal.id ||
+        entry.sourceExecutionId ===
+          promotionInvoke.json.detail.detail.execution.id,
+    );
+    assert.ok(integrationBranch);
+
+    const integrationBranchDetail = await getJson(
+      `http://127.0.0.1:${ORCHESTRATOR_PORT}/integration-branches/${encodeURIComponent(integrationBranch.name)}`,
+    );
+    assert.equal(integrationBranchDetail.status, 200);
+    assert.ok(integrationBranchDetail.json.ok);
+    assert.equal(
+      integrationBranchDetail.json.detail.name,
+      integrationBranch.name,
+    );
   }
 
   const goalPlanRun = await postJson(
@@ -368,6 +454,119 @@ test("self-build summary and lineage routes expose operator-first visibility", a
   assert.ok(Array.isArray(goalPlanRun.json.detail.results));
   assert.ok(Array.isArray(goalPlanRun.json.detail.validationResults));
   assert.ok(Array.isArray(goalPlanRun.json.detail.recommendations));
+
+  const loopStatus = await getJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/self-build/loop/status`,
+  );
+  assert.equal(loopStatus.status, 200);
+  assert.ok(loopStatus.json.ok);
+  assert.ok(loopStatus.json.detail);
+  assert.ok(loopStatus.json.detail.status);
+
+  const loopStarted = await postJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/self-build/loop/start`,
+    {
+      project: "config/projects/spore.yaml",
+      stub: true,
+      timeout: 12000,
+      interval: 250,
+      by: "test-runner",
+      source: "http-self-build-test",
+    },
+  );
+  assert.equal(loopStarted.status, 200);
+  assert.ok(loopStarted.json.ok);
+  assert.ok(loopStarted.json.detail);
+  assert.ok(loopStarted.json.detail.status);
+
+  const loopStopped = await postJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/self-build/loop/stop`,
+    {
+      by: "test-runner",
+      source: "http-self-build-test",
+      reason: "HTTP route coverage complete.",
+    },
+  );
+  assert.equal(loopStopped.status, 200);
+  assert.ok(loopStopped.json.ok);
+  assert.equal(loopStopped.json.detail.status, "stopped");
+
+  const selfBuildDecisions = await getJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/self-build/decisions`,
+  );
+  assert.equal(selfBuildDecisions.status, 200);
+  assert.ok(selfBuildDecisions.json.ok);
+  assert.ok(Array.isArray(selfBuildDecisions.json.detail));
+  assert.ok(
+    selfBuildDecisions.json.detail.some(
+      (entry) => entry.action === "start-loop" || entry.action === "stop-loop",
+    ),
+  );
+
+  const quarantinedGoalPlan = await postJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/goal-plans/${encodeURIComponent(goalPlan.json.detail.id)}/quarantine`,
+    {
+      by: "test-runner",
+      source: "http-self-build-test",
+      reason: "Exercise quarantine and release coverage.",
+    },
+  );
+  assert.equal(quarantinedGoalPlan.status, 200);
+  assert.ok(quarantinedGoalPlan.json.ok);
+  assert.equal(quarantinedGoalPlan.json.detail.targetType, "goal-plan");
+
+  const quarantinedGroup = await postJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/work-item-groups/${encodeURIComponent(groupId)}/quarantine`,
+    {
+      by: "test-runner",
+      source: "http-self-build-test",
+      reason: "Exercise group quarantine coverage.",
+    },
+  );
+  assert.equal(quarantinedGroup.status, 200);
+  assert.ok(quarantinedGroup.json.ok);
+  assert.equal(quarantinedGroup.json.detail.targetType, "work-item-group");
+
+  if (runDetail.json.detail.proposal?.id) {
+    const quarantinedProposal = await postJson(
+      `http://127.0.0.1:${ORCHESTRATOR_PORT}/proposal-artifacts/${encodeURIComponent(runDetail.json.detail.proposal.id)}/quarantine`,
+      {
+        by: "test-runner",
+        source: "http-self-build-test",
+        reason: "Exercise proposal quarantine coverage.",
+      },
+    );
+    assert.equal(quarantinedProposal.status, 200);
+    assert.ok(quarantinedProposal.json.ok);
+    assert.equal(quarantinedProposal.json.detail.targetType, "proposal");
+  }
+
+  const selfBuildQuarantine = await getJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/self-build/quarantine`,
+  );
+  assert.equal(selfBuildQuarantine.status, 200);
+  assert.ok(selfBuildQuarantine.json.ok);
+  assert.ok(Array.isArray(selfBuildQuarantine.json.detail));
+  const goalPlanQuarantine = selfBuildQuarantine.json.detail.find(
+    (entry) =>
+      entry.targetType === "goal-plan" &&
+      entry.targetId === goalPlan.json.detail.id &&
+      entry.status === "active",
+  );
+  assert.ok(goalPlanQuarantine);
+
+  const releasedGoalPlanQuarantine = await postJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/self-build/quarantine/${encodeURIComponent(goalPlanQuarantine.id)}/release`,
+    {
+      by: "test-runner",
+      source: "http-self-build-test",
+      reason: "Release goal-plan quarantine after coverage.",
+    },
+  );
+  assert.equal(releasedGoalPlanQuarantine.status, 200);
+  assert.ok(releasedGoalPlanQuarantine.json.ok);
+  assert.equal(releasedGoalPlanQuarantine.json.detail.status, "released");
+
   assert.equal(runDetail.json.detail.id, runId);
   assert.ok(runDetail.json.detail.item);
   assert.ok(Array.isArray(runDetail.json.detail.docSuggestions));
@@ -500,6 +699,61 @@ test("self-build summary and lineage routes expose operator-first visibility", a
   assert.ok(validation.json.detail);
   assert.ok(validation.json.detail.validation);
 
+  if (runDetail.json.detail.proposal?.id) {
+    const promotionBranchList = await getJson(
+      `http://127.0.0.1:${ORCHESTRATOR_PORT}/integration-branches`,
+    );
+    const promotionBranch = promotionBranchList.json.detail.find(
+      (entry) => entry.proposalArtifactId === runDetail.json.detail.proposal.id,
+    );
+    if (promotionBranch) {
+      const quarantinedBranch = await postJson(
+        `http://127.0.0.1:${ORCHESTRATOR_PORT}/integration-branches/${encodeURIComponent(promotionBranch.name)}/quarantine`,
+        {
+          by: "test-runner",
+          source: "http-self-build-test",
+          reason: "Exercise integration-branch quarantine coverage.",
+        },
+      );
+      assert.equal(quarantinedBranch.status, 200);
+      assert.ok(quarantinedBranch.json.ok);
+      assert.equal(
+        quarantinedBranch.json.detail.targetType,
+        "integration-branch",
+      );
+
+      const rollback = await postJson(
+        `http://127.0.0.1:${ORCHESTRATOR_PORT}/integration-branches/${encodeURIComponent(promotionBranch.name)}/rollback`,
+        {
+          by: "test-runner",
+          source: "http-self-build-test",
+          reason: "Exercise integration-branch rollback coverage.",
+        },
+      );
+      assert.equal(rollback.status, 200);
+      assert.ok(rollback.json.ok);
+      assert.ok(rollback.json.detail.rollback);
+      assert.equal(
+        rollback.json.detail.rollback.targetType,
+        "integration-branch",
+      );
+
+      const rollbackList = await getJson(
+        `http://127.0.0.1:${ORCHESTRATOR_PORT}/self-build/rollback`,
+      );
+      assert.equal(rollbackList.status, 200);
+      assert.ok(rollbackList.json.ok);
+      assert.ok(Array.isArray(rollbackList.json.detail));
+      assert.ok(
+        rollbackList.json.detail.some(
+          (entry) =>
+            entry.targetType === "integration-branch" &&
+            entry.targetId === promotionBranch.name,
+        ),
+      );
+    }
+  }
+
   // Test 12: get doc suggestions for run
   const docSuggestions = await getJson(
     `http://127.0.0.1:${ORCHESTRATOR_PORT}/work-item-runs/${encodeURIComponent(runId)}/doc-suggestions`,
@@ -565,4 +819,37 @@ test("self-build summary and lineage routes expose operator-first visibility", a
   );
   assert.equal(webItems.status, 200);
   assert.ok(webItems.json.ok);
+
+  const webLoopStatus = await getJson(
+    `http://127.0.0.1:${WEB_PORT}/api/orchestrator/self-build/loop/status`,
+  );
+  assert.equal(webLoopStatus.status, 200);
+  assert.ok(webLoopStatus.json.ok);
+
+  const webDecisions = await getJson(
+    `http://127.0.0.1:${WEB_PORT}/api/orchestrator/self-build/decisions`,
+  );
+  assert.equal(webDecisions.status, 200);
+  assert.ok(webDecisions.json.ok);
+  assert.ok(Array.isArray(webDecisions.json.detail));
+
+  const webQuarantine = await getJson(
+    `http://127.0.0.1:${WEB_PORT}/api/orchestrator/self-build/quarantine`,
+  );
+  assert.equal(webQuarantine.status, 200);
+  assert.ok(webQuarantine.json.ok);
+  assert.ok(Array.isArray(webQuarantine.json.detail));
+
+  const webRollback = await getJson(
+    `http://127.0.0.1:${WEB_PORT}/api/orchestrator/self-build/rollback`,
+  );
+  assert.equal(webRollback.status, 200);
+  assert.ok(webRollback.json.ok);
+  assert.ok(Array.isArray(webRollback.json.detail));
+
+  const webIntegrationBranches = await getJson(
+    `http://127.0.0.1:${WEB_PORT}/api/orchestrator/integration-branches`,
+  );
+  assert.equal(webIntegrationBranches.status, 200);
+  assert.ok(webIntegrationBranches.json.ok);
 });

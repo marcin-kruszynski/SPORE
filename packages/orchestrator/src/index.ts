@@ -9,10 +9,19 @@ export * from "./scenarios/run-history.js";
 export * from "./self-build/self-build.js";
 export {
   getProposalReviewPackage,
+  getSelfBuildLoopStatus,
   invokeProposalPromotion,
+  listSelfBuildDecisionSummaries,
+  listSelfBuildQuarantineSummaries,
+  listSelfBuildRollbackSummaries,
   planProposalPromotion,
+  quarantineSelfBuildTarget,
+  releaseSelfBuildQuarantine,
   reviewGoalPlan,
+  rollbackIntegrationBranch,
   runGoalPlan,
+  startSelfBuildLoop,
+  stopSelfBuildLoop,
 } from "./self-build/self-build.js";
 export * from "./store/execution-store.js";
 export * from "./work-items/work-items.js";

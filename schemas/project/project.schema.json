@@ -303,6 +303,69 @@
         "runtime": { "type": "string" },
         "liveInspectionRequired": { "type": "boolean" }
       }
+    },
+    "selfWorkDefaults": {
+      "type": "object",
+      "properties": {
+        "safeMode": { "type": "boolean" },
+        "defaultGoalPlannerPolicy": { "type": "string" },
+        "defaultValidationBundles": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "defaultValidationBundle": {
+          "type": "object",
+          "properties": {
+            "scenarios": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "regressions": {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          }
+        },
+        "allowedMutationScope": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "autonomousPolicy": {
+          "type": "object",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "mode": { "type": "string" },
+            "allowedTemplates": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "allowedDomains": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "allowedMutationScopes": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "requiredValidationBundles": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "requireSafeMode": { "type": "boolean" },
+            "autoReviewGoalPlans": { "type": "boolean" },
+            "autoMaterializeGoalPlans": { "type": "boolean" },
+            "autoRunGroups": { "type": "boolean" },
+            "autoValidateBundles": { "type": "boolean" },
+            "autoPromoteToIntegration": { "type": "boolean" },
+            "quarantineOnFailureCount": { "type": "integer" },
+            "quarantineOnBlockedCount": { "type": "integer" },
+            "protectedScopes": {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          }
+        }
+      }
     }
   }
 }

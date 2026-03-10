@@ -1,10 +1,8 @@
 export {
-  getSelfBuildDashboard,
-  getSelfBuildLoopStatus,
-  getSelfBuildSummary,
   listSelfBuildDecisionSummaries,
   listSelfBuildQuarantineSummaries,
   listSelfBuildRollbackSummaries,
-  startSelfBuildLoop,
-  stopSelfBuildLoop,
+  quarantineSelfBuildTarget,
+  releaseSelfBuildQuarantine,
+  rollbackIntegrationBranch,
 } from "./self-build.impl.js";
