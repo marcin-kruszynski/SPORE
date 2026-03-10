@@ -1,0 +1,18 @@
+id: self-build-validation-gating
+label: Self-Build Validation Gating
+workflow: config/workflows/cli-verification-pass.yaml
+domain: cli
+roles: [lead, builder, tester, reviewer]
+objectiveTemplate: "Validate that approved proposals are not promotion-ready until named validation bundles pass and remain drift-free."
+policyPackExpectation: [self-build-proposals]
+expectedGovernance:
+  reviewRequired: true
+  approvalRequired: true
+  reworkCapable: true
+expectedWaveTopology:
+  waveCount: 4
+  labels: [plan, implementation, verify, review]
+  allowsBranching: false
+realPiEligible: false
+regressionProfiles: [self-build-fast, self-build-autonomy]
+tags: [self-build, validation, promotion-readiness]

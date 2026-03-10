@@ -1,0 +1,18 @@
+id: self-build-goal-plan-review
+label: Self-Build Goal Plan Review
+workflow: config/workflows/docs-adr-pass.yaml
+domain: docs
+roles: [lead, reviewer]
+objectiveTemplate: "Validate editable goal-plan review, rationale persistence, and materialization lineage for SPORE self-build."
+policyPackExpectation: [self-build-safe]
+expectedGovernance:
+  reviewRequired: true
+  approvalRequired: true
+  reworkCapable: true
+expectedWaveTopology:
+  waveCount: 2
+  labels: [review, approval]
+  allowsBranching: false
+realPiEligible: false
+regressionProfiles: [self-build-fast]
+tags: [self-build, goal-plan, review]

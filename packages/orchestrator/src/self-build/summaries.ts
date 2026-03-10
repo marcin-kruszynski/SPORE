@@ -47,6 +47,9 @@ export function buildProposalSummary<T extends ProposalLike | null>(
     ...artifact,
     promotionStatus: promotion?.status ?? null,
     promotion,
+    reworkHistory: Array.isArray(artifact.metadata?.reworkHistory)
+      ? artifact.metadata.reworkHistory
+      : [],
     links: proposalLinks(artifact.id),
   };
 }

@@ -1162,6 +1162,172 @@ async function selfBuild(flags: CliFlags) {
   console.log(renderSelfBuildTriage(payload));
 }
 
+async function selfBuildOverrides(flags: CliFlags) {
+  const search = new URLSearchParams();
+  if (flags.kind) search.set("kind", String(flags.kind));
+  if (flags.status) search.set("status", String(flags.status));
+  if (flags["target-type"])
+    search.set("targetType", String(flags["target-type"]));
+  if (flags["target-id"]) search.set("targetId", String(flags["target-id"]));
+  if (flags.limit) search.set("limit", String(flags.limit));
+  const suffix = search.toString() ? `?${search.toString()}` : "";
+  const payload = await orchestratorRequest(
+    flags,
+    `/self-build/overrides${suffix}`,
+  );
+  console.log(formatJson(payload));
+}
+
+async function selfBuildOverrideShow(flags: CliFlags) {
+  if (!flags.override) {
+    throw new Error("use self-build-override-show --override <id>");
+  }
+  const payload = await orchestratorRequest(
+    flags,
+    `/self-build/overrides/${encodeURIComponent(String(flags.override))}`,
+  );
+  console.log(formatJson(payload));
+}
+
+async function selfBuildOverrideCreate(flags: CliFlags) {
+  if (!flags["target-type"] || !flags["target-id"]) {
+    throw new Error(
+      "use self-build-override-create --target-type <goal-plan|work-item-group|proposal|integration-branch> --target-id <id>",
+    );
+  }
+  const payload = await orchestratorRequest(flags, "/self-build/overrides", {
+    method: "POST",
+    body: JSON.stringify({
+      kind: flags.kind ?? "protected-tier",
+      targetType: flags["target-type"],
+      targetId: flags["target-id"],
+      status: flags.status ?? "pending_review",
+      reason: flags.reason ?? flags.comments ?? "",
+      rationale: flags.rationale ?? flags.comments ?? "",
+      metadata: flags["metadata-json"]
+        ? JSON.parse(String(flags["metadata-json"]))
+        : {},
+      by: flags.by ?? "operator",
+      source: "tui",
+    }),
+  });
+  console.log(formatJson(payload));
+}
+
+async function selfBuildOverrideReview(flags: CliFlags) {
+  if (!flags.override || !flags.status) {
+    throw new Error(
+      "use self-build-override-review --override <id> --status <approved|held|rejected>",
+    );
+  }
+  const payload = await orchestratorRequest(
+    flags,
+    `/self-build/overrides/${encodeURIComponent(String(flags.override))}/review`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        status: flags.status,
+        reason: flags.reason ?? flags.comments ?? "",
+        comments: flags.comments ?? "",
+        by: flags.by ?? "operator",
+        source: "tui",
+      }),
+    },
+  );
+  console.log(formatJson(payload));
+}
+
+async function selfBuildOverrideRelease(flags: CliFlags) {
+  if (!flags.override) {
+    throw new Error("use self-build-override-release --override <id>");
+  }
+  const payload = await orchestratorRequest(
+    flags,
+    `/self-build/overrides/${encodeURIComponent(String(flags.override))}/release`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        reason: flags.reason ?? flags.comments ?? "",
+        comments: flags.comments ?? "",
+        by: flags.by ?? "operator",
+        source: "tui",
+      }),
+    },
+  );
+  console.log(formatJson(payload));
+}
+
+async function selfBuildPolicyRecommendationReviews(flags: CliFlags) {
+  const search = new URLSearchParams();
+  if (flags.limit) search.set("limit", String(flags.limit));
+  const suffix = search.toString() ? `?${search.toString()}` : "";
+  const payload = await orchestratorRequest(
+    flags,
+    `/self-build/policy-recommendation-reviews${suffix}`,
+  );
+  console.log(formatJson(payload));
+}
+
+async function selfBuildPolicyRecommendationShow(flags: CliFlags) {
+  if (!flags.recommendation) {
+    throw new Error(
+      "use self-build-policy-recommendation-show --recommendation <id>",
+    );
+  }
+  const payload = await orchestratorRequest(
+    flags,
+    `/self-build/policy-recommendations/${encodeURIComponent(String(flags.recommendation))}`,
+  );
+  console.log(formatJson(payload));
+}
+
+async function selfBuildPolicyRecommendationReview(flags: CliFlags) {
+  if (!flags.recommendation || !flags.status) {
+    throw new Error(
+      "use self-build-policy-recommendation-review --recommendation <id> --status <accepted|held|dismissed>",
+    );
+  }
+  const payload = await orchestratorRequest(
+    flags,
+    `/self-build/policy-recommendations/${encodeURIComponent(String(flags.recommendation))}/review`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        status: flags.status,
+        reason: flags.reason ?? flags.comments ?? "",
+        comments: flags.comments ?? "",
+        by: flags.by ?? "operator",
+        source: "tui",
+      }),
+    },
+  );
+  console.log(formatJson(payload));
+}
+
+async function selfBuildPolicyRecommendationMaterialize(flags: CliFlags) {
+  if (!flags.recommendation) {
+    throw new Error(
+      "use self-build-policy-recommendation-materialize --recommendation <id>",
+    );
+  }
+  const payload = await orchestratorRequest(
+    flags,
+    `/self-build/policy-recommendations/${encodeURIComponent(String(flags.recommendation))}/materialize`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        projectId: flags.project ?? "spore",
+        domain: flags.domain ?? null,
+        safeMode: flags["safe-mode"] !== false,
+        reviewRequired: flags["review-required"] !== false,
+        by: flags.by ?? "operator",
+        source: "tui",
+      }),
+    },
+  );
+  console.log(formatJson(payload));
+}
+
 async function workItemQueue(flags: CliFlags) {
   const payload = await orchestratorRequest(flags, "/self-build/dashboard");
   const detail = payload.detail ?? {};
@@ -2170,6 +2336,22 @@ async function selfBuildLearnings(flags: CliFlags) {
   console.log(formatJson(payload));
 }
 
+async function selfBuildLearningTrends(flags: CliFlags) {
+  const payload = await orchestratorRequest(
+    flags,
+    "/self-build/learning-trends",
+  );
+  console.log(formatJson(payload));
+}
+
+async function selfBuildPolicyRecommendations(flags: CliFlags) {
+  const payload = await orchestratorRequest(
+    flags,
+    "/self-build/policy-recommendations",
+  );
+  console.log(formatJson(payload));
+}
+
 async function selfBuildDocSuggestions(flags: CliFlags) {
   const search = new URLSearchParams();
   if (flags.status) search.set("status", String(flags.status));
@@ -2461,6 +2643,42 @@ async function main() {
     await selfBuild(flags);
     return;
   }
+  if (command === "self-build-overrides") {
+    await selfBuildOverrides(flags);
+    return;
+  }
+  if (command === "self-build-override-show") {
+    await selfBuildOverrideShow(flags);
+    return;
+  }
+  if (command === "self-build-override-create") {
+    await selfBuildOverrideCreate(flags);
+    return;
+  }
+  if (command === "self-build-override-review") {
+    await selfBuildOverrideReview(flags);
+    return;
+  }
+  if (command === "self-build-override-release") {
+    await selfBuildOverrideRelease(flags);
+    return;
+  }
+  if (command === "self-build-policy-recommendation-reviews") {
+    await selfBuildPolicyRecommendationReviews(flags);
+    return;
+  }
+  if (command === "self-build-policy-recommendation-show") {
+    await selfBuildPolicyRecommendationShow(flags);
+    return;
+  }
+  if (command === "self-build-policy-recommendation-review") {
+    await selfBuildPolicyRecommendationReview(flags);
+    return;
+  }
+  if (command === "self-build-policy-recommendation-materialize") {
+    await selfBuildPolicyRecommendationMaterialize(flags);
+    return;
+  }
   if (command === "work-item-queue") {
     await workItemQueue(flags);
     return;
@@ -2665,6 +2883,14 @@ async function main() {
     await selfBuildLearnings(flags);
     return;
   }
+  if (command === "self-build-learning-trends") {
+    await selfBuildLearningTrends(flags);
+    return;
+  }
+  if (command === "self-build-policy-recommendations") {
+    await selfBuildPolicyRecommendations(flags);
+    return;
+  }
   if (command === "self-build-doc-suggestions") {
     await selfBuildDocSuggestions(flags);
     return;
@@ -2720,7 +2946,7 @@ async function main() {
     return;
   }
   throw new Error(
-    "commands: dashboard | inspect | execution | tree | family | audit | policy-diff | history | project-plan | project-invoke | promotion-plan | promotion-invoke | run-center | self-build | self-build-summary | self-build-dashboard | self-build-decisions | self-build-learnings | self-build-doc-suggestions | self-build-intake | self-build-intake-show | self-build-intake-refresh | self-build-intake-review | self-build-intake-materialize | self-build-quarantine | self-build-rollback | self-build-loop-* | self-build-quarantine-release | work-item-queue | workspace-list | workspace-show | integration-branch-* | scenario-list | scenario-show | scenario-runs | scenario-run | scenario-run-show | scenario-run-artifacts | scenario-rerun | scenario-trends | regression-list | regression-show | regression-runs | regression-run | regression-run-show | regression-report | regression-latest-report | regression-rerun | regression-trends | regression-scheduler | regression-scheduler-status | work-item-template-list | work-item-template-show | goal-plan-create | goal-plan-list | goal-plan-show | goal-plan-history | goal-plan-edit | goal-plan-review | goal-plan-quarantine | goal-plan-materialize | goal-plan-run | work-item-group-list | work-item-group-show | work-item-group-unblock | work-item-group-quarantine | work-item-group-reroute | work-item-group-retry-downstream | work-item-group-requeue-item | work-item-group-skip-item | work-item-group-validate-bundle | work-item-group-run | work-item-list | work-item-show | work-item-runs | work-item-create | work-item-run | work-item-run-show | work-item-run-rerun | work-item-validate | work-item-validate-bundle | work-item-doc-suggestions | doc-suggestion-show | doc-suggestion-review | doc-suggestion-materialize | proposal-show | proposal-review-package | proposal-quarantine | proposal-review | proposal-approve | proposal-promotion-plan | proposal-promotion-invoke | proposal-rework | drive | pause | hold | resume | review | approval",
+    "commands: dashboard | inspect | execution | tree | family | audit | policy-diff | history | project-plan | project-invoke | promotion-plan | promotion-invoke | run-center | self-build | self-build-summary | self-build-dashboard | self-build-decisions | self-build-learnings | self-build-learning-trends | self-build-policy-recommendations | self-build-policy-recommendation-show | self-build-policy-recommendation-reviews | self-build-policy-recommendation-review | self-build-policy-recommendation-materialize | self-build-overrides | self-build-override-show | self-build-override-create | self-build-override-review | self-build-override-release | self-build-doc-suggestions | self-build-intake | self-build-intake-show | self-build-intake-refresh | self-build-intake-review | self-build-intake-materialize | self-build-quarantine | self-build-rollback | self-build-loop-* | self-build-quarantine-release | work-item-queue | workspace-list | workspace-show | integration-branch-* | scenario-list | scenario-show | scenario-runs | scenario-run | scenario-run-show | scenario-run-artifacts | scenario-rerun | scenario-trends | regression-list | regression-show | regression-runs | regression-run | regression-run-show | regression-report | regression-latest-report | regression-rerun | regression-trends | regression-scheduler | regression-scheduler-status | work-item-template-list | work-item-template-show | goal-plan-create | goal-plan-list | goal-plan-show | goal-plan-history | goal-plan-edit | goal-plan-review | goal-plan-quarantine | goal-plan-materialize | goal-plan-run | work-item-group-list | work-item-group-show | work-item-group-unblock | work-item-group-quarantine | work-item-group-reroute | work-item-group-retry-downstream | work-item-group-requeue-item | work-item-group-skip-item | work-item-group-validate-bundle | work-item-group-run | work-item-list | work-item-show | work-item-runs | work-item-create | work-item-run | work-item-run-show | work-item-run-rerun | work-item-validate | work-item-validate-bundle | work-item-doc-suggestions | doc-suggestion-show | doc-suggestion-review | doc-suggestion-materialize | proposal-show | proposal-review-package | proposal-quarantine | proposal-review | proposal-approve | proposal-promotion-plan | proposal-promotion-invoke | proposal-rework | drive | pause | hold | resume | review | approval",
   );
 }
 

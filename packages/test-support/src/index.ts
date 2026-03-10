@@ -14,6 +14,7 @@ export {
   writeBrief,
 } from "./e2e-harness.js";
 export type {
+  CliRunResult,
   HarnessTempPaths,
   HarnessTempPathsWithEventLog,
   JsonResponse,
@@ -22,6 +23,7 @@ export {
   findFreePort,
   getJson,
   postJson,
+  runCliScript,
   sleep,
   startProcess,
   stopProcess,

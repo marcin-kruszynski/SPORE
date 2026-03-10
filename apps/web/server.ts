@@ -136,3 +136,24 @@ server.listen(PORT, HOST, () => {
     )}\n`,
   );
 });
+
+let shuttingDown = false;
+
+function shutdown(signal: NodeJS.Signals) {
+  if (shuttingDown) {
+    return;
+  }
+  shuttingDown = true;
+  process.stderr.write(`spore-web shutdown: ${signal}\n`);
+  server.close(() => {
+    process.exitCode = process.exitCode ?? 0;
+  });
+  const timer = setTimeout(() => {
+    process.exitCode = 1;
+    process.exit();
+  }, 5_000);
+  timer.unref?.();
+}
+
+process.on("SIGINT", () => shutdown("SIGINT"));
+process.on("SIGTERM", () => shutdown("SIGTERM"));

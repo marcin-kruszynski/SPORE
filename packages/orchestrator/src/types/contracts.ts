@@ -148,6 +148,21 @@ export interface SelfBuildIntakeListOptions extends JsonObject {
   sourceType?: string;
   kind?: string;
   priority?: string;
+  projectId?: string;
+  limit?: number | string;
+}
+
+export interface SelfBuildOverrideListOptions extends JsonObject {
+  status?: string;
+  targetType?: string;
+  targetId?: string;
+  kind?: string;
+  limit?: number | string;
+}
+
+export interface PolicyRecommendationReviewListOptions extends JsonObject {
+  status?: string;
+  recommendationId?: string;
   limit?: number | string;
 }
 

@@ -216,6 +216,10 @@ curl http://127.0.0.1:8789/integration-branches
 curl http://127.0.0.1:8789/self-build/decisions
 curl http://127.0.0.1:8789/self-build/quarantine
 curl http://127.0.0.1:8789/self-build/rollback
+curl http://127.0.0.1:8789/self-build/learning-trends
+curl http://127.0.0.1:8789/self-build/policy-recommendations
+curl http://127.0.0.1:8789/self-build/policy-recommendations/policy-rec:learning-record:example
+curl http://127.0.0.1:8789/self-build/overrides/override-123
 curl http://127.0.0.1:8789/self-build/loop/status
 curl -X POST http://127.0.0.1:8789/self-build/loop/start \
   -H 'content-type: application/json' \
@@ -317,6 +321,12 @@ npx tsx packages/tui/src/cli/spore-ops.ts workspace-show --workspace <workspace-
 
 # Legacy raw JSON command (still supported)
 npx tsx packages/tui/src/cli/spore-ops.ts self-build-summary --api http://127.0.0.1:8789
+npx tsx packages/tui/src/cli/spore-ops.ts self-build-learning-trends --api http://127.0.0.1:8789
+npx tsx packages/tui/src/cli/spore-ops.ts self-build-policy-recommendations --api http://127.0.0.1:8789
+npx tsx packages/tui/src/cli/spore-ops.ts self-build-policy-recommendation-show --recommendation <id> --api http://127.0.0.1:8789
+npx tsx packages/tui/src/cli/spore-ops.ts self-build-override-show --override <id> --api http://127.0.0.1:8789
+
+`npm run test:http` and `npm run test:tui` now use shared teardown plus `--test-force-exit` as a guardrail. If either suite hangs again, treat that as a harness regression rather than expected behavior and fix the teardown path instead of normalizing the hang.
 ```
 
 The triage view displays:

@@ -1316,9 +1316,45 @@ async function main() {
       )}\n`,
     );
   });
+  return server;
 }
 
-main().catch((error) => {
-  console.error(`session-gateway error: ${error.message}`);
-  process.exitCode = 1;
+let activeServer: http.Server | null = null;
+let shuttingDown = false;
+
+async function shutdown(signal: NodeJS.Signals) {
+  if (shuttingDown) {
+    return;
+  }
+  shuttingDown = true;
+  process.stderr.write(`session-gateway shutdown: ${signal}\n`);
+  if (!activeServer) {
+    return;
+  }
+  await new Promise<void>((resolve) => {
+    activeServer?.close(() => resolve());
+    const timer = setTimeout(() => resolve(), 5_000);
+    timer.unref?.();
+  });
+}
+
+main()
+  .then((server) => {
+    activeServer = server;
+  })
+  .catch((error) => {
+    console.error(`session-gateway error: ${error.message}`);
+    process.exitCode = 1;
+  });
+
+process.on("SIGINT", () => {
+  shutdown("SIGINT").finally(() => {
+    process.exitCode = process.exitCode ?? 0;
+  });
+});
+
+process.on("SIGTERM", () => {
+  shutdown("SIGTERM").finally(() => {
+    process.exitCode = process.exitCode ?? 0;
+  });
 });

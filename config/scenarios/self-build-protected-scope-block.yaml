@@ -1,0 +1,18 @@
+id: self-build-protected-scope-block
+label: Self-Build Protected Scope Block
+workflow: config/workflows/docs-adr-pass.yaml
+domain: docs
+roles: [lead, reviewer]
+objectiveTemplate: "Validate that autonomous self-build intake blocks protected-scope work and surfaces operator guidance instead of executing silently."
+policyPackExpectation: [self-build-safe]
+expectedGovernance:
+  reviewRequired: true
+  approvalRequired: false
+  reworkCapable: false
+expectedWaveTopology:
+  waveCount: 2
+  labels: [review, block]
+  allowsBranching: false
+realPiEligible: false
+regressionProfiles: [self-build-autonomy]
+tags: [self-build, autonomy, protected-scope]

@@ -1,5 +1,6 @@
 // biome-ignore-all lint/suspicious/noExplicitAny: self-build surfaces intentionally aggregate heterogeneous proposal, workspace, learning, and queue payloads.
 import crypto from "node:crypto";
+import { readFileSync } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { parseYaml } from "@spore/config-schema";
@@ -32,15 +33,18 @@ import {
 } from "../scenarios/run-history.js";
 import {
   findActiveQuarantineRecord,
+  findActiveSelfBuildOverrideRecord,
   findDocSuggestionRecordByRunAndKind,
   getDocSuggestionRecord,
   getGoalPlan,
   getIntegrationBranch,
+  getPolicyRecommendationReviewByRecommendationId,
   getProposalArtifact,
   getProposalArtifactByRunId,
   getQuarantineRecord,
   getSelfBuildIntakeRecord,
   getSelfBuildLoopState,
+  getSelfBuildOverrideRecord,
   getWorkItem,
   getWorkItemGroup,
   getWorkItemRun,
@@ -52,18 +56,21 @@ import {
   insertQuarantineRecord,
   insertRollbackRecord,
   insertSelfBuildDecision,
+  insertSelfBuildOverrideRecord,
   insertWorkItemGroup,
   insertWorkspaceAllocation,
   listDocSuggestionRecords,
   listGoalPlans,
   listIntegrationBranches,
   listLearningRecords,
+  listPolicyRecommendationReviews,
   listProposalArtifacts,
   listQuarantineRecords,
   listRollbackRecords,
   listSelfBuildDecisions,
   listSelfBuildIntakeRecords,
   listSelfBuildLoopStates,
+  listSelfBuildOverrideRecords,
   listWorkItemGroups,
   listWorkItemRuns,
   listWorkspaceAllocations,
@@ -73,21 +80,25 @@ import {
   updateProposalArtifact,
   updateQuarantineRecord,
   updateSelfBuildIntakeRecord,
+  updateSelfBuildOverrideRecord,
   updateWorkItem,
   updateWorkItemGroup,
   updateWorkItemRun,
   updateWorkspaceAllocation,
   upsertDocSuggestionRecord,
   upsertIntegrationBranch,
+  upsertPolicyRecommendationReview,
   upsertSelfBuildIntakeRecord,
   upsertSelfBuildLoopState,
 } from "../store/execution-store.js";
 import type {
   DocSuggestionRecordListOptions,
+  PolicyRecommendationReviewListOptions,
   QuarantineRecordListOptions,
   RollbackRecordListOptions,
   SelfBuildDecisionListOptions,
   SelfBuildIntakeListOptions,
+  SelfBuildOverrideListOptions,
   WorkspaceAllocationListOptions,
   WorkspaceCleanupPolicy,
   WorkspaceCleanupResult,
@@ -119,6 +130,33 @@ import {
 } from "./summaries.js";
 
 type LooseRecord = any;
+type RolloutTierConfig = {
+  id: string;
+  label: string;
+  description: string;
+  enabled: boolean;
+  allowedTemplates: string[];
+  allowedDomains: string[];
+  allowedMutationScopes: string[];
+  targetPaths: string[];
+  protectedScopes: string[];
+  requireSafeMode: boolean;
+  autoPromoteToIntegration: boolean;
+  requiredValidationBundles: string[];
+};
+type IntakePriorityPolicy = {
+  learningFailure: number;
+  learningSuccess: number;
+  docSuggestionPending: number;
+  docSuggestionAccepted: number;
+  integrationIssue: number;
+  policyRecommendation: number;
+  highSeverityBonus: number;
+  acceptedBonus: number;
+  blockedBonus: number;
+  promotionBlockedBonus: number;
+  quarantineBonus: number;
+};
 type AutonomousPolicyConfig = {
   enabled: boolean;
   mode: string;
@@ -135,6 +173,8 @@ type AutonomousPolicyConfig = {
   quarantineOnFailureCount: number;
   quarantineOnBlockedCount: number;
   protectedScopes: string[];
+  rolloutTiers: RolloutTierConfig[];
+  intakePriorityPolicy: IntakePriorityPolicy;
 };
 type AggregatedPackPolicy = {
   autonomousEligible: boolean;
@@ -143,6 +183,9 @@ type AggregatedPackPolicy = {
   requiredValidationBundles: string[];
   quarantineOnFailureCount: unknown;
   quarantineOnBlockedCount: unknown;
+  protectedScopes: string[];
+  rolloutTiers: LooseRecord[];
+  intakePriorityPolicy: LooseRecord;
 };
 
 function withDatabase(dbPath, fn) {
@@ -156,6 +199,10 @@ function withDatabase(dbPath, fn) {
 
 function createId(prefix) {
   return `${prefix}-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
+}
+
+function stablePolicyRecommendationId(kind, sourceId) {
+  return `policy-rec:${toText(kind, "unknown")}:${toText(sourceId, "unknown")}`;
 }
 
 function asArray(value) {
@@ -174,6 +221,10 @@ function nowIso() {
 async function readYamlFile(filePath) {
   const raw = await fs.readFile(filePath, "utf8");
   return parseYaml(raw);
+}
+
+function readYamlFileSync(filePath) {
+  return parseYaml(readFileSync(filePath, "utf8"));
 }
 
 function resolveProjectPath(projectRef = "spore") {
@@ -198,6 +249,15 @@ async function loadProjectConfig(projectRef = "spore") {
   };
 }
 
+function loadProjectConfigSync(projectRef = "spore") {
+  const resolvedPath = resolveProjectPath(projectRef);
+  const config = readYamlFileSync(resolvedPath);
+  return {
+    path: path.relative(PROJECT_ROOT, resolvedPath),
+    config,
+  };
+}
+
 async function loadPolicyPackConfig(packId) {
   const resolvedPath = path.join(
     PROJECT_ROOT,
@@ -205,6 +265,20 @@ async function loadPolicyPackConfig(packId) {
     `${packId}.yaml`,
   );
   const config = await readYamlFile(resolvedPath);
+  return {
+    id: packId,
+    path: path.relative(PROJECT_ROOT, resolvedPath),
+    config,
+  };
+}
+
+function loadPolicyPackConfigSync(packId) {
+  const resolvedPath = path.join(
+    PROJECT_ROOT,
+    "config/policy-packs",
+    `${packId}.yaml`,
+  );
+  const config = readYamlFileSync(resolvedPath);
   return {
     id: packId,
     path: path.relative(PROJECT_ROOT, resolvedPath),
@@ -234,6 +308,294 @@ function compactObject(value) {
 
 function coerceBoolean(value, fallback = false) {
   return typeof value === "boolean" ? value : fallback;
+}
+
+function matchesPathPrefix(candidate = "", prefixes: string[] = []) {
+  const normalizedCandidate = toText(candidate, "");
+  if (!normalizedCandidate) {
+    return false;
+  }
+  return prefixes.some((prefix) => {
+    const normalizedPrefix = toText(prefix, "");
+    return (
+      normalizedPrefix &&
+      (normalizedCandidate === normalizedPrefix ||
+        normalizedCandidate.startsWith(`${normalizedPrefix}/`))
+    );
+  });
+}
+
+function normalizeRolloutTier(
+  tier: LooseRecord = {},
+  index = 0,
+): RolloutTierConfig {
+  return {
+    id: toText(tier.id, `tier-${index + 1}`),
+    label: toText(tier.label, `Tier ${index + 1}`),
+    description: toText(tier.description, ""),
+    enabled: coerceBoolean(tier.enabled, true),
+    allowedTemplates: dedupe(tier.allowedTemplates ?? []),
+    allowedDomains: dedupe(tier.allowedDomains ?? []),
+    allowedMutationScopes: dedupe(tier.allowedMutationScopes ?? []),
+    targetPaths: dedupe(tier.targetPaths ?? []),
+    protectedScopes: dedupe(tier.protectedScopes ?? []),
+    requireSafeMode: coerceBoolean(tier.requireSafeMode, true),
+    autoPromoteToIntegration: coerceBoolean(
+      tier.autoPromoteToIntegration,
+      false,
+    ),
+    requiredValidationBundles: dedupe(tier.requiredValidationBundles ?? []),
+  };
+}
+
+function normalizeIntakePriorityPolicy(
+  policy: LooseRecord = {},
+): IntakePriorityPolicy {
+  const asNumber = (value: unknown, fallback: number) =>
+    Number.isFinite(Number(value)) ? Number(value) : fallback;
+  return {
+    learningFailure: asNumber(policy.learningFailure, 90),
+    learningSuccess: asNumber(policy.learningSuccess, 40),
+    docSuggestionPending: asNumber(policy.docSuggestionPending, 50),
+    docSuggestionAccepted: asNumber(policy.docSuggestionAccepted, 80),
+    integrationIssue: asNumber(policy.integrationIssue, 100),
+    policyRecommendation: asNumber(policy.policyRecommendation, 95),
+    highSeverityBonus: asNumber(policy.highSeverityBonus, 10),
+    acceptedBonus: asNumber(policy.acceptedBonus, 5),
+    blockedBonus: asNumber(policy.blockedBonus, 10),
+    promotionBlockedBonus: asNumber(policy.promotionBlockedBonus, 12),
+    quarantineBonus: asNumber(policy.quarantineBonus, 15),
+  };
+}
+
+function resolveRecommendationTaskClass(
+  templateId = "",
+  domainId = "",
+  mutationScope: string[] = [],
+) {
+  const scopes = dedupe(mutationScope);
+  if (templateId === "runtime-validation-pass") {
+    return "runtime-validation";
+  }
+  if (
+    templateId === "operator-ui-pass" ||
+    scopes.some((scope) => matchesPathPrefix(scope, ["apps/web"]))
+  ) {
+    return "operator-surface";
+  }
+  if (
+    templateId === "config-schema-maintenance" ||
+    scopes.some((scope) => matchesPathPrefix(scope, ["config", "schemas"]))
+  ) {
+    return "config-hardening";
+  }
+  if (
+    templateId === "docs-maintenance-pass" ||
+    domainId === "docs" ||
+    scopes.some((scope) => matchesPathPrefix(scope, ["docs", "runbooks"]))
+  ) {
+    return "documentation";
+  }
+  return "general-self-work";
+}
+
+function resolveRecommendationTargetPaths(mutationScope: string[] = []) {
+  return dedupe(mutationScope).sort((left, right) =>
+    String(left).localeCompare(String(right)),
+  );
+}
+
+function buildAutonomyTargetContext(
+  target: LooseRecord = {},
+  fallback: LooseRecord = {},
+) {
+  const mutationScope = dedupe(
+    target.mutationScope ??
+      target.metadata?.mutationScope ??
+      target.summary?.mutationScope ??
+      fallback.mutationScope ??
+      [],
+  );
+  const targetPaths = dedupe(
+    target.targetPaths ??
+      target.metadata?.targetPaths ??
+      target.summary?.targetPaths ??
+      resolveRecommendationTargetPaths(mutationScope),
+  );
+  return {
+    templateId: toText(
+      target.templateId ?? target.metadata?.templateId,
+      toText(fallback.templateId, ""),
+    ),
+    domainId: toText(
+      target.domainId ?? target.metadata?.domainId,
+      toText(fallback.domainId, ""),
+    ),
+    mutationScope,
+    targetPaths,
+    safeMode:
+      target.safeMode ?? target.metadata?.safeMode ?? fallback.safeMode ?? true,
+    taskClass: toText(
+      target.taskClass ?? target.metadata?.taskClass,
+      resolveRecommendationTaskClass(
+        target.templateId ?? target.metadata?.templateId ?? fallback.templateId,
+        target.domainId ?? target.metadata?.domainId ?? fallback.domainId,
+        mutationScope,
+      ),
+    ),
+  };
+}
+
+function findMatchingRolloutTiers(
+  target: LooseRecord = {},
+  policy: AutonomousPolicyConfig = normalizeAutonomousPolicy({}),
+) {
+  if (!Array.isArray(policy.rolloutTiers) || policy.rolloutTiers.length === 0) {
+    return [];
+  }
+  const context = buildAutonomyTargetContext(target);
+  return policy.rolloutTiers.filter((tier) => {
+    if (tier.enabled === false) {
+      return false;
+    }
+    if (tier.requireSafeMode === true && context.safeMode === false) {
+      return false;
+    }
+    if (
+      tier.allowedTemplates.length > 0 &&
+      context.templateId &&
+      !tier.allowedTemplates.includes(context.templateId)
+    ) {
+      return false;
+    }
+    if (
+      tier.allowedDomains.length > 0 &&
+      context.domainId &&
+      !tier.allowedDomains.includes(context.domainId)
+    ) {
+      return false;
+    }
+    if (
+      tier.allowedMutationScopes.length > 0 &&
+      context.mutationScope.some(
+        (scope) =>
+          !tier.allowedMutationScopes.some((allowed) =>
+            matchesPathPrefix(scope, [allowed]),
+          ),
+      )
+    ) {
+      return false;
+    }
+    if (
+      tier.targetPaths.length > 0 &&
+      context.targetPaths.length > 0 &&
+      context.targetPaths.some(
+        (targetPath) => !matchesPathPrefix(targetPath, tier.targetPaths),
+      )
+    ) {
+      return false;
+    }
+    return true;
+  });
+}
+
+function evaluateProtectedScopeGuardrails(
+  target: LooseRecord = {},
+  policy: AutonomousPolicyConfig = normalizeAutonomousPolicy({}),
+) {
+  const context = buildAutonomyTargetContext(target);
+  const protectedScopes = dedupe([
+    ...(policy.protectedScopes ?? []),
+    ...policy.rolloutTiers.flatMap((tier) => tier.protectedScopes ?? []),
+  ]);
+  const blocked = dedupe(
+    [...context.mutationScope, ...context.targetPaths].filter((entry) =>
+      matchesPathPrefix(entry, protectedScopes),
+    ),
+  );
+  return {
+    blocked,
+    blockedReason:
+      blocked.length > 0
+        ? `protected scopes present: ${blocked.join(", ")}`
+        : "",
+  };
+}
+
+function priorityLabel(priority = 0) {
+  if (priority >= 95) return "critical";
+  if (priority >= 80) return "high";
+  if (priority >= 55) return "medium";
+  return "low";
+}
+
+function scoreSelfBuildIntakeCandidate(
+  candidate: LooseRecord = {},
+  policy: AutonomousPolicyConfig = normalizeAutonomousPolicy({}),
+) {
+  const rules = policy.intakePriorityPolicy;
+  let score = 0;
+  const reasons: string[] = [];
+  if (candidate.sourceType === "learning-record") {
+    const learningKind = toText(candidate.metadata?.sourceKind, "");
+    if (learningKind === "failure-pattern") {
+      score += rules.learningFailure;
+      reasons.push("failure-pattern learning");
+    } else {
+      score += rules.learningSuccess;
+      reasons.push("success-pattern learning");
+    }
+  } else if (candidate.sourceType === "doc-suggestion") {
+    if (candidate.status === "accepted") {
+      score += rules.docSuggestionAccepted;
+      reasons.push("accepted doc suggestion");
+    } else {
+      score += rules.docSuggestionPending;
+      reasons.push("pending doc suggestion");
+    }
+  } else if (candidate.sourceType === "integration-branch") {
+    score += rules.integrationIssue;
+    reasons.push("integration branch issue");
+  } else if (candidate.sourceType === "policy-recommendation") {
+    score += rules.policyRecommendation;
+    reasons.push("policy recommendation");
+  }
+  if (candidate.status === "accepted") {
+    score += rules.acceptedBonus;
+    reasons.push("accepted status");
+  }
+  const diagnosticsIssues = asArray(candidate.metadata?.diagnostics?.issues);
+  if (
+    diagnosticsIssues.some((issue) =>
+      ["high", "critical"].includes(String(issue?.severity ?? "")),
+    )
+  ) {
+    score += rules.highSeverityBonus;
+    reasons.push("high severity issue");
+  }
+  if (candidate.metadata?.quarantine?.status === "active") {
+    score += rules.quarantineBonus;
+    reasons.push("active quarantine");
+  }
+  if (
+    String(candidate.metadata?.proposalStatus ?? "") === "promotion_blocked"
+  ) {
+    score += rules.promotionBlockedBonus;
+    reasons.push("promotion blocked");
+  }
+  if (
+    ["blocked", "integration_failed", "quarantined"].includes(
+      String(candidate.metadata?.branchStatus ?? ""),
+    )
+  ) {
+    score += rules.blockedBonus;
+    reasons.push("blocked branch");
+  }
+  return {
+    score,
+    label: priorityLabel(score),
+    reason: reasons.join("; ") || "default priority",
+  };
 }
 
 function normalizeAutonomousPolicy(
@@ -269,6 +631,12 @@ function normalizeAutonomousPolicy(
         ? Number(policy.quarantineOnBlockedCount)
         : 2,
     protectedScopes: dedupe(policy.protectedScopes ?? []),
+    rolloutTiers: asArray(policy.rolloutTiers).map((tier, index) =>
+      normalizeRolloutTier(tier, index),
+    ),
+    intakePriorityPolicy: normalizeIntakePriorityPolicy(
+      policy.intakePriorityPolicy,
+    ),
   };
 }
 
@@ -313,6 +681,18 @@ async function loadProjectSelfBuildPolicy(projectRef = "spore") {
           asJsonObject(selfWorkPolicy.quarantineThresholds).blockedCount ??
           accumulator.quarantineOnBlockedCount ??
           null,
+        protectedScopes: dedupe([
+          ...asArray(accumulator.protectedScopes),
+          ...asStringArray(selfWorkPolicy.protectedScopes),
+        ]),
+        rolloutTiers: [
+          ...asArray(accumulator.rolloutTiers),
+          ...asArray(selfWorkPolicy.rolloutTiers),
+        ],
+        intakePriorityPolicy: mergeMetadata(
+          accumulator.intakePriorityPolicy ?? {},
+          asJsonObject(selfWorkPolicy.intakePriorityPolicy),
+        ),
       };
     },
     {
@@ -322,6 +702,9 @@ async function loadProjectSelfBuildPolicy(projectRef = "spore") {
       requiredValidationBundles: [],
       quarantineOnFailureCount: null,
       quarantineOnBlockedCount: null,
+      protectedScopes: [],
+      rolloutTiers: [],
+      intakePriorityPolicy: {},
     },
   );
   const defaults = asJsonObject(projectConfig.selfWorkDefaults);
@@ -351,6 +734,133 @@ async function loadProjectSelfBuildPolicy(projectRef = "spore") {
     quarantineOnBlockedCount:
       defaultAutonomousPolicy.quarantineOnBlockedCount ??
       aggregatedPackPolicy.quarantineOnBlockedCount,
+    protectedScopes: dedupe([
+      ...asArray(aggregatedPackPolicy.protectedScopes),
+      ...asStringArray(defaultAutonomousPolicy.protectedScopes),
+    ]),
+    rolloutTiers: [
+      ...asArray(aggregatedPackPolicy.rolloutTiers),
+      ...asArray(defaultAutonomousPolicy.rolloutTiers),
+    ],
+    intakePriorityPolicy: mergeMetadata(
+      aggregatedPackPolicy.intakePriorityPolicy ?? {},
+      asJsonObject(defaultAutonomousPolicy.intakePriorityPolicy),
+    ),
+    ...defaultAutonomousPolicy,
+  });
+  return {
+    project,
+    projectConfig,
+    policyPackIds,
+    autonomy,
+  };
+}
+
+function loadProjectSelfBuildPolicySync(projectRef = "spore") {
+  const project = loadProjectConfigSync(projectRef);
+  const projectConfig = asJsonObject(project.config);
+  const policyPackIds = dedupe(projectConfig.policyPacks ?? []);
+  const packConfigs = policyPackIds.flatMap((packId) => {
+    try {
+      return [loadPolicyPackConfigSync(packId)];
+    } catch {
+      return [];
+    }
+  });
+  const aggregatedPackPolicy = packConfigs.reduce<AggregatedPackPolicy>(
+    (accumulator, pack) => {
+      const selfWorkPolicy = asJsonObject(
+        asJsonObject(pack.config).selfWorkPolicy,
+      );
+      return {
+        autonomousEligible:
+          accumulator.autonomousEligible ||
+          selfWorkPolicy.autonomousEligible === true,
+        allowedTemplates: dedupe([
+          ...asArray(accumulator.allowedTemplates),
+          ...asStringArray(selfWorkPolicy.allowedAutonomousTemplates),
+        ]),
+        allowedMutationScopes: dedupe([
+          ...asArray(accumulator.allowedMutationScopes),
+          ...asStringArray(selfWorkPolicy.allowedAutonomousMutationScopes),
+        ]),
+        requiredValidationBundles: dedupe([
+          ...asArray(accumulator.requiredValidationBundles),
+          ...asStringArray(selfWorkPolicy.requiredAutonomousValidationBundles),
+        ]),
+        quarantineOnFailureCount:
+          asJsonObject(selfWorkPolicy.quarantineThresholds).failureCount ??
+          accumulator.quarantineOnFailureCount ??
+          null,
+        quarantineOnBlockedCount:
+          asJsonObject(selfWorkPolicy.quarantineThresholds).blockedCount ??
+          accumulator.quarantineOnBlockedCount ??
+          null,
+        protectedScopes: dedupe([
+          ...asArray(accumulator.protectedScopes),
+          ...asStringArray(selfWorkPolicy.protectedScopes),
+        ]),
+        rolloutTiers: [
+          ...asArray(accumulator.rolloutTiers),
+          ...asArray(selfWorkPolicy.rolloutTiers),
+        ],
+        intakePriorityPolicy: mergeMetadata(
+          accumulator.intakePriorityPolicy ?? {},
+          asJsonObject(selfWorkPolicy.intakePriorityPolicy),
+        ),
+      };
+    },
+    {
+      autonomousEligible: false,
+      allowedTemplates: [],
+      allowedMutationScopes: [],
+      requiredValidationBundles: [],
+      quarantineOnFailureCount: null,
+      quarantineOnBlockedCount: null,
+      protectedScopes: [],
+      rolloutTiers: [],
+      intakePriorityPolicy: {},
+    },
+  );
+  const defaults = asJsonObject(projectConfig.selfWorkDefaults);
+  const defaultAutonomousPolicy = asJsonObject(defaults.autonomousPolicy);
+  const autonomy = normalizeAutonomousPolicy({
+    enabled:
+      defaultAutonomousPolicy.enabled ??
+      aggregatedPackPolicy.autonomousEligible ??
+      false,
+    allowedTemplates: [
+      ...asArray(aggregatedPackPolicy.allowedTemplates),
+      ...asStringArray(defaultAutonomousPolicy.allowedTemplates),
+    ],
+    allowedDomains: asStringArray(defaultAutonomousPolicy.allowedDomains),
+    allowedMutationScopes: [
+      ...asArray(aggregatedPackPolicy.allowedMutationScopes),
+      ...asStringArray(defaultAutonomousPolicy.allowedMutationScopes),
+    ],
+    requiredValidationBundles: [
+      ...asArray(aggregatedPackPolicy.requiredValidationBundles),
+      ...asStringArray(defaultAutonomousPolicy.requiredValidationBundles),
+      ...asStringArray(defaults.defaultValidationBundles),
+    ],
+    quarantineOnFailureCount:
+      defaultAutonomousPolicy.quarantineOnFailureCount ??
+      aggregatedPackPolicy.quarantineOnFailureCount,
+    quarantineOnBlockedCount:
+      defaultAutonomousPolicy.quarantineOnBlockedCount ??
+      aggregatedPackPolicy.quarantineOnBlockedCount,
+    protectedScopes: dedupe([
+      ...asArray(aggregatedPackPolicy.protectedScopes),
+      ...asStringArray(defaultAutonomousPolicy.protectedScopes),
+    ]),
+    rolloutTiers: [
+      ...asArray(aggregatedPackPolicy.rolloutTiers),
+      ...asArray(defaultAutonomousPolicy.rolloutTiers),
+    ],
+    intakePriorityPolicy: mergeMetadata(
+      aggregatedPackPolicy.intakePriorityPolicy ?? {},
+      asJsonObject(defaultAutonomousPolicy.intakePriorityPolicy),
+    ),
     ...defaultAutonomousPolicy,
   });
   return {
@@ -1336,6 +1846,25 @@ function workItemRequiresWorkspace(item) {
 function buildTemplatePayload(template, payload: LooseRecord = {}) {
   const templateMetadata = template.defaultMetadata ?? template.metadata ?? {};
   const payloadMetadata = compactObject(payload.metadata ?? {}) as LooseRecord;
+  const mutationScope = dedupe(
+    payloadMetadata.mutationScope ??
+      templateMetadata.mutationScope ??
+      template.targetPaths ??
+      [],
+  );
+  const taskClass = toText(
+    payloadMetadata.taskClass ?? template.taskClass,
+    resolveRecommendationTaskClass(
+      template.id,
+      templateMetadata.domainId,
+      mutationScope,
+    ),
+  );
+  const targetPaths = dedupe(
+    payloadMetadata.targetPaths ??
+      template.targetPaths ??
+      resolveRecommendationTargetPaths(mutationScope),
+  );
   return {
     ...payload,
     title: payload.title ?? template.label ?? template.id,
@@ -1360,6 +1889,12 @@ function buildTemplatePayload(template, payload: LooseRecord = {}) {
     ]),
     metadata: mergeMetadata(templateMetadata, payloadMetadata, {
       templateId: template.id,
+      taskClass,
+      targetPaths,
+      autonomousEligible:
+        payloadMetadata.autonomousEligible ??
+        template.autonomousEligible ??
+        true,
       recommendedScenarios: dedupe([
         ...(template.recommendedScenarios ?? []),
         ...(payloadMetadata.recommendedScenarios ?? []),
@@ -1434,6 +1969,8 @@ function buildGoalRecommendations({
         projectPath,
         safeMode,
         mutationScope: ["docs", "runbooks"],
+        targetPaths: ["docs", "docs/runbooks", "README.md"],
+        taskClass: "documentation",
         recommendedScenarios: ["docs-adr-pass"],
         recommendedRegressions: ["local-fast"],
       },
@@ -1461,6 +1998,8 @@ function buildGoalRecommendations({
         roles: ["lead", "scout", "reviewer"],
         safeMode,
         mutationScope: ["config", "docs"],
+        targetPaths: ["config", "schemas", "docs"],
+        taskClass: "config-hardening",
         requiresProposal: true,
         codeOriented: true,
         recommendedScenarios: ["docs-adr-pass"],
@@ -1494,6 +2033,8 @@ function buildGoalRecommendations({
         roles: ["lead", "scout", "builder", "tester", "reviewer"],
         safeMode,
         mutationScope: safeMode ? ["docs", "config", "apps/web"] : ["apps/web"],
+        targetPaths: safeMode ? ["apps/web", "docs", "config"] : ["apps/web"],
+        taskClass: "operator-surface",
         requiresProposal: true,
         codeOriented: true,
         recommendedScenarios: ["frontend-ui-pass"],
@@ -1528,6 +2069,10 @@ function buildGoalRecommendations({
         mutationScope: safeMode
           ? ["config", "docs"]
           : ["packages/runtime-pi", "services/session-gateway"],
+        targetPaths: safeMode
+          ? ["config", "docs"]
+          : ["packages/runtime-pi", "services/session-gateway"],
+        taskClass: "runtime-validation",
         recommendedRegressions: [safeMode ? "local-fast" : "pi-canonical"],
       },
     });
@@ -1550,6 +2095,8 @@ function buildGoalRecommendations({
         projectPath,
         safeMode,
         mutationScope: ["docs", "config"],
+        targetPaths: ["docs", "config"],
+        taskClass: "general-self-work",
         recommendedScenarios: ["cli-verification-pass"],
         recommendedRegressions: ["local-fast"],
       },
@@ -2616,6 +3163,13 @@ function buildIntakeGoalFromIntegrationBranch(branch) {
   return `Investigate integration branch ${branch.name} and restore promotion flow without mutating canonical root directly.`;
 }
 
+function buildIntakeGoalFromPolicyRecommendation(recommendation) {
+  return (
+    recommendation.goal ??
+    `Address policy recommendation ${recommendation.id} so autonomous self-build can proceed more safely.`
+  );
+}
+
 function buildIntegrationBranchDiagnostics(branch) {
   if (!branch) {
     return null;
@@ -2659,6 +3213,45 @@ function buildIntegrationBranchDiagnostics(branch) {
         "Integration branch has no durable proposal artifact sources attached.",
     });
   }
+  if (!asArray(branch.workspaceIds).length) {
+    issues.push({
+      code: "missing_workspace_sources",
+      severity: "medium",
+      reason:
+        "Integration branch has no workspace-linked sources attached, so branch provenance is incomplete.",
+    });
+  }
+  if (!branch.sourceExecutionId) {
+    issues.push({
+      code: "integration_branch_no_execution_source",
+      severity: "high",
+      reason:
+        "Integration branch is missing its source executionId and cannot be traced cleanly through promotion history.",
+    });
+  }
+  const bundleResults = asArray(branch.metadata?.validation?.bundleResults);
+  if (
+    String(branch.status ?? "") !== "merged_to_integration" &&
+    bundleResults.length === 0
+  ) {
+    issues.push({
+      code: "integration_branch_validation_missing",
+      severity: "medium",
+      reason:
+        "Integration branch has no durable validation-bundle evidence attached.",
+    });
+  }
+  if (
+    String(branch.status ?? "") === "promotion_candidate" &&
+    branch.metadata?.promotion?.status === "blocked"
+  ) {
+    issues.push({
+      code: "integration_branch_inconsistent",
+      severity: "high",
+      reason:
+        "Integration branch is marked as a promotion candidate while promotion metadata still reports a blocked state.",
+    });
+  }
   if (branch.quarantine?.status === "active") {
     issues.push({
       code: "integration_branch_quarantined",
@@ -2689,15 +3282,281 @@ function buildIntegrationBranchDiagnostics(branch) {
   };
 }
 
+export function getSelfBuildLearningTrends(
+  dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
+) {
+  const records = withDatabase(dbPath, (db) =>
+    listLearningRecords(db, null, 200),
+  );
+  const buckets = new Map<string, LooseRecord>();
+  for (const record of records) {
+    const templateId = toText(
+      record.metadata?.templateId,
+      inferLearningTemplateId(record),
+    );
+    const domainId = toText(record.metadata?.domainId, "docs");
+    const kind = toText(record.kind, "unknown");
+    const bucketId = `${kind}:${domainId}:${templateId}`;
+    const existing = buckets.get(bucketId) ?? {
+      id: bucketId,
+      kind,
+      domainId,
+      templateId,
+      count: 0,
+      activeCount: 0,
+      statuses: {},
+      latestAt: null,
+      sourceIds: [],
+    };
+    existing.count += 1;
+    existing.activeCount += String(record.status) === "active" ? 1 : 0;
+    existing.statuses[String(record.status ?? "unknown")] =
+      Number(existing.statuses[String(record.status ?? "unknown")] ?? 0) + 1;
+    existing.latestAt =
+      !existing.latestAt ||
+      new Date(record.updatedAt ?? record.createdAt ?? 0).getTime() >
+        new Date(existing.latestAt).getTime()
+        ? (record.updatedAt ?? record.createdAt ?? null)
+        : existing.latestAt;
+    existing.sourceIds = dedupe([...existing.sourceIds, record.id]);
+    buckets.set(bucketId, existing);
+  }
+  return [...buckets.values()]
+    .map((bucket) => ({
+      ...bucket,
+      repeated: bucket.activeCount >= 2,
+      severity:
+        bucket.kind === "failure-pattern"
+          ? bucket.activeCount >= 3
+            ? "high"
+            : "medium"
+          : "low",
+      summary:
+        bucket.kind === "failure-pattern"
+          ? `${bucket.activeCount} active failure-pattern learnings for ${bucket.templateId} in ${bucket.domainId}.`
+          : `${bucket.activeCount} active learnings for ${bucket.templateId} in ${bucket.domainId}.`,
+      links: {
+        learnings: `/self-build/learnings?sourceType=${encodeURIComponent("work-item-run")}`,
+      },
+    }))
+    .sort((left, right) => {
+      const rightSeverity =
+        right.severity === "high" ? 3 : right.severity === "medium" ? 2 : 1;
+      const leftSeverity =
+        left.severity === "high" ? 3 : left.severity === "medium" ? 2 : 1;
+      if (rightSeverity !== leftSeverity) {
+        return rightSeverity - leftSeverity;
+      }
+      return (
+        new Date(right.latestAt ?? 0).getTime() -
+        new Date(left.latestAt ?? 0).getTime()
+      );
+    });
+}
+
+export function getSelfBuildPolicyRecommendations(
+  dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
+) {
+  const trends = getSelfBuildLearningTrends(dbPath);
+  const blockedDecisions = listSelfBuildDecisionSummaries(
+    { state: "blocked", limit: 100 },
+    dbPath,
+  );
+  const quarantines = listSelfBuildQuarantineSummaries(
+    { status: "active", limit: 50 },
+    dbPath,
+  );
+  const integrationBranches = listIntegrationBranchSummaries(
+    { limit: 50 },
+    dbPath,
+  ).map((branch) => ({
+    ...branch,
+    diagnostics: buildIntegrationBranchDiagnostics(branch),
+  }));
+  const recommendations: LooseRecord[] = [];
+
+  for (const trend of trends) {
+    if (!trend.repeated) {
+      continue;
+    }
+    recommendations.push({
+      id: stablePolicyRecommendationId("learning-trend", trend.id),
+      kind:
+        trend.kind === "failure-pattern"
+          ? "stabilize-template"
+          : "review-learning-pattern",
+      summary:
+        trend.kind === "failure-pattern"
+          ? `Repeated failure pattern for ${trend.templateId} in ${trend.domainId} should become managed repair work.`
+          : `Repeated learning pattern for ${trend.templateId} in ${trend.domainId} should be reviewed for policy or template tuning.`,
+      goal:
+        trend.kind === "failure-pattern"
+          ? `Stabilize autonomous self-build flow for template ${trend.templateId} in domain ${trend.domainId}.`
+          : `Review learning trend ${trend.id} and decide whether template or policy tuning is needed.`,
+      priority: trend.severity === "high" ? "high" : "medium",
+      severity: trend.severity,
+      domainId: trend.domainId,
+      templateId: trend.templateId,
+      sourceType: "learning-trend",
+      sourceIds: trend.sourceIds,
+      autonomyImpact: trend.kind === "failure-pattern" ? "degrade" : "observe",
+      reason: trend.summary,
+      suggestedActions: [
+        {
+          action: "materialize-policy-follow-up",
+          targetType: "self-build-intake",
+          targetId: null,
+          priority: trend.severity === "high" ? "high" : "medium",
+          reason: trend.summary,
+          expectedOutcome:
+            "Convert repeated learning evidence into managed repair or policy-tuning work.",
+          commandHint: "npm run orchestrator:self-build-intake-refresh",
+          httpHint: "/self-build/intake/refresh",
+        },
+      ],
+    });
+  }
+
+  for (const decision of blockedDecisions) {
+    const blockers = asArray(
+      decision.metadata?.evaluation?.protectedScopeBlocks,
+    );
+    if (blockers.length === 0) {
+      continue;
+    }
+    recommendations.push({
+      id: stablePolicyRecommendationId("autonomy-decision", decision.id),
+      kind: "protected-scope-block",
+      summary: `Autonomous work hit protected scopes: ${blockers.join(", ")}.`,
+      goal: `Review protected-scope policy for ${decision.targetType} ${decision.targetId} and decide whether to reroute or keep it supervised.`,
+      priority: "high",
+      severity: "high",
+      domainId: null,
+      templateId: null,
+      sourceType: "autonomy-decision",
+      sourceIds: [decision.id],
+      autonomyImpact: "block",
+      reason: decision.rationale ?? blockers.join(", "),
+      blockedScopes: blockers,
+      suggestedActions: [
+        {
+          action: "review-protected-scope-block",
+          targetType: decision.targetType ?? "goal-plan",
+          targetId: decision.targetId ?? null,
+          priority: "high",
+          reason: decision.rationale ?? blockers.join(", "),
+          expectedOutcome:
+            "Decide whether this work stays supervised or the autonomous policy needs a tier change.",
+          commandHint:
+            decision.targetType === "goal-plan"
+              ? `npm run orchestrator:goal-plan-show -- --plan ${decision.targetId}`
+              : null,
+          httpHint: decision.links?.self ?? null,
+        },
+      ],
+    });
+  }
+
+  for (const record of quarantines) {
+    recommendations.push({
+      id: stablePolicyRecommendationId("quarantine", record.id),
+      kind: "quarantine-follow-up",
+      summary: `Active quarantine exists for ${record.targetType} ${record.targetId}.`,
+      goal: `Resolve quarantine ${record.id} and decide whether work should be repaired, revalidated, or kept blocked.`,
+      priority: "high",
+      severity: "high",
+      domainId: null,
+      templateId: null,
+      sourceType: "quarantine",
+      sourceIds: [record.id],
+      autonomyImpact: "block",
+      reason: record.reason ?? "Self-build target is quarantined.",
+      suggestedActions: [
+        {
+          action: "inspect-quarantine",
+          targetType: record.targetType,
+          targetId: record.targetId,
+          priority: "high",
+          reason: record.reason ?? "Quarantine requires operator follow-up.",
+          expectedOutcome:
+            "Decide whether to release quarantine, reroute work, or keep the target blocked.",
+          commandHint:
+            record.targetType === "goal-plan"
+              ? `npm run orchestrator:goal-plan-show -- --plan ${record.targetId}`
+              : null,
+          httpHint: record.links?.self ?? null,
+        },
+      ],
+    });
+  }
+
+  for (const branch of integrationBranches) {
+    if ((branch.diagnostics?.issueCount ?? 0) === 0) {
+      continue;
+    }
+    recommendations.push({
+      id: stablePolicyRecommendationId("integration-branch", branch.name),
+      kind: "integration-branch-repair",
+      summary: `Integration branch ${branch.name} has ${branch.diagnostics?.issueCount ?? 0} active issues.`,
+      goal: `Repair integration branch ${branch.name} and restore promotion flow safely.`,
+      priority: "high",
+      severity: branch.diagnostics?.issues?.some(
+        (issue) => issue.severity === "high",
+      )
+        ? "high"
+        : "medium",
+      domainId: "backend",
+      templateId: "runtime-validation-pass",
+      sourceType: "integration-branch",
+      sourceIds: [branch.name],
+      autonomyImpact: "block",
+      reason:
+        branch.diagnostics?.issues?.[0]?.reason ??
+        branch.reason ??
+        "Integration branch requires repair.",
+      diagnostics: branch.diagnostics,
+      suggestedActions: branch.diagnostics?.suggestedActions ?? [],
+    });
+  }
+
+  const reviewByRecommendationId = new Map(
+    withDatabase(dbPath, (db) =>
+      listPolicyRecommendationReviews(db, { limit: 200 }),
+    ).map((review) => [String(review.recommendationId), review]),
+  );
+
+  return recommendations
+    .sort((left, right) => {
+      const order = { high: 0, medium: 1, low: 2 };
+      const leftPriority = order[left.priority] ?? 3;
+      const rightPriority = order[right.priority] ?? 3;
+      if (leftPriority !== rightPriority) {
+        return leftPriority - rightPriority;
+      }
+      return String(left.summary).localeCompare(String(right.summary));
+    })
+    .slice(0, 50)
+    .map((recommendation) =>
+      buildPolicyRecommendationReviewSummary(
+        reviewByRecommendationId.get(String(recommendation.id)) ?? null,
+        recommendation,
+      ),
+    );
+}
+
 function buildSelfBuildIntakeSummary(record) {
   if (!record) {
     return null;
   }
+  const score = Number(record.metadata?.priorityScore ?? record.priority ?? 0);
   return {
     ...record,
     itemType: "self-build-intake",
     targetType: "self-build-intake",
     targetId: record.id,
+    priorityScore: score,
+    priorityLabel: priorityLabel(score),
+    priorityReason: toText(record.metadata?.priorityReason, ""),
     links: {
       self: `/self-build/intake/${encodeURIComponent(record.id)}`,
       review: `/self-build/intake/${encodeURIComponent(record.id)}/review`,
@@ -2735,6 +3594,8 @@ export async function refreshSelfBuildIntake(
   const now = nowIso();
   const activeKeys = new Set();
   const projectId = toText(options.projectId, "spore");
+  const resolvedPolicy = await loadProjectSelfBuildPolicy(projectId);
+  const autonomyPolicy = resolvedPolicy.autonomy;
   const learnings = listSelfBuildLearningSummaries(
     { status: "active", limit: 100 },
     dbPath,
@@ -2765,13 +3626,20 @@ export async function refreshSelfBuildIntake(
     .filter((branch) => (branch.diagnostics?.issueCount ?? 0) > 0);
 
   const createOrUpdate = (candidate) => {
+    const scoring = scoreSelfBuildIntakeCandidate(candidate, autonomyPolicy);
     activeKeys.add(`${candidate.sourceType}:${candidate.sourceId}`);
     return withDatabase(dbPath, (db) =>
       upsertSelfBuildIntakeRecord(db, {
         ...candidate,
         projectId: candidate.projectId ?? projectId,
+        priority: scoring.score,
         updatedAt: now,
         createdAt: candidate.createdAt ?? now,
+        metadata: mergeMetadata(candidate.metadata ?? {}, {
+          priorityScore: scoring.score,
+          priorityLabel: scoring.label,
+          priorityReason: scoring.reason,
+        }),
       }),
     );
   };
@@ -2783,7 +3651,7 @@ export async function refreshSelfBuildIntake(
       sourceId: learning.id,
       kind: "learning-follow-up",
       status: "queued",
-      priority: learning.kind === "failure-pattern" ? 90 : 40,
+      priority: 0,
       goal: buildIntakeGoalFromLearning(learning),
       projectId,
       domainId: learning.metadata?.domainId ?? "docs",
@@ -2805,7 +3673,7 @@ export async function refreshSelfBuildIntake(
       sourceId: suggestion.id,
       kind: "doc-follow-up",
       status: "queued",
-      priority: suggestion.status === "accepted" ? 80 : 50,
+      priority: 0,
       goal: buildIntakeGoalFromDocSuggestion(suggestion),
       projectId: suggestion.metadata?.projectId ?? projectId,
       domainId: suggestion.metadata?.domainId ?? "docs",
@@ -2828,7 +3696,7 @@ export async function refreshSelfBuildIntake(
       sourceId: branch.name,
       kind: "integration-repair",
       status: "queued",
-      priority: 100,
+      priority: 0,
       goal: buildIntakeGoalFromIntegrationBranch(branch),
       projectId: branch.projectId ?? projectId,
       domainId: "backend",
@@ -2837,6 +3705,7 @@ export async function refreshSelfBuildIntake(
       metadata: {
         branchStatus: branch.status,
         diagnostics: branch.diagnostics,
+        proposalStatus: branch.metadata?.promotion?.status ?? null,
       },
       consumedAt: null,
     });
@@ -3044,6 +3913,18 @@ export async function reworkProposalArtifact(
         reworkItemId: reworkItem?.id ?? null,
         groupId: group?.id ?? null,
       },
+      reworkHistory: [
+        ...asArray(proposal.metadata?.reworkHistory),
+        {
+          createdAt: nowIso(),
+          by: payload.by ?? "operator",
+          source: payload.source ?? "proposal-rework",
+          comments: payload.comments ?? "",
+          rationale: payload.rationale ?? payload.comments ?? "",
+          reworkItemId: reworkItem?.id ?? null,
+          groupId: group?.id ?? null,
+        },
+      ],
     }),
   };
   withDatabase(dbPath, (db) => updateProposalArtifact(db, updatedProposal));
@@ -5068,6 +5949,7 @@ function buildProposalReviewPackage(
     },
     reviewHistory: asArray(proposal.metadata?.reviewHistory),
     approvalHistory: asArray(proposal.metadata?.approvalHistory),
+    reworkHistory: asArray(proposal.metadata?.reworkHistory),
     suggestedActions: [
       proposal.status === "ready_for_review"
         ? {
@@ -5119,6 +6001,22 @@ function buildProposalReviewPackage(
                 ? `/proposal-artifacts/${encodeURIComponent(proposal.id)}/promotion-plan`
                 : `/proposal-artifacts/${encodeURIComponent(proposal.id)}/review-package`,
             priority: promotion.ready && readiness.ready ? "medium" : "high",
+          }
+        : null,
+      ["rework_required", "validation_failed", "promotion_blocked"].includes(
+        String(proposal.status),
+      )
+        ? {
+            action: "rework-proposal",
+            targetType: "proposal",
+            targetId: proposal.id,
+            reason:
+              String(proposal.status) === "rework_required"
+                ? "Proposal was returned for rework."
+                : "Proposal needs additional work before validation or promotion can proceed.",
+            commandHint: `npm run orchestrator:proposal-rework -- --proposal ${proposal.id}`,
+            httpHint: `/proposal-artifacts/${encodeURIComponent(proposal.id)}/rework`,
+            priority: "high",
           }
         : null,
     ].filter(Boolean),
@@ -5966,6 +6864,107 @@ function buildSelfBuildDecisionSummary(decision) {
   };
 }
 
+function overrideLinks(record) {
+  return {
+    self: "/self-build/overrides",
+    review: `/self-build/overrides/${encodeURIComponent(record.id)}/review`,
+    release: `/self-build/overrides/${encodeURIComponent(record.id)}/release`,
+    target:
+      record.targetType === "goal-plan"
+        ? `/goal-plans/${encodeURIComponent(record.targetId)}`
+        : record.targetType === "work-item-group"
+          ? `/work-item-groups/${encodeURIComponent(record.targetId)}`
+          : record.targetType === "proposal"
+            ? `/proposal-artifacts/${encodeURIComponent(record.targetId)}`
+            : record.targetType === "integration-branch"
+              ? `/integration-branches/${encodeURIComponent(record.targetId)}`
+              : null,
+  };
+}
+
+function buildSelfBuildOverrideSummary(record) {
+  if (!record) {
+    return null;
+  }
+  const overrideKind = toText(record.kind, "protected-tier");
+  return {
+    ...record,
+    id: record.id,
+    itemType: "protected-override",
+    targetType: "self-build-override",
+    targetId: record.id,
+    overrideId: record.id,
+    overrideTargetType: record.targetType,
+    overrideTargetId: record.targetId,
+    reviewStatus: record.status,
+    reviewReason: record.metadata?.reviewReason ?? record.reason ?? "",
+    reviewedBy: record.metadata?.reviewedBy ?? null,
+    protectedScope:
+      record.metadata?.overrideScope ?? record.metadata?.protectedScope ?? null,
+    overrideRequestedAt: record.createdAt,
+    overrideKind,
+    overridesProtectedScopes:
+      record.metadata?.bypassProtectedScopes === true ||
+      overrideKind === "protected-tier",
+    overridesRolloutTier:
+      record.metadata?.bypassRolloutTier === true ||
+      record.metadata?.bypassRolloutTiers === true ||
+      overrideKind === "protected-tier",
+    links: overrideLinks(record),
+  };
+}
+
+function buildPolicyRecommendationReviewSummary(record, recommendation = null) {
+  if (!record && !recommendation) {
+    return null;
+  }
+  const recommendationId =
+    recommendation?.id ?? record?.recommendationId ?? null;
+  const recommendationSummary =
+    recommendation ?? record?.metadata?.recommendation ?? null;
+  const queueStatus = (() => {
+    const raw = String(record?.status ?? "pending_review").trim();
+    if (raw === "deferred") return "held";
+    if (raw === "rejected") return "dismissed";
+    return raw || "pending_review";
+  })();
+  return {
+    ...(recommendationSummary ?? {}),
+    ...(record ?? {}),
+    id: recommendationId ?? record?.id ?? null,
+    itemType: "policy-recommendation",
+    targetType: "policy-recommendation",
+    targetId: recommendationId,
+    recommendationId,
+    recommendation: recommendationSummary,
+    queueStatus,
+    reviewStatus: queueStatus,
+    reviewReason: record?.reason ?? "",
+    reviewedBy: record?.reviewedBy ?? null,
+    materializedIntakeId: record?.materializedIntakeId ?? null,
+    materializedGoalPlanId: record?.materializedGoalPlanId ?? null,
+    materializedTemplateId:
+      recommendationSummary?.templateId ?? record?.metadata?.templateId ?? null,
+    links: {
+      self: recommendationId
+        ? `/self-build/policy-recommendations/${encodeURIComponent(recommendationId)}`
+        : "/self-build/policy-recommendations",
+      review: recommendationId
+        ? `/self-build/policy-recommendations/${encodeURIComponent(recommendationId)}/review`
+        : null,
+      materialize: recommendationId
+        ? `/self-build/policy-recommendations/${encodeURIComponent(recommendationId)}/materialize`
+        : null,
+      intake: record?.materializedIntakeId
+        ? `/self-build/intake/${encodeURIComponent(record.materializedIntakeId)}`
+        : null,
+      goalPlan: record?.materializedGoalPlanId
+        ? `/goal-plans/${encodeURIComponent(record.materializedGoalPlanId)}`
+        : null,
+    },
+  };
+}
+
 export function listSelfBuildDecisionSummaries(
   options: SelfBuildDecisionListOptions = {},
   dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
@@ -5973,6 +6972,331 @@ export function listSelfBuildDecisionSummaries(
   return withDatabase(dbPath, (db) => listSelfBuildDecisions(db, options)).map(
     buildSelfBuildDecisionSummary,
   );
+}
+
+export function listSelfBuildOverrideSummaries(
+  options: SelfBuildOverrideListOptions = {},
+  dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
+) {
+  return withDatabase(dbPath, (db) =>
+    listSelfBuildOverrideRecords(db, options),
+  ).map(buildSelfBuildOverrideSummary);
+}
+
+export function getSelfBuildOverrideSummary(
+  overrideId,
+  dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
+) {
+  const record = withDatabase(dbPath, (db) =>
+    getSelfBuildOverrideRecord(db, overrideId),
+  );
+  return buildSelfBuildOverrideSummary(record);
+}
+
+export async function createSelfBuildOverride(
+  payload: LooseRecord = {},
+  dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
+) {
+  const targetType = toText(payload.targetType, "");
+  const targetId = toText(payload.targetId, "");
+  if (!targetType || !targetId) {
+    const error = new Error(
+      "self-build override requires targetType and targetId",
+    );
+    (error as LooseRecord).code = "self_build_override_target_required";
+    throw error;
+  }
+  const existingApproved = withDatabase(dbPath, (db) =>
+    findActiveSelfBuildOverrideRecord(
+      db,
+      targetType,
+      targetId,
+      payload.kind ?? "protected-tier",
+    ),
+  );
+  if (existingApproved) {
+    return buildSelfBuildOverrideSummary(existingApproved);
+  }
+  const now = nowIso();
+  const record = {
+    id: payload.id ?? createId("self-build-override"),
+    targetType,
+    targetId,
+    kind: toText(payload.kind, "protected-tier"),
+    status: "pending_review",
+    reason: toText(
+      payload.reason,
+      "Human override requested for protected-tier autonomous work.",
+    ),
+    requestedBy: payload.by ?? "operator",
+    source: payload.source ?? "http",
+    metadata: mergeMetadata(
+      {
+        rationale: payload.rationale ?? "",
+        bypassProtectedScopes: payload.bypassProtectedScopes !== false,
+        bypassRolloutTier: payload.bypassRolloutTier !== false,
+        expiresAt: payload.expiresAt ?? null,
+      },
+      payload.metadata ?? {},
+    ),
+    createdAt: now,
+    updatedAt: now,
+    releasedAt: null,
+  };
+  withDatabase(dbPath, (db) => insertSelfBuildOverrideRecord(db, record));
+  return buildSelfBuildOverrideSummary(record);
+}
+
+export async function reviewSelfBuildOverride(
+  overrideId,
+  payload: LooseRecord = {},
+  dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
+) {
+  const record = withDatabase(dbPath, (db) =>
+    getSelfBuildOverrideRecord(db, overrideId),
+  );
+  if (!record) {
+    return null;
+  }
+  const now = nowIso();
+  const requestedStatus = String(payload.status ?? "").trim();
+  const status =
+    requestedStatus === "held"
+      ? "held"
+      : requestedStatus === "rejected"
+        ? "rejected"
+        : "approved";
+  const updated = {
+    ...record,
+    status,
+    updatedAt: now,
+    metadata: mergeMetadata(record.metadata ?? {}, {
+      reviewReason: payload.reason ?? payload.comments ?? "",
+      reviewedBy: payload.by ?? "operator",
+      reviewedAt: now,
+    }),
+  };
+  withDatabase(dbPath, (db) => updateSelfBuildOverrideRecord(db, updated));
+  return buildSelfBuildOverrideSummary(updated);
+}
+
+export async function releaseSelfBuildOverride(
+  overrideId,
+  payload: LooseRecord = {},
+  dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
+) {
+  const record = withDatabase(dbPath, (db) =>
+    getSelfBuildOverrideRecord(db, overrideId),
+  );
+  if (!record) {
+    return null;
+  }
+  const now = nowIso();
+  const updated = {
+    ...record,
+    status: "released",
+    updatedAt: now,
+    releasedAt: now,
+    metadata: mergeMetadata(record.metadata ?? {}, {
+      releasedBy: payload.by ?? "operator",
+      releaseReason: payload.reason ?? "",
+      releasedAt: now,
+    }),
+  };
+  withDatabase(dbPath, (db) => updateSelfBuildOverrideRecord(db, updated));
+  return buildSelfBuildOverrideSummary(updated);
+}
+
+export function listPolicyRecommendationReviewSummaries(
+  options: PolicyRecommendationReviewListOptions = {},
+  dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
+) {
+  const reviews = withDatabase(dbPath, (db) =>
+    listPolicyRecommendationReviews(db, options),
+  );
+  const byRecommendationId = new Map(
+    reviews.map((review) => [String(review.recommendationId), review]),
+  );
+  const currentRecommendations = getSelfBuildPolicyRecommendations(dbPath);
+  const activeSummaries = currentRecommendations.map((recommendation) =>
+    buildPolicyRecommendationReviewSummary(
+      byRecommendationId.get(String(recommendation.id)) ?? null,
+      recommendation,
+    ),
+  );
+  const staleReviews = reviews
+    .filter(
+      (review) =>
+        !currentRecommendations.some(
+          (recommendation) =>
+            String(recommendation.id) === String(review.recommendationId),
+        ),
+    )
+    .map((review) => buildPolicyRecommendationReviewSummary(review, null));
+  return [...activeSummaries, ...staleReviews];
+}
+
+export async function reviewPolicyRecommendation(
+  recommendationId,
+  payload: LooseRecord = {},
+  dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
+) {
+  const recommendation = getSelfBuildPolicyRecommendations(dbPath).find(
+    (entry) => String(entry.id) === String(recommendationId),
+  );
+  if (!recommendation) {
+    return null;
+  }
+  const now = nowIso();
+  const existing = withDatabase(dbPath, (db) =>
+    getPolicyRecommendationReviewByRecommendationId(db, recommendationId),
+  );
+  const requestedStatus = String(payload.status ?? "").trim();
+  const normalizedStatus =
+    requestedStatus === "held" || requestedStatus === "deferred"
+      ? "held"
+      : requestedStatus === "dismissed" || requestedStatus === "rejected"
+        ? "dismissed"
+        : "accepted";
+  const record = {
+    id: existing?.id ?? createId("policy-rec-review"),
+    recommendationId,
+    status: normalizedStatus,
+    reason: payload.reason ?? payload.comments ?? "",
+    reviewedBy: payload.by ?? "operator",
+    source: payload.source ?? "http",
+    materializedIntakeId: existing?.materializedIntakeId ?? null,
+    materializedGoalPlanId: existing?.materializedGoalPlanId ?? null,
+    metadata: mergeMetadata(existing?.metadata ?? {}, {
+      recommendation,
+    }),
+    createdAt: existing?.createdAt ?? now,
+    updatedAt: now,
+    reviewedAt: now,
+    materializedAt: existing?.materializedAt ?? null,
+  };
+  withDatabase(dbPath, (db) => upsertPolicyRecommendationReview(db, record));
+  return buildPolicyRecommendationReviewSummary(record, recommendation);
+}
+
+export async function materializePolicyRecommendation(
+  recommendationId,
+  payload: LooseRecord = {},
+  dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
+) {
+  const recommendation = getSelfBuildPolicyRecommendations(dbPath).find(
+    (entry) => String(entry.id) === String(recommendationId),
+  );
+  if (!recommendation) {
+    return null;
+  }
+  const now = nowIso();
+  const existing = withDatabase(dbPath, (db) =>
+    getPolicyRecommendationReviewByRecommendationId(db, recommendationId),
+  );
+  let materializedGoalPlanId = existing?.materializedGoalPlanId ?? null;
+  let materializedIntakeId = existing?.materializedIntakeId ?? null;
+  const mode = toText(payload.mode, "goal-plan");
+  if (mode === "intake") {
+    const projectId = payload.projectId ?? "spore";
+    const resolvedPolicy = await loadProjectSelfBuildPolicy(projectId);
+    const autonomyPolicy = resolvedPolicy.autonomy;
+    const candidate = {
+      id: createId("intake"),
+      sourceType: "policy-recommendation",
+      sourceId: recommendation.id,
+      kind: "policy-follow-up",
+      status: "accepted",
+      priority: 0,
+      goal: buildIntakeGoalFromPolicyRecommendation(recommendation),
+      projectId,
+      domainId: recommendation.domainId ?? payload.domain ?? "docs",
+      templateId:
+        payload.templateId ??
+        recommendation.templateId ??
+        "docs-maintenance-pass",
+      goalPlanId: null,
+      metadata: {
+        recommendation,
+        sourceSummary: recommendation.summary,
+        sourceKind: recommendation.kind,
+        diagnostics: recommendation.diagnostics ?? null,
+      },
+      consumedAt: null,
+    };
+    const scoring = scoreSelfBuildIntakeCandidate(candidate, autonomyPolicy);
+    const intakeRecord = withDatabase(dbPath, (db) =>
+      upsertSelfBuildIntakeRecord(db, {
+        ...candidate,
+        priority: scoring.score,
+        updatedAt: now,
+        createdAt: now,
+        metadata: mergeMetadata(candidate.metadata ?? {}, {
+          priorityScore: scoring.score,
+          priorityLabel: scoring.label,
+          priorityReason: scoring.reason,
+        }),
+      }),
+    );
+    materializedIntakeId = intakeRecord?.id ?? materializedIntakeId;
+  } else {
+    const goalPlan = await createGoalPlan(
+      {
+        goal: recommendation.goal,
+        title: recommendation.summary,
+        projectId: payload.projectId ?? "spore",
+        domain: recommendation.domainId ?? payload.domain ?? "docs",
+        source: payload.source ?? "policy-recommendation",
+        by: payload.by ?? "operator",
+        safeMode: payload.safeMode !== false,
+        reviewRequired: payload.reviewRequired !== false,
+      },
+      dbPath,
+    );
+    materializedGoalPlanId = goalPlan?.id ?? materializedGoalPlanId;
+  }
+
+  const record = {
+    id: existing?.id ?? createId("policy-rec-review"),
+    recommendationId,
+    status:
+      existing?.status && existing.status !== "pending_review"
+        ? existing.status
+        : "accepted",
+    reason:
+      existing?.reason ?? payload.reason ?? "Materialized to managed work.",
+    reviewedBy: existing?.reviewedBy ?? payload.by ?? "operator",
+    source: payload.source ?? existing?.source ?? "http",
+    materializedIntakeId,
+    materializedGoalPlanId,
+    metadata: mergeMetadata(existing?.metadata ?? {}, {
+      recommendation,
+      materializationMode: mode,
+      templateId: payload.templateId ?? recommendation.templateId ?? null,
+    }),
+    createdAt: existing?.createdAt ?? now,
+    updatedAt: now,
+    reviewedAt: existing?.reviewedAt ?? now,
+    materializedAt: now,
+  };
+  withDatabase(dbPath, (db) => upsertPolicyRecommendationReview(db, record));
+  return buildPolicyRecommendationReviewSummary(record, recommendation);
+}
+
+export function getPolicyRecommendationSummary(
+  recommendationId,
+  dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
+) {
+  const recommendation = getSelfBuildPolicyRecommendations(dbPath).find(
+    (entry) => String(entry.id) === String(recommendationId),
+  );
+  if (recommendation) {
+    return recommendation;
+  }
+  const review = withDatabase(dbPath, (db) =>
+    getPolicyRecommendationReviewByRecommendationId(db, recommendationId),
+  );
+  return buildPolicyRecommendationReviewSummary(review, null);
 }
 
 function quarantineLinks(record) {
@@ -6048,6 +7372,7 @@ function summarizeAutonomyEvaluation(
   eligible,
   reasons = [],
   policy: AutonomousPolicyConfig = normalizeAutonomousPolicy({}),
+  details: LooseRecord = {},
 ) {
   return {
     kind,
@@ -6055,6 +7380,76 @@ function summarizeAutonomyEvaluation(
     reasons,
     mode: policy.mode ?? "supervised",
     policy,
+    ...details,
+  };
+}
+
+function getActiveProtectedTierOverride(
+  targetType,
+  targetId,
+  dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
+) {
+  const record = withDatabase(dbPath, (db) =>
+    findActiveSelfBuildOverrideRecord(
+      db,
+      targetType,
+      targetId,
+      "protected-tier",
+    ),
+  );
+  if (!record) {
+    return null;
+  }
+  const expiresAt = record.metadata?.expiresAt
+    ? new Date(String(record.metadata.expiresAt)).getTime()
+    : null;
+  if (expiresAt && Number.isFinite(expiresAt) && expiresAt < Date.now()) {
+    return null;
+  }
+  return buildSelfBuildOverrideSummary(record);
+}
+
+function applyProtectedTierOverride(
+  evaluation,
+  targetType,
+  targetId,
+  dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
+) {
+  const override = getActiveProtectedTierOverride(targetType, targetId, dbPath);
+  if (!override) {
+    return evaluation;
+  }
+  const filteredReasons = asArray(evaluation?.reasons).filter((reason) => {
+    const text = String(reason ?? "");
+    if (
+      override.overridesProtectedScopes &&
+      (text.includes("protected scopes present") ||
+        text.includes("protected scope"))
+    ) {
+      return false;
+    }
+    if (
+      override.overridesRolloutTier &&
+      text.includes("no rollout tier allows")
+    ) {
+      return false;
+    }
+    return true;
+  });
+  return {
+    ...evaluation,
+    eligible: filteredReasons.length === 0,
+    reasons: filteredReasons,
+    matchedTiers:
+      override.overridesRolloutTier &&
+      asArray(evaluation?.matchedTiers).length === 0
+        ? ["override:protected-tier"]
+        : (evaluation?.matchedTiers ?? []),
+    protectedScopeBlocks: override.overridesProtectedScopes
+      ? []
+      : (evaluation?.protectedScopeBlocks ?? []),
+    overrideApplied: true,
+    override,
   };
 }
 
@@ -6065,7 +7460,7 @@ function isMutationScopeAllowed(
   const allowedScopes = dedupe(policy.allowedMutationScopes ?? []);
   const protectedScopes = dedupe(policy.protectedScopes ?? []);
   const blockedProtected = dedupe(
-    scopes.filter((scope) => protectedScopes.includes(scope)),
+    scopes.filter((scope) => matchesPathPrefix(scope, protectedScopes)),
   );
   if (blockedProtected.length > 0) {
     return {
@@ -6087,8 +7482,15 @@ function isMutationScopeAllowed(
     : { allowed: true, reason: "" };
 }
 
-function evaluateGoalPlanAutonomousEligibility(plan, policy: LooseRecord = {}) {
+function evaluateGoalPlanAutonomousEligibility(
+  plan,
+  policy: LooseRecord = {},
+  dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
+) {
   const reasons = [];
+  const matchedTiers = [];
+  const protectedScopeBlocks = [];
+  const taskClasses = [];
   if (policy.enabled !== true) {
     reasons.push("autonomous policy disabled");
   }
@@ -6108,7 +7510,9 @@ function evaluateGoalPlanAutonomousEligibility(plan, policy: LooseRecord = {}) {
       : plan.recommendations,
   );
   for (const recommendation of recommendations) {
-    const templateId = recommendation.metadata?.templateId ?? null;
+    const context = buildAutonomyTargetContext(recommendation);
+    const templateId = context.templateId || null;
+    taskClasses.push(context.taskClass);
     if (
       templateId &&
       policy.allowedTemplates?.length > 0 &&
@@ -6116,24 +7520,52 @@ function evaluateGoalPlanAutonomousEligibility(plan, policy: LooseRecord = {}) {
     ) {
       reasons.push(`template not allowed for autonomy: ${templateId}`);
     }
-    const scopeCheck = isMutationScopeAllowed(
-      dedupe(recommendation.metadata?.mutationScope ?? []),
-      policy,
-    );
+    const scopeCheck = isMutationScopeAllowed(context.mutationScope, policy);
     if (!scopeCheck.allowed && scopeCheck.reason) {
       reasons.push(scopeCheck.reason);
     }
+    const protectedCheck = evaluateProtectedScopeGuardrails(context, policy);
+    if (protectedCheck.blocked.length > 0) {
+      protectedScopeBlocks.push(...protectedCheck.blocked);
+      reasons.push(protectedCheck.blockedReason);
+    }
+    const tierMatches = findMatchingRolloutTiers(context, policy);
+    if (policy.rolloutTiers?.length > 0 && tierMatches.length === 0) {
+      reasons.push(
+        `no rollout tier allows ${templateId || context.taskClass} for ${
+          context.domainId || "unknown-domain"
+        }`,
+      );
+    }
+    matchedTiers.push(...tierMatches.map((tier) => tier.id));
   }
-  return summarizeAutonomyEvaluation(
+  return applyProtectedTierOverride(
+    summarizeAutonomyEvaluation(
+      "goal-plan",
+      reasons.length === 0,
+      dedupe(reasons),
+      policy,
+      {
+        matchedTiers: dedupe(matchedTiers),
+        protectedScopeBlocks: dedupe(protectedScopeBlocks),
+        taskClasses: dedupe(taskClasses),
+      },
+    ),
     "goal-plan",
-    reasons.length === 0,
-    dedupe(reasons),
-    policy,
+    plan.id,
+    dbPath,
   );
 }
 
-function evaluateGroupAutonomousEligibility(group, policy: LooseRecord = {}) {
+function evaluateGroupAutonomousEligibility(
+  group,
+  policy: LooseRecord = {},
+  dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
+) {
   const reasons = [];
+  const matchedTiers = [];
+  const protectedScopeBlocks = [];
+  const taskClasses = [];
   if (policy.enabled !== true) {
     reasons.push("autonomous policy disabled");
   }
@@ -6152,7 +7584,9 @@ function evaluateGroupAutonomousEligibility(group, policy: LooseRecord = {}) {
     reasons.push(`group state requires manual handling: ${group.status}`);
   }
   for (const item of asArray(group.items)) {
-    const templateId = item.metadata?.templateId ?? null;
+    const context = buildAutonomyTargetContext(item);
+    const templateId = context.templateId || null;
+    taskClasses.push(context.taskClass);
     if (
       templateId &&
       policy.allowedTemplates?.length > 0 &&
@@ -6169,22 +7603,41 @@ function evaluateGroupAutonomousEligibility(group, policy: LooseRecord = {}) {
         `domain not allowed for autonomy: ${item.metadata.domainId}`,
       );
     }
-    if (policy.requireSafeMode === true && item.metadata?.safeMode === false) {
+    if (policy.requireSafeMode === true && context.safeMode === false) {
       reasons.push(`item not in safe mode: ${item.id}`);
     }
-    const scopeCheck = isMutationScopeAllowed(
-      dedupe(item.metadata?.mutationScope ?? []),
-      policy,
-    );
+    const scopeCheck = isMutationScopeAllowed(context.mutationScope, policy);
     if (!scopeCheck.allowed && scopeCheck.reason) {
       reasons.push(`${item.id}: ${scopeCheck.reason}`);
     }
+    const protectedCheck = evaluateProtectedScopeGuardrails(context, policy);
+    if (protectedCheck.blocked.length > 0) {
+      protectedScopeBlocks.push(...protectedCheck.blocked);
+      reasons.push(`${item.id}: ${protectedCheck.blockedReason}`);
+    }
+    const tierMatches = findMatchingRolloutTiers(context, policy);
+    if (policy.rolloutTiers?.length > 0 && tierMatches.length === 0) {
+      reasons.push(
+        `${item.id}: no rollout tier allows ${templateId || context.taskClass}`,
+      );
+    }
+    matchedTiers.push(...tierMatches.map((tier) => tier.id));
   }
-  return summarizeAutonomyEvaluation(
+  return applyProtectedTierOverride(
+    summarizeAutonomyEvaluation(
+      "work-item-group",
+      reasons.length === 0,
+      dedupe(reasons),
+      policy,
+      {
+        matchedTiers: dedupe(matchedTiers),
+        protectedScopeBlocks: dedupe(protectedScopeBlocks),
+        taskClasses: dedupe(taskClasses),
+      },
+    ),
     "work-item-group",
-    reasons.length === 0,
-    dedupe(reasons),
-    policy,
+    group.id,
+    dbPath,
   );
 }
 
@@ -6194,6 +7647,22 @@ function evaluateProposalPromotionAutonomy(
   dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
 ) {
   const reasons = [];
+  const context = buildAutonomyTargetContext({
+    templateId: proposal.summary?.templateId ?? proposal.metadata?.templateId,
+    domainId: proposal.summary?.domainId ?? proposal.metadata?.domainId,
+    mutationScope:
+      proposal.summary?.mutationScope ??
+      proposal.metadata?.mutationScope ??
+      proposal.artifacts?.workspace?.mutationScope ??
+      [],
+    targetPaths:
+      proposal.summary?.targetPaths ??
+      proposal.metadata?.targetPaths ??
+      proposal.artifacts?.workspace?.mutationScope ??
+      [],
+    safeMode: proposal.metadata?.safeMode ?? true,
+    taskClass: proposal.summary?.taskClass ?? proposal.metadata?.taskClass,
+  });
   if (policy.enabled !== true) {
     reasons.push("autonomous policy disabled");
   }
@@ -6212,17 +7681,19 @@ function evaluateProposalPromotionAutonomy(
   if (activeQuarantine) {
     reasons.push(`proposal quarantined: ${activeQuarantine.reason}`);
   }
-  const scopeCheck = isMutationScopeAllowed(
-    dedupe(
-      proposal.summary?.mutationScope ??
-        proposal.metadata?.mutationScope ??
-        proposal.artifacts?.workspace?.mutationScope ??
-        [],
-    ),
-    policy,
-  );
+  const scopeCheck = isMutationScopeAllowed(context.mutationScope, policy);
   if (!scopeCheck.allowed && scopeCheck.reason) {
     reasons.push(scopeCheck.reason);
+  }
+  const protectedCheck = evaluateProtectedScopeGuardrails(context, policy);
+  if (protectedCheck.blocked.length > 0) {
+    reasons.push(protectedCheck.blockedReason);
+  }
+  const matchedTiers = findMatchingRolloutTiers(context, policy);
+  if (policy.rolloutTiers?.length > 0 && matchedTiers.length === 0) {
+    reasons.push(
+      `no rollout tier allows ${context.templateId || context.taskClass}`,
+    );
   }
   const missingRequiredBundles = dedupe(
     policy.requiredValidationBundles ?? [],
@@ -6239,11 +7710,21 @@ function evaluateProposalPromotionAutonomy(
       `missing required autonomous validation bundles: ${missingRequiredBundles.join(", ")}`,
     );
   }
-  return summarizeAutonomyEvaluation(
+  return applyProtectedTierOverride(
+    summarizeAutonomyEvaluation(
+      "proposal",
+      reasons.length === 0,
+      dedupe(reasons),
+      policy,
+      {
+        matchedTiers: dedupe(matchedTiers.map((tier) => tier.id)),
+        protectedScopeBlocks: protectedCheck.blocked,
+        taskClasses: dedupe([context.taskClass]),
+      },
+    ),
     "proposal",
-    reasons.length === 0,
-    dedupe(reasons),
-    policy,
+    proposal.id,
+    dbPath,
   );
 }
 
@@ -6658,6 +8139,17 @@ async function maybeQuarantineFromLoop(
   options: LooseRecord = {},
   dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
 ) {
+  const overrideRecords = listSelfBuildOverrideSummaries(
+    { targetType, targetId, kind: "protected-tier", limit: 10 },
+    dbPath,
+  );
+  if (
+    overrideRecords.some((record) =>
+      ["pending_review", "approved"].includes(String(record.status)),
+    )
+  ) {
+    return null;
+  }
   const policy = evaluation?.policy ?? {};
   const threshold =
     targetType === "proposal"
@@ -6705,9 +8197,19 @@ async function runSelfBuildLoopIteration(
     { includeAccepted: true },
     dbPath,
   );
-  const queuedIntake = intakeRecords.find((entry) =>
-    ["queued", "accepted"].includes(String(entry.status)),
-  );
+  const queuedIntake = [...intakeRecords]
+    .filter((entry) => ["queued", "accepted"].includes(String(entry.status)))
+    .sort((left, right) => {
+      const leftAccepted = left.status === "accepted" ? 0 : 1;
+      const rightAccepted = right.status === "accepted" ? 0 : 1;
+      if (leftAccepted !== rightAccepted) {
+        return leftAccepted - rightAccepted;
+      }
+      return (
+        Number(right.priorityScore ?? right.priority ?? 0) -
+        Number(left.priorityScore ?? left.priority ?? 0)
+      );
+    })[0];
   if (queuedIntake) {
     const decisionRationale =
       "Autonomous loop evaluated self-build intake for goal-plan materialization.";
@@ -6794,6 +8296,7 @@ async function runSelfBuildLoopIteration(
     const evaluation = evaluateGoalPlanAutonomousEligibility(
       plannedGoal,
       policy,
+      dbPath,
     );
     await recordSelfBuildDecision(
       {
@@ -6917,6 +8420,7 @@ async function runSelfBuildLoopIteration(
     const evaluation = evaluateGroupAutonomousEligibility(
       validationGroup,
       policy,
+      dbPath,
     );
     await recordSelfBuildDecision(
       {
@@ -7069,7 +8573,11 @@ async function runSelfBuildLoopIteration(
     ["pending", "ready"].includes(String(entry.status)),
   );
   if (group && policy.autoRunGroups === true) {
-    const evaluation = evaluateGroupAutonomousEligibility(group, policy);
+    const evaluation = evaluateGroupAutonomousEligibility(
+      group,
+      policy,
+      dbPath,
+    );
     await recordSelfBuildDecision(
       {
         loopId: loopState?.id ?? "default",
@@ -7278,6 +8786,60 @@ export function stopSelfBuildLoop(
   return getSelfBuildLoopStatus(dbPath);
 }
 
+function buildRolloutTierSummary(
+  policy: AutonomousPolicyConfig,
+  targets: LooseRecord[] = [],
+) {
+  const tiers = policy.rolloutTiers.map((tier) => {
+    const matchedTargetIds = targets
+      .filter((target) =>
+        findMatchingRolloutTiers(target, policy).some(
+          (match) => match.id === tier.id,
+        ),
+      )
+      .map((target) =>
+        toText(target.id ?? target.title ?? target.goal, "target"),
+      );
+    return {
+      id: tier.id,
+      label: tier.label,
+      enabled: tier.enabled,
+      description: tier.description,
+      protectedScopes: tier.protectedScopes,
+      requiredValidationBundles: tier.requiredValidationBundles,
+      activeTargetCount: matchedTargetIds.length,
+      matchedTargetIds: dedupe(matchedTargetIds).slice(0, 10),
+    };
+  });
+  const unmatchedTargets = targets
+    .filter((target) => {
+      if (tiers.length === 0) {
+        return false;
+      }
+      return findMatchingRolloutTiers(target, policy).length === 0;
+    })
+    .map((target) => {
+      const context = buildAutonomyTargetContext(target);
+      return {
+        id: toText(target.id ?? "", ""),
+        label: toText(
+          target.title ?? target.goal ?? target.id,
+          "Unknown target",
+        ),
+        targetPaths: context.targetPaths,
+        taskClass: context.taskClass,
+      };
+    })
+    .slice(0, 20);
+  return {
+    tierCount: tiers.length,
+    enabledCount: tiers.filter((tier) => tier.enabled !== false).length,
+    tiers,
+    unmatchedTargetCount: unmatchedTargets.length,
+    unmatchedTargets,
+  };
+}
+
 export function getSelfBuildSummary(dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
   const now = nowIso();
   const groups = listWorkItemGroupsSummary({ limit: 50 }, dbPath);
@@ -7307,6 +8869,14 @@ export function getSelfBuildSummary(dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
     dbPath,
   );
   const loopStatus = getSelfBuildLoopStatus(dbPath);
+  const autonomyPolicy =
+    loadProjectSelfBuildPolicySync("spore").autonomy ??
+    normalizeAutonomousPolicy(
+      asJsonObject(
+        withDatabase(dbPath, (db) => getSelfBuildLoopState(db, "default"))
+          ?.policy,
+      ),
+    );
   const allRuns = workItems.flatMap((item: LooseRecord) =>
     listSelfBuildWorkItemRuns(item.id, { limit: 20 }, dbPath).map((run) => ({
       ...run,
@@ -7366,6 +8936,16 @@ export function getSelfBuildSummary(dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
   const recentLearnings = learnings
     .filter((learning) => learning.status === "active")
     .slice(0, 10);
+  const learningTrends = getSelfBuildLearningTrends(dbPath);
+  const policyRecommendations = getSelfBuildPolicyRecommendations(dbPath);
+  const protectedTierOverrides = listSelfBuildOverrideSummaries(
+    { kind: "protected-tier", limit: 100 },
+    dbPath,
+  );
+  const policyRecommendationReviews = listPolicyRecommendationReviewSummaries(
+    { limit: 100 },
+    dbPath,
+  );
   const pendingDocSuggestions = docSuggestions.filter((entry) =>
     ["pending", "accepted"].includes(String(entry.status)),
   );
@@ -7383,6 +8963,78 @@ export function getSelfBuildSummary(dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
   const recentRollbacks = listSelfBuildRollbackSummaries({ limit: 20 }, dbPath);
   const autonomousBlockedDecisions = recentDecisions.filter(
     (decision) => String(decision.state) === "blocked",
+  );
+  const protectedScopeBlocks = autonomousBlockedDecisions
+    .flatMap((decision) =>
+      asArray(decision.metadata?.evaluation?.protectedScopeBlocks).map(
+        (scope) => ({
+          scope,
+          decisionId: decision.id,
+          targetType: decision.targetType ?? null,
+          targetId: decision.targetId ?? null,
+          reason: decision.rationale ?? null,
+        }),
+      ),
+    )
+    .slice(0, 20);
+  const rolloutTargets = [
+    ...workItems,
+    ...goalPlans.flatMap((plan) => getGoalPlanEffectiveRecommendations(plan)),
+    ...proposals.map((proposal) => ({
+      id: proposal.id,
+      title: proposal.summary?.title ?? proposal.id,
+      metadata: {
+        templateId:
+          proposal.summary?.templateId ?? proposal.metadata?.templateId,
+        domainId: proposal.summary?.domainId ?? proposal.metadata?.domainId,
+        mutationScope:
+          proposal.summary?.mutationScope ??
+          proposal.metadata?.mutationScope ??
+          proposal.artifacts?.workspace?.mutationScope ??
+          [],
+        targetPaths:
+          proposal.summary?.targetPaths ??
+          proposal.metadata?.targetPaths ??
+          proposal.artifacts?.workspace?.mutationScope ??
+          [],
+        safeMode: proposal.metadata?.safeMode ?? true,
+        taskClass: proposal.summary?.taskClass ?? proposal.metadata?.taskClass,
+      },
+    })),
+  ];
+  const rolloutTierSummary = buildRolloutTierSummary(
+    autonomyPolicy,
+    rolloutTargets,
+  );
+  const activeAutonomousRuns = allRuns
+    .filter((run) => {
+      const executionMode = String(
+        run.metadata?.autonomy?.mode ??
+          run.metadata?.sourceContext?.autonomyMode ??
+          "",
+      ).trim();
+      const sourceType = String(
+        run.metadata?.sourceContext?.sourceType ?? run.metadata?.source ?? "",
+      ).trim();
+      return (
+        run.status === "running" &&
+        (executionMode === "autonomous" ||
+          sourceType === "self-build-intake" ||
+          sourceType === "policy-recommendation" ||
+          sourceType === "learning-record")
+      );
+    })
+    .slice(0, 20);
+  const blockedPromotionQueue = proposalsBlockedForPromotion.slice(0, 20);
+  const pendingValidationQueue = validationRequiredProposals.slice(0, 20);
+  const quarantineQueue = activeQuarantines.slice(0, 20);
+  const overrideQueue = protectedTierOverrides.filter((record) =>
+    ["pending_review", "approved", "held"].includes(String(record.status)),
+  );
+  const recommendationReviewQueue = policyRecommendations.filter((record) =>
+    ["pending_review", "accepted", "held"].includes(
+      String(record.queueStatus ?? ""),
+    ),
   );
 
   const urgentQueue = [
@@ -7578,6 +9230,29 @@ export function getSelfBuildSummary(dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
         timestamp: record.updatedAt ?? record.createdAt,
       }),
     ),
+    ...overrideQueue.map((record) =>
+      buildAttentionItem({
+        id: `attention:${record.id}:override`,
+        kind: "protected-override",
+        attentionState:
+          record.status === "pending_review" ? "needs-review" : "blocked",
+        targetType: record.targetType,
+        targetId: record.targetId,
+        goalPlanId: record.targetType === "goal-plan" ? record.targetId : null,
+        groupId:
+          record.targetType === "work-item-group" ? record.targetId : null,
+        proposalId: record.targetType === "proposal" ? record.targetId : null,
+        title: record.summary,
+        reason:
+          record.reason ||
+          "Protected-tier override exists and should be reviewed before autonomy proceeds.",
+        httpHint: record.links?.self ?? null,
+        commandHint: `npm run orchestrator:self-build-overrides -- --target-type ${record.targetType} --target-id ${record.targetId}`,
+        nextActionHint:
+          "Review or release the override explicitly when the protected target is safe to continue.",
+        timestamp: record.updatedAt ?? record.createdAt,
+      }),
+    ),
   ].sort((left, right) => {
     const priorityOrder = { high: 0, medium: 1, low: 2 };
     const leftPriority = priorityOrder[left.priority] ?? 3;
@@ -7703,6 +9378,25 @@ export function getSelfBuildSummary(dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
         timestamp: plan.updatedAt,
       }),
     ),
+    ...recommendationReviewQueue.slice(0, 10).map((record) =>
+      buildAttentionItem({
+        id: `attention:${record.id}:policy-recommendation`,
+        attentionState: "planner-follow-up",
+        targetType: "policy-recommendation",
+        targetId: record.id,
+        title: record.summary,
+        reason:
+          record.queueStatus === "accepted"
+            ? "Accepted policy recommendation is waiting to be materialized into a goal plan."
+            : "Policy recommendation is waiting for operator review.",
+        httpHint: record.links?.review ?? record.links?.self ?? null,
+        commandHint:
+          record.queueStatus === "accepted"
+            ? `npm run orchestrator:self-build-policy-recommendation-materialize -- --recommendation ${record.id}`
+            : `npm run orchestrator:self-build-policy-recommendation-review -- --recommendation ${record.id} --status accepted`,
+        timestamp: record.reviewedAt ?? record.updatedAt ?? record.createdAt,
+      }),
+    ),
     ...autonomousBlockedDecisions.slice(0, 10).map((decision) =>
       buildAttentionItem({
         id: `attention:${decision.id}:autonomy`,
@@ -7805,6 +9499,14 @@ export function getSelfBuildSummary(dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
       activeQuarantines: activeQuarantines.length,
       recentRollbacks: recentRollbacks.length,
       autonomousBlockedDecisions: autonomousBlockedDecisions.length,
+      policyRecommendations: policyRecommendations.length,
+      protectedTierOverrides: protectedTierOverrides.length,
+      policyRecommendationReviews: policyRecommendationReviews.length,
+      policyRecommendationQueue: recommendationReviewQueue.length,
+      repeatedLearningTrends: learningTrends.filter((entry) => entry.repeated)
+        .length,
+      protectedScopeBlocks: protectedScopeBlocks.length,
+      activeAutonomousRuns: activeAutonomousRuns.length,
     },
     queueSummary,
     attentionSummary,
@@ -7830,6 +9532,39 @@ export function getSelfBuildSummary(dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
     activeQuarantines,
     recentRollbacks,
     learningRecords: recentLearnings,
+    learningTrends,
+    policyRecommendations,
+    policyRecommendationReviews,
+    policyRecommendationQueue: recommendationReviewQueue,
+    rolloutTierSummary,
+    protectedScopeBlocks,
+    protectedTierOverrides,
+    overrides: protectedTierOverrides,
+    activeAutonomousRuns,
+    blockedPromotions: blockedPromotionQueue,
+    pendingValidations: pendingValidationQueue,
+    quarantines: quarantineQueue,
+    lifecycle: {
+      blockedPromotions: blockedPromotionQueue.length,
+      pendingValidations: pendingValidationQueue.length,
+      activeAutonomousRuns: activeAutonomousRuns.length,
+      quarantinedWork: quarantineQueue.length,
+      protectedTierOverrides: overrideQueue.length,
+      policyRecommendationQueue: recommendationReviewQueue.length,
+      policyRecommendationReviews: policyRecommendationReviews.length,
+    },
+    lifecycleBlockedPromotions: blockedPromotionQueue,
+    lifecycleValidationQueue: pendingValidationQueue,
+    lifecycleActiveAutonomousRuns: activeAutonomousRuns,
+    lifecycleQuarantineQueue: quarantineQueue,
+    lifecycleProtectedOverrideQueue: overrideQueue,
+    lifecyclePolicyRecommendationQueue: recommendationReviewQueue,
+    autonomyPolicy: {
+      mode: autonomyPolicy.mode,
+      enabled: autonomyPolicy.enabled,
+      protectedScopes: autonomyPolicy.protectedScopes,
+      requiredValidationBundles: autonomyPolicy.requiredValidationBundles,
+    },
     freshness: {
       lastRefresh: now,
       staleAfter: new Date(Date.now() + 60000).toISOString(),

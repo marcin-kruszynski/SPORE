@@ -4,8 +4,11 @@ description: Promotion gate for integrator lanes targeting integration branches.
 scenarios:
   - docs-adr-pass
   - cli-verification-pass
+  - self-build-promotion-integration
+  - self-build-quarantine-recovery
 regressions:
   - local-fast
+  - self-build-autonomy
 requiredForProposalReadiness: true
 requiredForPromotionReadiness: true
 allowedAutoSkip: false

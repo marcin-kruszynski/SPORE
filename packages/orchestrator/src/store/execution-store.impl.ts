@@ -2,10 +2,12 @@
 import { DatabaseSync } from "node:sqlite";
 import type {
   DocSuggestionRecordListOptions,
+  PolicyRecommendationReviewListOptions,
   QuarantineRecordListOptions,
   RollbackRecordListOptions,
   SelfBuildDecisionListOptions,
   SelfBuildIntakeListOptions,
+  SelfBuildOverrideListOptions,
   WorkspaceAllocationListOptions,
 } from "../types/contracts.js";
 import {
@@ -13,6 +15,7 @@ import {
   mapGoalPlan,
   mapIntegrationBranch,
   mapLearningRecord,
+  mapPolicyRecommendationReview,
   mapProposalArtifact,
   mapQuarantineRecord,
   mapRegressionRun,
@@ -24,6 +27,7 @@ import {
   mapSelfBuildDecision,
   mapSelfBuildIntakeRecord,
   mapSelfBuildLoopState,
+  mapSelfBuildOverrideRecord,
   mapWorkItem,
   mapWorkItemGroup,
   mapWorkItemRun,
@@ -417,6 +421,35 @@ export function openOrchestratorDatabase(dbPath) {
       metadata_json TEXT,
       created_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS self_build_override_records (
+      id TEXT PRIMARY KEY,
+      target_type TEXT NOT NULL,
+      target_id TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      status TEXT NOT NULL,
+      reason TEXT NOT NULL,
+      requested_by TEXT,
+      source TEXT,
+      metadata_json TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      released_at TEXT
+    );
+    CREATE TABLE IF NOT EXISTS policy_recommendation_reviews (
+      id TEXT PRIMARY KEY,
+      recommendation_id TEXT NOT NULL UNIQUE,
+      status TEXT NOT NULL,
+      reason TEXT,
+      reviewed_by TEXT,
+      source TEXT,
+      materialized_intake_id TEXT,
+      materialized_goal_plan_id TEXT,
+      metadata_json TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      reviewed_at TEXT,
+      materialized_at TEXT
+    );
     CREATE TABLE IF NOT EXISTS quarantine_records (
       id TEXT PRIMARY KEY,
       target_type TEXT NOT NULL,
@@ -482,6 +515,12 @@ export function openOrchestratorDatabase(dbPath) {
       ON self_build_decisions(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_self_build_decisions_target
       ON self_build_decisions(target_type, target_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_self_build_override_records_target
+      ON self_build_override_records(target_type, target_id, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_self_build_override_records_status
+      ON self_build_override_records(status, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_policy_recommendation_reviews_status
+      ON policy_recommendation_reviews(status, updated_at DESC);
     CREATE INDEX IF NOT EXISTS idx_quarantine_records_target
       ON quarantine_records(target_type, target_id, updated_at DESC);
     CREATE INDEX IF NOT EXISTS idx_rollback_records_target
@@ -3216,6 +3255,327 @@ export function listSelfBuildDecisions(
     .prepare(sql)
     .all(...params, limit)
     .map((record) => mapSelfBuildDecision(record));
+}
+
+export function insertSelfBuildOverrideRecord(db, record) {
+  db.prepare(`
+    INSERT INTO self_build_override_records (
+      id, target_type, target_id, kind, status, reason, requested_by, source,
+      metadata_json, created_at, updated_at, released_at
+    ) VALUES (
+      @id, @targetType, @targetId, @kind, @status, @reason, @requestedBy, @source,
+      @metadataJson, @createdAt, @updatedAt, @releasedAt
+    )
+  `).run({
+    id: record.id,
+    targetType: record.targetType,
+    targetId: record.targetId,
+    kind: record.kind,
+    status: record.status,
+    reason: record.reason,
+    requestedBy: record.requestedBy ?? null,
+    source: record.source ?? null,
+    metadataJson: JSON.stringify(record.metadata ?? {}),
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
+    releasedAt: record.releasedAt ?? null,
+  });
+}
+
+export function updateSelfBuildOverrideRecord(db, record) {
+  db.prepare(`
+    UPDATE self_build_override_records SET
+      target_type = @targetType,
+      target_id = @targetId,
+      kind = @kind,
+      status = @status,
+      reason = @reason,
+      requested_by = @requestedBy,
+      source = @source,
+      metadata_json = @metadataJson,
+      updated_at = @updatedAt,
+      released_at = @releasedAt
+    WHERE id = @id
+  `).run({
+    id: record.id,
+    targetType: record.targetType,
+    targetId: record.targetId,
+    kind: record.kind,
+    status: record.status,
+    reason: record.reason,
+    requestedBy: record.requestedBy ?? null,
+    source: record.source ?? null,
+    metadataJson: JSON.stringify(record.metadata ?? {}),
+    updatedAt: record.updatedAt,
+    releasedAt: record.releasedAt ?? null,
+  });
+}
+
+export function getSelfBuildOverrideRecord(db, id) {
+  const record = db
+    .prepare(`
+      SELECT
+        id,
+        target_type AS targetType,
+        target_id AS targetId,
+        kind,
+        status,
+        reason,
+        requested_by AS requestedBy,
+        source,
+        metadata_json AS metadataJson,
+        created_at AS createdAt,
+        updated_at AS updatedAt,
+        released_at AS releasedAt
+      FROM self_build_override_records
+      WHERE id = ?
+    `)
+    .get(id);
+  return mapSelfBuildOverrideRecord(record);
+}
+
+export function findActiveSelfBuildOverrideRecord(
+  db,
+  targetType,
+  targetId,
+  kind = null,
+) {
+  const record = db
+    .prepare(`
+      SELECT
+        id,
+        target_type AS targetType,
+        target_id AS targetId,
+        kind,
+        status,
+        reason,
+        requested_by AS requestedBy,
+        source,
+        metadata_json AS metadataJson,
+        created_at AS createdAt,
+        updated_at AS updatedAt,
+        released_at AS releasedAt
+      FROM self_build_override_records
+      WHERE target_type = ?
+        AND target_id = ?
+        AND status = 'approved'
+        AND (? IS NULL OR kind = ?)
+      ORDER BY updated_at DESC
+      LIMIT 1
+    `)
+    .get(targetType, targetId, kind, kind);
+  return mapSelfBuildOverrideRecord(record);
+}
+
+export function listSelfBuildOverrideRecords(
+  db,
+  options: SelfBuildOverrideListOptions = {},
+) {
+  const status = options.status ? String(options.status).trim() : null;
+  const targetType = options.targetType
+    ? String(options.targetType).trim()
+    : null;
+  const targetId = options.targetId ? String(options.targetId).trim() : null;
+  const kind = options.kind ? String(options.kind).trim() : null;
+  const limit = Number.parseInt(String(options.limit ?? "50"), 10) || 50;
+  const where = [];
+  const params = [];
+  if (status) {
+    where.push("status = ?");
+    params.push(status);
+  }
+  if (targetType) {
+    where.push("target_type = ?");
+    params.push(targetType);
+  }
+  if (targetId) {
+    where.push("target_id = ?");
+    params.push(targetId);
+  }
+  if (kind) {
+    where.push("kind = ?");
+    params.push(kind);
+  }
+  const sql = `
+    SELECT
+      id,
+      target_type AS targetType,
+      target_id AS targetId,
+      kind,
+      status,
+      reason,
+      requested_by AS requestedBy,
+      source,
+      metadata_json AS metadataJson,
+      created_at AS createdAt,
+      updated_at AS updatedAt,
+      released_at AS releasedAt
+    FROM self_build_override_records
+    ${where.length > 0 ? `WHERE ${where.join(" AND ")}` : ""}
+    ORDER BY updated_at DESC
+    LIMIT ?
+  `;
+  return db
+    .prepare(sql)
+    .all(...params, limit)
+    .map((record) => mapSelfBuildOverrideRecord(record));
+}
+
+export function insertPolicyRecommendationReview(db, record) {
+  db.prepare(`
+    INSERT INTO policy_recommendation_reviews (
+      id, recommendation_id, status, reason, reviewed_by, source,
+      materialized_intake_id, materialized_goal_plan_id,
+      metadata_json, created_at, updated_at, reviewed_at, materialized_at
+    ) VALUES (
+      @id, @recommendationId, @status, @reason, @reviewedBy, @source,
+      @materializedIntakeId, @materializedGoalPlanId,
+      @metadataJson, @createdAt, @updatedAt, @reviewedAt, @materializedAt
+    )
+  `).run({
+    id: record.id,
+    recommendationId: record.recommendationId,
+    status: record.status,
+    reason: record.reason ?? null,
+    reviewedBy: record.reviewedBy ?? null,
+    source: record.source ?? null,
+    materializedIntakeId: record.materializedIntakeId ?? null,
+    materializedGoalPlanId: record.materializedGoalPlanId ?? null,
+    metadataJson: JSON.stringify(record.metadata ?? {}),
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
+    reviewedAt: record.reviewedAt ?? null,
+    materializedAt: record.materializedAt ?? null,
+  });
+}
+
+export function updatePolicyRecommendationReview(db, record) {
+  db.prepare(`
+    UPDATE policy_recommendation_reviews SET
+      recommendation_id = @recommendationId,
+      status = @status,
+      reason = @reason,
+      reviewed_by = @reviewedBy,
+      source = @source,
+      materialized_intake_id = @materializedIntakeId,
+      materialized_goal_plan_id = @materializedGoalPlanId,
+      metadata_json = @metadataJson,
+      updated_at = @updatedAt,
+      reviewed_at = @reviewedAt,
+      materialized_at = @materializedAt
+    WHERE id = @id
+  `).run({
+    id: record.id,
+    recommendationId: record.recommendationId,
+    status: record.status,
+    reason: record.reason ?? null,
+    reviewedBy: record.reviewedBy ?? null,
+    source: record.source ?? null,
+    materializedIntakeId: record.materializedIntakeId ?? null,
+    materializedGoalPlanId: record.materializedGoalPlanId ?? null,
+    metadataJson: JSON.stringify(record.metadata ?? {}),
+    updatedAt: record.updatedAt,
+    reviewedAt: record.reviewedAt ?? null,
+    materializedAt: record.materializedAt ?? null,
+  });
+}
+
+export function getPolicyRecommendationReviewByRecommendationId(
+  db,
+  recommendationId,
+) {
+  const record = db
+    .prepare(`
+      SELECT
+        id,
+        recommendation_id AS recommendationId,
+        status,
+        reason,
+        reviewed_by AS reviewedBy,
+        source,
+        materialized_intake_id AS materializedIntakeId,
+        materialized_goal_plan_id AS materializedGoalPlanId,
+        metadata_json AS metadataJson,
+        created_at AS createdAt,
+        updated_at AS updatedAt,
+        reviewed_at AS reviewedAt,
+        materialized_at AS materializedAt
+      FROM policy_recommendation_reviews
+      WHERE recommendation_id = ?
+      LIMIT 1
+    `)
+    .get(recommendationId);
+  return mapPolicyRecommendationReview(record);
+}
+
+export function listPolicyRecommendationReviews(
+  db,
+  options: PolicyRecommendationReviewListOptions = {},
+) {
+  const status = options.status ? String(options.status).trim() : null;
+  const recommendationId = options.recommendationId
+    ? String(options.recommendationId).trim()
+    : null;
+  const limit = Number.parseInt(String(options.limit ?? "50"), 10) || 50;
+  const where = [];
+  const params = [];
+  if (status) {
+    where.push("status = ?");
+    params.push(status);
+  }
+  if (recommendationId) {
+    where.push("recommendation_id = ?");
+    params.push(recommendationId);
+  }
+  const sql = `
+    SELECT
+      id,
+      recommendation_id AS recommendationId,
+      status,
+      reason,
+      reviewed_by AS reviewedBy,
+      source,
+      materialized_intake_id AS materializedIntakeId,
+      materialized_goal_plan_id AS materializedGoalPlanId,
+      metadata_json AS metadataJson,
+      created_at AS createdAt,
+      updated_at AS updatedAt,
+      reviewed_at AS reviewedAt,
+      materialized_at AS materializedAt
+    FROM policy_recommendation_reviews
+    ${where.length > 0 ? `WHERE ${where.join(" AND ")}` : ""}
+    ORDER BY updated_at DESC
+    LIMIT ?
+  `;
+  return db
+    .prepare(sql)
+    .all(...params, limit)
+    .map((record) => mapPolicyRecommendationReview(record));
+}
+
+export function upsertPolicyRecommendationReview(db, record) {
+  const existing = getPolicyRecommendationReviewByRecommendationId(
+    db,
+    record.recommendationId,
+  );
+  if (existing) {
+    updatePolicyRecommendationReview(db, {
+      ...existing,
+      ...record,
+      id: existing.id,
+      recommendationId: existing.recommendationId,
+      createdAt: existing.createdAt,
+    });
+    return getPolicyRecommendationReviewByRecommendationId(
+      db,
+      record.recommendationId,
+    );
+  }
+  insertPolicyRecommendationReview(db, record);
+  return getPolicyRecommendationReviewByRecommendationId(
+    db,
+    record.recommendationId,
+  );
 }
 
 export function insertQuarantineRecord(db, record) {

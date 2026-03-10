@@ -402,7 +402,6 @@ test("self-build dependency graph routes expose authoring, readiness, and recove
   const validateBundle = await postJson(
     `http://127.0.0.1:${ORCHESTRATOR_PORT}/work-item-groups/${encodeURIComponent(groupId)}/validate-bundle`,
     {
-      bundleIds: ["self-build-safe"],
       stub: true,
       timeout: 12000,
       interval: 250,

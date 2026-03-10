@@ -17,6 +17,17 @@ npx tsx packages/tui/src/cli/spore-ops.ts history --execution e2e-review-001
 npx tsx packages/tui/src/cli/spore-ops.ts run-center
 npx tsx packages/tui/src/cli/spore-ops.ts self-build-summary
 npx tsx packages/tui/src/cli/spore-ops.ts self-build-dashboard
+npx tsx packages/tui/src/cli/spore-ops.ts self-build-learning-trends
+npx tsx packages/tui/src/cli/spore-ops.ts self-build-policy-recommendations
+npx tsx packages/tui/src/cli/spore-ops.ts self-build-policy-recommendation-reviews
+npx tsx packages/tui/src/cli/spore-ops.ts self-build-policy-recommendation-show --recommendation <id>
+npx tsx packages/tui/src/cli/spore-ops.ts self-build-policy-recommendation-review --recommendation <id> --status held
+npx tsx packages/tui/src/cli/spore-ops.ts self-build-policy-recommendation-materialize --recommendation <id>
+npx tsx packages/tui/src/cli/spore-ops.ts self-build-overrides
+npx tsx packages/tui/src/cli/spore-ops.ts self-build-override-show --override <id>
+npx tsx packages/tui/src/cli/spore-ops.ts self-build-override-create --target-type goal-plan --target-id <id>
+npx tsx packages/tui/src/cli/spore-ops.ts self-build-override-review --override <id> --status approved
+npx tsx packages/tui/src/cli/spore-ops.ts self-build-override-release --override <id>
 npx tsx packages/tui/src/cli/spore-ops.ts self-build-loop-status
 npx tsx packages/tui/src/cli/spore-ops.ts work-item-queue
 npx tsx packages/tui/src/cli/spore-ops.ts scenario-list
@@ -109,7 +120,7 @@ The TUI/CLI operator surface now provides:
 - scenario and regression rerun and trend inspection over orchestrator HTTP surfaces,
 - scenario and regression launch actions over orchestrator HTTP surfaces,
 - self-build summary inspection for plan/group/work-item/proposal progress snapshots,
-- dedicated self-build dashboard inspection with queue and workspace visibility,
+- dedicated self-build lifecycle inspection with blocked promotions, pending validations, active autonomous runs, quarantined work, protected overrides, and policy recommendation review queue,
 - explicit self-build loop inspection and control,
 - autonomous decision, quarantine, and rollback inspection plus release controls,
 - work-item template and goal-plan management from the same orchestrator API contract,

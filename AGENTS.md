@@ -124,6 +124,15 @@ Useful local overrides for isolated runs and tests:
 - Treat integration branches as the default durable landing target for self-build promotion lanes. Prefer `/integration-branches*` and proposal/integrator promotion surfaces over any direct root-branch mutation.
 - Treat the self-build loop as an explicit operator/autonomous surface. Prefer `/self-build/loop/status`, `/self-build/loop/start`, and `/self-build/loop/stop` over home-grown background automation scripts.
 - Treat autonomous decisions, quarantine, and rollback as first-class self-build artifacts. Prefer `/self-build/decisions`, `/self-build/quarantine`, `/self-build/rollback`, and the matching quarantine/release/rollback mutation routes over inferring automation state from scattered history rows.
+- Treat `/self-build/learning-trends` as the preferred read surface for repeated blocker patterns and template/domain clusters. Do not rebuild those aggregates from raw learning rows in clients.
+- Treat `/self-build/policy-recommendations` as the preferred review surface for autonomy tuning candidates. Do not invent local policy heuristics when the orchestrator already emits recommendation records.
+- Use `/self-build/policy-recommendations/:id` when a client needs one recommendation's review state, materialization links, or suggested actions instead of re-filtering the aggregate list.
+- Treat `/self-build/policy-recommendation-reviews` as the preferred queue view for recommendation review work. Use it instead of reconstructing review state from the aggregate recommendations list.
+- Prefer `/self-build/policy-recommendations/:id/review` and `/self-build/policy-recommendations/:id/materialize` for the recommendation review queue instead of treating a recommendation as implicitly accepted.
+- Treat rollout tiers and protected-scope guardrails as policy-owned safety boundaries. If autonomous execution is blocked, prefer orchestrator `evaluation`, `matchedTiers`, and `protectedScopeBlocks` fields over local guesses in clients.
+- Treat protected-tier overrides as first-class human-gated artifacts. Prefer `/goal-plans/:id/protected-override`, `/work-item-groups/:id/protected-override`, `/proposal-artifacts/:id/protected-override`, `/integration-branches/:name/protected-override`, and `/self-build/overrides/:id` over ad hoc unblock notes when a protected scope needs an explicit human exception.
+- Treat `/self-build/overrides` as the aggregate queue for protected-tier override review and release work.
+- Use `/self-build/overrides/:id/review` and `/self-build/overrides/:id/release` for override governance instead of mutating blocked items directly after a protected-scope stop.
 - Treat workspace allocations as durable self-work infrastructure. Prefer `/workspaces*`, `/work-item-runs/:runId/workspace`, and `/executions/:id/workspaces` over inferring worktree state from filesystem paths alone.
 - Prefer `/workspaces/:id/reconcile` before manual cleanup when a workspace looks orphaned, missing, or dirty.
 - Treat workspace cleanup as governance-aware. Do not remove a proposal-backed or review-pending workspace unless the operator is making an explicit forced recovery decision.
@@ -250,6 +259,11 @@ Current CLI contract: `docs-kb index|search|status|rebuild`.
   - `GET /self-build/dashboard`
   - `GET /self-build/summary`
   - `GET /self-build/learnings`
+  - `GET /self-build/learning-trends`
+  - `GET /self-build/policy-recommendations`
+  - `GET /self-build/policy-recommendation-reviews`
+  - `GET /self-build/policy-recommendations/:id`
+  - `POST /self-build/policy-recommendations/:id/review`, `POST /self-build/policy-recommendations/:id/materialize`
   - `GET /self-build/doc-suggestions`
   - `GET /self-build/intake`
   - `POST /self-build/intake/refresh`
@@ -266,6 +280,10 @@ Current CLI contract: `docs-kb index|search|status|rebuild`.
   - `GET /integration-branches`, `GET /integration-branches/:name`
   - `GET /self-build/loop/status`, `POST /self-build/loop/start`, `POST /self-build/loop/stop`
   - `GET /self-build/decisions`, `GET /self-build/quarantine`, `GET /self-build/rollback`
+  - `GET /self-build/overrides`
+  - `GET /self-build/overrides/:id`
+  - `POST /self-build/overrides/:id/review`, `POST /self-build/overrides/:id/release`
+  - `POST /goal-plans/:id/protected-override`, `POST /work-item-groups/:id/protected-override`, `POST /proposal-artifacts/:id/protected-override`, `POST /integration-branches/:name/protected-override`
   - `POST /goal-plans/:id/quarantine`, `POST /work-item-groups/:id/quarantine`, `POST /proposal-artifacts/:id/quarantine`, `POST /integration-branches/:name/quarantine`, `POST /integration-branches/:name/rollback`, `POST /self-build/quarantine/:id/release`
   - `GET /workspaces`, `GET /workspaces/:id`, `POST /workspaces/:id/reconcile`, `POST /workspaces/:id/cleanup`
   - `GET /executions/:id/workspaces`

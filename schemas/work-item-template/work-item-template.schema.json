@@ -8,6 +8,11 @@
     "kind": { "type": "string", "enum": ["scenario", "regression", "workflow"] },
     "defaultGoal": { "type": "string", "minLength": 1 },
     "priority": { "type": "string" },
+    "taskClass": { "type": "string", "minLength": 1 },
+    "targetPaths": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
     "defaultMetadata": { "type": "object" },
     "acceptanceCriteria": {
       "type": "array",
@@ -25,12 +30,17 @@
       "type": "array",
       "items": { "type": "string", "minLength": 1 }
     },
+    "recommendedValidationBundles": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
     "allowedDomains": {
       "type": "array",
       "items": { "type": "string", "minLength": 1 }
     },
     "safeModeEligible": { "type": "boolean" },
-    "selfBuildEligible": { "type": "boolean" }
+    "selfBuildEligible": { "type": "boolean" },
+    "autonomousEligible": { "type": "boolean" }
   },
   "additionalProperties": true
 }

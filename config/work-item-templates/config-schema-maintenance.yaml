@@ -3,6 +3,8 @@ label: Config and Schema Maintenance
 kind: workflow
 defaultGoal: Propose changes to config, schemas, and related docs for SPORE.
 priority: high
+taskClass: config-hardening
+targetPaths: [config, schemas, docs]
 defaultMetadata:
   workflowPath: config/workflows/docs-adr-pass.yaml
   domainId: docs
@@ -23,3 +25,4 @@ recommendedValidationBundles: [proposal-ready-fast]
 allowedDomains: [docs, backend]
 safeModeEligible: true
 selfBuildEligible: true
+autonomousEligible: true

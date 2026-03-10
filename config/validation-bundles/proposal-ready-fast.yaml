@@ -4,8 +4,10 @@ description: Fast proposal-readiness bundle for reviewed self-work before promot
 scenarios:
   - docs-adr-pass
   - frontend-ui-pass
+  - self-build-validation-gating
 regressions:
   - local-fast
+  - self-build-fast
 requiredForProposalReadiness: true
 requiredForPromotionReadiness: false
 allowedAutoSkip: false

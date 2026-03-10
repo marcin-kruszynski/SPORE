@@ -1,8 +1,15 @@
 export {
+  createSelfBuildOverride,
+  listPolicyRecommendationReviewSummaries,
   listSelfBuildDecisionSummaries,
+  listSelfBuildOverrideSummaries,
   listSelfBuildQuarantineSummaries,
   listSelfBuildRollbackSummaries,
+  materializePolicyRecommendation,
   quarantineSelfBuildTarget,
+  releaseSelfBuildOverride,
   releaseSelfBuildQuarantine,
+  reviewPolicyRecommendation,
+  reviewSelfBuildOverride,
   rollbackIntegrationBranch,
 } from "./self-build.impl.js";

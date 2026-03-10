@@ -1,0 +1,19 @@
+id: self-build-fast
+label: Self Build Fast
+scenarios:
+  - self-build-goal-plan-review
+  - self-build-validation-gating
+  - self-build-visibility-validation
+realPiRequired: false
+stopOnFailure: false
+concurrency: 1
+timeoutMs: 180000
+artifactRetention: default
+historyRetentionDays: 14
+retainFailedRuns: true
+schedule:
+  enabled: false
+  cronLike: every-2h
+  maxParallelRuns: 1
+  skipIfRunActive: true
+tags: [self-build, local, fast]

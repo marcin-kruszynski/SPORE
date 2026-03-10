@@ -8126,8 +8126,8 @@ function renderSelfBuildDashboard() {
     const queueTotal = summary.queueSummary?.total ?? 0;
     const loopState = summary.loopStatus?.state || "idle";
     const loopDecision = summary.loopStatus?.lastDecision?.decision || "none";
-    const quarantineCount = summary.counts?.activeQuarantines ?? 0;
-    els.selfBuildDashboardState.textContent = `route: ready · attention:${attentionCount} queue:${queueTotal} quarantines:${quarantineCount} · loop:${loopState} · last:${loopDecision}`;
+    const lifecycle = normalizeSelfBuildLifecycleQueues(summary);
+    els.selfBuildDashboardState.textContent = `route: ready · attention:${attentionCount} queue:${queueTotal} quarantines:${lifecycle.counts.quarantinedWork} · lifecycle:promotions:${lifecycle.counts.blockedPromotions} validations:${lifecycle.counts.pendingValidations} · loop:${loopState} · last:${loopDecision}`;
   }
 }
 
@@ -8136,6 +8136,7 @@ function renderSelfBuildOverview(summary) {
 
   const overview = summary.overview || {};
   const counts = summary.counts || {};
+  const lifecycle = normalizeSelfBuildLifecycleQueues(summary);
   const groups = Array.isArray(summary.groups) ? summary.groups : [];
   const groupStates = groups.reduce(
     (accumulator, group) => {
@@ -8189,17 +8190,13 @@ function renderSelfBuildOverview(summary) {
     },
     {
       label: "Needs Validation",
-      value:
-        counts.validationsPendingExecution || counts.pendingValidationRuns || 0,
-      highlight:
-        (counts.validationsPendingExecution ||
-          counts.pendingValidationRuns ||
-          0) > 0,
+      value: lifecycle.counts.pendingValidations,
+      highlight: lifecycle.counts.pendingValidations > 0,
     },
     {
       label: "Promotion Blocked",
-      value: counts.proposalsBlockedForPromotion || 0,
-      highlight: (counts.proposalsBlockedForPromotion || 0) > 0,
+      value: lifecycle.counts.blockedPromotions,
+      highlight: lifecycle.counts.blockedPromotions > 0,
     },
     {
       label: "Validation Required",
@@ -8217,6 +8214,24 @@ function renderSelfBuildOverview(summary) {
       highlight: (counts.queuedAutonomousIntake || 0) > 0,
     },
     {
+      label: "Learning Trends",
+      value:
+        counts.repeatedLearningTrends || summary.learningTrends?.length || 0,
+      highlight:
+        (counts.repeatedLearningTrends || summary.learningTrends?.length || 0) >
+        0,
+    },
+    {
+      label: "Policy Recommendations",
+      value: lifecycle.counts.policyRecommendationQueue,
+      highlight: lifecycle.counts.policyRecommendationQueue > 0,
+    },
+    {
+      label: "Recommendation Reviews",
+      value: lifecycle.counts.policyRecommendationReviews,
+      highlight: lifecycle.counts.policyRecommendationReviews > 0,
+    },
+    {
       label: "Workspace Problems",
       value: counts.orphanedWorkspaces || 0,
       highlight: (counts.orphanedWorkspaces || 0) > 0,
@@ -8228,8 +8243,8 @@ function renderSelfBuildOverview(summary) {
     },
     {
       label: "Active Quarantines",
-      value: counts.activeQuarantines || 0,
-      highlight: (counts.activeQuarantines || 0) > 0,
+      value: lifecycle.counts.quarantinedWork,
+      highlight: lifecycle.counts.quarantinedWork > 0,
     },
     {
       label: "Autonomy Blocked",
@@ -8245,6 +8260,16 @@ function renderSelfBuildOverview(summary) {
       label: "Branch Issues",
       value: counts.integrationBranchIssues || 0,
       highlight: (counts.integrationBranchIssues || 0) > 0,
+    },
+    {
+      label: "Protected Tier Overrides",
+      value: lifecycle.counts.protectedTierOverrides,
+      highlight: lifecycle.counts.protectedTierOverrides > 0,
+    },
+    {
+      label: "Operator Overrides",
+      value: lifecycle.counts.overrides,
+      highlight: lifecycle.counts.overrides > 0,
     },
     { label: "Advisory Warnings", value: groupStates.advisoryWarnings || 0 },
   ];
@@ -8266,30 +8291,28 @@ function renderSelfBuildAttentionSummary(summary: AnyRecord) {
   const attention = summary.attentionSummary || {};
   const loopStatus = summary.loopStatus || {};
   const byState = attention.byState || {};
+  const lifecycleQueues = normalizeSelfBuildLifecycleQueues(summary);
   const entries = Object.entries(byState) as Array<[string, number]>;
   if (els.selfBuildAttentionCount) {
     els.selfBuildAttentionCount.textContent = `${attention.total || 0} ${attention.total === 1 ? "item" : "items"}`;
   }
-  if (entries.length === 0) {
-    els.selfBuildAttentionSummary.innerHTML = `
+  const cards =
+    entries.length === 0
+      ? [
+          `
       <div class="overview-card"><span class="label">Attention</span><span class="value">0</span></div>
-      <div class="overview-card ${loopStatus.state === "running" ? "highlight" : ""}">
-        <span class="label">Loop</span>
-        <span class="value">${escapeHtml(String(loopStatus.state || "idle"))}</span>
-      </div>
-    `;
-    return;
-  }
-  const cards = entries
-    .sort((left, right) => left[0].localeCompare(right[0]))
-    .map(
-      ([key, value]) => `
+    `,
+        ]
+      : entries
+          .sort((left, right) => left[0].localeCompare(right[0]))
+          .map(
+            ([key, value]) => `
       <div class="overview-card ${value > 0 ? "highlight" : ""}">
         <span class="label">${escapeHtml(humanizeKey(key))}</span>
         <span class="value">${escapeHtml(String(value))}</span>
       </div>
     `,
-    );
+          );
   cards.push(`
       <div class="overview-card ${loopStatus.state === "running" ? "highlight" : ""}">
         <span class="label">Loop</span>
@@ -8297,15 +8320,63 @@ function renderSelfBuildAttentionSummary(summary: AnyRecord) {
       </div>
     `);
   cards.push(`
-      <div class="overview-card ${(summary.counts?.activeQuarantines || 0) > 0 ? "highlight" : ""}">
-        <span class="label">Quarantines</span>
-        <span class="value">${escapeHtml(String(summary.counts?.activeQuarantines || 0))}</span>
+      <div class="overview-card ${lifecycleQueues.counts.blockedPromotions > 0 ? "highlight" : ""}">
+        <span class="label">Blocked Promotions</span>
+        <span class="value">${escapeHtml(String(lifecycleQueues.counts.blockedPromotions))}</span>
+      </div>
+    `);
+  cards.push(`
+      <div class="overview-card ${lifecycleQueues.counts.pendingValidations > 0 ? "highlight" : ""}">
+        <span class="label">Pending Validations</span>
+        <span class="value">${escapeHtml(String(lifecycleQueues.counts.pendingValidations))}</span>
+      </div>
+    `);
+  cards.push(`
+      <div class="overview-card ${lifecycleQueues.counts.activeAutonomousRuns > 0 ? "highlight" : ""}">
+        <span class="label">Active Autonomous Runs</span>
+        <span class="value">${escapeHtml(String(lifecycleQueues.counts.activeAutonomousRuns))}</span>
+      </div>
+    `);
+  cards.push(`
+      <div class="overview-card ${lifecycleQueues.counts.quarantinedWork > 0 ? "highlight" : ""}">
+        <span class="label">Quarantined Work</span>
+        <span class="value">${escapeHtml(String(lifecycleQueues.counts.quarantinedWork))}</span>
+      </div>
+    `);
+  cards.push(`
+      <div class="overview-card ${lifecycleQueues.counts.protectedTierOverrides > 0 ? "highlight" : ""}">
+        <span class="label">Protected Tier Overrides</span>
+        <span class="value">${escapeHtml(String(lifecycleQueues.counts.protectedTierOverrides))}</span>
+      </div>
+    `);
+  cards.push(`
+      <div class="overview-card ${lifecycleQueues.counts.policyRecommendationQueue > 0 ? "highlight" : ""}">
+        <span class="label">Recommendation Queue</span>
+        <span class="value">${escapeHtml(String(lifecycleQueues.counts.policyRecommendationQueue))}</span>
+      </div>
+    `);
+  cards.push(`
+      <div class="overview-card ${lifecycleQueues.counts.overrides > 0 ? "highlight" : ""}">
+        <span class="label">Overrides</span>
+        <span class="value">${escapeHtml(String(lifecycleQueues.counts.overrides))}</span>
+      </div>
+    `);
+  cards.push(`
+      <div class="overview-card ${lifecycleQueues.counts.policyRecommendationReviews > 0 ? "highlight" : ""}">
+        <span class="label">Recommendation Reviews</span>
+        <span class="value">${escapeHtml(String(lifecycleQueues.counts.policyRecommendationReviews))}</span>
       </div>
     `);
   cards.push(`
       <div class="overview-card ${(summary.counts?.autonomousBlockedDecisions || 0) > 0 ? "highlight" : ""}">
         <span class="label">Autonomy Blocked</span>
         <span class="value">${escapeHtml(String(summary.counts?.autonomousBlockedDecisions || 0))}</span>
+      </div>
+    `);
+  cards.push(`
+      <div class="overview-card ${(summary.rolloutTierSummary?.matchedCount || 0) > 0 ? "highlight" : ""}">
+        <span class="label">Rollout Tiers</span>
+        <span class="value">${escapeHtml(String(summary.rolloutTierSummary?.matchedCount || 0))}</span>
       </div>
     `);
   cards.push(`
@@ -8338,13 +8409,45 @@ function renderSelfBuildAttentionSummary(summary: AnyRecord) {
       })}
     </div>
   `);
+  cards.push(renderSelfBuildLifecycleSection(summary, lifecycleQueues));
   els.selfBuildAttentionSummary.innerHTML = cards.join("");
 }
 
 function resolveSelfBuildEntryType(item: AnyRecord = {}) {
   if (item.itemType) return item.itemType;
+  if (
+    item.targetType === "policy-recommendation" ||
+    item.targetType === "self-build-policy-recommendation"
+  ) {
+    return "policy-recommendation";
+  }
+  if (
+    item.targetType === "protected-override" ||
+    item.targetType === "self-build-override"
+  ) {
+    return "protected-override";
+  }
+  if (item.kind === "quarantine" || hasDisplayValue(item.links?.release)) {
+    return "protected-override";
+  }
   if (item.targetType === "doc-suggestion") return "doc-suggestion";
   if (item.targetType === "self-build-intake") return "self-build-intake";
+  if (
+    hasDisplayValue(item.reviewStatus) &&
+    (hasDisplayValue(item.materializedTemplateId) ||
+      hasDisplayValue(item.recommendationId) ||
+      hasDisplayValue(item.policyArea))
+  ) {
+    return "policy-recommendation";
+  }
+  if (
+    hasDisplayValue(item.overrideScope) ||
+    hasDisplayValue(item.overrideTargetType) ||
+    hasDisplayValue(item.protectedScope) ||
+    hasDisplayValue(item.overrideRequestedAt)
+  ) {
+    return "protected-override";
+  }
   if (item.targetType) return item.targetType;
   if (item.branchName || item.name?.startsWith?.("spore/integration/"))
     return "integration-branch";
@@ -8358,6 +8461,8 @@ function resolveSelfBuildEntryType(item: AnyRecord = {}) {
 
 function resolveSelfBuildEntryId(item: AnyRecord = {}) {
   return (
+    item.recommendationId ||
+    item.overrideId ||
     item.name ||
     item.id ||
     item.targetId ||
@@ -8370,6 +8475,555 @@ function resolveSelfBuildEntryId(item: AnyRecord = {}) {
     item.proposalId ||
     ""
   );
+}
+
+function collectSelfBuildRouteArrays(
+  payload: AnyRecord = {},
+  keys: string[] = [],
+): AnyRecord[] {
+  const merged = [];
+  const seen = new Set();
+  for (const key of keys) {
+    const entries = Array.isArray(payload?.[key]) ? payload[key] : [];
+    for (const entry of entries) {
+      const dedupeKey =
+        resolveSelfBuildEntryId(entry) ||
+        `${key}:${JSON.stringify(entry ?? null)}`;
+      if (seen.has(dedupeKey)) {
+        continue;
+      }
+      seen.add(dedupeKey);
+      merged.push(entry);
+    }
+  }
+  return merged;
+}
+
+function normalizeSelfBuildLifecycleQueues(summary: AnyRecord = {}) {
+  const lifecycle = readFirstObjectField(summary, ["lifecycle"]) || {};
+  const recommendationQueue = collectSelfBuildRouteArrays(summary, [
+    "policyRecommendationQueue",
+    "policyRecommendations",
+    "recommendations",
+  ]);
+  const protectedOverrideQueue = collectSelfBuildRouteArrays(summary, [
+    "activeOverrides",
+    "protectedTierOverrides",
+    "protectedOverrides",
+    "overrides",
+    "protectedScopeBlocks",
+  ]).filter((item) => {
+    const status = normalizeText(
+      readFirstField(item, [
+        "status",
+        "state",
+        "overrideStatus",
+        "decisionStatus",
+      ]),
+      "active",
+    ).toLowerCase();
+    return !["released", "resolved", "dismissed", "inactive"].includes(status);
+  });
+  const validationQueue = collectSelfBuildRouteArrays(summary, [
+    "lifecycleValidationQueue",
+    "validationRequiredProposals",
+    "pendingValidations",
+  ]);
+  const promotionBlockQueue = collectSelfBuildRouteArrays(summary, [
+    "lifecycleBlockedPromotions",
+    "proposalsBlockedForPromotion",
+    "blockedPromotions",
+  ]);
+  const quarantineQueue = collectSelfBuildRouteArrays(summary, [
+    "activeQuarantines",
+    "quarantines",
+  ]).filter((item) => {
+    const status = normalizeText(
+      readFirstField(item, ["status", "state"]),
+      "active",
+    ).toLowerCase();
+    return !["released", "resolved", "inactive"].includes(status);
+  });
+  const activeAutonomousRuns = collectSelfBuildRouteArrays(summary, [
+    "activeAutonomousRuns",
+    "autonomousRuns",
+    "runningAutonomousRuns",
+  ]).filter((item) => {
+    const status = normalizeText(
+      readFirstField(item, ["status", "state"]),
+      "running",
+    ).toLowerCase();
+    return !["completed", "failed", "stopped", "canceled", "rejected"].includes(
+      status,
+    );
+  });
+  const explicitRecommendationReviews = collectSelfBuildRouteArrays(summary, [
+    "policyRecommendationReviews",
+  ]);
+
+  const recommendationReviewQueue =
+    explicitRecommendationReviews.length > 0
+      ? explicitRecommendationReviews
+      : recommendationQueue.filter((item) => {
+          const reviewStatus = normalizeText(
+            readFirstField(item, [
+              "reviewStatus",
+              "status",
+              "state",
+              "decisionStatus",
+              "recommendationStatus",
+            ]),
+            "pending",
+          ).toLowerCase();
+          return ![
+            "accepted",
+            "implemented",
+            "materialized",
+            "dismissed",
+            "rejected",
+          ].includes(reviewStatus);
+        });
+
+  const counts = {
+    blockedPromotions:
+      coerceCount(lifecycle.blockedPromotions) ?? promotionBlockQueue.length,
+    pendingValidations:
+      coerceCount(lifecycle.pendingValidations) ?? validationQueue.length,
+    activeAutonomousRuns:
+      coerceCount(lifecycle.activeAutonomousRuns) ??
+      activeAutonomousRuns.length,
+    quarantinedWork:
+      coerceCount(lifecycle.quarantinedWork) ?? quarantineQueue.length,
+    protectedTierOverrides:
+      coerceCount(lifecycle.protectedTierOverrides) ??
+      protectedOverrideQueue.length,
+    policyRecommendationQueue:
+      coerceCount(lifecycle.policyRecommendationQueue) ??
+      recommendationQueue.length,
+    overrides: coerceCount(summary.overrides) ?? 0,
+    policyRecommendationReviews:
+      coerceCount(summary.policyRecommendationReviews) ??
+      recommendationReviewQueue.length,
+  };
+
+  return {
+    recommendationReviewQueue,
+    protectedOverrideQueue,
+    validationQueue,
+    promotionBlockQueue,
+    quarantineQueue,
+    activeAutonomousRuns,
+    recommendationQueue,
+    counts,
+  };
+}
+
+function resolveSelfBuildLifecycleTitle(
+  item: AnyRecord = {},
+  fallbackType: string,
+) {
+  const recommendation = readFirstObjectField(item, ["recommendation"]) || {};
+  return normalizeText(
+    readFirstField(item, [
+      "title",
+      "label",
+      "name",
+      "summary",
+      "goal",
+      "id",
+      "targetId",
+      "recommendationId",
+      "overrideId",
+    ]) ?? readFirstField(recommendation, ["summary", "goal", "id"]),
+    `${fallbackType}-${resolveSelfBuildEntryId(item) || "item"}`,
+  );
+}
+
+function resolveSelfBuildLifecycleSubtitle(item: AnyRecord = {}) {
+  const recommendation = readFirstObjectField(item, ["recommendation"]) || {};
+  const blockedScopes = normalizeRouteArray(item, ["blockedScopes"]);
+  const fallback =
+    blockedScopes.length > 0
+      ? `Blocked scopes: ${blockedScopes.join(", ")}`
+      : "";
+  return normalizeText(
+    readFirstField(item, [
+      "reason",
+      "detail",
+      "summary",
+      "message",
+      "goal",
+      "status",
+      "reviewStatus",
+    ]) ?? readFirstField(recommendation, ["reason", "summary", "goal"]),
+    fallback,
+  );
+}
+
+function resolveSelfBuildLifecycleStatus(item: AnyRecord = {}) {
+  const recommendation = readFirstObjectField(item, ["recommendation"]) || {};
+  return normalizeText(
+    readFirstField(item, [
+      "queueStatus",
+      "reviewStatus",
+      "status",
+      "state",
+      "decisionStatus",
+    ]) ?? readFirstField(recommendation, ["status", "priority", "severity"]),
+    "open",
+  );
+}
+
+function resolveSelfBuildLifecycleMetaBits(item: AnyRecord = {}) {
+  const recommendation = readFirstObjectField(item, ["recommendation"]) || {};
+  return Array.from(
+    new Set(
+      [
+        readFirstField(item, ["priority", "severity", "overrideKind"]),
+        readFirstField(item, ["overrideScope", "protectedScope", "scope"]),
+        readFirstField(item, ["policyArea", "targetType", "kind"]),
+        readFirstField(recommendation, [
+          "priority",
+          "severity",
+          "sourceType",
+          "autonomyImpact",
+          "kind",
+        ]),
+      ]
+        .filter((value) => hasDisplayValue(value))
+        .map((value) => String(value)),
+    ),
+  );
+}
+
+function renderSelfBuildLifecycleList(
+  title: string,
+  items: AnyRecord[] = [],
+  fallbackType: string,
+  emptyMessage: string,
+  totalCount = items.length,
+  options: AnyRecord = {},
+) {
+  return `
+    <article class="detail-card compact-empty">
+      <div class="detail-section-heading">
+        <h3>${escapeHtml(title)}</h3>
+        <p class="detail-support">${escapeHtml(`${totalCount} ${totalCount === 1 ? "item" : "items"}`)}</p>
+      </div>
+      ${
+        items.length === 0
+          ? `<p>${escapeHtml(totalCount > 0 ? `${emptyMessage} Dashboard supplied counts without item-level detail in this payload.` : emptyMessage)}</p>`
+          : items
+              .slice(0, 5)
+              .map((item) => {
+                const itemType = options.forceType
+                  ? fallbackType
+                  : resolveSelfBuildEntryType(item) || fallbackType;
+                const itemId = resolveSelfBuildEntryId(item);
+                const titleText = resolveSelfBuildLifecycleTitle(
+                  item,
+                  fallbackType,
+                );
+                const subtitle = resolveSelfBuildLifecycleSubtitle(item);
+                const status = resolveSelfBuildLifecycleStatus(item);
+                const metaBits = resolveSelfBuildLifecycleMetaBits(item);
+                const openAttrs = itemId
+                  ? `data-open-type="${escapeHtml(itemType)}" data-open-id="${escapeHtml(itemId)}"`
+                  : "";
+                return `
+                  <div class="work-item-row" ${openAttrs}>
+                    <div class="work-item-status ${stateClass(status)}"></div>
+                    <div class="work-item-info">
+                      <div class="work-item-title">${escapeHtml(titleText)}</div>
+                      <div class="work-item-meta">${escapeHtml(metaBits.join(" • ") || status)}</div>
+                      ${
+                        subtitle
+                          ? `<div class="work-item-reason">${escapeHtml(subtitle)}</div>`
+                          : ""
+                      }
+                    </div>
+                    <span class="work-item-badge follow-up">${escapeHtml(status)}</span>
+                    <span class="work-item-arrow">→</span>
+                  </div>
+                `;
+              })
+              .join("")
+      }
+    </article>
+  `;
+}
+
+function renderSelfBuildLifecycleSection(
+  summary: AnyRecord = {},
+  lifecycle = normalizeSelfBuildLifecycleQueues(summary),
+) {
+  const trackedTotal =
+    lifecycle.counts.blockedPromotions +
+    lifecycle.counts.pendingValidations +
+    lifecycle.counts.activeAutonomousRuns +
+    lifecycle.counts.quarantinedWork +
+    lifecycle.counts.policyRecommendationQueue +
+    lifecycle.counts.protectedTierOverrides;
+  const blockedTotal =
+    lifecycle.counts.blockedPromotions +
+    lifecycle.counts.pendingValidations +
+    lifecycle.counts.quarantinedWork +
+    lifecycle.counts.protectedTierOverrides;
+  const refreshText = summary.freshness?.lastRefresh
+    ? `Updated ${formatDisplayTimestamp(summary.freshness.lastRefresh)}`
+    : "Freshness metadata unavailable.";
+  const cards = [
+    {
+      label: "Blocked Promotions",
+      value: lifecycle.counts.blockedPromotions,
+      highlight: lifecycle.counts.blockedPromotions > 0,
+    },
+    {
+      label: "Pending Validations",
+      value: lifecycle.counts.pendingValidations,
+      highlight: lifecycle.counts.pendingValidations > 0,
+    },
+    {
+      label: "Active Autonomous Runs",
+      value: lifecycle.counts.activeAutonomousRuns,
+      highlight: lifecycle.counts.activeAutonomousRuns > 0,
+    },
+    {
+      label: "Quarantined Work",
+      value: lifecycle.counts.quarantinedWork,
+      highlight: lifecycle.counts.quarantinedWork > 0,
+    },
+    {
+      label: "Recommendation Queue",
+      value: lifecycle.counts.policyRecommendationQueue,
+      highlight: lifecycle.counts.policyRecommendationQueue > 0,
+    },
+    {
+      label: "Recommendation Reviews",
+      value: lifecycle.counts.policyRecommendationReviews,
+      highlight: lifecycle.counts.policyRecommendationReviews > 0,
+    },
+    {
+      label: "Active Overrides",
+      value: lifecycle.counts.protectedTierOverrides,
+      highlight: lifecycle.counts.protectedTierOverrides > 0,
+    },
+  ];
+
+  return `
+    <section class="detail-section">
+      <div class="detail-section-heading">
+        <h3>Lifecycle Dashboard</h3>
+        <p class="detail-support">Blocked promotions, pending validations, active autonomous runs, quarantined work, recommendations, and protected overrides in one operator view.</p>
+      </div>
+      <article class="detail-card compact-empty">
+        <div class="lineage-meta">
+          ${renderLineagePill("tracked", trackedTotal, trackedTotal > 0 ? "changed" : "inherited")}
+          ${renderLineagePill("blocked", blockedTotal, blockedTotal > 0 ? "changed" : "inherited")}
+          ${renderLineagePill("recommendations", lifecycle.counts.policyRecommendationQueue, lifecycle.counts.policyRecommendationQueue > 0 ? "dependency-advisory" : "inherited")}
+          ${renderLineagePill("review-queue", lifecycle.counts.policyRecommendationReviews, lifecycle.counts.policyRecommendationReviews > 0 ? "changed" : "inherited")}
+          ${renderLineagePill("loop", summary.loopStatus?.state || "idle", summary.loopStatus?.state === "running" ? "root" : "inherited")}
+        </div>
+        <p class="decision-summary">${escapeHtml(`${refreshText} ${lifecycle.counts.activeAutonomousRuns > 0 ? "Autonomous work is active." : "No autonomous runs are active."} ${lifecycle.counts.quarantinedWork > 0 ? `${lifecycle.counts.quarantinedWork} quarantine ${lifecycle.counts.quarantinedWork === 1 ? "record is" : "records are"} blocking rollout.` : "No active quarantines."}`)}</p>
+      </article>
+      <div class="readiness-stat-grid">
+        ${cards
+          .map(
+            (card) => `
+              <article class="readiness-stat ${card.highlight ? "blocked" : "neutral"}">
+                <span class="label">${escapeHtml(card.label)}</span>
+                <span class="value">${escapeHtml(String(card.value))}</span>
+              </article>
+            `,
+          )
+          .join("")}
+      </div>
+      <div class="event-list suggested-actions-list">
+        ${renderSelfBuildLifecycleList(
+          "Blocked Promotions",
+          lifecycle.promotionBlockQueue,
+          "proposal",
+          "No proposals are currently blocked for promotion.",
+          lifecycle.counts.blockedPromotions,
+        )}
+        ${renderSelfBuildLifecycleList(
+          "Pending Validations",
+          lifecycle.validationQueue,
+          "proposal",
+          "No validation-required proposals in the current scope.",
+          lifecycle.counts.pendingValidations,
+        )}
+        ${renderSelfBuildLifecycleList(
+          "Policy Recommendations",
+          lifecycle.recommendationQueue,
+          "policy-recommendation",
+          "No policy recommendations in the current scope.",
+          lifecycle.counts.policyRecommendationQueue,
+          { forceType: true },
+        )}
+        ${renderSelfBuildLifecycleList(
+          "Recommendation Reviews",
+          lifecycle.recommendationReviewQueue,
+          "policy-recommendation",
+          "No policy recommendations awaiting review.",
+          lifecycle.counts.policyRecommendationReviews,
+          { forceType: true },
+        )}
+        ${renderSelfBuildLifecycleList(
+          "Active Overrides",
+          lifecycle.protectedOverrideQueue,
+          "protected-override",
+          "No protected-tier overrides or protected-scope blockers in the current scope.",
+          lifecycle.counts.protectedTierOverrides,
+          { forceType: true },
+        )}
+        ${renderSelfBuildLifecycleList(
+          "Quarantined Work",
+          lifecycle.quarantineQueue,
+          "goal-plan",
+          "No quarantined self-build work in the current scope.",
+          lifecycle.counts.quarantinedWork,
+        )}
+        ${renderSelfBuildLifecycleList(
+          "Active Autonomous Runs",
+          lifecycle.activeAutonomousRuns,
+          "work-item-group",
+          "No autonomous runs are active right now.",
+          lifecycle.counts.activeAutonomousRuns,
+        )}
+      </div>
+    </section>
+  `;
+}
+
+function findSelfBuildLocalDetail(itemType: string, itemId: string) {
+  const summary = state.selfBuildSummary ?? {};
+  const pools =
+    itemType === "policy-recommendation"
+      ? [
+          ...collectSelfBuildRouteArrays(summary, [
+            "policyRecommendationReviews",
+            "recommendationReviews",
+          ]),
+          ...collectSelfBuildRouteArrays(summary, [
+            "policyRecommendationQueue",
+            "policyRecommendations",
+            "recommendations",
+          ]),
+        ]
+      : itemType === "protected-override"
+        ? [
+            ...collectSelfBuildRouteArrays(summary, [
+              "activeOverrides",
+              "protectedTierOverrides",
+              "protectedOverrides",
+              "overrides",
+              "protectedScopeBlocks",
+              "activeQuarantines",
+              "quarantines",
+            ]),
+          ]
+        : [];
+  return (
+    pools.find((entry) => resolveSelfBuildEntryId(entry) === itemId) ?? null
+  );
+}
+
+function normalizeOperatorEndpoint(value) {
+  const endpoint = normalizeText(value, "");
+  if (!endpoint) {
+    return "";
+  }
+  if (endpoint.startsWith("/api/orchestrator")) {
+    return endpoint;
+  }
+  if (endpoint.startsWith("/")) {
+    return `/api/orchestrator${endpoint}`;
+  }
+  return endpoint;
+}
+
+function resolveLocalActionConfig(
+  detail: AnyRecord = {},
+  actionKey: string | string[],
+): AnyRecord | null {
+  const actions = isObject(detail.actions) ? detail.actions : {};
+  const links = isObject(detail.links) ? detail.links : {};
+  const keys = Array.isArray(actionKey) ? actionKey : [actionKey];
+  let candidate = null;
+  for (const key of keys) {
+    candidate =
+      actions[key] ?? detail[`${key}Action`] ?? links[key] ?? candidate ?? null;
+    if (candidate) {
+      break;
+    }
+  }
+
+  if (typeof candidate === "string") {
+    const endpoint = normalizeOperatorEndpoint(candidate);
+    return endpoint ? { endpoint } : null;
+  }
+  if (isObject(candidate)) {
+    const endpoint = normalizeOperatorEndpoint(
+      readFirstField(candidate, [
+        "endpoint",
+        "route",
+        "path",
+        "href",
+        "url",
+        "httpHint",
+      ]),
+    );
+    return endpoint
+      ? {
+          endpoint,
+          method: normalizeText(readFirstField(candidate, ["method"]), "POST"),
+          label: readFirstField(candidate, ["label", "title"]),
+          help: readFirstField(candidate, ["help", "description"]),
+          fields: Array.isArray(candidate.fields) ? candidate.fields : null,
+          hidden: isObject(candidate.hidden) ? candidate.hidden : null,
+        }
+      : null;
+  }
+
+  const endpoint = normalizeOperatorEndpoint(
+    readFirstField(detail, [
+      ...keys.flatMap((key) => [`${key}Endpoint`, `${key}Route`, `${key}Path`]),
+    ]),
+  );
+  return endpoint ? { endpoint } : null;
+}
+
+function renderLocalActionForm(config: AnyRecord = {}) {
+  const action = resolveLocalActionConfig(config.detail, config.actionKey);
+  if (!action?.endpoint) {
+    return "";
+  }
+  return renderSelfBuildOperatorForm({
+    endpoint: action.endpoint,
+    method: action.method || config.method || "POST",
+    refreshType: config.refreshType,
+    refreshId: config.refreshId,
+    label: action.label || config.label,
+    help: action.help || config.help,
+    hidden: action.hidden || config.hidden,
+    fields:
+      Array.isArray(action.fields) && action.fields.length > 0
+        ? action.fields
+        : config.fields,
+  });
+}
+
+function renderSelfBuildLocalTarget(detail: AnyRecord = {}) {
+  const target = resolveSelfBuildDetailTarget(detail);
+  if (!target) {
+    return "";
+  }
+  return `
+    <div class="lineage-meta">
+      ${renderSelfBuildDetailLink(target.itemType, target.itemId, `Open ${humanizeKey(target.itemType)}`)}
+    </div>
+  `;
 }
 
 function _dependencyTone(value) {
@@ -8616,10 +9270,18 @@ function renderSelfBuildWorkspaceHealth(
       (branch) => `
       <div class="work-item-row" data-open-type="integration-branch" data-open-id="${escapeHtml(branch.name)}">
         <div class="work-item-status ${stateClass(branch.status)}"></div>
-        <div class="work-item-info">
-          <div class="work-item-title">${escapeHtml(branch.name)}</div>
-          <div class="work-item-meta">${escapeHtml([branch.status || "unknown", branch.targetBranch ? `target:${branch.targetBranch}` : "", branch.proposalId ? `proposal:${branch.proposalId}` : ""].filter(Boolean).join(" • "))}</div>
-          <div class="work-item-reason">${escapeHtml(branch.diagnostics?.issues?.[0]?.reason || branch.reason || "Integration branch state for self-build promotion.")}</div>
+          <div class="work-item-info">
+            <div class="work-item-title">${escapeHtml(branch.name)}</div>
+            <div class="work-item-meta">${escapeHtml([branch.status || "unknown", branch.targetBranch ? `target:${branch.targetBranch}` : "", branch.proposalId ? `proposal:${branch.proposalId}` : ""].filter(Boolean).join(" • "))}</div>
+          <div class="work-item-reason">${escapeHtml(
+            (branch.diagnostics?.issues || [])
+              .slice(0, 2)
+              .map((issue) => issue.reason)
+              .filter(Boolean)
+              .join(" • ") ||
+              branch.reason ||
+              "Integration branch state for self-build promotion.",
+          )}</div>
         </div>
         <span class="work-item-badge ${["blocked", "quarantined", "integration_failed"].includes(branch.status) ? "urgent" : "follow-up"}">${escapeHtml(branch.status || "unknown")}</span>
         <span class="work-item-arrow">→</span>
@@ -8958,6 +9620,16 @@ async function openSelfBuildDetail(itemType, itemId) {
   try {
     let detailData = null;
     let endpoint = "";
+    if (
+      itemType === "policy-recommendation" ||
+      itemType === "protected-override"
+    ) {
+      const localDetail = findSelfBuildLocalDetail(itemType, itemId);
+      if (localDetail) {
+        renderSelfBuildDetailView(itemType, localDetail);
+        return;
+      }
+    }
 
     if (itemType === "work-item") {
       endpoint = `/api/orchestrator/work-items/${encodeURIComponent(itemId)}`;
@@ -8990,29 +9662,94 @@ async function openSelfBuildDetail(itemType, itemId) {
       detailData = data.detail;
       renderSelfBuildDetailView(itemType, detailData);
     } else {
-      els.selfBuildDetailContent.innerHTML = `<div class="error">Failed to load detail: ${escapeHtml(data.error || "Unknown error")}</div>`;
+      const localDetail =
+        itemType === "policy-recommendation" ||
+        itemType === "protected-override"
+          ? findSelfBuildLocalDetail(itemType, itemId)
+          : null;
+      if (localDetail) {
+        renderSelfBuildDetailView(itemType, localDetail);
+      } else {
+        els.selfBuildDetailContent.innerHTML = `<div class="error">Failed to load detail: ${escapeHtml(data.error || "Unknown error")}</div>`;
+      }
     }
   } catch (error) {
-    els.selfBuildDetailContent.innerHTML = `<div class="error">Error loading detail: ${escapeHtml(error.message)}</div>`;
-    console.error("Failed to load self-build detail:", error);
+    const localDetail =
+      itemType === "policy-recommendation" || itemType === "protected-override"
+        ? findSelfBuildLocalDetail(itemType, itemId)
+        : null;
+    if (localDetail) {
+      renderSelfBuildDetailView(itemType, localDetail);
+    } else {
+      els.selfBuildDetailContent.innerHTML = `<div class="error">Error loading detail: ${escapeHtml(error.message)}</div>`;
+      console.error("Failed to load self-build detail:", error);
+    }
   }
+}
+
+function renderSelfBuildDetailLink(
+  itemType: string,
+  itemId: string,
+  label: string,
+) {
+  if (!itemType || !itemId) {
+    return "";
+  }
+  return `<button type="button" class="inline-detail-button strong-link" data-open-type="${escapeHtml(itemType)}" data-open-id="${escapeHtml(itemId)}">${escapeHtml(label)}</button>`;
+}
+
+function resolveSelfBuildDetailTarget(detail: AnyRecord = {}) {
+  const targetType = normalizeText(
+    detail.targetType || detail.overrideTargetType || "",
+    "",
+  );
+  const targetId = normalizeText(
+    detail.targetId || detail.overrideTargetId || "",
+    "",
+  );
+  if (!targetType || !targetId) {
+    return null;
+  }
+  if (targetType === "proposal-artifact") {
+    return { itemType: "proposal", itemId: targetId };
+  }
+  return { itemType: targetType, itemId: targetId };
 }
 
 function renderSelfBuildDetailView(itemType, detail) {
   if (!els.selfBuildDetailContent || !els.selfBuildDetailTitle) return;
 
+  const recommendation = readFirstObjectField(detail, ["recommendation"]) || {};
   const title =
     detail.title ||
     detail.label ||
     detail.name ||
+    detail.summary ||
     detail.goal ||
+    recommendation.summary ||
+    recommendation.goal ||
+    detail.recommendationId ||
+    detail.overrideId ||
+    detail.targetId ||
     detail.proposal?.summary?.title ||
     detail.proposal?.id ||
     detail.id;
   const detailStatus =
-    detail.status || detail.state || detail.proposal?.status || "unknown";
-  const detailId = detail.id || detail.proposal?.id || "";
-  els.selfBuildDetailTitle.textContent = title;
+    detail.queueStatus ||
+    detail.reviewStatus ||
+    detail.status ||
+    detail.state ||
+    recommendation.status ||
+    detail.proposal?.status ||
+    "unknown";
+  const detailId =
+    detail.id ||
+    detail.recommendationId ||
+    detail.overrideId ||
+    detail.targetId ||
+    detail.proposal?.id ||
+    "";
+  els.selfBuildDetailTitle.textContent = title || detailId || "Detail";
 
   let lineageHTML = "";
   if (itemType === "work-item" && detail.goalPlan && detail.workItemGroup) {
@@ -9155,6 +9892,37 @@ function renderSelfBuildDetailView(itemType, detail) {
               name: "stub",
               label: "Use stub runtime for this operator flow",
               checked: true,
+            },
+          ],
+        })}
+        ${renderSelfBuildOperatorForm({
+          endpoint: `/api/orchestrator/goal-plans/${encodeURIComponent(detail.id)}/protected-override`,
+          refreshType: "goal-plan",
+          refreshId: detail.id,
+          label: "Request Protected Override",
+          help: "Escalate blocked protected-tier goal-plan work for explicit human review.",
+          fields: [
+            {
+              type: "text",
+              name: "overrideScope",
+              label: "Scope",
+              value:
+                detail.protectedScope ||
+                detail.riskSummary?.highestScope ||
+                detail.domain ||
+                "goal-plan",
+            },
+            {
+              type: "text",
+              name: "rationale",
+              label: "Rationale",
+              placeholder: "Why should this protected-tier plan continue?",
+            },
+            {
+              type: "text",
+              name: "comments",
+              label: "Operator Notes",
+              placeholder: "Optional context for the human override reviewer.",
             },
           ],
         })}
@@ -9433,6 +10201,37 @@ function renderSelfBuildDetailView(itemType, detail) {
           ],
         })}
         ${renderSelfBuildOperatorForm({
+          endpoint: `/api/orchestrator/work-item-groups/${encodeURIComponent(detail.id)}/protected-override`,
+          refreshType: "work-item-group",
+          refreshId: detail.id,
+          label: "Request Protected Override",
+          help: "Escalate blocked protected-tier execution for explicit human approval.",
+          fields: [
+            {
+              type: "text",
+              name: "overrideScope",
+              label: "Scope",
+              value:
+                detail.protectedScope ||
+                detail.readiness?.protectedScope ||
+                detail.domain ||
+                "work-item-group",
+            },
+            {
+              type: "text",
+              name: "rationale",
+              label: "Rationale",
+              placeholder: "Why should this protected-tier group continue?",
+            },
+            {
+              type: "text",
+              name: "comments",
+              label: "Operator Notes",
+              placeholder: "Optional notes for override review.",
+            },
+          ],
+        })}
+        ${renderSelfBuildOperatorForm({
           endpoint: `/api/orchestrator/work-item-groups/${encodeURIComponent(detail.id)}/validate-bundle`,
           refreshType: "work-item-group",
           refreshId: detail.id,
@@ -9493,6 +10292,7 @@ function renderSelfBuildDetailView(itemType, detail) {
         ${renderSummaryObjectCard(proposal, "Proposal Summary", "No proposal summary returned.")}
         ${renderSummaryObjectCard(detail.readiness, "Readiness", "No readiness state returned for this proposal.")}
         ${renderSummaryObjectCard(detail.promotion, "Promotion Context", "No promotion context returned for this proposal.")}
+        ${renderSummaryObjectCard(detail.reworkHistory, "Rework History", "No rework history recorded for this proposal.")}
         ${renderSuggestedActionsCard(detail.suggestedActions, "Suggested Actions", "No suggested actions returned for this proposal.")}
         ${renderSelfBuildOperatorForm({
           endpoint: `/api/orchestrator/proposal-artifacts/${encodeURIComponent(proposal.id)}/review`,
@@ -9551,6 +10351,36 @@ function renderSelfBuildDetailView(itemType, detail) {
           ],
         })}
         ${renderSelfBuildOperatorForm({
+          endpoint: `/api/orchestrator/proposal-artifacts/${encodeURIComponent(proposal.id)}/protected-override`,
+          refreshType: "proposal",
+          refreshId: proposal.id,
+          label: "Request Protected Override",
+          help: "Escalate blocked protected-tier promotion for explicit human approval.",
+          fields: [
+            {
+              type: "text",
+              name: "overrideScope",
+              label: "Scope",
+              value:
+                detail.promotion?.targetBranch ||
+                detail.readiness?.protectedScope ||
+                "integration-branch",
+            },
+            {
+              type: "text",
+              name: "rationale",
+              label: "Rationale",
+              placeholder: "Why should this protected-tier promotion proceed?",
+            },
+            {
+              type: "text",
+              name: "comments",
+              label: "Operator Notes",
+              placeholder: "Optional notes for the override reviewer.",
+            },
+          ],
+        })}
+        ${renderSelfBuildOperatorForm({
           endpoint: `/api/orchestrator/proposal-artifacts/${encodeURIComponent(proposal.id)}/promotion-plan`,
           refreshType: "proposal",
           refreshId: proposal.id,
@@ -9598,6 +10428,262 @@ function renderSelfBuildDetailView(itemType, detail) {
         ${renderSummaryObjectCard(detail.workItem, "Managed Work Item", "No work item linked to this proposal.")}
         ${renderSummaryObjectCard(detail.workspace, "Workspace", "No workspace linked to this proposal.")}
         ${renderSummaryObjectCard(detail.execution, "Execution", "No source execution linked to this proposal.")}
+      </div>
+    `;
+  } else if (itemType === "policy-recommendation") {
+    const recommendationRecord = isObject(detail.recommendation)
+      ? detail.recommendation
+      : detail;
+    const recommendationId =
+      detail.recommendationId || recommendationRecord.id || detail.id || "";
+    const reviewStatus = normalizeText(
+      detail.status || detail.queueStatus || detail.reviewStatus,
+      "pending_review",
+    );
+    dependencySection = `
+      <section class="detail-section">
+        <div class="detail-section-heading">
+          <h3>Policy Recommendation</h3>
+          <p class="detail-support">Review autonomy tuning candidates before turning them into managed work or policy changes.</p>
+        </div>
+        <div class="lineage-meta">
+          ${renderLineagePill("status", reviewStatus, reviewStatus === "accepted" ? "root" : reviewStatus === "pending_review" ? "changed" : "inherited")}
+          ${recommendationRecord.priority ? renderLineagePill("priority", recommendationRecord.priority, recommendationRecord.priority === "high" ? "changed" : "inherited") : ""}
+          ${recommendationRecord.sourceType ? renderLineagePill("source", recommendationRecord.sourceType, "inherited") : ""}
+          ${recommendationRecord.autonomyImpact ? renderLineagePill("impact", recommendationRecord.autonomyImpact, recommendationRecord.autonomyImpact === "block" ? "changed" : "dependency-advisory") : ""}
+        </div>
+        ${renderSummaryObjectCard(recommendationRecord, "Recommendation Summary", "No recommendation detail returned.")}
+        ${renderSummaryObjectCard(
+          Object.fromEntries(
+            [
+              ["queueStatus", reviewStatus],
+              ["reviewedBy", detail.reviewedBy],
+              ["reviewedAt", detail.reviewedAt],
+              ["materializedAt", detail.materializedAt],
+              ["materializedGoalPlanId", detail.materializedGoalPlanId],
+              ["materializedIntakeId", detail.materializedIntakeId],
+            ].filter(([, value]) => hasDisplayValue(value)),
+          ),
+          "Lifecycle",
+          "No review lifecycle recorded for this recommendation.",
+        )}
+        ${renderSummaryObjectCard(detail.links, "Available Routes", "No action routes returned for this recommendation.")}
+        ${renderSuggestedActionsCard(recommendationRecord.suggestedActions || detail.suggestedActions || detail.recommendations, "Suggested Actions", "No suggested actions returned for this recommendation.")}
+        ${renderLocalActionForm({
+          detail,
+          actionKey: ["review", "accept"],
+          refreshType: "policy-recommendation",
+          refreshId: recommendationId,
+          label: "Review Recommendation",
+          help: "Accept, defer, or reject this policy recommendation.",
+          fields: [
+            {
+              type: "select",
+              name: "status",
+              label: "Decision",
+              value: ["accepted", "deferred", "rejected"].includes(reviewStatus)
+                ? reviewStatus
+                : "accepted",
+              options: [
+                { value: "accepted", label: "Accepted" },
+                { value: "deferred", label: "Deferred" },
+                { value: "rejected", label: "Rejected" },
+              ],
+            },
+            {
+              type: "text",
+              name: "reason",
+              label: "Reason",
+              placeholder:
+                "Why should this recommendation be applied, deferred, or rejected?",
+            },
+          ],
+        })}
+        ${renderLocalActionForm({
+          detail,
+          actionKey: ["materialize", "refresh", "create"],
+          refreshType: "policy-recommendation",
+          refreshId: recommendationId,
+          label: "Materialize Recommendation",
+          help: "Convert this recommendation into managed follow-up work.",
+          fields: [
+            {
+              type: "select",
+              name: "mode",
+              label: "Materialization Mode",
+              value:
+                detail.metadata?.materializationMode ||
+                recommendationRecord.materializationMode ||
+                "goal-plan",
+              options: [
+                { value: "goal-plan", label: "Goal Plan" },
+                { value: "intake", label: "Self-Build Intake" },
+              ],
+            },
+            {
+              type: "text",
+              name: "projectId",
+              label: "Project",
+              value: detail.projectId || "spore",
+            },
+            {
+              type: "text",
+              name: "domain",
+              label: "Domain",
+              value: recommendationRecord.domainId || "",
+              placeholder: "Optional domain override",
+            },
+            {
+              type: "checkbox",
+              name: "reviewRequired",
+              label: "Require review on materialized goal plan",
+              checked: detail.reviewRequired !== false,
+            },
+            {
+              type: "checkbox",
+              name: "safeMode",
+              label: "Keep materialized work in safe mode",
+              checked: detail.safeMode !== false,
+            },
+            {
+              type: "text",
+              name: "reason",
+              label: "Reason",
+              placeholder: "Optional materialization rationale",
+            },
+          ],
+        })}
+      </section>
+    `;
+    recentActivitySection = `
+      <div class="detail-section">
+        <div class="detail-section-heading">
+          <h3>Recommendation Context</h3>
+          <p class="detail-support">Use source signals, review state, and materialization hints to decide the next autonomy tuning action.</p>
+        </div>
+        ${renderSelfBuildLocalTarget(detail)}
+        ${renderSummaryObjectCard(detail.source, "Source", "No source detail returned.")}
+        ${renderSummaryObjectCard(detail.metadata, "Metadata", "No recommendation metadata returned.")}
+        ${renderSummaryObjectCard(
+          {
+            sourceType: recommendationRecord.sourceType || detail.sourceType,
+            sourceIds: recommendationRecord.sourceIds || detail.sourceIds,
+            autonomyImpact:
+              recommendationRecord.autonomyImpact || detail.autonomyImpact,
+            domainId: recommendationRecord.domainId || detail.domainId,
+            templateId: recommendationRecord.templateId || detail.templateId,
+            reviewStatus: reviewStatus,
+            materializedGoalPlanId: detail.materializedGoalPlanId,
+            materializedIntakeId: detail.materializedIntakeId,
+          },
+          "Recommendation Signals",
+          "No recommendation signals returned.",
+        )}
+      </div>
+    `;
+  } else if (itemType === "protected-override") {
+    const overrideId = detail.id || detail.overrideId || "";
+    const overrideStatus = normalizeText(
+      detail.reviewStatus || detail.status,
+      "pending_review",
+    );
+    dependencySection = `
+      <section class="detail-section">
+        <div class="detail-section-heading">
+          <h3>Protected-Tier Override</h3>
+          <p class="detail-support">Protected scope blocks require explicit human-gated approval before autonomous work can continue.</p>
+        </div>
+        <div class="lineage-meta">
+          ${renderLineagePill("status", overrideStatus, overrideStatus === "approved" ? "root" : overrideStatus === "rejected" ? "changed" : "inherited")}
+          ${detail.overrideKind ? renderLineagePill("kind", detail.overrideKind, "inherited") : ""}
+          ${detail.protectedScope || detail.overrideScope || detail.scope ? renderLineagePill("scope", detail.protectedScope || detail.overrideScope || detail.scope, "changed") : ""}
+          ${detail.targetType || detail.overrideTargetType ? renderLineagePill("target", `${detail.targetType || detail.overrideTargetType}:${detail.targetId || detail.overrideTargetId || detail.id || "-"}`, "inherited") : ""}
+        </div>
+        ${renderSummaryObjectCard(
+          Object.fromEntries(
+            [
+              ["kind", detail.kind || detail.overrideKind],
+              ["status", overrideStatus],
+              ["targetType", detail.targetType || detail.overrideTargetType],
+              ["targetId", detail.targetId || detail.overrideTargetId],
+              ["requestedBy", detail.requestedBy],
+              ["reason", detail.reason],
+              [
+                "scope",
+                detail.protectedScope || detail.overrideScope || detail.scope,
+              ],
+            ].filter(([, value]) => hasDisplayValue(value)),
+          ),
+          "Override Summary",
+          "No override detail returned.",
+        )}
+        ${renderSummaryObjectCard(detail.links, "Available Routes", "No action routes returned for this override record.")}
+        ${renderSuggestedActionsCard(detail.suggestedActions || detail.recommendations, "Suggested Actions", "No suggested actions returned for this override.")}
+        ${renderLocalActionForm({
+          detail,
+          actionKey: ["override", "review", "approve"],
+          refreshType: "protected-override",
+          refreshId: overrideId,
+          label: "Review Override",
+          help: "Approve or reject the protected-tier override request.",
+          fields: [
+            {
+              type: "select",
+              name: "status",
+              label: "Decision",
+              value: overrideStatus === "rejected" ? "rejected" : "approved",
+              options: [
+                { value: "approved", label: "Approved" },
+                { value: "rejected", label: "Rejected" },
+              ],
+            },
+            {
+              type: "text",
+              name: "reason",
+              label: "Reason",
+              placeholder: "Record the human rationale for this override.",
+            },
+          ],
+        })}
+        ${renderLocalActionForm({
+          detail,
+          actionKey: ["release", "releaseOverride"],
+          refreshType: "protected-override",
+          refreshId: overrideId,
+          label: "Release Override",
+          help: "Release a protected-tier override or quarantine when the payload exposes a release route.",
+          fields: [
+            {
+              type: "text",
+              name: "reason",
+              label: "Reason",
+              placeholder: "Why is this override safe to release?",
+            },
+          ],
+        })}
+      </section>
+    `;
+    recentActivitySection = `
+      <div class="detail-section">
+        <div class="detail-section-heading">
+          <h3>Override Context</h3>
+          <p class="detail-support">Protected overrides stay auditable and tied to the blocked goal plan, group, or proposal.</p>
+        </div>
+        ${renderSelfBuildLocalTarget(detail)}
+        ${renderSummaryObjectCard(detail.blockers, "Blocked Reasons", "No blocker detail returned.")}
+        ${renderSummaryObjectCard(detail.metadata, "Metadata", "No override metadata returned.")}
+        ${renderSummaryObjectCard(
+          {
+            targetType:
+              detail.overrideTargetType || detail.targetType || detail.kind,
+            targetId: detail.overrideTargetId || detail.targetId || detail.id,
+            protectedScope: detail.protectedScope || detail.overrideScope,
+            reviewStatus: overrideStatus,
+            requestedAt: detail.overrideRequestedAt || detail.createdAt,
+          },
+          "Override Signals",
+          "No override signal summary returned.",
+        )}
       </div>
     `;
   } else if (itemType === "doc-suggestion") {

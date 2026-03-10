@@ -1,0 +1,18 @@
+id: self-build-promotion-integration
+label: Self-Build Promotion Integration
+workflow: config/workflows/feature-promotion.yaml
+domain: frontend
+roles: [integrator]
+objectiveTemplate: "Validate coordinator-to-integrator promotion for a self-build proposal landing on an integration branch."
+policyPackExpectation: [self-build-proposals]
+expectedGovernance:
+  reviewRequired: true
+  approvalRequired: true
+  reworkCapable: true
+expectedWaveTopology:
+  waveCount: 1
+  labels: [integrate]
+  allowsBranching: false
+realPiEligible: false
+regressionProfiles: [self-build-autonomy]
+tags: [self-build, promotion, integration]

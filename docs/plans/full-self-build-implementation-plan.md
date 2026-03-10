@@ -87,6 +87,8 @@ Do not assign overlapping write ownership to parallel workers in the same sub-sl
 - [x] autonomous queue runner and autonomous policy enforcement
 - [x] integration-branch lifecycle, rollback, and quarantine
 - [x] stronger learning and doc-follow-up loops
+- [x] protected-tier human override review and release flow
+- [x] lifecycle dashboard coverage for blocked promotions, pending validations, active autonomous runs, quarantined work, overrides, and recommendation review queue
 
 ## Phase 1 — Editable Planning and Stronger Group Control
 
@@ -358,32 +360,32 @@ Do not assign overlapping write ownership to parallel workers in the same sub-sl
 ## Phase 5 — Whole-Repo Expansion and Safety Tiers
 
 ### 23. Whole-Repo Autonomy Rollout Tiers
-- [ ] Stage repo-wide autonomy through explicit tiers:
+- [x] Stage repo-wide autonomy through explicit tiers:
   1. docs/config/scenarios/regressions
   2. operator surfaces and read models
   3. proposal/promotion infrastructure
   4. orchestrator read models and non-core services
   5. orchestrator execution internals
   6. runtime/session core
-- [ ] Each tier needs:
+- [x] Each tier needs:
   - validation bundle
   - quarantine threshold
   - rollback rule
   - human-gated override path
-- [ ] No tier may advance without explicit config change.
+- [x] No tier may advance without explicit config change.
 
 ### 24. Protected Scope Guardrails
-- [ ] Add path/domain-based stricter rules for:
+- [x] Add path/domain-based stricter rules for:
   - runtime core
   - session control
   - orchestrator execution core
   - promotion and merge logic
-- [ ] Enforce stronger review or human approval in protected scopes.
-- [ ] Surface these guardrails in planner output and proposal detail.
-- [ ] Fail early when a goal crosses into a disallowed scope for the current autonomous mode.
+- [x] Enforce stronger review or human approval in protected scopes.
+- [x] Surface these guardrails in planner output and proposal detail.
+- [x] Fail early when a goal crosses into a disallowed scope for the current autonomous mode.
 
 ### 25. Self-Build Scenarios and Regression Profiles
-- [ ] Add canonical self-build scenarios:
+- [x] Add canonical self-build scenarios:
   - goal-plan review flow
   - dependency batch flow
   - proposal review/rework flow
@@ -391,8 +393,8 @@ Do not assign overlapping write ownership to parallel workers in the same sub-sl
   - promotion-to-integration flow
   - quarantine and recovery flow
   - protected-scope blocked autonomy flow
-- [ ] Add regression profiles that continuously exercise the self-build loop.
-- [ ] Reuse them in validation bundles and autonomous eligibility.
+- [x] Add regression profiles that continuously exercise the self-build loop.
+- [x] Reuse them in validation bundles and autonomous eligibility.
 
 ## Phase 6 — Learning, Documentation, and Continuous Improvement
 
@@ -404,8 +406,8 @@ Do not assign overlapping write ownership to parallel workers in the same sub-sl
   - promotion blocker pattern
   - workspace/integration branch lesson
 - [x] Link learnings to goals, groups, proposals, validations, and promotions.
-- [ ] Use repeated learnings to downgrade autonomous eligibility automatically.
-- [ ] Expose learning trends in self-build dashboard.
+- [x] Use repeated learnings to downgrade autonomous eligibility automatically.
+- [x] Expose learning trends in self-build dashboard.
 
 ### 27. Documentation Suggestion Pipeline v2
 - [x] Turn doc suggestions into a first-class queue.
@@ -419,14 +421,14 @@ Do not assign overlapping write ownership to parallel workers in the same sub-sl
 - [x] Link doc suggestions to self-build outcomes.
 
 ### 28. Policy Recommendation Loop
-- [ ] Generate policy-pack suggestions from repeated self-build outcomes.
-- [ ] Keep suggestions reviewable, not auto-applied at first.
-- [ ] Surface repeated autonomous blockers as policy tuning candidates.
-- [ ] Connect policy recommendations to learning records and regression outcomes.
-- [ ] Add a review queue for policy changes.
+- [x] Generate policy-pack suggestions from repeated self-build outcomes.
+- [x] Keep suggestions reviewable, not auto-applied at first.
+- [x] Surface repeated autonomous blockers as policy tuning candidates.
+- [x] Connect policy recommendations to learning records and regression outcomes.
+- [x] Add a review queue for policy changes.
 
 ### 29. Full Self-Build Lifecycle Dashboard
-- [ ] Expand `/self-build/dashboard` into the final lifecycle surface:
+- [x] Expand `/self-build/dashboard` into the final lifecycle surface:
   - goals awaiting review
   - edited plans awaiting materialization
   - active and blocked groups
@@ -439,7 +441,7 @@ Do not assign overlapping write ownership to parallel workers in the same sub-sl
   - quarantined work
   - autonomous loop status
   - top blockers and suggested operator actions
-- [ ] Keep TUI parity for the same lifecycle states.
+- [x] Keep TUI parity for the same lifecycle states.
 
 ### 30. Self-Build Milestone Exit Criteria
 - [ ] Define one milestone scenario for “SPORE works on SPORE”:

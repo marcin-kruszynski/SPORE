@@ -104,9 +104,67 @@
           "type": "array",
           "items": { "type": "string" }
         },
+        "protectedScopes": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
         "requiredAutonomousValidationBundles": {
           "type": "array",
           "items": { "type": "string" }
+        },
+        "rolloutTiers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "label": { "type": "string" },
+              "description": { "type": "string" },
+              "enabled": { "type": "boolean" },
+              "allowedTemplates": {
+                "type": "array",
+                "items": { "type": "string" }
+              },
+              "allowedDomains": {
+                "type": "array",
+                "items": { "type": "string" }
+              },
+              "allowedMutationScopes": {
+                "type": "array",
+                "items": { "type": "string" }
+              },
+              "targetPaths": {
+                "type": "array",
+                "items": { "type": "string" }
+              },
+              "protectedScopes": {
+                "type": "array",
+                "items": { "type": "string" }
+              },
+              "requireSafeMode": { "type": "boolean" },
+              "autoPromoteToIntegration": { "type": "boolean" },
+              "requiredValidationBundles": {
+                "type": "array",
+                "items": { "type": "string" }
+              }
+            }
+          }
+        },
+        "intakePriorityPolicy": {
+          "type": "object",
+          "properties": {
+            "learningFailure": { "type": "number" },
+            "learningSuccess": { "type": "number" },
+            "docSuggestionPending": { "type": "number" },
+            "docSuggestionAccepted": { "type": "number" },
+            "integrationIssue": { "type": "number" },
+            "policyRecommendation": { "type": "number" },
+            "highSeverityBonus": { "type": "number" },
+            "acceptedBonus": { "type": "number" },
+            "blockedBonus": { "type": "number" },
+            "promotionBlockedBonus": { "type": "number" },
+            "quarantineBonus": { "type": "number" }
+          }
         },
         "quarantineThresholds": {
           "type": "object",

@@ -1,8 +1,6 @@
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
 import test from "node:test";
 
-import { buildTsxEntrypointArgs } from "@spore/core";
 import {
   getWorkItem,
   openOrchestratorDatabase,
@@ -13,16 +11,12 @@ import {
   findFreePort,
   makeTempPaths,
   postJson,
+  runCliScript,
   setReviewerPending,
   startProcess,
   stopProcess,
   waitForHealth,
 } from "@spore/test-support";
-
-type CliRunResult = {
-  stdout: string;
-  stderr: string;
-};
 
 type TempPaths = {
   dbPath: string;
@@ -62,38 +56,10 @@ type RunGroupResponse = {
   ok: boolean;
 };
 
-function runCli(
-  args: string[],
-  env: NodeJS.ProcessEnv = {},
-): Promise<CliRunResult> {
-  return new Promise<CliRunResult>((resolve, reject) => {
-    const child = spawn(
-      process.execPath,
-      buildTsxEntrypointArgs("packages/tui/src/cli/spore-ops.ts", args),
-      {
-        cwd: process.cwd(),
-        env: {
-          ...process.env,
-          ...env,
-        },
-        stdio: ["ignore", "pipe", "pipe"],
-      },
-    );
-    let stdout = "";
-    let stderr = "";
-    child.stdout.on("data", (chunk) => {
-      stdout += chunk.toString();
-    });
-    child.stderr.on("data", (chunk) => {
-      stderr += chunk.toString();
-    });
-    child.on("exit", (code) => {
-      if (code === 0) {
-        resolve({ stdout, stderr });
-        return;
-      }
-      reject(new Error(stderr || stdout || `cli failed: ${args.join(" ")}`));
-    });
+function runCli(args: string[], env: NodeJS.ProcessEnv = {}) {
+  return runCliScript("packages/tui/src/cli/spore-ops.ts", args, {
+    env,
+    timeoutMs: 180_000,
   });
 }
 
@@ -239,6 +205,66 @@ test("tui execution and family commands consume orchestrator HTTP surfaces", {
   if (runCenterPayload.detail.recentScenarioRuns[0]) {
     assert.ok("trendHealth" in runCenterPayload.detail.recentScenarioRuns[0]);
     assert.ok("links" in runCenterPayload.detail.recentScenarioRuns[0]);
+  }
+
+  const learningTrendsOutput = await runCli([
+    "self-build-learning-trends",
+    "--api",
+    `http://127.0.0.1:${orchestratorPort}`,
+  ]);
+  const learningTrendsPayload = JSON.parse(learningTrendsOutput.stdout);
+  assert.ok(Array.isArray(learningTrendsPayload.detail));
+
+  const policyRecommendationsOutput = await runCli([
+    "self-build-policy-recommendations",
+    "--api",
+    `http://127.0.0.1:${orchestratorPort}`,
+  ]);
+  const policyRecommendationsPayload = JSON.parse(
+    policyRecommendationsOutput.stdout,
+  );
+  assert.ok(Array.isArray(policyRecommendationsPayload.detail));
+
+  const policyRecommendationReviewsOutput = await runCli([
+    "self-build-policy-recommendation-reviews",
+    "--api",
+    `http://127.0.0.1:${orchestratorPort}`,
+  ]);
+  const policyRecommendationReviewsPayload = JSON.parse(
+    policyRecommendationReviewsOutput.stdout,
+  );
+  assert.ok(Array.isArray(policyRecommendationReviewsPayload.detail));
+
+  const firstPolicyRecommendation = policyRecommendationsPayload.detail[0];
+  if (firstPolicyRecommendation?.id) {
+    const policyRecommendationShowOutput = await runCli([
+      "self-build-policy-recommendation-show",
+      "--recommendation",
+      firstPolicyRecommendation.id,
+      "--api",
+      `http://127.0.0.1:${orchestratorPort}`,
+    ]);
+    const policyRecommendationShowPayload = JSON.parse(
+      policyRecommendationShowOutput.stdout,
+    );
+    assert.equal(
+      policyRecommendationShowPayload.detail.id,
+      firstPolicyRecommendation.id,
+    );
+
+    const policyRecommendationReviewOutput = await runCli([
+      "self-build-policy-recommendation-review",
+      "--recommendation",
+      firstPolicyRecommendation.id,
+      "--status",
+      "held",
+      "--api",
+      `http://127.0.0.1:${orchestratorPort}`,
+    ]);
+    const policyRecommendationReviewPayload = JSON.parse(
+      policyRecommendationReviewOutput.stdout,
+    );
+    assert.equal(policyRecommendationReviewPayload.detail.queueStatus, "held");
   }
 
   const projectPlanOutput = await runCli([
@@ -401,6 +427,10 @@ test("tui execution and family commands consume orchestrator HTTP surfaces", {
     "cli-verification-pass",
     "--api",
     `http://127.0.0.1:${orchestratorPort}`,
+    "--timeout",
+    "12000",
+    "--interval",
+    "250",
     "--stub",
   ]);
   const scenarioRunPayload = JSON.parse(scenarioRunOutput.stdout);
@@ -464,6 +494,10 @@ test("tui execution and family commands consume orchestrator HTTP surfaces", {
     "local-fast",
     "--api",
     `http://127.0.0.1:${orchestratorPort}`,
+    "--timeout",
+    "12000",
+    "--interval",
+    "250",
     "--stub",
   ]);
   const regressionRunPayload = JSON.parse(regressionRunOutput.stdout);
@@ -617,6 +651,10 @@ test("tui execution and family commands consume orchestrator HTTP surfaces", {
     workItemCreatePayload.detail.id,
     "--api",
     `http://127.0.0.1:${orchestratorPort}`,
+    "--timeout",
+    "12000",
+    "--interval",
+    "250",
     "--stub",
   ]);
   const workItemRunPayload = JSON.parse(workItemRunOutput.stdout);
@@ -799,6 +837,92 @@ test("tui execution and family commands consume orchestrator HTTP surfaces", {
   const goalPlanCreatePayload = JSON.parse(goalPlanCreateOutput.stdout);
   assert.ok(goalPlanCreatePayload.detail.id);
 
+  const selfBuildOverrideCreateOutput = await runCli([
+    "self-build-override-create",
+    "--target-type",
+    "goal-plan",
+    "--target-id",
+    goalPlanCreatePayload.detail.id,
+    "--reason",
+    "Exercise protected-tier override flow in TUI parity.",
+    "--api",
+    `http://127.0.0.1:${orchestratorPort}`,
+  ]);
+  const selfBuildOverrideCreatePayload = JSON.parse(
+    selfBuildOverrideCreateOutput.stdout,
+  );
+  assert.ok(
+    ["self-build-override", "goal-plan"].includes(
+      String(selfBuildOverrideCreatePayload.detail.targetType),
+    ),
+  );
+  assert.ok(
+    [
+      selfBuildOverrideCreatePayload.detail.overrideTargetType,
+      selfBuildOverrideCreatePayload.detail.targetType,
+    ].includes("goal-plan"),
+  );
+  assert.equal(
+    selfBuildOverrideCreatePayload.detail.overrideTargetId,
+    goalPlanCreatePayload.detail.id,
+  );
+
+  const selfBuildOverridesOutput = await runCli([
+    "self-build-overrides",
+    "--target-type",
+    "goal-plan",
+    "--target-id",
+    goalPlanCreatePayload.detail.id,
+    "--api",
+    `http://127.0.0.1:${orchestratorPort}`,
+  ]);
+  const selfBuildOverridesPayload = JSON.parse(selfBuildOverridesOutput.stdout);
+  assert.ok(Array.isArray(selfBuildOverridesPayload.detail));
+  const createdOverride = selfBuildOverridesPayload.detail.find(
+    (entry) => entry.overrideTargetId === goalPlanCreatePayload.detail.id,
+  );
+  assert.ok(createdOverride);
+
+  const selfBuildOverrideShowOutput = await runCli([
+    "self-build-override-show",
+    "--override",
+    createdOverride.id,
+    "--api",
+    `http://127.0.0.1:${orchestratorPort}`,
+  ]);
+  const selfBuildOverrideShowPayload = JSON.parse(
+    selfBuildOverrideShowOutput.stdout,
+  );
+  assert.equal(selfBuildOverrideShowPayload.detail.id, createdOverride.id);
+
+  const selfBuildOverrideReviewOutput = await runCli([
+    "self-build-override-review",
+    "--override",
+    createdOverride.id,
+    "--status",
+    "held",
+    "--api",
+    `http://127.0.0.1:${orchestratorPort}`,
+  ]);
+  const selfBuildOverrideReviewPayload = JSON.parse(
+    selfBuildOverrideReviewOutput.stdout,
+  );
+  assert.equal(selfBuildOverrideReviewPayload.detail.status, "held");
+
+  const selfBuildOverrideReleaseOutput = await runCli([
+    "self-build-override-release",
+    "--override",
+    createdOverride.id,
+    "--reason",
+    "Release override after parity coverage.",
+    "--api",
+    `http://127.0.0.1:${orchestratorPort}`,
+  ]);
+  const selfBuildOverrideReleasePayload = JSON.parse(
+    selfBuildOverrideReleaseOutput.stdout,
+  );
+  assert.equal(selfBuildOverrideReleasePayload.detail.status, "released");
+
   const goalPlanHistoryOutput = await runCli([
     "goal-plan-history",
     "--plan",
@@ -881,6 +1005,10 @@ test("tui execution and family commands consume orchestrator HTTP surfaces", {
     proposalWorkItemCreatePayload.detail.id,
     "--api",
     `http://127.0.0.1:${orchestratorPort}`,
+    "--timeout",
+    "12000",
+    "--interval",
+    "250",
     "--stub",
   ]);
   const proposalWorkItemRunPayload = JSON.parse(
@@ -917,18 +1045,23 @@ test("tui execution and family commands consume orchestrator HTTP surfaces", {
     ),
   );
 
-  const proposalValidateOutput = await runCli([
-    "work-item-validate-bundle",
-    "--run",
-    proposalWorkItemRunPayload.detail.run.id,
-    "--bundles",
-    "proposal-ready-fast,integration-ready-core",
-    "--stub",
+  const proposalReviewPackageOutput = await runCli([
+    "proposal-review-package",
+    "--proposal",
+    proposalWorkItemRunPayload.detail.proposal.id,
     "--api",
     `http://127.0.0.1:${orchestratorPort}`,
   ]);
-  const proposalValidatePayload = JSON.parse(proposalValidateOutput.stdout);
-  assert.ok(proposalValidatePayload.detail.validation);
+  const proposalReviewPackagePayload = JSON.parse(
+    proposalReviewPackageOutput.stdout,
+  );
+  assert.equal(
+    proposalReviewPackagePayload.detail.proposal.id,
+    proposalWorkItemRunPayload.detail.proposal.id,
+  );
+  assert.ok(
+    Array.isArray(proposalReviewPackagePayload.detail.suggestedActions),
+  );
 
   const integrationBranchListOutput = await runCli([
     "integration-branch-list",

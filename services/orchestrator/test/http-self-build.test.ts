@@ -96,6 +96,15 @@ test("self-build summary and lineage routes expose operator-first visibility", a
     typeof summary.json.detail.counts.pendingValidationRuns === "number",
   );
   assert.ok(typeof summary.json.detail.counts.learningRecords === "number");
+  assert.ok(
+    typeof summary.json.detail.counts.policyRecommendations === "number",
+  );
+  assert.ok(
+    typeof summary.json.detail.counts.repeatedLearningTrends === "number",
+  );
+  assert.ok(
+    typeof summary.json.detail.counts.protectedScopeBlocks === "number",
+  );
 
   // Urgent and follow-up queues
   assert.ok(Array.isArray(summary.json.detail.urgentWork));
@@ -110,6 +119,9 @@ test("self-build summary and lineage routes expose operator-first visibility", a
   assert.ok(Array.isArray(summary.json.detail.waitingReviewProposals));
   assert.ok(Array.isArray(summary.json.detail.waitingApprovalProposals));
   assert.ok(Array.isArray(summary.json.detail.learningRecords));
+  assert.ok(Array.isArray(summary.json.detail.learningTrends));
+  assert.ok(Array.isArray(summary.json.detail.policyRecommendations));
+  assert.ok(typeof summary.json.detail.rolloutTierSummary === "object");
 
   // Freshness and display metadata
   assert.ok(summary.json.detail.freshness);
@@ -131,6 +143,25 @@ test("self-build summary and lineage routes expose operator-first visibility", a
   assert.ok(typeof summary.json.detail.queueSummary === "object");
   assert.ok(typeof summary.json.detail.attentionSummary === "object");
   assert.ok(Array.isArray(summary.json.detail.goalPlans));
+  assert.ok(typeof summary.json.detail.lifecycle === "object");
+  assert.ok(
+    typeof summary.json.detail.lifecycle.blockedPromotions === "number",
+  );
+  assert.ok(
+    typeof summary.json.detail.lifecycle.pendingValidations === "number",
+  );
+  assert.ok(
+    typeof summary.json.detail.lifecycle.activeAutonomousRuns === "number",
+  );
+  assert.ok(typeof summary.json.detail.lifecycle.quarantinedWork === "number");
+  assert.ok(
+    typeof summary.json.detail.lifecycle.protectedTierOverrides === "number",
+  );
+  assert.ok(
+    typeof summary.json.detail.lifecycle.policyRecommendationQueue === "number",
+  );
+  assert.ok(Array.isArray(summary.json.detail.protectedTierOverrides));
+  assert.ok(Array.isArray(summary.json.detail.policyRecommendationReviews));
 
   const dashboard = await getJson(
     `http://127.0.0.1:${ORCHESTRATOR_PORT}/self-build/dashboard`,
@@ -142,6 +173,7 @@ test("self-build summary and lineage routes expose operator-first visibility", a
   assert.ok(Array.isArray(dashboard.json.detail.recentWorkItemRuns));
   assert.ok(typeof dashboard.json.detail.attentionSummary === "object");
   assert.ok(typeof dashboard.json.detail.queueSummary === "object");
+  assert.ok(typeof dashboard.json.detail.lifecycle === "object");
 
   // Test 2: work-item templates catalog
   const templates = await getJson(
@@ -241,6 +273,116 @@ test("self-build summary and lineage routes expose operator-first visibility", a
       (entry) => entry.type === "reviewed",
     ),
   );
+
+  const createdOverride = await postJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/goal-plans/${encodeURIComponent(goalPlan.json.detail.id)}/protected-override`,
+    {
+      kind: "protected-tier",
+      reason: "Exercise protected-tier override review flow.",
+      rationale:
+        "Operator override required before autonomous materialization.",
+      by: "test-runner",
+      source: "http-self-build-test",
+    },
+  );
+  assert.equal(createdOverride.status, 200);
+  assert.ok(createdOverride.json.ok);
+  assert.equal(createdOverride.json.detail.targetType, "self-build-override");
+  assert.equal(createdOverride.json.detail.overrideTargetType, "goal-plan");
+
+  const overrideList = await getJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/self-build/overrides?targetType=goal-plan&targetId=${encodeURIComponent(goalPlan.json.detail.id)}`,
+  );
+  assert.equal(overrideList.status, 200);
+  assert.ok(overrideList.json.ok);
+  assert.ok(Array.isArray(overrideList.json.detail));
+  const goalPlanOverride = overrideList.json.detail.find(
+    (entry) => entry.overrideTargetId === goalPlan.json.detail.id,
+  );
+  assert.ok(goalPlanOverride);
+
+  const overrideDetail = await getJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/self-build/overrides/${encodeURIComponent(goalPlanOverride.id)}`,
+  );
+  assert.equal(overrideDetail.status, 200);
+  assert.ok(overrideDetail.json.ok);
+  assert.equal(overrideDetail.json.detail.id, goalPlanOverride.id);
+
+  const reviewedOverride = await postJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/self-build/overrides/${encodeURIComponent(goalPlanOverride.id)}/review`,
+    {
+      status: "held",
+      comments: "Override held for protected-tier HTTP coverage.",
+      by: "test-runner",
+    },
+  );
+  assert.equal(reviewedOverride.status, 200);
+  assert.ok(reviewedOverride.json.ok);
+  assert.equal(reviewedOverride.json.detail.status, "held");
+
+  const releasedOverride = await postJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/self-build/overrides/${encodeURIComponent(goalPlanOverride.id)}/release`,
+    {
+      reason: "Release override after HTTP coverage.",
+      by: "test-runner",
+    },
+  );
+  assert.equal(releasedOverride.status, 200);
+  assert.ok(releasedOverride.json.ok);
+  assert.equal(releasedOverride.json.detail.status, "released");
+
+  const policyRecommendations = await getJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/self-build/policy-recommendations`,
+  );
+  assert.equal(policyRecommendations.status, 200);
+  assert.ok(policyRecommendations.json.ok);
+  assert.ok(Array.isArray(policyRecommendations.json.detail));
+
+  const policyRecommendationReviews = await getJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/self-build/policy-recommendation-reviews`,
+  );
+  assert.equal(policyRecommendationReviews.status, 200);
+  assert.ok(policyRecommendationReviews.json.ok);
+  assert.ok(Array.isArray(policyRecommendationReviews.json.detail));
+
+  const recommendation = policyRecommendations.json.detail[0];
+  if (recommendation?.id) {
+    const recommendationDetail = await getJson(
+      `http://127.0.0.1:${ORCHESTRATOR_PORT}/self-build/policy-recommendations/${encodeURIComponent(recommendation.id)}`,
+    );
+    assert.equal(recommendationDetail.status, 200);
+    assert.ok(recommendationDetail.json.ok);
+    assert.equal(recommendationDetail.json.detail.id, recommendation.id);
+
+    const reviewedRecommendation = await postJson(
+      `http://127.0.0.1:${ORCHESTRATOR_PORT}/self-build/policy-recommendations/${encodeURIComponent(recommendation.id)}/review`,
+      {
+        status: "held",
+        comments: "Review policy recommendation during HTTP coverage.",
+        by: "test-runner",
+      },
+    );
+    assert.equal(reviewedRecommendation.status, 200);
+    assert.ok(reviewedRecommendation.json.ok);
+    assert.equal(reviewedRecommendation.json.detail.queueStatus, "held");
+
+    const materializedRecommendation = await postJson(
+      `http://127.0.0.1:${ORCHESTRATOR_PORT}/self-build/policy-recommendations/${encodeURIComponent(recommendation.id)}/materialize`,
+      {
+        mode: "intake",
+        projectId: "spore",
+        domain: recommendation.domainId ?? "docs",
+        by: "test-runner",
+      },
+    );
+    assert.equal(materializedRecommendation.status, 200);
+    assert.ok(materializedRecommendation.json.ok);
+    assert.ok(
+      materializedRecommendation.json.detail.materializedIntakeId ||
+        materializedRecommendation.json.detail.materializedGoalPlanId ||
+        materializedRecommendation.json.detail.links?.goalPlan,
+    );
+  }
 
   // Test 5: materialize goal plan into work-item group
   const materialized = await postJson(
@@ -410,6 +552,20 @@ test("self-build summary and lineage routes expose operator-first visibility", a
       promotionInvoke.json.detail.detail.execution.role,
       "integrator",
     );
+
+    const reworkedProposal = await postJson(
+      `http://127.0.0.1:${ORCHESTRATOR_PORT}/proposal-artifacts/${encodeURIComponent(runDetail.json.detail.proposal.id)}/rework`,
+      {
+        by: "test-runner",
+        comments:
+          "Record proposal rework history for operator follow-up coverage.",
+        source: "http-self-build-test",
+      },
+    );
+    assert.equal(reworkedProposal.status, 200);
+    assert.ok(reworkedProposal.json.ok);
+    assert.ok(Array.isArray(reworkedProposal.json.detail.reworkHistory));
+    assert.ok(reworkedProposal.json.detail.reworkHistory.length >= 1);
 
     const integrationBranches = await getJson(
       `http://127.0.0.1:${ORCHESTRATOR_PORT}/integration-branches`,
@@ -771,6 +927,20 @@ test("self-build summary and lineage routes expose operator-first visibility", a
   assert.ok(selfBuildLearnings.json.ok);
   assert.ok(Array.isArray(selfBuildLearnings.json.detail));
 
+  const selfBuildLearningTrends = await getJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/self-build/learning-trends`,
+  );
+  assert.equal(selfBuildLearningTrends.status, 200);
+  assert.ok(selfBuildLearningTrends.json.ok);
+  assert.ok(Array.isArray(selfBuildLearningTrends.json.detail));
+
+  const selfBuildPolicyRecommendations = await getJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/self-build/policy-recommendations`,
+  );
+  assert.equal(selfBuildPolicyRecommendations.status, 200);
+  assert.ok(selfBuildPolicyRecommendations.json.ok);
+  assert.ok(Array.isArray(selfBuildPolicyRecommendations.json.detail));
+
   const selfBuildDocSuggestions = await getJson(
     `http://127.0.0.1:${ORCHESTRATOR_PORT}/self-build/doc-suggestions?runId=${encodeURIComponent(runId)}`,
   );
@@ -956,6 +1126,20 @@ test("self-build summary and lineage routes expose operator-first visibility", a
   assert.equal(webLearnings.status, 200);
   assert.ok(webLearnings.json.ok);
   assert.ok(Array.isArray(webLearnings.json.detail));
+
+  const webLearningTrends = await getJson(
+    `http://127.0.0.1:${WEB_PORT}/api/orchestrator/self-build/learning-trends`,
+  );
+  assert.equal(webLearningTrends.status, 200);
+  assert.ok(webLearningTrends.json.ok);
+  assert.ok(Array.isArray(webLearningTrends.json.detail));
+
+  const webPolicyRecommendations = await getJson(
+    `http://127.0.0.1:${WEB_PORT}/api/orchestrator/self-build/policy-recommendations`,
+  );
+  assert.equal(webPolicyRecommendations.status, 200);
+  assert.ok(webPolicyRecommendations.json.ok);
+  assert.ok(Array.isArray(webPolicyRecommendations.json.detail));
 
   const webDocSuggestions = await getJson(
     `http://127.0.0.1:${WEB_PORT}/api/orchestrator/self-build/doc-suggestions?runId=${encodeURIComponent(runId)}`,

@@ -28,6 +28,12 @@ Workflow templates may also define `stepSets`, which the service exposes back th
 - `GET /self-build/summary`
 - `GET /self-build/decisions`
 - `GET /self-build/learnings`
+- `GET /self-build/learning-trends`
+- `GET /self-build/policy-recommendations`
+- `GET /self-build/policy-recommendation-reviews`
+- `GET /self-build/policy-recommendations/:id`
+- `POST /self-build/policy-recommendations/:id/review`
+- `POST /self-build/policy-recommendations/:id/materialize`
 - `GET /self-build/doc-suggestions`
 - `GET /self-build/intake`
 - `POST /self-build/intake/refresh`
@@ -36,6 +42,10 @@ Workflow templates may also define `stepSets`, which the service exposes back th
 - `POST /self-build/intake/:id/materialize`
 - `GET /self-build/quarantine`
 - `GET /self-build/rollback`
+- `GET /self-build/overrides`
+- `GET /self-build/overrides/:id`
+- `POST /self-build/overrides/:id/review`
+- `POST /self-build/overrides/:id/release`
 - `GET /scenarios/:id/trends`
 - `GET /scenario-runs/:runId`
 - `GET /scenario-runs/:runId/artifacts`
@@ -83,6 +93,10 @@ Workflow templates may also define `stepSets`, which the service exposes back th
 - `POST /proposal-artifacts/:id/rework`
 - `POST /proposal-artifacts/:id/promotion-plan`
 - `POST /proposal-artifacts/:id/promotion-invoke`
+- `POST /goal-plans/:id/protected-override`
+- `POST /work-item-groups/:id/protected-override`
+- `POST /proposal-artifacts/:id/protected-override`
+- `POST /integration-branches/:name/protected-override`
 - `GET /integration-branches`
 - `GET /integration-branches/:name`
 - `GET /self-build/loop/status`
@@ -165,8 +179,14 @@ curl http://127.0.0.1:8789/run-center/summary
 curl http://127.0.0.1:8789/self-build/dashboard
 curl http://127.0.0.1:8789/self-build/summary
 curl http://127.0.0.1:8789/self-build/decisions
+curl http://127.0.0.1:8789/self-build/learning-trends
+curl http://127.0.0.1:8789/self-build/policy-recommendations
+curl http://127.0.0.1:8789/self-build/policy-recommendation-reviews
+curl http://127.0.0.1:8789/self-build/policy-recommendations/policy-rec:learning-record:example
 curl http://127.0.0.1:8789/self-build/quarantine
 curl http://127.0.0.1:8789/self-build/rollback
+curl http://127.0.0.1:8789/self-build/overrides
+curl http://127.0.0.1:8789/self-build/overrides/override-123
 curl http://127.0.0.1:8789/work-item-templates
 curl http://127.0.0.1:8789/work-item-templates/operator-ui-pass
 curl -X POST http://127.0.0.1:8789/goals/plan \

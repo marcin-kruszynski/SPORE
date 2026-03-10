@@ -3,6 +3,8 @@ label: Runtime Validation Pass
 kind: regression
 defaultGoal: Run SPORE runtime validation through named regressions.
 priority: medium
+taskClass: runtime-validation
+targetPaths: [config, docs, config/scenarios, config/regressions]
 defaultMetadata:
   regressionId: local-fast
   domainId: backend
@@ -17,3 +19,4 @@ recommendedValidationBundles: [self-build-safe]
 allowedDomains: [backend, cli, docs]
 safeModeEligible: true
 selfBuildEligible: true
+autonomousEligible: true

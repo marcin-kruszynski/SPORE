@@ -115,6 +115,13 @@ Recommended interpretation:
 - `proposal-approve --proposal <id> --status <approved|rejected>` records proposal approval state transitions.
 - `proposal-rework --proposal <id>` routes a rejected or blocked proposal back into managed self-work with durable rationale.
 - `proposal-promotion-plan --proposal <id>` and `proposal-promotion-invoke --proposal <id>` bridge a `promotion_ready` proposal into the explicit `coordinator -> integrator` promotion lane.
+- `self-build-learning-trends` returns repeated blocker and template/domain learning aggregates for autonomous tuning.
+- `self-build-policy-recommendations` returns policy tuning candidates derived from learnings, blocked autonomy, and integration diagnostics.
+- `self-build-policy-recommendation-reviews` returns the dedicated recommendation review queue with durable operator decisions and materialization status.
+- `self-build-policy-recommendation-show --recommendation <id>` returns one recommendation detail with review state, materialization links, and suggested actions.
+- `self-build-overrides` returns the aggregate protected-tier override queue and its review/release state.
+- `self-build-override-show --override <id>` returns one protected-tier override detail with review and release links.
+- `self-build-override-create --target-type <goal-plan|work-item-group|proposal|integration-branch> --target-id <id>` creates an explicit human-gated exception for a protected scope.
 - `integration-branch-list` and `integration-branch-show --branch <name>` expose durable integration-branch summaries for promotion candidates and landed integration work.
 - `self-build-loop-status`, `self-build-loop-start`, and `self-build-loop-stop` expose the managed self-build loop as an explicit operator/autonomous surface.
 - `self-build-decisions`, `self-build-quarantine`, and `self-build-rollback` expose durable autonomous decisions, quarantine state, and rollback history.

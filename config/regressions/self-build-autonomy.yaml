@@ -1,0 +1,20 @@
+id: self-build-autonomy
+label: Self Build Autonomy
+scenarios:
+  - self-build-validation-gating
+  - self-build-promotion-integration
+  - self-build-quarantine-recovery
+  - self-build-protected-scope-block
+realPiRequired: false
+stopOnFailure: false
+concurrency: 1
+timeoutMs: 240000
+artifactRetention: full
+historyRetentionDays: 30
+retainFailedRuns: true
+schedule:
+  enabled: false
+  cronLike: every-6h
+  maxParallelRuns: 1
+  skipIfRunActive: true
+tags: [self-build, autonomy, safety]

@@ -3,6 +3,8 @@ label: Docs Maintenance Pass
 kind: scenario
 defaultGoal: Review and update documentation-facing project surfaces.
 priority: medium
+taskClass: documentation
+targetPaths: [docs, docs/runbooks, README.md]
 defaultMetadata:
   scenarioId: docs-adr-pass
   domainId: docs
@@ -21,3 +23,4 @@ recommendedValidationBundles: [proposal-ready-fast]
 allowedDomains: [docs]
 safeModeEligible: true
 selfBuildEligible: true
+autonomousEligible: true

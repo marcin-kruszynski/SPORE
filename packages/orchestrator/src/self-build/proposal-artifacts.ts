@@ -218,9 +218,14 @@ export function buildDocSuggestions(item, run, proposal = null) {
   }
   if (proposal) {
     suggestions.push({
-      kind: "readme-delta",
+      kind: "readme-update",
       targetPath: "README.md",
       summary: `Review README impact for proposal artifact ${proposal.id}.`,
+    });
+    suggestions.push({
+      kind: "docs-index-update",
+      targetPath: "docs/INDEX.md",
+      summary: `Update docs navigation after proposal artifact ${proposal.id}.`,
     });
   }
   if (run.status === "failed") {

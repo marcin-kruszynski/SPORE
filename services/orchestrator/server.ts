@@ -9,12 +9,14 @@ import {
   cleanupManagedWorkspace,
   createGoalPlan,
   createManagedWorkItem,
+  createSelfBuildOverride,
   editGoalPlan,
   getDocSuggestionSummary,
   getDocSuggestionsForRun,
   getGoalPlanHistory,
   getGoalPlanSummary,
   getIntegrationBranchSummary,
+  getPolicyRecommendationSummary,
   getProposalByRun,
   getProposalReviewPackage,
   getProposalSummary,
@@ -29,7 +31,10 @@ import {
   getScenarioTrends,
   getSelfBuildDashboard,
   getSelfBuildIntakeSummary,
+  getSelfBuildLearningTrends,
   getSelfBuildLoopStatus,
+  getSelfBuildOverrideSummary,
+  getSelfBuildPolicyRecommendations,
   getSelfBuildSummary,
   getSelfBuildWorkItem,
   getSelfBuildWorkItemRun,
@@ -42,10 +47,12 @@ import {
   listExecutionWorkspaces,
   listGoalPlansSummary,
   listIntegrationBranchSummaries,
+  listPolicyRecommendationReviewSummaries,
   listSelfBuildDecisionSummaries,
   listSelfBuildDocSuggestionSummaries,
   listSelfBuildIntakeSummaries,
   listSelfBuildLearningSummaries,
+  listSelfBuildOverrideSummaries,
   listSelfBuildQuarantineSummaries,
   listSelfBuildRollbackSummaries,
   listSelfBuildWorkItemRuns,
@@ -55,11 +62,13 @@ import {
   listWorkspaceSummaries,
   materializeDocSuggestionRecord,
   materializeGoalPlan,
+  materializePolicyRecommendation,
   materializeSelfBuildIntake,
   planProposalPromotion,
   quarantineSelfBuildTarget,
   reconcileManagedWorkspace,
   refreshSelfBuildIntake,
+  releaseSelfBuildOverride,
   releaseSelfBuildQuarantine,
   requeueWorkItemGroupItem,
   rerouteWorkItemGroup,
@@ -67,8 +76,10 @@ import {
   retryDownstreamWorkItemGroup,
   reviewDocSuggestionRecord,
   reviewGoalPlan,
+  reviewPolicyRecommendation,
   reviewProposalArtifact,
   reviewSelfBuildIntake,
+  reviewSelfBuildOverride,
   reworkProposalArtifact,
   rollbackIntegrationBranch,
   runGoalPlan,
@@ -88,6 +99,14 @@ function json(response, statusCode, payload) {
     "content-type": "application/json; charset=utf-8",
   });
   response.end(`${JSON.stringify(payload, null, 2)}\n`);
+}
+
+function notFound(response, message) {
+  json(response, 404, {
+    ok: false,
+    error: "not_found",
+    message,
+  });
 }
 
 async function readJsonBody(request) {
@@ -471,6 +490,96 @@ const server = http.createServer(async (request, response) => {
           limit: url.searchParams.get("limit")?.trim() || "50",
         }),
       });
+      return;
+    }
+
+    if (
+      request.method === "GET" &&
+      url.pathname === "/self-build/learning-trends"
+    ) {
+      json(response, 200, {
+        ok: true,
+        detail: getSelfBuildLearningTrends(),
+      });
+      return;
+    }
+
+    if (
+      request.method === "GET" &&
+      url.pathname === "/self-build/policy-recommendations"
+    ) {
+      json(response, 200, {
+        ok: true,
+        detail: getSelfBuildPolicyRecommendations(),
+      });
+      return;
+    }
+
+    if (
+      request.method === "GET" &&
+      parts.length === 3 &&
+      parts[0] === "self-build" &&
+      parts[1] === "policy-recommendations"
+    ) {
+      const detail = getPolicyRecommendationSummary(parts[2]);
+      if (!detail) {
+        notFound(response, `policy recommendation not found: ${parts[2]}`);
+        return;
+      }
+      json(response, 200, { ok: true, detail });
+      return;
+    }
+
+    if (
+      request.method === "GET" &&
+      url.pathname === "/self-build/policy-recommendation-reviews"
+    ) {
+      json(response, 200, {
+        ok: true,
+        detail: listPolicyRecommendationReviewSummaries({
+          limit: url.searchParams.get("limit")?.trim() || "50",
+        }),
+      });
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/self-build/overrides") {
+      json(response, 200, {
+        ok: true,
+        detail: listSelfBuildOverrideSummaries({
+          kind: url.searchParams.get("kind")?.trim() || null,
+          status: url.searchParams.get("status")?.trim() || null,
+          targetType: url.searchParams.get("targetType")?.trim() || null,
+          targetId: url.searchParams.get("targetId")?.trim() || null,
+          limit: url.searchParams.get("limit")?.trim() || "50",
+        }),
+      });
+      return;
+    }
+
+    if (
+      request.method === "GET" &&
+      parts.length === 3 &&
+      parts[0] === "self-build" &&
+      parts[1] === "overrides"
+    ) {
+      const detail = getSelfBuildOverrideSummary(parts[2]);
+      if (!detail) {
+        notFound(response, `self-build override not found: ${parts[2]}`);
+        return;
+      }
+      json(response, 200, { ok: true, detail });
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/self-build/overrides") {
+      const body = await readJsonBody(request);
+      const detail = await createSelfBuildOverride({
+        ...body,
+        by: body.by ?? "operator",
+        source: body.source ?? "http",
+      });
+      json(response, 200, { ok: true, detail });
       return;
     }
 
@@ -1182,6 +1291,35 @@ const server = http.createServer(async (request, response) => {
       request.method === "POST" &&
       parts.length === 3 &&
       parts[0] === "goal-plans" &&
+      parts[2] === "protected-override"
+    ) {
+      const body = await readJsonBody(request);
+      const detail = await createSelfBuildOverride({
+        kind: body.kind ?? "protected-tier",
+        targetType: "goal-plan",
+        targetId: parts[1],
+        reason:
+          body.reason ??
+          body.comments ??
+          "Protected-tier override requested for goal plan.",
+        rationale: body.rationale ?? body.comments ?? "",
+        metadata: {
+          ...(body.metadata ?? {}),
+          overrideScope: body.overrideScope ?? null,
+          protectedScope: body.overrideScope ?? null,
+          requestContext: "goal-plan",
+        },
+        by: body.by ?? "operator",
+        source: body.source ?? "http",
+      });
+      json(response, 200, { ok: true, detail });
+      return;
+    }
+
+    if (
+      request.method === "POST" &&
+      parts.length === 3 &&
+      parts[0] === "goal-plans" &&
       parts[2] === "quarantine"
     ) {
       const body = await readJsonBody(request);
@@ -1429,6 +1567,35 @@ const server = http.createServer(async (request, response) => {
         });
         return;
       }
+      json(response, 200, { ok: true, detail });
+      return;
+    }
+
+    if (
+      request.method === "POST" &&
+      parts.length === 3 &&
+      parts[0] === "work-item-groups" &&
+      parts[2] === "protected-override"
+    ) {
+      const body = await readJsonBody(request);
+      const detail = await createSelfBuildOverride({
+        kind: body.kind ?? "protected-tier",
+        targetType: "work-item-group",
+        targetId: parts[1],
+        reason:
+          body.reason ??
+          body.comments ??
+          "Protected-tier override requested for work-item group.",
+        rationale: body.rationale ?? body.comments ?? "",
+        metadata: {
+          ...(body.metadata ?? {}),
+          overrideScope: body.overrideScope ?? null,
+          protectedScope: body.overrideScope ?? null,
+          requestContext: "work-item-group",
+        },
+        by: body.by ?? "operator",
+        source: body.source ?? "http",
+      });
       json(response, 200, { ok: true, detail });
       return;
     }
@@ -1951,6 +2118,35 @@ const server = http.createServer(async (request, response) => {
       request.method === "POST" &&
       parts.length === 3 &&
       parts[0] === "proposal-artifacts" &&
+      parts[2] === "protected-override"
+    ) {
+      const body = await readJsonBody(request);
+      const detail = await createSelfBuildOverride({
+        kind: body.kind ?? "protected-tier",
+        targetType: "proposal",
+        targetId: parts[1],
+        reason:
+          body.reason ??
+          body.comments ??
+          "Protected-tier override requested for proposal artifact.",
+        rationale: body.rationale ?? body.comments ?? "",
+        metadata: {
+          ...(body.metadata ?? {}),
+          overrideScope: body.overrideScope ?? null,
+          protectedScope: body.overrideScope ?? null,
+          requestContext: "proposal",
+        },
+        by: body.by ?? "operator",
+        source: body.source ?? "http",
+      });
+      json(response, 200, { ok: true, detail });
+      return;
+    }
+
+    if (
+      request.method === "POST" &&
+      parts.length === 3 &&
+      parts[0] === "proposal-artifacts" &&
       parts[2] === "quarantine"
     ) {
       const body = await readJsonBody(request);
@@ -2115,6 +2311,35 @@ const server = http.createServer(async (request, response) => {
       request.method === "POST" &&
       parts.length === 3 &&
       parts[0] === "integration-branches" &&
+      parts[2] === "protected-override"
+    ) {
+      const body = await readJsonBody(request);
+      const detail = await createSelfBuildOverride({
+        kind: body.kind ?? "protected-tier",
+        targetType: "integration-branch",
+        targetId: parts[1],
+        reason:
+          body.reason ??
+          body.comments ??
+          "Protected-tier override requested for integration branch.",
+        rationale: body.rationale ?? body.comments ?? "",
+        metadata: {
+          ...(body.metadata ?? {}),
+          overrideScope: body.overrideScope ?? null,
+          protectedScope: body.overrideScope ?? null,
+          requestContext: "integration-branch",
+        },
+        by: body.by ?? "operator",
+        source: body.source ?? "http",
+      });
+      json(response, 200, { ok: true, detail });
+      return;
+    }
+
+    if (
+      request.method === "POST" &&
+      parts.length === 3 &&
+      parts[0] === "integration-branches" &&
       parts[2] === "quarantine"
     ) {
       const body = await readJsonBody(request);
@@ -2214,6 +2439,106 @@ const server = http.createServer(async (request, response) => {
           ok: false,
           error: "not_found",
           message: `quarantine record not found: ${parts[2]}`,
+        });
+        return;
+      }
+      json(response, 200, { ok: true, detail });
+      return;
+    }
+
+    if (
+      request.method === "POST" &&
+      parts.length === 4 &&
+      parts[0] === "self-build" &&
+      parts[1] === "overrides" &&
+      parts[3] === "review"
+    ) {
+      const body = await readJsonBody(request);
+      const detail = await reviewSelfBuildOverride(parts[2], {
+        ...body,
+        by: body.by ?? "operator",
+        source: body.source ?? "http",
+      });
+      if (!detail) {
+        json(response, 404, {
+          ok: false,
+          error: "not_found",
+          message: `self-build override not found: ${parts[2]}`,
+        });
+        return;
+      }
+      json(response, 200, { ok: true, detail });
+      return;
+    }
+
+    if (
+      request.method === "POST" &&
+      parts.length === 4 &&
+      parts[0] === "self-build" &&
+      parts[1] === "overrides" &&
+      parts[3] === "release"
+    ) {
+      const body = await readJsonBody(request);
+      const detail = await releaseSelfBuildOverride(parts[2], {
+        ...body,
+        by: body.by ?? "operator",
+        source: body.source ?? "http",
+      });
+      if (!detail) {
+        json(response, 404, {
+          ok: false,
+          error: "not_found",
+          message: `self-build override not found: ${parts[2]}`,
+        });
+        return;
+      }
+      json(response, 200, { ok: true, detail });
+      return;
+    }
+
+    if (
+      request.method === "POST" &&
+      parts.length === 4 &&
+      parts[0] === "self-build" &&
+      parts[1] === "policy-recommendations" &&
+      parts[3] === "review"
+    ) {
+      const body = await readJsonBody(request);
+      const detail = await reviewPolicyRecommendation(parts[2], {
+        ...body,
+        by: body.by ?? "operator",
+        source: body.source ?? "http",
+      });
+      if (!detail) {
+        json(response, 404, {
+          ok: false,
+          error: "not_found",
+          message: `policy recommendation not found: ${parts[2]}`,
+        });
+        return;
+      }
+      json(response, 200, { ok: true, detail });
+      return;
+    }
+
+    if (
+      request.method === "POST" &&
+      parts.length === 4 &&
+      parts[0] === "self-build" &&
+      parts[1] === "policy-recommendations" &&
+      parts[3] === "materialize"
+    ) {
+      const body = await readJsonBody(request);
+      const detail = await materializePolicyRecommendation(parts[2], {
+        ...body,
+        by: body.by ?? "operator",
+        source: body.source ?? "http",
+      });
+      if (!detail) {
+        json(response, 404, {
+          ok: false,
+          error: "not_found",
+          message: `policy recommendation not found: ${parts[2]}`,
         });
         return;
       }
@@ -2806,3 +3131,24 @@ server.listen(port, host, () => {
     )}\n`,
   );
 });
+
+let shuttingDown = false;
+
+function shutdown(signal) {
+  if (shuttingDown) {
+    return;
+  }
+  shuttingDown = true;
+  process.stderr.write(`spore-orchestrator shutdown: ${signal}\n`);
+  server.close(() => {
+    process.exitCode = process.exitCode ?? 0;
+  });
+  const timer = setTimeout(() => {
+    process.exitCode = 1;
+    process.exit();
+  }, 5_000);
+  timer.unref?.();
+}
+
+process.on("SIGINT", () => shutdown("SIGINT"));
+process.on("SIGTERM", () => shutdown("SIGTERM"));

@@ -61,18 +61,23 @@ import {
   cleanupManagedWorkspace,
   createGoalPlan,
   createManagedWorkItem,
+  createSelfBuildOverride,
   editGoalPlan,
   getDocSuggestionSummary,
   getDocSuggestionsForRun,
   getGoalPlanHistory,
   getGoalPlanSummary,
   getIntegrationBranchSummary,
+  getPolicyRecommendationSummary,
   getProposalByRun,
   getProposalReviewPackage,
   getProposalSummary,
   getSelfBuildDashboard,
   getSelfBuildIntakeSummary,
+  getSelfBuildLearningTrends,
   getSelfBuildLoopStatus,
+  getSelfBuildOverrideSummary,
+  getSelfBuildPolicyRecommendations,
   getSelfBuildSummary,
   getSelfBuildWorkItem,
   getSelfBuildWorkItemRun,
@@ -84,10 +89,12 @@ import {
   listExecutionWorkspaces,
   listGoalPlansSummary,
   listIntegrationBranchSummaries,
+  listPolicyRecommendationReviewSummaries,
   listSelfBuildDecisionSummaries,
   listSelfBuildDocSuggestionSummaries,
   listSelfBuildIntakeSummaries,
   listSelfBuildLearningSummaries,
+  listSelfBuildOverrideSummaries,
   listSelfBuildQuarantineSummaries,
   listSelfBuildRollbackSummaries,
   listSelfBuildWorkItemRuns,
@@ -97,11 +104,13 @@ import {
   listWorkspaceSummaries,
   materializeDocSuggestionRecord,
   materializeGoalPlan,
+  materializePolicyRecommendation,
   materializeSelfBuildIntake,
   planProposalPromotion,
   quarantineSelfBuildTarget,
   reconcileManagedWorkspace,
   refreshSelfBuildIntake,
+  releaseSelfBuildOverride,
   releaseSelfBuildQuarantine,
   requeueWorkItemGroupItem,
   rerouteWorkItemGroup,
@@ -109,8 +118,10 @@ import {
   retryDownstreamWorkItemGroup,
   reviewDocSuggestionRecord,
   reviewGoalPlan,
+  reviewPolicyRecommendation,
   reviewProposalArtifact,
   reviewSelfBuildIntake,
+  reviewSelfBuildOverride,
   reworkProposalArtifact,
   rollbackIntegrationBranch,
   runGoalPlan,
@@ -853,6 +864,171 @@ async function main() {
       status: flags.status ?? null,
       limit: flags.limit ?? "50",
     });
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
+  if (command === "self-build-learning-trends") {
+    const detail = getSelfBuildLearningTrends();
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
+  if (command === "self-build-policy-recommendations") {
+    const detail = getSelfBuildPolicyRecommendations();
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
+  if (command === "self-build-policy-recommendation-show") {
+    if (!flags.recommendation) {
+      throw new Error(
+        "use self-build-policy-recommendation-show --recommendation <id>",
+      );
+    }
+    const detail = getPolicyRecommendationSummary(flags.recommendation);
+    if (!detail) {
+      throw new Error(
+        `policy recommendation not found: ${flags.recommendation}`,
+      );
+    }
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
+  if (command === "self-build-policy-recommendation-reviews") {
+    const detail = listPolicyRecommendationReviewSummaries({
+      limit: flags.limit ?? "50",
+    });
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
+  if (command === "self-build-policy-recommendation-review") {
+    if (!flags.recommendation || !flags.status) {
+      throw new Error(
+        "use self-build-policy-recommendation-review --recommendation <id> --status <accepted|held|dismissed>",
+      );
+    }
+    const detail = await reviewPolicyRecommendation(flags.recommendation, {
+      status: flags.status,
+      by: flags.by ?? "operator",
+      reason: flags.reason ?? flags.comments ?? "",
+      comments: flags.comments ?? "",
+      source: flags.source ?? "cli",
+    });
+    if (!detail) {
+      throw new Error(
+        `policy recommendation not found: ${flags.recommendation}`,
+      );
+    }
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
+  if (command === "self-build-policy-recommendation-materialize") {
+    if (!flags.recommendation) {
+      throw new Error(
+        "use self-build-policy-recommendation-materialize --recommendation <id>",
+      );
+    }
+    const detail = await materializePolicyRecommendation(flags.recommendation, {
+      projectId: flags.project ?? "spore",
+      domain: flags.domain ?? null,
+      safeMode: flags["safe-mode"] !== false,
+      reviewRequired: flags["review-required"] !== false,
+      by: flags.by ?? "operator",
+      source: flags.source ?? "cli",
+    });
+    if (!detail) {
+      throw new Error(
+        `policy recommendation not found: ${flags.recommendation}`,
+      );
+    }
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
+  if (command === "self-build-overrides") {
+    const detail = listSelfBuildOverrideSummaries({
+      kind: flags.kind ?? null,
+      status: flags.status ?? null,
+      targetType: flags["target-type"] ?? null,
+      targetId: flags["target-id"] ?? null,
+      limit: flags.limit ?? "50",
+    });
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
+  if (command === "self-build-override-show") {
+    if (!flags.override) {
+      throw new Error("use self-build-override-show --override <id>");
+    }
+    const detail = getSelfBuildOverrideSummary(flags.override);
+    if (!detail) {
+      throw new Error(`self-build override not found: ${flags.override}`);
+    }
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
+  if (command === "self-build-override-create") {
+    if (!flags["target-type"] || !flags["target-id"]) {
+      throw new Error(
+        "use self-build-override-create --target-type <goal-plan|work-item-group|proposal|integration-branch> --target-id <id>",
+      );
+    }
+    const detail = await createSelfBuildOverride({
+      kind: flags.kind ?? "protected-tier",
+      targetType: flags["target-type"],
+      targetId: flags["target-id"],
+      reason: flags.reason ?? flags.comments ?? "",
+      rationale: flags.rationale ?? flags.comments ?? "",
+      status: flags.status ?? "pending_review",
+      by: flags.by ?? "operator",
+      source: flags.source ?? "cli",
+      metadata: flags["metadata-json"]
+        ? JSON.parse(String(flags["metadata-json"]))
+        : {},
+    });
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
+  if (command === "self-build-override-review") {
+    if (!flags.override || !flags.status) {
+      throw new Error(
+        "use self-build-override-review --override <id> --status <approved|held|rejected>",
+      );
+    }
+    const detail = await reviewSelfBuildOverride(flags.override, {
+      status: flags.status,
+      reason: flags.reason ?? flags.comments ?? "",
+      comments: flags.comments ?? "",
+      by: flags.by ?? "operator",
+      source: flags.source ?? "cli",
+    });
+    if (!detail) {
+      throw new Error(`self-build override not found: ${flags.override}`);
+    }
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
+  if (command === "self-build-override-release") {
+    if (!flags.override) {
+      throw new Error("use self-build-override-release --override <id>");
+    }
+    const detail = await releaseSelfBuildOverride(flags.override, {
+      reason: flags.reason ?? flags.comments ?? "",
+      comments: flags.comments ?? "",
+      by: flags.by ?? "operator",
+      source: flags.source ?? "cli",
+    });
+    if (!detail) {
+      throw new Error(`self-build override not found: ${flags.override}`);
+    }
     console.log(JSON.stringify({ ok: true, detail }, null, 2));
     return;
   }
@@ -2135,7 +2311,7 @@ async function main() {
   }
 
   throw new Error(
-    `unknown command: ${command}. commands: plan | invoke | project-plan | project-invoke | promotion-plan | promotion-invoke | list | show | children | tree | groups | group | events | escalations | audit | history | policy-diff | execution-workspaces | run-center | scenario-* | regression-* | self-build-* | self-build-loop-* | self-build-decisions | self-build-learnings | self-build-doc-suggestions | self-build-intake* | self-build-quarantine | self-build-rollback | self-build-quarantine-release | work-item-* | work-item-group-* | goal-plan-* | doc-suggestion-* | proposal-* | integration-branch-* | workspace-* | drive | drive-tree | drive-group | fork | spawn-branches | pause | pause-tree | hold | hold-tree | resume | resume-tree | review | review-tree | approve | approve-tree | resolve-escalation`,
+    `unknown command: ${command}. commands: plan | invoke | project-plan | project-invoke | promotion-plan | promotion-invoke | list | show | children | tree | groups | group | events | escalations | audit | history | policy-diff | execution-workspaces | run-center | scenario-* | regression-* | self-build-* | self-build-loop-* | self-build-overrides* | self-build-policy-recommendation-* | self-build-decisions | self-build-learnings | self-build-learning-trends | self-build-policy-recommendations | self-build-doc-suggestions | self-build-intake* | self-build-quarantine | self-build-rollback | self-build-quarantine-release | work-item-* | work-item-group-* | goal-plan-* | doc-suggestion-* | proposal-* | integration-branch-* | workspace-* | drive | drive-tree | drive-group | fork | spawn-branches | pause | pause-tree | hold | hold-tree | resume | resume-tree | review | review-tree | approve | approve-tree | resolve-escalation`,
   );
 }
 

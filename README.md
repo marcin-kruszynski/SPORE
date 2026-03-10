@@ -1067,12 +1067,22 @@ npm run orchestrator:proposal-approve -- --proposal <proposal-id> --status appro
 | `GET` | `/integration-branches/:name` | One integration branch with linked proposals, promotions, and candidate state |
 | `GET` | `/self-build/decisions` | Durable autonomous and operator self-build decisions with policy evidence and blocked reasons |
 | `GET` | `/self-build/learnings` | Durable learning records extracted from self-build runs and reviews |
+| `GET` | `/self-build/learning-trends` | Aggregated learning trend buckets for repeated blockers, templates, and domains |
+| `GET` | `/self-build/policy-recommendations` | Policy tuning candidates derived from repeated learnings, blocked autonomy, and branch diagnostics |
+| `GET` | `/self-build/policy-recommendation-reviews` | Dedicated review queue for policy recommendations, operator decisions, and materialization status |
+| `GET` | `/self-build/policy-recommendations/:id` | One policy recommendation with review queue state, materialization links, and suggested actions |
+| `POST` | `/self-build/policy-recommendations/:id/review` | Accept, hold, or dismiss one policy recommendation |
+| `POST` | `/self-build/policy-recommendations/:id/materialize` | Convert one accepted recommendation into new managed self-build work |
 | `GET` | `/self-build/doc-suggestions` | Durable documentation follow-up queue derived from self-build outcomes |
 | `GET` | `/self-build/intake` | Durable autonomous intake queue derived from learnings, doc suggestions, and branch diagnostics |
 | `POST` | `/self-build/intake/refresh` | Rebuild autonomous intake from current learnings, suggestions, and integration issues |
 | `GET` | `/self-build/intake/:id` | One autonomous intake item with lineage and suggested actions |
 | `GET` | `/self-build/quarantine` | Active and released quarantine records for self-build targets |
 | `GET` | `/self-build/rollback` | Rollback history for integration-branch and self-build recovery actions |
+| `GET` | `/self-build/overrides` | Aggregate queue of protected-tier override requests awaiting review or release |
+| `GET` | `/self-build/overrides/:id` | One protected-tier override request with review state, release link, and target lineage |
+| `POST` | `/self-build/overrides/:id/review` | Approve, hold, or reject one protected-tier override request |
+| `POST` | `/self-build/overrides/:id/release` | Release one protected-tier override after human review or recovery |
 | `GET` | `/workspaces` | Durable workspace allocation list for mutating self-work |
 | `GET` | `/workspaces/:id` | One workspace allocation with worktree metadata |
 | `POST` | `/workspaces/:id/reconcile` | Compare allocation state with `git worktree list` and on-disk reality |
@@ -1083,9 +1093,13 @@ npm run orchestrator:proposal-approve -- --proposal <proposal-id> --status appro
 | `POST` | `/self-build/loop/start` | Start the managed self-build loop when policy allows it |
 | `POST` | `/self-build/loop/stop` | Stop the managed self-build loop while preserving durable state |
 | `POST` | `/goal-plans/:id/quarantine` | Quarantine one goal plan when autonomy or operator policy must stop further work |
+| `POST` | `/goal-plans/:id/protected-override` | Create a human-gated protected-tier override request for one goal plan |
 | `POST` | `/work-item-groups/:id/quarantine` | Quarantine one work-item group and block autonomous retries until release |
+| `POST` | `/work-item-groups/:id/protected-override` | Create a human-gated protected-tier override request for one work-item group |
 | `POST` | `/proposal-artifacts/:id/quarantine` | Quarantine one proposal artifact before further promotion attempts |
+| `POST` | `/proposal-artifacts/:id/protected-override` | Create a human-gated protected-tier override request for one proposal |
 | `POST` | `/integration-branches/:name/quarantine` | Quarantine one integration branch candidate |
+| `POST` | `/integration-branches/:name/protected-override` | Create a human-gated protected-tier override request for one integration branch |
 | `POST` | `/integration-branches/:name/rollback` | Record and apply one integration-branch rollback action |
 | `POST` | `/self-build/quarantine/:id/release` | Release one quarantine record with explicit rationale |
 | `GET` | `/sessions/:id/live` | Combined live session metadata, events, artifacts, workspace linkage, control history, diagnostics, and operator suggestions |
@@ -1105,10 +1119,13 @@ SPORE now also ships a first-class managed project profile in [spore.yaml](/home
 Recent self-build gating rules to keep in mind:
 
 - editable goal-plan review can change effective work-item order before materialization
+- work-item groups can be blocked, rerouted, retried downstream, requeued, skipped, and revalidated through explicit group controls
 - `approved` proposals are not automatically `promotion_ready`
 - named validation bundles can gate both proposal readiness and promotion planning
 - promotion lands to a durable integration branch before any later `main` decision
 - autonomous self-build decisions, quarantine, and rollback are durable operator surfaces rather than implicit loop side effects
+- autonomous intake is priority-scored rather than FIFO; repeated learnings, policy recommendations, and integration diagnostics can outrank lower-value follow-up work
+- protected-scope guardrails and rollout tiers are evaluated before autonomous execution or promotion planning, and blocked scopes surface through policy evidence instead of silent no-ops
 
 ### Canonical Scenario Invocations
 

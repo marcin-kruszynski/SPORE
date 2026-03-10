@@ -4,8 +4,11 @@ description: Minimal safe-mode validation for docs/config/operator-facing self-w
 scenarios:
   - docs-adr-pass
   - cli-verification-pass
+  - self-build-goal-plan-review
+  - self-build-protected-scope-block
 regressions:
   - local-fast
+  - self-build-fast
 requiredForProposalReadiness: true
 requiredForPromotionReadiness: true
 allowedAutoSkip: false

@@ -19,7 +19,33 @@ selfWorkPolicy:
     - operator-ui-pass
     - config-schema-maintenance
   allowedAutonomousMutationScopes: [docs, config, apps/web]
+  protectedScopes:
+    - packages/runtime-pi
+    - services/session-gateway
   requiredAutonomousValidationBundles: [proposal-ready-fast, integration-ready-core]
+  rolloutTiers:
+    - id: proposal-safe
+      label: Proposal Safe Tier
+      allowedTemplates:
+        - operator-ui-pass
+        - config-schema-maintenance
+      allowedMutationScopes: [docs, config, apps/web]
+      targetPaths: [docs, config, schemas, apps/web, README.md]
+      requireSafeMode: true
+      autoPromoteToIntegration: true
+      requiredValidationBundles: [proposal-ready-fast, integration-ready-core]
+  intakePriorityPolicy:
+    learningFailure: 95
+    learningSuccess: 35
+    docSuggestionPending: 45
+    docSuggestionAccepted: 75
+    integrationIssue: 110
+    policyRecommendation: 100
+    highSeverityBonus: 10
+    acceptedBonus: 5
+    blockedBonus: 8
+    promotionBlockedBonus: 15
+    quarantineBonus: 20
   quarantineThresholds:
     failureCount: 1
     blockedCount: 1

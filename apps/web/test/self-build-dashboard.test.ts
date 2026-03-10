@@ -44,6 +44,11 @@ type DashboardSummaryResponse = {
     };
     urgentWork: unknown[];
     followUpWork: unknown[];
+    validationRequiredProposals?: unknown[];
+    proposalsBlockedForPromotion?: unknown[];
+    activeQuarantines?: unknown[];
+    protectedScopeBlocks?: unknown[];
+    autonomousIntake?: unknown[];
     displayMetadata: Record<string, unknown>;
     freshness: {
       lastRefresh?: string;
@@ -53,7 +58,36 @@ type DashboardSummaryResponse = {
       groups: number;
       pendingDocSuggestions: number;
       queuedAutonomousIntake: number;
+      policyRecommendations: number;
+      protectedScopeBlocks: number;
+      activeQuarantines?: number;
+      proposalsBlockedForPromotion?: number;
+      validationRequiredProposals?: number;
     };
+    learningTrends: unknown[];
+    policyRecommendations: unknown[];
+  };
+};
+
+type DashboardRouteResponse = {
+  ok: boolean;
+  detail: {
+    route?: {
+      self?: string;
+    };
+    recentWorkItemRuns: unknown[];
+    attentionSummary: Record<string, unknown>;
+    queueSummary: Record<string, unknown>;
+    lifecycle?: {
+      blockedPromotions?: number;
+      pendingValidations?: number;
+      activeAutonomousRuns?: number;
+      quarantinedWork?: number;
+      protectedTierOverrides?: number;
+      policyRecommendationQueue?: number;
+    };
+    overrides?: unknown[];
+    policyRecommendationReviews?: unknown[];
   };
 };
 
@@ -139,13 +173,98 @@ test("self-build dashboard exposes dedicated operator-first surface with overvie
   assert.ok(html.includes("main.js"), "HTML should load main.js");
   assert.ok(html.includes("styles.css"), "HTML should load styles.css");
 
-  // Test 2: Verify self-build/summary API is accessible through web proxy
+  const learningTrendsViaWeb = await getJson(
+    `http://127.0.0.1:${WEB_PORT}/api/orchestrator/self-build/learning-trends`,
+  );
+  assert.equal(learningTrendsViaWeb.status, 200);
+  assert.ok(Array.isArray(learningTrendsViaWeb.json.detail));
+
+  const policyRecommendationsViaWeb = await getJson(
+    `http://127.0.0.1:${WEB_PORT}/api/orchestrator/self-build/policy-recommendations`,
+  );
+  assert.equal(policyRecommendationsViaWeb.status, 200);
+  assert.ok(Array.isArray(policyRecommendationsViaWeb.json.detail));
+  const firstRecommendation = policyRecommendationsViaWeb.json.detail[0] as
+    | Record<string, unknown>
+    | undefined;
+  if (firstRecommendation) {
+    assert.ok(
+      Boolean(
+        firstRecommendation.recommendationId ??
+          firstRecommendation.id ??
+          firstRecommendation.recommendation,
+      ),
+      "Policy recommendation payloads should expose a stable recommendation identity",
+    );
+    if ("links" in firstRecommendation && firstRecommendation.links) {
+      assert.equal(
+        typeof firstRecommendation.links,
+        "object",
+        "Policy recommendation links should be structured when present",
+      );
+    }
+  }
+
+  // Test 2: Verify self-build summary and dashboard APIs are accessible through web proxy
   const summaryViaWeb = await getJson<DashboardSummaryResponse>(
     `http://127.0.0.1:${WEB_PORT}/api/orchestrator/self-build/summary`,
   );
   assert.equal(summaryViaWeb.status, 200);
   assert.ok(summaryViaWeb.json.ok);
   assert.ok(summaryViaWeb.json.detail);
+
+  const dashboardViaWeb = await getJson<DashboardRouteResponse>(
+    `http://127.0.0.1:${WEB_PORT}/api/orchestrator/self-build/dashboard`,
+  );
+  assert.equal(dashboardViaWeb.status, 200);
+  assert.ok(dashboardViaWeb.json.ok);
+  assert.ok(dashboardViaWeb.json.detail);
+  assert.equal(
+    dashboardViaWeb.json.detail.route?.self,
+    "/self-build/dashboard",
+  );
+  assert.ok(Array.isArray(dashboardViaWeb.json.detail.recentWorkItemRuns));
+  assert.ok(
+    typeof dashboardViaWeb.json.detail.attentionSummary === "object",
+    "Dashboard should expose attention summary",
+  );
+  assert.ok(
+    typeof dashboardViaWeb.json.detail.queueSummary === "object",
+    "Dashboard should expose queue summary",
+  );
+
+  const lifecycle = dashboardViaWeb.json.detail.lifecycle;
+  if (lifecycle) {
+    assert.equal(typeof lifecycle, "object");
+    for (const field of [
+      "blockedPromotions",
+      "pendingValidations",
+      "activeAutonomousRuns",
+      "quarantinedWork",
+      "protectedTierOverrides",
+      "policyRecommendationQueue",
+    ] as const) {
+      if (lifecycle[field] !== undefined) {
+        assert.equal(
+          typeof lifecycle[field],
+          "number",
+          `Lifecycle field ${field} should be numeric when present`,
+        );
+      }
+    }
+  }
+  if ("overrides" in dashboardViaWeb.json.detail) {
+    assert.ok(
+      Array.isArray(dashboardViaWeb.json.detail.overrides),
+      "Dashboard overrides should be an array when present",
+    );
+  }
+  if ("policyRecommendationReviews" in dashboardViaWeb.json.detail) {
+    assert.ok(
+      Array.isArray(dashboardViaWeb.json.detail.policyRecommendationReviews),
+      "Dashboard recommendation reviews should be an array when present",
+    );
+  }
 
   // Verify overview-first structure exists
   assert.ok(summaryViaWeb.json.detail.overview);
@@ -156,6 +275,38 @@ test("self-build dashboard exposes dedicated operator-first surface with overvie
   assert.ok(
     typeof summaryViaWeb.json.detail.overview.followUpCount === "number",
     "Overview should have followUpCount",
+  );
+  assert.ok(
+    typeof summaryViaWeb.json.detail.counts.policyRecommendations === "number",
+    "Summary should expose policy recommendation count",
+  );
+  assert.ok(
+    typeof summaryViaWeb.json.detail.counts.protectedScopeBlocks === "number",
+    "Summary should expose protected-scope block count",
+  );
+  assert.ok(
+    Array.isArray(summaryViaWeb.json.detail.learningTrends),
+    "Summary should expose learning trends",
+  );
+  assert.ok(
+    Array.isArray(summaryViaWeb.json.detail.policyRecommendations),
+    "Summary should expose policy recommendations",
+  );
+  assert.ok(
+    Array.isArray(summaryViaWeb.json.detail.validationRequiredProposals ?? []),
+    "Summary should expose validation-required proposal queue",
+  );
+  assert.ok(
+    Array.isArray(summaryViaWeb.json.detail.proposalsBlockedForPromotion ?? []),
+    "Summary should expose blocked-promotion queue",
+  );
+  assert.ok(
+    Array.isArray(summaryViaWeb.json.detail.activeQuarantines ?? []),
+    "Summary should expose quarantine queue",
+  );
+  assert.ok(
+    Array.isArray(summaryViaWeb.json.detail.autonomousIntake ?? []),
+    "Summary should expose autonomous intake queue",
   );
 
   // Verify urgent and follow-up queues exist
@@ -310,6 +461,20 @@ test("self-build dashboard exposes dedicated operator-first surface with overvie
   assert.ok(
     typeof refreshedSummary.json.detail.counts.queuedAutonomousIntake ===
       "number",
+  );
+  assert.ok(
+    typeof (refreshedSummary.json.detail.counts.activeQuarantines ?? 0) ===
+      "number",
+  );
+  assert.ok(
+    typeof (
+      refreshedSummary.json.detail.counts.proposalsBlockedForPromotion ?? 0
+    ) === "number",
+  );
+  assert.ok(
+    typeof (
+      refreshedSummary.json.detail.counts.validationRequiredProposals ?? 0
+    ) === "number",
   );
 
   const docSuggestionsViaWeb = await getJson(

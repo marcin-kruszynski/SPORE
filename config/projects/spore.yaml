@@ -177,3 +177,51 @@ selfWorkDefaults:
       - packages/session-manager
       - services/session-gateway
       - services/orchestrator
+    rolloutTiers:
+      - id: docs-config
+        label: Docs and Config Safe Tier
+        allowedTemplates:
+          - docs-maintenance-pass
+          - config-schema-maintenance
+        allowedDomains: [docs, backend]
+        allowedMutationScopes: [docs, config]
+        targetPaths: [docs, config, schemas, README.md]
+        requireSafeMode: true
+        autoPromoteToIntegration: true
+        requiredValidationBundles: [proposal-ready-fast]
+      - id: operator-surface
+        label: Operator Surface Tier
+        allowedTemplates:
+          - operator-ui-pass
+        allowedDomains: [frontend]
+        allowedMutationScopes: [apps/web, docs]
+        targetPaths: [apps/web, docs, README.md]
+        requireSafeMode: true
+        autoPromoteToIntegration: true
+        requiredValidationBundles: [proposal-ready-fast, integration-ready-core]
+      - id: protected-core
+        label: Protected Core Tier
+        allowedMutationScopes:
+          - packages/runtime-pi
+          - packages/session-manager
+          - services/session-gateway
+          - services/orchestrator
+        protectedScopes:
+          - packages/runtime-pi
+          - packages/session-manager
+          - services/session-gateway
+          - services/orchestrator
+        requireSafeMode: true
+        autoPromoteToIntegration: false
+    intakePriorityPolicy:
+      learningFailure: 90
+      learningSuccess: 40
+      docSuggestionPending: 50
+      docSuggestionAccepted: 80
+      integrationIssue: 100
+      policyRecommendation: 95
+      highSeverityBonus: 10
+      acceptedBonus: 5
+      blockedBonus: 10
+      promotionBlockedBonus: 12
+      quarantineBonus: 15

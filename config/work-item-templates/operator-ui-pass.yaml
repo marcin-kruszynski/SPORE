@@ -3,6 +3,8 @@ label: Operator UI Pass
 kind: workflow
 defaultGoal: Propose a focused update to the SPORE operator web surface.
 priority: high
+taskClass: operator-surface
+targetPaths: [apps/web, docs]
 defaultMetadata:
   workflowPath: config/workflows/frontend-ui-pass.yaml
   domainId: frontend
@@ -23,3 +25,4 @@ recommendedValidationBundles: [proposal-ready-fast, integration-ready-core]
 allowedDomains: [frontend]
 safeModeEligible: true
 selfBuildEligible: true
+autonomousEligible: true

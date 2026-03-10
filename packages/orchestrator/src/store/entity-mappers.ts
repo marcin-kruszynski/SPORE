@@ -195,3 +195,21 @@ export function mapSelfBuildIntakeRecord(record) {
       }
     : null;
 }
+
+export function mapSelfBuildOverrideRecord(record) {
+  return record
+    ? {
+        ...record,
+        metadata: parseJsonField(record.metadataJson, {}),
+      }
+    : null;
+}
+
+export function mapPolicyRecommendationReview(record) {
+  return record
+    ? {
+        ...record,
+        metadata: parseJsonField(record.metadataJson, {}),
+      }
+    : null;
+}
