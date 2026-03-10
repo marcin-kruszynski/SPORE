@@ -2,306 +2,184 @@
 
 ## Mission
 
-SPORE (Swarm Protocol for Orchestration, Rituals & Execution) is building a modular, profile-driven, documentation-first foundation for future multi-agent orchestration across software projects.
+SPORE (Swarm Protocol for Orchestration, Rituals & Execution) is a modular, profile-driven, documentation-first orchestration platform for governed multi-agent software delivery and supervised self-build.
 
-## Scope Boundary
+## Current Phase
 
-Current phase is bootstrap-plus-executable-foundation. Work includes:
-- repository structure,
-- architecture and governance documentation,
-- configuration skeletons,
-- references and research synthesis,
-- local-first docs search and indexing,
-- session metadata, lifecycle, and operator surfaces,
-- PI-first runtime planning and first live session harness,
-- shared gateway surfaces for future clients,
-- workflow planning and invocation through the first orchestrator-facing slice.
+- Current scope is bootstrap-plus-executable-foundation.
+- In scope: repo structure, docs, config skeletons, docs search, session lifecycle, operator surfaces, PI-first runtime planning, and the first orchestrator-facing workflow slice.
+- Do not build a production orchestrator runtime, production web UI, or a full execution engine in this phase.
 
-Do not implement production orchestrator runtime, production Web UI, or full execution engine in this phase.
-
-## Primary Sources of Truth
+## Primary Sources Of Truth
 
 1. `docs/INDEX.md`
 2. `docs/index/DOCS_INDEX.md`
 3. `docs/index/docs_manifest.yaml`
 4. `docs/decisions/`
 
-## Work Rules for Agents
+## Current Ground Truth Docs
 
-- Update documentation with each material change.
-- Add or update ADRs for architecture boundary changes.
-- Keep research in `docs/research/` and decisions in `docs/decisions/`.
-- Keep profile definitions in `config/profiles/` and `workspace/agent-profiles/`.
-- Keep workflow definitions in `config/workflows/` and `workspace/workflow-profiles/`.
-- Keep project examples in `config/projects/` and `workspace/projects/`.
-- Keep domain execution policy in `config/domains/` and `config/projects/* activeDomains[]`.
-- Keep reusable policy presets in `config/policy-packs/`.
-- Keep docs indices synchronized when adding/moving docs.
-- Prefer updating canonical docs over creating redundant fragments.
+- Current project state: `docs/plans/project-state-and-direction-handoff.md`
+- Tactical next work: `docs/plans/self-build-status-and-next-steps.md`
+- Current roadmap: `docs/plans/roadmap.md`
+- Historical bootstrap docs under `docs/roadmap/` and older bootstrap plans are context only, not the current implementation plan.
 
-## TypeScript-First Baseline
+## Repo Shape
 
-- Treat `.ts` and `.tsx` files under `apps/`, `packages/`, and `services/` as the source of truth for first-party code and tests.
-- Treat `apps/web/public/*.js` as generated browser output from `npm run web:build`, not hand-edited source.
-- Treat `*.tsbuildinfo` files as generated local compiler state, not reviewable source artifacts.
-- Prefer `tsx` entrypoints, `node --import=tsx --test`, and `npm run typecheck` when validating implementation work.
-- Prefer `@spore/test-support` for reusable cross-package test harnesses and fixtures instead of importing sibling `test/helpers/*` directly across package boundaries.
-- Do not introduce new hand-authored first-party `.js` files under `apps/`, `packages/`, or `services/` unless a later ADR explicitly changes that boundary.
+- `apps/web/`: browser UI and proxy server.
+- `apps/cli/`: reserved scaffold for a future dedicated CLI app shell.
+- `packages/`: first-party libraries and CLIs.
+- `services/orchestrator/`: orchestrator HTTP surface.
+- `services/session-gateway/`: session HTTP surface.
+- `config/`: profiles, workflows, projects, domains, policy packs, scenarios, and regressions.
+- `docs/`: canonical architecture, runbooks, decisions, specs, and plans.
+- `references/`: read-only inspiration; adapt concepts, do not copy code.
+
+## Authority Boundaries
+
+- `packages/runtime-pi/` is the PI integration boundary.
+- `packages/session-manager/` is the session state boundary.
+- `packages/workspace-manager/` is the workspace/worktree boundary.
+- `packages/orchestrator/` and `services/orchestrator/` own workflow planning and invocation.
+- `services/session-gateway/` is the shared session HTTP surface.
+- The orchestrator execution store is the source of truth for workflow state; do not infer state from transcripts or raw SQLite when HTTP or CLI surfaces already exist.
+
+## TypeScript-First Rules
+
+- First-party source lives in `.ts` and `.tsx` under `apps/`, `packages/`, and `services/`.
+- Do not add new hand-authored first-party `.js` files there.
+- `apps/web/public/*.js` is generated output from `npm run web:build`.
+- `*.tsbuildinfo` is generated local compiler state, not source.
+- Cross-package imports should prefer `@spore/*` aliases.
 
 ## Environment Baseline
 
-Assume the repository is expected to run with:
+- Required tools: `node >= 24`, `npm`, `tmux`, `pi`, `jq`, `sqlite3`, `python3`, `git`, `rg`.
+- If `pi` is installed but missing from `PATH`, set `export SPORE_PI_BIN="${SPORE_PI_BIN:-$(npm prefix -g)/bin/pi}"`.
+- Prefer isolated state for local runs with `SPORE_ORCHESTRATOR_DB_PATH`, `SPORE_SESSION_DB_PATH`, and `SPORE_EVENT_LOG_PATH`.
 
-- `node >= 24`
-- `npm`
-- `tmux`
-- `pi` CLI from `@mariozechner/pi-coding-agent`
-- `jq`
-- `sqlite3`
-- `python3`
-- `git`
-- `rg`
+## Core Commands
 
-When environment assumptions change, update:
+- Install deps: `npm install`
+- Typecheck all workspaces: `npm run typecheck`
+- Lint repo: `npm run lint`
+- Format repo: `npm run format`
+- Check formatting only: `npm run format:check`
+- Build browser bundle: `npm run web:build`
+- Index docs KB: `npm run docs-kb:index`
+- Check docs KB status: `npm run docs-kb:status`
+- Rebuild docs KB: `npm run docs-kb:rebuild`
+- Validate config: `npm run config:validate`
 
-1. `README.md`
-2. `docs/runbooks/local-dev.md`
-3. `.pi/SYSTEM.md`
-4. this file
+## Dev Servers And CLIs
 
-Do not leave runtime prerequisites only in chat history.
+- Session gateway: `npm run gateway:start`
+- Orchestrator service: `npm run orchestrator:start`
+- Web app: `npm run web:start`
+- Package-level CLIs are the current command-line surface; do not assume `apps/cli/` is implemented.
+- Session status: `npm run session:status`
+- Session event feed: `npm run session:feed`
+- Workspace list: `npm run workspace:list`
+- Orchestrator plan: `npm run orchestrator:plan -- --domain backend --roles lead`
+- Orchestrator invoke: `npm run orchestrator:invoke -- --domain backend --roles lead,reviewer --objective "..." --wait`
 
-Useful local overrides for isolated runs and tests:
+## Test Commands
 
-- `SPORE_PI_BIN`
-- `SPORE_ORCHESTRATOR_DB_PATH`
-- `SPORE_SESSION_DB_PATH`
-- `SPORE_EVENT_LOG_PATH`
+- Policy tests: `npm run test:policy`
+- HTTP/service tests: `npm run test:http`
+- Web tests: `npm run test:web`
+- Web proxy subset: `npm run test:web-proxy`
+- TUI tests: `npm run test:tui`
+- Workspace tests: `npm run test:workspace`
+- Local non-E2E suite: `npm run test:all-local`
+- PI E2E suite: `npm run test:e2e:pi`
+- Gateway PI control E2E: `npm run test:e2e:gateway-control`
 
-## Runtime and Session Rules
+## Running One Test
 
-- Prefer testing real runtime flows with `pi` when available; use stub mode only as fallback.
-- Treat `packages/runtime-pi/` as the authoritative PI integration boundary.
-- Prefer `pi-rpc` for real runtime validation; only use `pi-json` or stub mode when isolating launcher behavior.
-- Treat `packages/session-manager/` as the authoritative session state and lifecycle boundary.
-- Treat `packages/workspace-manager/` as the authoritative git worktree isolation boundary for mutating self-work.
-- Treat `services/session-gateway/` as the shared HTTP surface for clients; do not build new clients against ad hoc file reads when gateway data is sufficient.
-- Treat `packages/orchestrator/` and `services/orchestrator/` as the workflow planning and invocation boundary.
-- Treat merged domain policy as execution input, not as passive metadata.
-- Treat the orchestrator execution store as the source of truth for workflow state; do not infer workflow completion from session files alone.
-- Treat `waiting_review` and `waiting_approval` as settled governance states, not as runtime failures.
-- Treat workflow events and escalation records as first-class execution artifacts; update the event model docs when execution state transitions change.
-- Prefer resolving escalations through orchestrator commands or HTTP APIs; do not mutate escalation rows manually.
+- Root npm test scripts are curated lists; they do not forward file paths.
+- Single file: `node --import=tsx --test path/to/file.test.ts`
+- Single named test: `node --import=tsx --test --test-name-pattern="partial test name" path/to/file.test.ts`
+- HTTP suites that boot real services should usually keep `--test-concurrency=1`.
+- Service example: `node --import=tsx --test services/orchestrator/test/http-policy.test.ts`
+- Web example: `node --import=tsx --test apps/web/test/self-build-dashboard.test.ts`
+- Runtime example: `node --import=tsx --test packages/runtime-pi/test/workspace-launch-context.test.ts`
+
+## Recommended Verification Loops
+
+- Docs/config changes: `npm run docs-kb:index && npm run config:validate`
+- TypeScript/library changes: `npm run typecheck && npm run test:all-local`
+- Web changes: `npm run web:build && npm run test:web`
+- Orchestrator/session changes: run `npm run test:http`, `npm run test:tui`, and the relevant runtime or session commands.
+- Real PI smoke is opt-in: `SPORE_RUN_PI_E2E=1 npm run test:e2e:pi`
+- If PI is unavailable, say that explicitly and note when stub mode was used.
+
+## Import And Module Style
+
+- Use ESM everywhere with NodeNext conventions.
+- Include explicit `.js` extensions in relative TypeScript imports.
+- Order imports as Node built-ins, external or `@spore/*` packages, then relative imports.
+- Use `import type` for type-only imports when possible.
+- Re-export public package surfaces through `src/index.ts`.
+
+## Formatting Style
+
+- Formatting is Biome-driven via `biome.json`.
+- Use spaces for indentation.
+- Use double quotes, semicolons, and trailing commas.
+- Prefer small helpers and wrapped multiline argument lists over dense one-line calls.
+- Keep Markdown and JSON formatted with the repo formatter instead of ad hoc styles.
+
+## Types And Naming
+
+- Even though `strict` is currently `false`, write new code with precise types.
+- Prefer `interface` and `type` aliases for shared payloads and contracts.
+- Prefer `unknown` or `Record<string, unknown>` over `any` unless the module is intentionally handling heterogeneous payloads.
+- If `any` is necessary, keep it local and document the reason with a targeted `biome-ignore` comment, matching existing patterns.
+- Use `PascalCase` for types and interfaces, `camelCase` for values and functions, and `UPPER_SNAKE_CASE` for module-level constants.
+- Common suffixes: `*Options`, `*Record`, `*Summary`, `*Detail`, `*Payload`, and `*Result`.
+- Use kebab-case filenames, including tests such as `http-policy.test.ts`.
+- CLI entrypoints are usually `spore-*.ts`; implementation-heavy split modules often use `*.impl.ts`.
+- Shared contracts commonly live in `types.ts`, `contracts.ts`, or package `index.ts`.
+- Prefer descriptive names tied to the domain language: execution, proposal, work item, workspace, session, policy, scenario, regression.
+
+## Error Handling Conventions
+
+- Throw `Error` with actionable messages when inputs are invalid or required state is missing.
+- Do not swallow errors silently; only ignore failures intentionally, with a short comment when the reason is non-obvious.
+- In CLIs and servers, prefer `main().catch(...)` plus `process.exitCode = 1` instead of `process.exit(1)`.
+- HTTP handlers should return structured JSON envelopes such as `{ ok: false, error, message }`.
+- Validate request bodies and size limits before deeper processing.
+
+## Testing Style
+
+- Use `node:test` and `node:assert/strict`.
+- Prefer integration-style tests around real CLI and HTTP boundaries.
+- Reuse `@spore/test-support` instead of copying harness helpers across packages.
+- Use `makeTempPaths(...)` and the `SPORE_*_DB_PATH` env vars for isolated test state.
+- Clean up child processes with `t.after(...)` and `stopProcess(...)`.
+
+## Docs And Config Hygiene
+
+- Update docs with every material change.
+- Add or update an ADR in `docs/decisions/` for architecture boundary changes.
+- Keep docs indexes synchronized when adding or moving docs.
+- Keep research in `docs/research/` and decisions in `docs/decisions/`.
+- Keep profiles in `config/profiles/` and `workspace/agent-profiles/`.
+- Keep workflows in `config/workflows/` and `workspace/workflow-profiles/`.
+- Keep projects in `config/projects/` and `workspace/projects/`.
+- Keep reusable policy presets in `config/policy-packs/`.
+
+## Runtime And Operator Rules
+
+- Prefer real PI validation when available; use stub mode only when isolating launcher behavior or when PI is unavailable.
 - Use tmux-backed sessions for inspectable live runs.
-- Reconcile detached sessions through `session-manager reconcile` instead of manual database edits.
-- Use gateway artifact and stream endpoints for transcript, PI event, and live follow use cases before adding new ad hoc readers.
-- Use `GET /sessions/:id/live` for combined live session inspection before stitching separate `session + events + artifacts` reads in a new client.
-- Prefer the explicit orchestrator read surfaces `/executions/:id`, `/executions/:id/events`, and `/executions/:id/escalations` over scraping SQLite directly from UI or automation clients.
-- Prefer `/executions/:id/tree` when a client needs lineage or execution-family structure; do not reconstruct hierarchy from flat coordination arrays if the tree route is sufficient.
-- Prefer `/executions/:id/history` when a client needs a single ordered payload that combines workflow events, governance records, audit records, wave summaries, and policy diff context.
-- Use `spawn-branches` or `POST /executions/:id/branches` for deliberate multi-execution coordination work; do not create child executions by mutating lineage fields directly.
-- Use workflow `stepSets` when you need parallel work inside one execution; do not simulate same-wave behavior by creating fake child executions.
-- Use `stepSets[].gate` to express wave unlock rules inside one execution:
-  - `all`
-  - `any`
-  - `min_success_count`
-- Treat wave topology as workflow-owned. Domain policy and policy packs may shape retry, governance, runtime mode, and retrieval behavior around those waves, but should not silently replace workflow wave definitions.
-- When changing retry, timeout, governance, session-mode, or docs retrieval behavior, update both the relevant domain config and the architecture docs that describe policy merging.
-- When changing reusable presets, update `config/policy-packs/`, schema validation, and the config/workflow docs together.
-- Treat `config/scenarios/` as the execution-facing catalog for named scenario runs.
-- Treat `config/regressions/` as the execution-facing catalog for reusable regression profiles.
-- Treat `docs/runbooks/scenario-library.md` as human-facing guidance, not the machine source of truth.
-- Scenario and regression history are durable operator artifacts; do not reconstruct them from shell output when the orchestrator store already has the run records.
-- Treat failure classification as a first-class operator contract. Prefer `failure`, `failureClassification`, `failureReason`, and `suggestedActions` from orchestrator read surfaces over inventing local heuristics in clients.
-- Treat managed `work-items` as the durable unit of supervised self-work. Prefer creating or running work through `/work-items*` or the matching orchestrator CLI commands instead of ad hoc shell notes when the task should leave an execution trail.
-- Treat `work-item templates` as canonical bootstrap recipes for repeatable self-work creation. Prefer `/work-item-templates*` or matching CLI commands instead of hand-crafting repeated item payloads.
-- Treat `goal plans` as durable planning artifacts that should be reviewed before materialization when review is required. Prefer `/goals/plan`, `/goal-plans*`, `/goal-plans/:id/edit`, `/goal-plans/:id/history`, `/goal-plans/:id/review`, `/goal-plans/:id/materialize`, and `/goal-plans/:id/run`.
-- Treat `work-item groups` as the execution unit for multi-item rollout. Prefer `/work-item-groups*` and `/work-item-groups/:id/run` over manually running each child item when grouped execution is intended.
-- Treat proposal artifacts as governed outputs for work-item runs. Prefer `/work-item-runs/:runId/proposal`, `/proposal-artifacts/:id/review-package`, `/proposal-artifacts/:id/review`, `/proposal-artifacts/:id/approval`, `/work-item-runs/:runId/validate-bundle`, `/proposal-artifacts/:id/promotion-plan`, and `/proposal-artifacts/:id/promotion-invoke` for proposal lifecycle and promotion transitions.
-- Treat proposal rework as an explicit lifecycle transition. Prefer `/proposal-artifacts/:id/rework` over manually cloning a failed proposal into ad hoc follow-up work.
-- Treat proposal approval, validation readiness, and promotion readiness as separate states. Do not assume `approved` implies `promotion_ready`.
-- Treat named validation bundles as first-class self-build gates. Prefer `/work-item-runs/:runId/validate-bundle` and `/work-item-groups/:id/validate-bundle` over ad hoc local validation heuristics when a reusable bundle exists.
-- Treat integration branches as the default durable landing target for self-build promotion lanes. Prefer `/integration-branches*` and proposal/integrator promotion surfaces over any direct root-branch mutation.
-- Treat the self-build loop as an explicit operator/autonomous surface. Prefer `/self-build/loop/status`, `/self-build/loop/start`, and `/self-build/loop/stop` over home-grown background automation scripts.
-- Treat autonomous decisions, quarantine, and rollback as first-class self-build artifacts. Prefer `/self-build/decisions`, `/self-build/quarantine`, `/self-build/rollback`, and the matching quarantine/release/rollback mutation routes over inferring automation state from scattered history rows.
-- Treat `/self-build/learning-trends` as the preferred read surface for repeated blocker patterns and template/domain clusters. Do not rebuild those aggregates from raw learning rows in clients.
-- Treat `/self-build/policy-recommendations` as the preferred review surface for autonomy tuning candidates. Do not invent local policy heuristics when the orchestrator already emits recommendation records.
-- Use `/self-build/policy-recommendations/:id` when a client needs one recommendation's review state, materialization links, or suggested actions instead of re-filtering the aggregate list.
-- Treat `/self-build/policy-recommendation-reviews` as the preferred queue view for recommendation review work. Use it instead of reconstructing review state from the aggregate recommendations list.
-- Prefer `/self-build/policy-recommendations/:id/review` and `/self-build/policy-recommendations/:id/materialize` for the recommendation review queue instead of treating a recommendation as implicitly accepted.
-- Treat rollout tiers and protected-scope guardrails as policy-owned safety boundaries. If autonomous execution is blocked, prefer orchestrator `evaluation`, `matchedTiers`, and `protectedScopeBlocks` fields over local guesses in clients.
-- Treat protected-tier overrides as first-class human-gated artifacts. Prefer `/goal-plans/:id/protected-override`, `/work-item-groups/:id/protected-override`, `/proposal-artifacts/:id/protected-override`, `/integration-branches/:name/protected-override`, and `/self-build/overrides/:id` over ad hoc unblock notes when a protected scope needs an explicit human exception.
-- Treat `/self-build/overrides` as the aggregate queue for protected-tier override review and release work.
-- Use `/self-build/overrides/:id/review` and `/self-build/overrides/:id/release` for override governance instead of mutating blocked items directly after a protected-scope stop.
-- Treat workspace allocations as durable self-work infrastructure. Prefer `/workspaces*`, `/work-item-runs/:runId/workspace`, and `/executions/:id/workspaces` over inferring worktree state from filesystem paths alone.
-- Prefer `/workspaces/:id/reconcile` before manual cleanup when a workspace looks orphaned, missing, or dirty.
-- Treat workspace cleanup as governance-aware. Do not remove a proposal-backed or review-pending workspace unless the operator is making an explicit forced recovery decision.
-- Treat runtime `launch-context` artifacts and session live `launcherMetadata.cwd` as the evidence path for proving that mutating runs launched inside a provisioned workspace.
-- Treat canonical builder/tester final verification as sequential: builder owns an authoring workspace, publishes a git-backed handoff snapshot, and tester validates a separate verification workspace created from that snapshot.
-- Do not place `builder` and `tester` in the same final verification step set for the canonical implementation workflows.
-- Treat `coordinator` as a project-scoped role, not a domain role. Use explicit project-root planning and invocation paths for `orchestrator -> coordinator -> lead`; do not prepend `coordinator` to existing domain workflow role lists.
-- Treat `integrator` as a project-scoped role, not a domain role. Use explicit promotion planning and invocation paths for `coordinator -> integrator`; do not prepend `integrator` to existing domain workflow role lists.
-- Treat `coordinator` as read-mostly by default; do not provision a mutating workspace for coordinator lanes unless policy explicitly says so.
-- Treat `integrator` as the owner of the dedicated integration workspace and integration branch during promotion flow. Do not mutate the canonical project root directly during promotion.
-- Treat proposal approval as distinct from promotion, and promotion as distinct from merge to the target branch.
-- Treat `promotion_candidate` as the default approved promotion outcome unless project policy explicitly promotes further.
-- Fail promotion early when durable promotion source artifacts are missing; do not infer promotion sources from ad hoc filesystem state.
-- Treat run validation and docs follow-up as first-class read/write surfaces. Prefer `/work-item-runs/:runId/validate` and `/work-item-runs/:runId/doc-suggestions` for operator quality loops.
-- Treat durable doc suggestions as a first-class self-build queue. Prefer `/self-build/doc-suggestions`, `/doc-suggestions/:id`, and their review/materialize mutation routes over inferring follow-up work from raw run notes.
-- Treat self-build intake as the durable autonomous follow-up queue. Prefer `/self-build/intake`, `/self-build/intake/refresh`, `/self-build/intake/:id`, and their review/materialize mutation routes when converting learnings, doc suggestions, or integration diagnostics into new goal plans.
-- Use `/self-build/dashboard` (or `self-build-dashboard`) as the preferred aggregate self-build triage surface when building dedicated dashboards or operator consoles. Use `/self-build/summary` only when a lighter snapshot is sufficient.
+- Reconcile detached sessions with `npm run session:reconcile` rather than manual database edits.
+- Prefer `GET /sessions/:id/live` and orchestrator read surfaces over ad hoc file readers in new clients.
+- Treat `waiting_review` and `waiting_approval` as governance states, not runtime failures.
+- Workspace cleanup is governance-aware; do not remove review-pending or proposal-backed workspaces casually.
 
-## Minimum Verification Loop
+## Rule Files
 
-Before claiming runtime/session work is done, prefer verifying at least:
-
-```bash
-npm run docs-kb:index
-npm run config:validate
-npm run runtime-pi:plan -- --profile config/profiles/lead.yaml --project config/projects/example-project.yaml
-npm run runtime-pi:run -- --profile config/profiles/lead.yaml --project config/projects/example-project.yaml --session-id smoke-001 --run-id smoke-001
-npm run session:status
-npm run gateway:start
-npm run orchestrator:plan -- --domain backend --roles lead
-npm run orchestrator:plan -- --domain backend --roles lead,builder,tester,reviewer
-npm run orchestrator:invoke -- --domain backend --roles lead,reviewer --objective "Lead should produce one sentence; reviewer should return approve, revise, or reject." --wait
-npm run orchestrator:project-plan -- --project config/projects/example-project.yaml --domains backend,frontend
-npm run orchestrator:project-invoke -- --project config/projects/example-project.yaml --domains backend,frontend --objective "Coordinate backend and frontend work for one project." --wait --stub
-npm run test:policy
-npm run test:http
-npm run test:tui
-npm run test:e2e:pi
-```
-
-If `pi` is unavailable, say so explicitly and note that runtime validation used the stub launcher.
-
-If `pi` is installed but missing from `PATH` in the current shell, set:
-
-```bash
-export SPORE_PI_BIN="${SPORE_PI_BIN:-$(npm prefix -g)/bin/pi}"
-```
-
-The real PI smoke suite is opt-in:
-
-```bash
-SPORE_RUN_PI_E2E=1 npm run test:e2e:pi
-```
-
-If the environment does not expose `pi`, this test should skip instead of failing.
-
-For isolated service or test runs, prefer environment-scoped state paths over mutating shared SQLite files:
-
-```bash
-export SPORE_ORCHESTRATOR_DB_PATH=/tmp/spore-orchestrator.sqlite
-export SPORE_SESSION_DB_PATH=/tmp/spore-sessions.sqlite
-export SPORE_EVENT_LOG_PATH=/tmp/spore-events.ndjson
-```
-
-Canonical named scenarios live in `docs/runbooks/scenario-library.md` and `config/workflows/*.yaml`. Prefer those named flows over ad hoc objective strings when validating new execution behavior.
-
-## Documentation Classification
-
-- Vision: `docs/vision/`
-- Architecture: `docs/architecture/`
-- Research notes: `docs/research/`
-- Decisions (ADR): `docs/decisions/`
-- Specs: `docs/specs/`
-- Plans and roadmap: `docs/plans/` and `docs/roadmap/`
-- Operations and policies: `docs/runbooks/` and `docs/operations/`
-
-## Reference Repositories
-
-Reference sources are in `references/` and are read-only inspiration:
-- `overstory`, `mulch`, `beads`, `gastown`, `pi-mono`, `agentic-engineering-book`
-- `pi-agent` is a local alias to `pi-mono`.
-
-Never cargo-cult copy implementations. Extract concepts and adapt to SPORE.
-
-## Incremental Delivery Pattern
-
-1. Clarify target and boundaries.
-2. Create/update architecture docs.
-3. Create/update config and schemas.
-4. Create/update tools and runbooks.
-5. Update docs indexes and manifests.
-
-## ADR Workflow
-
-- Use `docs/decisions/adr-template.md`.
-- Name ADRs sequentially: `ADR-XXXX-topic.md`.
-- Link ADR in `docs/INDEX.md` and `docs/index/docs_manifest.yaml`.
-
-## Docs Search Usage
-
-Use `tools/docsearch/` conventions:
-- provider contract: `tools/docsearch/provider-contract.md`
-- collections plan: `tools/docsearch/collections-plan.md`
-- query recipes: `tools/docsearch/query-recipes.md`
-
-Current CLI contract: `docs-kb index|search|status|rebuild`.
-
-## Operator Surfaces
-
-- `services/session-gateway/` now exposes:
-  - status/session/event reads
-  - artifact reads
-  - `text/event-stream` event feed
-  - control actions: `stop`, `mark-complete`, `steer`
-- `apps/web/` consumes those APIs and the orchestrator proxy rather than reading local files directly.
-- `services/orchestrator/` now exposes workflow `plan` and `invoke` endpoints.
-- `services/orchestrator/` also exposes durable execution list/detail, rooted execution tree reads, child execution reads, coordination-group reads, workflow event and escalation reads, execution SSE follow, plus `drive`, `drive-tree`, `pause`, `hold`, `resume`, `review`, `approval`, and branch-spawn endpoints.
-- `services/orchestrator/` also exposes tree-level `pause`, `hold`, `resume`, `review`, and `approval` endpoints for execution families.
-- `services/orchestrator/` also exposes escalation resolution and resume for operator recovery.
-- `services/orchestrator/` also exposes audit and policy-diff reads for durable operator and policy inspection.
-- `services/orchestrator/` also exposes durable scenario-run and regression-run reads by run id, rerun endpoints, and trend reads for operator validation loops.
-- `services/orchestrator/` also exposes `GET /run-center/summary` as the preferred aggregate operator summary for scenarios, regressions, and recent validation runs.
-- `services/orchestrator/` also exposes self-build/work-item surfaces:
-  - `GET /self-build/dashboard`
-  - `GET /self-build/summary`
-  - `GET /self-build/learnings`
-  - `GET /self-build/learning-trends`
-  - `GET /self-build/policy-recommendations`
-  - `GET /self-build/policy-recommendation-reviews`
-  - `GET /self-build/policy-recommendations/:id`
-  - `POST /self-build/policy-recommendations/:id/review`, `POST /self-build/policy-recommendations/:id/materialize`
-  - `GET /self-build/doc-suggestions`
-  - `GET /self-build/intake`
-  - `POST /self-build/intake/refresh`
-  - `GET /self-build/intake/:id`
-  - `POST /self-build/intake/:id/review`
-  - `POST /self-build/intake/:id/materialize`
-  - `GET /work-item-templates` and `GET /work-item-templates/:id`
-  - `GET /goal-plans`, `POST /goals/plan`, `GET /goal-plans/:id`, `GET /goal-plans/:id/history`, `POST /goal-plans/:id/edit`, `POST /goal-plans/:id/review`, `POST /goal-plans/:id/materialize`, `POST /goal-plans/:id/run`
-  - `GET /work-item-groups`, `GET /work-item-groups/:id`, `POST /work-item-groups/:id/run`, `POST /work-item-groups/:id/unblock`, `POST /work-item-groups/:id/reroute`, `POST /work-item-groups/:id/retry-downstream`, `POST /work-item-groups/:id/requeue-item`, `POST /work-item-groups/:id/skip-item`, `POST /work-item-groups/:id/validate-bundle`
-  - `GET /work-items`, `POST /work-items`, `GET /work-items/:id`, `GET /work-items/:id/runs`, `POST /work-items/:id/run`
-  - `GET /work-item-runs/:runId`, `POST /work-item-runs/:runId/rerun`, `GET /work-item-runs/:runId/workspace`, `GET /work-item-runs/:runId/proposal`, `POST /work-item-runs/:runId/validate`, `POST /work-item-runs/:runId/validate-bundle`, `GET /work-item-runs/:runId/doc-suggestions`
-  - `GET /doc-suggestions/:id`, `POST /doc-suggestions/:id/review`, `POST /doc-suggestions/:id/materialize`
-  - `GET /proposal-artifacts/:id`, `GET /proposal-artifacts/:id/review-package`, `POST /proposal-artifacts/:id/review`, `POST /proposal-artifacts/:id/approval`, `POST /proposal-artifacts/:id/promotion-plan`, `POST /proposal-artifacts/:id/promotion-invoke`, `POST /proposal-artifacts/:id/rework`
-  - `GET /integration-branches`, `GET /integration-branches/:name`
-  - `GET /self-build/loop/status`, `POST /self-build/loop/start`, `POST /self-build/loop/stop`
-  - `GET /self-build/decisions`, `GET /self-build/quarantine`, `GET /self-build/rollback`
-  - `GET /self-build/overrides`
-  - `GET /self-build/overrides/:id`
-  - `POST /self-build/overrides/:id/review`, `POST /self-build/overrides/:id/release`
-  - `POST /goal-plans/:id/protected-override`, `POST /work-item-groups/:id/protected-override`, `POST /proposal-artifacts/:id/protected-override`, `POST /integration-branches/:name/protected-override`
-  - `POST /goal-plans/:id/quarantine`, `POST /work-item-groups/:id/quarantine`, `POST /proposal-artifacts/:id/quarantine`, `POST /integration-branches/:name/quarantine`, `POST /integration-branches/:name/rollback`, `POST /self-build/quarantine/:id/release`
-  - `GET /workspaces`, `GET /workspaces/:id`, `POST /workspaces/:id/reconcile`, `POST /workspaces/:id/cleanup`
-  - `GET /executions/:id/workspaces`
-- `services/orchestrator/` also exposes explicit project coordination and promotion surfaces:
-  - `POST /projects/plan`
-  - `POST /projects/invoke`
-  - `POST /promotions/plan`
-  - `POST /promotions/invoke`
-- `GET /run-center/summary` should be treated as the preferred aggregate route for operator alerts and recommendations across named validation flows.
-- `GET /self-build/dashboard` should be treated as the preferred aggregate route for self-build attention states, queue ordering, workspace health, and recent managed-work runs.
-- `GET /self-build/doc-suggestions`, `GET /self-build/intake`, and `GET /self-build/learnings` should be treated as the preferred aggregate follow-up feeds for autonomous self-build work.
-- Treat additive operator drilldown helpers such as `links.*`, `trendSnapshot`, `latestReports[]`, `recentRuns[]`, and `failureBreakdown` as first-class read-surface fields when they are present; clients should not reconstruct equivalent links heuristically.
-- `services/orchestrator/` now also exposes `/work-items`, `/work-items/:id`, `/work-items/:id/run`, and `/work-item-runs/:runId` for supervised self-work tracking.
-- UI and automation clients should treat additive execution metadata such as `projectRole`, `topology.kind`, `promotion`, and `promotionStatus` as the authoritative hints for rendering coordinator-root families and integrator promotion lanes.
-- `apps/web/` renders grouped execution list/detail, rooted lineage tree, wave progression, coordination metadata, step/session tree, and review/approval history over those APIs.
-- `packages/tui/` consumes the same orchestrator HTTP surfaces for execution detail, rooted family summary, audit, policy diff, and run-center views.
-- `GET /sessions/:id/live` should be treated as the preferred combined live-session payload because it now includes diagnostics, launcher metadata, control acknowledgements, and suggested recovery actions in addition to events, artifacts, and control history.
-- Session suggestion payloads may now include `expectedOutcome`, `httpHint`, `targetType`, `targetId`, and `priority`; clients should preserve these additive fields.
-- `GET /sessions/:id/control-history` and `GET /sessions/:id/control-status/:requestId` are the preferred reads for durable control acknowledgement and idempotency inspection; do not reconstruct control state from transcript files when those routes are available.
-- `GET /regressions/scheduler/status` is the preferred read-only scheduler status route; do not use scheduler dry-run POST calls as pseudo-status reads when the dedicated route is sufficient.
-- UI and automation clients should treat `coordinationGroupId`, `parentExecutionId`, `childExecutionIds`, `branchKey`, `holdReason`, `pausedAt`, `heldAt`, and `resumedAt` as optional additive fields rather than guaranteed schema requirements.
+- No `.cursor/rules/`, `.cursorrules`, or `.github/copilot-instructions.md` files exist in this repository today.
+- If any of those files are added later, merge their instructions into this document and treat them as agent-facing rules.
