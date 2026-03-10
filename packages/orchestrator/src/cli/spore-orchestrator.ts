@@ -64,6 +64,7 @@ import {
   getDocSuggestionsForRun,
   getGoalPlanSummary,
   getProposalByRun,
+  getProposalReviewPackage,
   getProposalSummary,
   getSelfBuildDashboard,
   getSelfBuildSummary,
@@ -73,6 +74,7 @@ import {
   getWorkItemTemplate,
   getWorkspaceDetail,
   getWorkspaceDetailByRun,
+  invokeProposalPromotion,
   listExecutionWorkspaces,
   listGoalPlansSummary,
   listSelfBuildWorkItemRuns,
@@ -81,9 +83,12 @@ import {
   listWorkItemTemplates,
   listWorkspaceSummaries,
   materializeGoalPlan,
+  planProposalPromotion,
   reconcileManagedWorkspace,
   rerunSelfBuildWorkItemRun,
+  reviewGoalPlan,
   reviewProposalArtifact,
+  runGoalPlan,
   runSelfBuildWorkItem,
   runWorkItemGroup,
   setWorkItemGroupDependencies,
@@ -839,11 +844,56 @@ async function main() {
     return;
   }
 
+  if (command === "goal-plan-review") {
+    if (!flags.plan || !flags.status) {
+      throw new Error(
+        "use goal-plan-review --plan <id> --status <reviewed|rejected>",
+      );
+    }
+    const detail = await reviewGoalPlan(flags.plan, {
+      status: flags.status,
+      by: flags.by ?? "operator",
+      comments: flags.comments ?? "",
+      reason: flags.reason ?? flags.comments ?? "",
+    });
+    if (!detail) {
+      throw new Error(`goal plan not found: ${flags.plan}`);
+    }
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
   if (command === "goal-plan-materialize") {
     if (!flags.plan) {
       throw new Error("use goal-plan-materialize --plan <id>");
     }
     const detail = await materializeGoalPlan(flags.plan, {
+      by: flags.by ?? "operator",
+      source: flags.source ?? "cli",
+    });
+    if (!detail) {
+      throw new Error(`goal plan not found: ${flags.plan}`);
+    }
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
+  if (command === "goal-plan-run") {
+    if (!flags.plan) {
+      throw new Error("use goal-plan-run --plan <id>");
+    }
+    const detail = await runGoalPlan(flags.plan, {
+      reviewStatus: flags["review-status"] ?? null,
+      reviewComments: flags["review-comments"] ?? "",
+      reviewReason: flags["review-reason"] ?? "",
+      force: flags.force === true,
+      autoValidate: flags["auto-validate"] !== false,
+      wait: flags.wait === true,
+      timeout: flags.timeout ?? "180000",
+      interval: flags.interval ?? "1500",
+      noMonitor: flags["no-monitor"] === true,
+      stub: flags.stub === true,
+      launcher: flags.launcher ?? null,
       by: flags.by ?? "operator",
       source: flags.source ?? "cli",
     });
@@ -1181,6 +1231,18 @@ async function main() {
     return;
   }
 
+  if (command === "proposal-review-package") {
+    if (!flags.proposal) {
+      throw new Error("use proposal-review-package --proposal <id>");
+    }
+    const detail = getProposalReviewPackage(flags.proposal);
+    if (!detail) {
+      throw new Error(`proposal artifact not found: ${flags.proposal}`);
+    }
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
   if (command === "workspace-list") {
     console.log(
       JSON.stringify(
@@ -1276,6 +1338,48 @@ async function main() {
       status: flags.status,
       by: flags.by ?? "operator",
       comments: flags.comments ?? "",
+    });
+    if (!detail) {
+      throw new Error(`proposal artifact not found: ${flags.proposal}`);
+    }
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
+  if (command === "proposal-promotion-plan") {
+    if (!flags.proposal) {
+      throw new Error("use proposal-promotion-plan --proposal <id>");
+    }
+    const detail = planProposalPromotion(flags.proposal, {
+      invocationId: flags["invocation-id"] ?? null,
+      targetBranch: flags["target-branch"] ?? null,
+      objective: flags.objective ?? null,
+      featureKey: flags["feature-id"] ?? null,
+    });
+    if (!detail) {
+      throw new Error(`proposal artifact not found: ${flags.proposal}`);
+    }
+    console.log(JSON.stringify({ ok: true, detail }, null, 2));
+    return;
+  }
+
+  if (command === "proposal-promotion-invoke") {
+    if (!flags.proposal) {
+      throw new Error("use proposal-promotion-invoke --proposal <id>");
+    }
+    const detail = await invokeProposalPromotion(flags.proposal, {
+      invocationId: flags["invocation-id"] ?? null,
+      targetBranch: flags["target-branch"] ?? null,
+      objective: flags.objective ?? null,
+      featureKey: flags["feature-id"] ?? null,
+      wait: flags.wait === true,
+      timeout: flags.timeout ?? "180000",
+      interval: flags.interval ?? "1500",
+      noMonitor: flags["no-monitor"] === true,
+      stub: flags.stub === true,
+      launcher: flags.launcher ?? null,
+      by: flags.by ?? "operator",
+      source: flags.source ?? "cli",
     });
     if (!detail) {
       throw new Error(`proposal artifact not found: ${flags.proposal}`);

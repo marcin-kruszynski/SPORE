@@ -436,6 +436,17 @@ test("scenario, regression, and execution history routes work through orchestrat
   assert.equal(goalPlanShow.status, 200);
   assert.equal(goalPlanShow.json.detail.id, goalPlan.json.detail.id);
 
+  const reviewedPlan = await postJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/goal-plans/${encodeURIComponent(goalPlan.json.detail.id)}/review`,
+    {
+      status: "reviewed",
+      comments: "Scenario integration test requires reviewed goal plan.",
+      by: "test-runner",
+    },
+  );
+  assert.equal(reviewedPlan.status, 200);
+  assert.equal(reviewedPlan.json.detail.status, "reviewed");
+
   const materializedPlan = await postJson(
     `http://127.0.0.1:${ORCHESTRATOR_PORT}/goal-plans/${encodeURIComponent(goalPlan.json.detail.id)}/materialize`,
     {},
@@ -513,10 +524,70 @@ test("scenario, regression, and execution history routes work through orchestrat
       status: "approved",
       by: "test-approver",
       comments: "Approved.",
+      targetBranch: "main",
     },
   );
   assert.equal(proposalApproved.status, 200);
   assert.equal(proposalApproved.json.detail.status, "approved");
+  assert.ok(
+    ["promotion_candidate", "blocked"].includes(
+      String(proposalApproved.json.detail.promotionStatus),
+    ),
+  );
+
+  const proposalReviewPackage = await getJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/proposal-artifacts/${encodeURIComponent(proposal.json.detail.id)}/review-package`,
+  );
+  assert.equal(proposalReviewPackage.status, 200);
+  assert.equal(
+    proposalReviewPackage.json.detail.proposal.id,
+    proposal.json.detail.id,
+  );
+  assert.ok(proposalReviewPackage.json.detail.promotion);
+  assert.ok(Array.isArray(proposalReviewPackage.json.detail.suggestedActions));
+
+  const promotionPlan = await postJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/proposal-artifacts/${encodeURIComponent(proposal.json.detail.id)}/promotion-plan`,
+    {
+      targetBranch: "main",
+      by: "test-promoter",
+    },
+  );
+  assert.ok([200, 409].includes(promotionPlan.status));
+  if (promotionPlan.status === 200) {
+    assert.equal(
+      promotionPlan.json.detail.proposal.id,
+      proposal.json.detail.id,
+    );
+    assert.ok(promotionPlan.json.detail.promotion);
+    assert.ok(promotionPlan.json.detail.plan);
+    assert.equal(promotionPlan.json.detail.plan.root.role, "integrator");
+
+    const promotionInvoke = await postJson(
+      `http://127.0.0.1:${ORCHESTRATOR_PORT}/proposal-artifacts/${encodeURIComponent(proposal.json.detail.id)}/promotion-invoke`,
+      {
+        targetBranch: "main",
+        by: "test-promoter",
+        wait: true,
+        stub: true,
+        timeout: 12000,
+        interval: 250,
+      },
+    );
+    assert.equal(promotionInvoke.status, 200);
+    assert.equal(
+      promotionInvoke.json.detail.proposal.id,
+      proposal.json.detail.id,
+    );
+    assert.ok(promotionInvoke.json.detail.detail.execution);
+    assert.equal(
+      promotionInvoke.json.detail.detail.execution.role,
+      "integrator",
+    );
+  } else {
+    assert.equal(promotionPlan.json.error, "proposal_promotion_blocked");
+    assert.ok(promotionPlan.json.detail);
+  }
 
   const validation = await postJson(
     `http://127.0.0.1:${ORCHESTRATOR_PORT}/work-item-runs/${encodeURIComponent(templateWorkItemRun.json.detail.run.id)}/validate`,
@@ -564,4 +635,13 @@ test("scenario, regression, and execution history routes work through orchestrat
   );
   assert.equal(proposalProxy.status, 200);
   assert.equal(proposalProxy.json.detail.id, proposal.json.detail.id);
+
+  const proposalReviewPackageProxy = await getJson(
+    `http://127.0.0.1:${WEB_PORT}/api/orchestrator/proposal-artifacts/${encodeURIComponent(proposal.json.detail.id)}/review-package`,
+  );
+  assert.equal(proposalReviewPackageProxy.status, 200);
+  assert.equal(
+    proposalReviewPackageProxy.json.detail.proposal.id,
+    proposal.json.detail.id,
+  );
 });

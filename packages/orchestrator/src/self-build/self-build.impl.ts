@@ -1,6 +1,8 @@
 // biome-ignore-all lint/suspicious/noExplicitAny: self-build surfaces intentionally aggregate heterogeneous proposal, workspace, learning, and queue payloads.
 import crypto from "node:crypto";
+import fs from "node:fs/promises";
 import path from "node:path";
+import { parseYaml } from "@spore/config-schema";
 import {
   createWorkspace,
   deriveWorkspaceDiagnostics,
@@ -8,6 +10,11 @@ import {
   reconcileWorkspace,
   removeWorkspace,
 } from "@spore/workspace-manager";
+import { getExecutionDetail } from "../execution/history.js";
+import {
+  invokeFeaturePromotion,
+  planPromotionForExecution,
+} from "../execution/promotion.js";
 import {
   DEFAULT_ORCHESTRATOR_DB_PATH,
   PROJECT_ROOT,
@@ -108,6 +115,33 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+async function readYamlFile(filePath) {
+  const raw = await fs.readFile(filePath, "utf8");
+  return parseYaml(raw);
+}
+
+function resolveProjectPath(projectRef = "spore") {
+  const normalized = String(projectRef ?? "").trim();
+  if (!normalized) {
+    return path.join(PROJECT_ROOT, "config/projects/spore.yaml");
+  }
+  if (normalized.includes("/") || normalized.endsWith(".yaml")) {
+    return path.isAbsolute(normalized)
+      ? normalized
+      : path.join(PROJECT_ROOT, normalized);
+  }
+  return path.join(PROJECT_ROOT, "config/projects", `${normalized}.yaml`);
+}
+
+async function loadProjectConfig(projectRef = "spore") {
+  const resolvedPath = resolveProjectPath(projectRef);
+  const config = await readYamlFile(resolvedPath);
+  return {
+    path: path.relative(PROJECT_ROOT, resolvedPath),
+    config,
+  };
+}
+
 function mergeMetadata(...values) {
   return Object.assign(
     {},
@@ -149,7 +183,9 @@ function groupLinks(groupId) {
 function goalPlanLinks(planId) {
   return {
     self: `/goal-plans/${encodeURIComponent(planId)}`,
+    review: `/goal-plans/${encodeURIComponent(planId)}/review`,
     materialize: `/goal-plans/${encodeURIComponent(planId)}/materialize`,
+    run: `/goal-plans/${encodeURIComponent(planId)}/run`,
   };
 }
 
@@ -884,13 +920,27 @@ function extractGoalDomain(goal = "", explicitDomain = null) {
   return "backend";
 }
 
-function buildGoalRecommendations({ goal, domainId, safeMode = true }) {
+function buildGoalRecommendations({
+  goal,
+  domainId,
+  safeMode = true,
+  projectPath = "config/projects/spore.yaml",
+  projectConfig = null,
+}) {
   const normalized = String(goal).toLowerCase();
+  const activeDomains = dedupe(projectConfig?.activeDomains ?? []);
+  const hasDomain = (candidate) =>
+    activeDomains.length === 0 ||
+    activeDomains.includes(candidate) ||
+    candidate === domainId;
   const recommendations = [];
+
   if (
-    normalized.includes("doc") ||
-    normalized.includes("adr") ||
-    domainId === "docs"
+    (normalized.includes("doc") ||
+      normalized.includes("adr") ||
+      normalized.includes("readme") ||
+      domainId === "docs") &&
+    hasDomain("docs")
   ) {
     recommendations.push({
       title: "Docs maintenance pass",
@@ -905,7 +955,7 @@ function buildGoalRecommendations({ goal, domainId, safeMode = true }) {
         templateId: "docs-maintenance-pass",
         scenarioId: "docs-adr-pass",
         domainId: "docs",
-        projectPath: "config/projects/spore.yaml",
+        projectPath,
         safeMode,
         mutationScope: ["docs", "runbooks"],
         recommendedScenarios: ["docs-adr-pass"],
@@ -913,7 +963,11 @@ function buildGoalRecommendations({ goal, domainId, safeMode = true }) {
       },
     });
   }
-  if (normalized.includes("config") || normalized.includes("schema")) {
+
+  if (
+    (normalized.includes("config") || normalized.includes("schema")) &&
+    hasDomain("docs")
+  ) {
     recommendations.push({
       title: "Config/schema maintenance",
       kind: "workflow",
@@ -927,7 +981,7 @@ function buildGoalRecommendations({ goal, domainId, safeMode = true }) {
         templateId: "config-schema-maintenance",
         workflowPath: "config/workflows/docs-adr-pass.yaml",
         domainId: "docs",
-        projectPath: "config/projects/spore.yaml",
+        projectPath,
         roles: ["lead", "scout", "reviewer"],
         safeMode,
         mutationScope: ["config", "docs"],
@@ -938,10 +992,13 @@ function buildGoalRecommendations({ goal, domainId, safeMode = true }) {
       },
     });
   }
+
   if (
-    normalized.includes("web") ||
-    normalized.includes("ui") ||
-    normalized.includes("dashboard")
+    (normalized.includes("web") ||
+      normalized.includes("ui") ||
+      normalized.includes("dashboard") ||
+      domainId === "frontend") &&
+    hasDomain("frontend")
   ) {
     recommendations.push({
       title: "Operator UI pass",
@@ -957,7 +1014,7 @@ function buildGoalRecommendations({ goal, domainId, safeMode = true }) {
         templateId: "operator-ui-pass",
         workflowPath: "config/workflows/frontend-ui-pass.yaml",
         domainId: "frontend",
-        projectPath: "config/projects/spore.yaml",
+        projectPath,
         roles: ["lead", "scout", "builder", "tester", "reviewer"],
         safeMode,
         mutationScope: safeMode ? ["docs", "config", "apps/web"] : ["apps/web"],
@@ -968,11 +1025,14 @@ function buildGoalRecommendations({ goal, domainId, safeMode = true }) {
       },
     });
   }
+
   if (
-    normalized.includes("runtime") ||
-    normalized.includes("session") ||
-    normalized.includes("gateway") ||
-    domainId === "backend"
+    (normalized.includes("runtime") ||
+      normalized.includes("session") ||
+      normalized.includes("gateway") ||
+      normalized.includes("validation") ||
+      domainId === "backend") &&
+    hasDomain("backend")
   ) {
     recommendations.push({
       title: "Runtime validation pass",
@@ -987,7 +1047,7 @@ function buildGoalRecommendations({ goal, domainId, safeMode = true }) {
         templateId: "runtime-validation-pass",
         regressionId: safeMode ? "local-fast" : "pi-canonical",
         domainId: domainId ?? "backend",
-        projectPath: "config/projects/spore.yaml",
+        projectPath,
         safeMode,
         mutationScope: safeMode
           ? ["config", "docs"]
@@ -996,6 +1056,7 @@ function buildGoalRecommendations({ goal, domainId, safeMode = true }) {
       },
     });
   }
+
   if (recommendations.length === 0) {
     recommendations.push({
       title: "General self-work investigation",
@@ -1010,7 +1071,7 @@ function buildGoalRecommendations({ goal, domainId, safeMode = true }) {
         templateId: "general-self-work",
         scenarioId: "cli-verification-pass",
         domainId: domainId ?? "cli",
-        projectPath: "config/projects/spore.yaml",
+        projectPath,
         safeMode,
         mutationScope: ["docs", "config"],
         recommendedScenarios: ["cli-verification-pass"],
@@ -1018,6 +1079,7 @@ function buildGoalRecommendations({ goal, domainId, safeMode = true }) {
       },
     });
   }
+
   return recommendations.map((recommendation, index) => ({
     ...recommendation,
     id: `${index + 1}`,
@@ -1052,6 +1114,25 @@ function buildGoalPlanSummary(plan, items = [], group = null) {
     recommendedWorkItems: plan.recommendations,
     materializedGroup: group,
     materializedItems: items,
+    reviewHistory: asArray(plan.metadata?.reviewHistory),
+    operatorFlow: compactObject({
+      reviewRequired: plan.metadata?.reviewRequired ?? true,
+      lastReviewedAt: plan.metadata?.lastReviewedAt ?? null,
+      materializedAt: plan.materializedAt ?? null,
+      groupId: plan.metadata?.groupId ?? null,
+      nextAction:
+        plan.status === "planned"
+          ? "review"
+          : plan.status === "reviewed"
+            ? "materialize"
+            : plan.status === "materialized"
+              ? "run"
+              : ["running", "blocked", "completed", "failed"].includes(
+                    String(plan.status),
+                  )
+                ? "inspect-group"
+                : null,
+    }),
     recentActivity: recentActivity
       ? {
           timestamp: recentActivity.timestamp,
@@ -1062,7 +1143,7 @@ function buildGoalPlanSummary(plan, items = [], group = null) {
   };
 }
 
-function buildGroupSummary(group, items = [], runs = []) {
+function buildGroupSummary(group, items = [], runs = [], proposals = []) {
   const latestRunAt =
     runs[0]?.endedAt ?? runs[0]?.startedAt ?? group.lastRunAt ?? null;
   const counts = runs.reduce((accumulator, run) => {
@@ -1106,8 +1187,77 @@ function buildGroupSummary(group, items = [], runs = []) {
       transitionLog,
     },
     readiness: evaluated.readiness,
+    proposals: proposals.map((proposal) => buildProposalSummary(proposal)),
+    validationSummary: runs.reduce((accumulator, run) => {
+      const status = summarizeValidationState(run.metadata?.validation);
+      accumulator[status] = (accumulator[status] ?? 0) + 1;
+      return accumulator;
+    }, {}),
+    batchHistory: asArray(group.metadata?.batchHistory),
     links: groupLinks(group.id),
   };
+}
+
+function listGroupProposals(
+  groupId,
+  dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
+  items = null,
+) {
+  const itemIds = new Set(
+    asArray(items)
+      .map((item) => item?.id)
+      .filter(Boolean),
+  );
+  if (!itemIds.size) {
+    const resolvedItems = listManagedWorkItems({ limit: 500 }, dbPath).filter(
+      (item) => item.metadata?.groupId === groupId,
+    );
+    for (const item of resolvedItems) {
+      itemIds.add(item.id);
+    }
+  }
+  return withDatabase(dbPath, (db) => listProposalArtifacts(db, null, 500))
+    .filter((proposal) => itemIds.has(proposal.workItemId))
+    .map(buildProposalSummary);
+}
+
+function appendGroupBatchHistory(
+  existingEntries: LooseRecord[] = [],
+  entry: LooseRecord = {},
+) {
+  const normalized = compactObject({
+    id: entry.id ?? createId("group-batch"),
+    batchNumber: entry.batchNumber ?? null,
+    startedAt: entry.startedAt ?? nowIso(),
+    endedAt: entry.endedAt ?? null,
+    readinessState: entry.readinessState ?? null,
+    itemIds: dedupe(entry.itemIds ?? []),
+    itemTitles: asArray(entry.itemTitles).filter(Boolean),
+    statuses: compactObject(entry.statuses ?? {}),
+    validationStatuses: compactObject(entry.validationStatuses ?? {}),
+    failedItemIds: dedupe(entry.failedItemIds ?? []),
+    blockedItemIds: dedupe(entry.blockedItemIds ?? []),
+    nextActionHint: entry.nextActionHint ?? null,
+  });
+  return [...asArray(existingEntries).slice(-11), normalized];
+}
+
+function workItemShouldAutoValidate(run: LooseRecord = {}) {
+  return workItemRunTerminalKind(run) === "completed";
+}
+
+function normalizeGroupRunEntry(result: LooseRecord = {}) {
+  if (result?.item && result?.run) {
+    return {
+      itemId: result.item.id,
+      item: result.item,
+      run: result.run,
+      proposal: result.proposal ?? null,
+      learningRecord: result.learningRecord ?? null,
+      status: result.run.status ?? result.status ?? "completed",
+    };
+  }
+  return result;
 }
 
 function isProposalPromotionPending(proposal) {
@@ -1863,6 +2013,33 @@ export function getSelfBuildWorkItemRun(
       priority: "high",
     });
   }
+  if (
+    (run.metadata?.proposalArtifactId ?? proposal?.id) &&
+    proposal?.status === "approved"
+  ) {
+    const promotion = resolveProposalPromotionContext(proposal, {}, dbPath);
+    suggestedActions.push({
+      action: promotion.ready
+        ? "plan-proposal-promotion"
+        : "inspect-promotion-blockers",
+      targetType: "proposal",
+      targetId: proposal.id,
+      reason: promotion.ready
+        ? "The proposal is approved and can be promoted through the integrator lane."
+        : (promotion.blockers[0]?.reason ??
+          "Promotion is blocked until durable source artifacts are available."),
+      expectedOutcome: promotion.ready
+        ? "Create or launch an explicit promotion lane from the originating execution."
+        : "Clarify or repair the promotion source before invoking the integrator lane.",
+      commandHint: promotion.ready
+        ? `npm run orchestrator:proposal-promotion-plan -- --proposal ${proposal.id} --target-branch ${promotion.targetBranch}`
+        : `npm run orchestrator:proposal-review-package -- --proposal ${proposal.id}`,
+      httpHint: promotion.ready
+        ? `/proposal-artifacts/${encodeURIComponent(proposal.id)}/promotion-plan`
+        : `/proposal-artifacts/${encodeURIComponent(proposal.id)}/review-package`,
+      priority: promotion.ready ? "medium" : "high",
+    });
+  }
 
   return {
     ...buildWorkItemRunSummary(run, item, previousRun),
@@ -2188,6 +2365,14 @@ export async function createGoalPlan(
   dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
 ) {
   const now = nowIso();
+  const projectPath = payload.projectPath ?? payload.projectId ?? "spore";
+  const project = await loadProjectConfig(projectPath);
+  const projectConfig =
+    project.config &&
+    typeof project.config === "object" &&
+    !Array.isArray(project.config)
+      ? project.config
+      : {};
   const domainId = extractGoalDomain(
     payload.goal ?? "",
     payload.domain ?? payload.domainId ?? null,
@@ -2209,10 +2394,16 @@ export async function createGoalPlan(
       goal: payload.goal ?? "",
       domainId,
       safeMode,
+      projectPath: project.path,
+      projectConfig: project.config,
     }),
     metadata: {
       source: payload.source ?? "operator",
       requestedBy: payload.by ?? "operator",
+      reviewRequired: payload.reviewRequired !== false,
+      reviewHistory: [],
+      projectPath: project.path,
+      activeDomains: dedupe(projectConfig.activeDomains ?? []),
     },
     createdAt: now,
     updatedAt: now,
@@ -2248,17 +2439,58 @@ export function getGoalPlanSummary(
     withDatabase(dbPath, (db) => listWorkItemGroups(db, null, 100)).find(
       (entry) => entry.goalPlanId === plan.id,
     ) ?? null;
+  const groupItems = group
+    ? items.filter((item) => item.metadata?.groupId === group.id)
+    : [];
+  const groupRuns = groupItems.flatMap((item) => item.runs ?? []);
+  const groupProposals = group
+    ? listGroupProposals(group.id, dbPath, groupItems)
+    : [];
   return buildGoalPlanSummary(
     plan,
     items,
     group
-      ? buildGroupSummary(
-          group,
-          items.filter((item) => item.metadata?.groupId === group.id),
-          items.flatMap((item) => item.runs ?? []),
-        )
+      ? buildGroupSummary(group, groupItems, groupRuns, groupProposals)
       : null,
   );
+}
+
+export async function reviewGoalPlan(
+  planId,
+  decision: LooseRecord = {},
+  dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
+) {
+  const plan = withDatabase(dbPath, (db) => getGoalPlan(db, planId));
+  if (!plan) {
+    return null;
+  }
+  const status =
+    String(decision.status ?? "reviewed").trim() === "rejected"
+      ? "rejected"
+      : "reviewed";
+  const reviewEntry = compactObject({
+    id: createId("goal-plan-review"),
+    status,
+    by: decision.by ?? "operator",
+    comments: decision.comments ?? "",
+    reason: decision.reason ?? decision.comments ?? "",
+    reviewedAt: nowIso(),
+  });
+  const updated = {
+    ...plan,
+    status,
+    updatedAt: reviewEntry.reviewedAt,
+    metadata: {
+      ...plan.metadata,
+      lastReviewedAt: reviewEntry.reviewedAt,
+      reviewHistory: [
+        ...asArray(plan.metadata?.reviewHistory),
+        reviewEntry,
+      ].slice(-20),
+    },
+  };
+  withDatabase(dbPath, (db) => updateGoalPlan(db, updated));
+  return getGoalPlanSummary(planId, dbPath);
 }
 
 export async function materializeGoalPlan(
@@ -2269,6 +2501,24 @@ export async function materializeGoalPlan(
   const plan = withDatabase(dbPath, (db) => getGoalPlan(db, planId));
   if (!plan) {
     return null;
+  }
+  if (
+    plan.metadata?.reviewRequired !== false &&
+    ![
+      "reviewed",
+      "materialized",
+      "running",
+      "completed",
+      "blocked",
+      "failed",
+    ].includes(String(plan.status)) &&
+    options.force !== true
+  ) {
+    const error = new Error(
+      `goal plan review required before materialization: ${planId}`,
+    );
+    (error as LooseRecord).code = "goal_plan_review_required";
+    throw error;
   }
   const now = nowIso();
   const group = {
@@ -2350,8 +2600,122 @@ export async function materializeGoalPlan(
   return buildGoalPlanSummary(
     updatedPlan,
     refreshedItems,
-    buildGroupSummary(group, refreshedItems),
+    buildGroupSummary(
+      group,
+      refreshedItems,
+      refreshedItems.flatMap((item) => item.runs ?? []),
+      listGroupProposals(group.id, dbPath, refreshedItems),
+    ),
   );
+}
+
+export async function runGoalPlan(
+  planId,
+  options: LooseRecord = {},
+  dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
+) {
+  let plan = getGoalPlanSummary(planId, dbPath);
+  if (!plan) {
+    return null;
+  }
+  if (
+    options.reviewStatus &&
+    ["planned", "rejected"].includes(String(plan.status))
+  ) {
+    plan = await reviewGoalPlan(
+      planId,
+      {
+        status: options.reviewStatus,
+        comments: options.reviewComments ?? "",
+        reason: options.reviewReason ?? "",
+        by: options.by ?? "operator",
+      },
+      dbPath,
+    );
+  }
+  if (!plan.materializedGroup) {
+    plan = await materializeGoalPlan(
+      planId,
+      {
+        ...options,
+        force: options.force === true,
+      },
+      dbPath,
+    );
+  }
+  const groupId =
+    plan?.materializedGroup?.id ?? plan?.metadata?.groupId ?? null;
+  if (!groupId) {
+    throw new Error(`goal plan ${planId} has no materialized work-item group`);
+  }
+  const groupResult = await runWorkItemGroup(
+    groupId,
+    {
+      ...options,
+      autoValidate: options.autoValidate !== false,
+    },
+    dbPath,
+  );
+  const refreshedPlan = getGoalPlanSummary(planId, dbPath);
+  const resultStatus = String(groupResult?.group?.status ?? "pending");
+  const updatedPlan = withDatabase(dbPath, (db) => {
+    const current = getGoalPlan(db, planId);
+    if (!current) {
+      return null;
+    }
+    const next = {
+      ...current,
+      status:
+        resultStatus === "completed"
+          ? "completed"
+          : ["blocked", "failed", "running"].includes(resultStatus)
+            ? resultStatus
+            : "materialized",
+      updatedAt: nowIso(),
+      metadata: {
+        ...current.metadata,
+        lastRunGroupId: groupId,
+        lastRunAt: nowIso(),
+        lastOperatorFlow: compactObject({
+          autoValidate: options.autoValidate !== false,
+          resultStatus,
+          reviewRequired: current.metadata?.reviewRequired ?? true,
+        }),
+      },
+    };
+    updateGoalPlan(db, next);
+    return next;
+  });
+  const finalPlan = updatedPlan
+    ? getGoalPlanSummary(updatedPlan.id, dbPath)
+    : refreshedPlan;
+  const proposalsNeedingReview = asArray(groupResult?.group?.proposals).filter(
+    (proposal) =>
+      ["ready_for_review", "reviewed", "waiting_approval"].includes(
+        String(proposal?.status),
+      ),
+  );
+  return {
+    goalPlan: finalPlan,
+    group: groupResult?.group ?? null,
+    results: groupResult?.results ?? [],
+    validationResults: groupResult?.validationResults ?? [],
+    proposalsNeedingReview,
+    recommendations: proposalsNeedingReview.slice(0, 5).map((proposal) => ({
+      action:
+        proposal.status === "ready_for_review"
+          ? "review-proposal"
+          : "approve-proposal",
+      targetType: "proposal",
+      targetId: proposal.id,
+      reason:
+        proposal.status === "ready_for_review"
+          ? "Proposal is ready for review."
+          : "Proposal review is complete and waiting for approval.",
+      httpHint: `/proposal-artifacts/${encodeURIComponent(proposal.id)}`,
+      commandHint: `npm run orchestrator:proposal-show -- --proposal ${proposal.id}`,
+    })),
+  };
 }
 
 export function setWorkItemGroupDependencies(
@@ -2455,15 +2819,14 @@ export function listWorkItemGroupsSummary(
     listWorkItemGroups(db, status, limit),
   );
   const items = listManagedWorkItems({ limit: 500 }, dbPath);
-  return groups.map((group) =>
-    buildGroupSummary(
-      group,
-      items.filter((item) => item.metadata?.groupId === group.id),
-      items.flatMap((item) =>
-        item.metadata?.groupId === group.id ? (item.runs ?? []) : [],
-      ),
-    ),
-  );
+  return groups.map((group) => {
+    const groupItems = items.filter(
+      (item) => item.metadata?.groupId === group.id,
+    );
+    const groupRuns = groupItems.flatMap((item) => item.runs ?? []);
+    const groupProposals = listGroupProposals(group.id, dbPath, groupItems);
+    return buildGroupSummary(group, groupItems, groupRuns, groupProposals);
+  });
 }
 
 export function getWorkItemGroupSummary(
@@ -2478,7 +2841,8 @@ export function getWorkItemGroupSummary(
     (item) => item.metadata?.groupId === group.id,
   );
   const runs = items.flatMap((item) => item.runs ?? []);
-  return buildGroupSummary(group, items, runs);
+  const proposals = listGroupProposals(group.id, dbPath, items);
+  return buildGroupSummary(group, items, runs, proposals);
 }
 
 export async function runWorkItemGroup(
@@ -2497,83 +2861,131 @@ export async function runWorkItemGroup(
     dbPath,
   );
   group = getWorkItemGroupSummary(groupId, dbPath);
-  const items = sortByGroupOrder(group.items);
   const results = [];
+  const validationResults = [];
+  const completedItemIds = new Set<string>();
+  let batchNumber = 0;
+  let progressMade = false;
 
-  for (const item of items) {
+  while (true) {
     group = getWorkItemGroupSummary(groupId, dbPath);
-    const current = group.items.find((entry) => entry.id === item.id);
-    if (!current) {
-      continue;
+    const evaluated = evaluateGroupDependencies(group.items);
+    const readyItems = sortByGroupOrder(evaluated.items).filter(
+      (item) =>
+        item.dependencyState?.readyToRun === true &&
+        !completedItemIds.has(item.id) &&
+        !["completed", "running", "failed"].includes(String(item.status)),
+    );
+
+    if (readyItems.length === 0) {
+      break;
     }
 
-    if (["blocked", "review_needed"].includes(current.dependencyState?.state)) {
-      recordGroupDependencyTransition(
-        groupId,
-        {
-          type: "dependency_skip",
-          state: current.dependencyState.state,
-          reasonCode:
-            current.dependencyState.blockers?.[0]?.reasonCode ??
-            "dependency_blocked",
-          reason: current.dependencyState.reason,
-          itemId: current.id,
-          dependencyItemId:
-            current.dependencyState.blockers?.[0]?.dependencyItemId ?? null,
-          blockerId: current.blockerIds?.[0] ?? null,
-          strictness: current.dependencyState.blockers?.[0]?.strictness ?? null,
-          nextActionHint: current.nextActionHint,
+    batchNumber += 1;
+    progressMade = true;
+    const batchStartedAt = nowIso();
+    const settled = await Promise.allSettled(
+      readyItems.map((item) => runSelfBuildWorkItem(item.id, options, dbPath)),
+    );
+    const batchResults = [];
+
+    for (let index = 0; index < settled.length; index += 1) {
+      const item = readyItems[index];
+      const settledResult = settled[index];
+      let normalized = null;
+      if (settledResult.status === "fulfilled") {
+        normalized = normalizeGroupRunEntry(settledResult.value);
+      } else {
+        const failedItem = getSelfBuildWorkItem(item.id, dbPath);
+        const failedRun = failedItem?.metadata?.lastRunId
+          ? getManagedWorkItemRun(failedItem.metadata.lastRunId, dbPath)
+          : null;
+        normalized = normalizeGroupRunEntry({
+          itemId: item.id,
+          item: failedItem ?? item,
+          run: failedRun,
+          status: failedRun?.status ?? "failed",
+          error: settledResult.reason?.message ?? String(settledResult.reason),
+        });
+      }
+      if (normalized?.itemId) {
+        completedItemIds.add(normalized.itemId);
+      }
+      results.push(normalized);
+      batchResults.push(normalized);
+
+      if (
+        options.autoValidate !== false &&
+        normalized?.run?.id &&
+        workItemShouldAutoValidate(normalized.run)
+      ) {
+        const validationResult = await validateWorkItemRun(
+          normalized.run.id,
+          {
+            ...options,
+            source: options.source ?? "work-item-group-run",
+            by: options.by ?? "operator",
+          },
+          dbPath,
+        );
+        validationResults.push(validationResult);
+      }
+    }
+
+    const refreshedGroup = withDatabase(dbPath, (db) =>
+      getWorkItemGroup(db, groupId),
+    );
+    withDatabase(dbPath, (db) =>
+      updateWorkItemGroup(db, {
+        ...refreshedGroup,
+        updatedAt: nowIso(),
+        lastRunAt: nowIso(),
+        metadata: {
+          ...(refreshedGroup?.metadata ?? {}),
+          batchHistory: appendGroupBatchHistory(
+            refreshedGroup?.metadata?.batchHistory,
+            {
+              batchNumber,
+              startedAt: batchStartedAt,
+              endedAt: nowIso(),
+              readinessState: evaluated.readiness.headlineState,
+              itemIds: readyItems.map((item) => item.id),
+              itemTitles: readyItems.map((item) => item.title),
+              statuses: batchResults.reduce((accumulator, entry) => {
+                const key = String(
+                  entry?.run?.status ?? entry?.status ?? "unknown",
+                );
+                accumulator[key] = (accumulator[key] ?? 0) + 1;
+                return accumulator;
+              }, {}),
+              validationStatuses: validationResults.reduce(
+                (accumulator, entry) => {
+                  const key = String(entry?.validation?.status ?? "unknown");
+                  accumulator[key] = (accumulator[key] ?? 0) + 1;
+                  return accumulator;
+                },
+                {},
+              ),
+              failedItemIds: batchResults
+                .filter(
+                  (entry) =>
+                    String(entry?.run?.status ?? entry?.status) === "failed",
+                )
+                .map((entry) => entry.itemId),
+              blockedItemIds: batchResults
+                .filter((entry) =>
+                  ["blocked", "waiting_review", "waiting_approval"].includes(
+                    String(entry?.run?.status ?? entry?.status),
+                  ),
+                )
+                .map((entry) => entry.itemId),
+              nextActionHint: evaluated.readiness.nextActionHint,
+            },
+          ),
         },
-        dbPath,
-      );
-      results.push({
-        itemId: current.id,
-        status: "blocked",
-        reason: current.dependencyState.reason,
-        blockerIds: current.blockerIds,
-        blockers: current.dependencyState.blockers,
-        nextActionHint: current.nextActionHint,
-        dependencyState: current.dependencyState.state,
-      });
-      continue;
-    }
+      }),
+    );
 
-    if (current.status === "completed") {
-      recordGroupDependencyTransition(
-        groupId,
-        {
-          type: "dependency_skip",
-          state: "completed",
-          reasonCode: "already_completed",
-          reason: `${current.title} was already completed before the group run reached it.`,
-          itemId: current.id,
-          nextActionHint: "No action needed.",
-        },
-        dbPath,
-      );
-      results.push({
-        itemId: current.id,
-        status: "completed",
-        reason: "already_completed",
-      });
-      continue;
-    }
-
-    let result = null;
-    try {
-      result = await runSelfBuildWorkItem(current.id, options, dbPath);
-    } catch (error) {
-      const failedItem = getSelfBuildWorkItem(current.id, dbPath);
-      const failedRun = failedItem?.metadata?.lastRunId
-        ? getManagedWorkItemRun(failedItem.metadata.lastRunId, dbPath)
-        : null;
-      result = {
-        item: failedItem,
-        run: failedRun,
-        error: error.message,
-      };
-    }
-    results.push(result);
     const refreshed = getWorkItemGroupSummary(groupId, dbPath);
     persistGroupDependencyState(
       refreshed,
@@ -2581,6 +2993,37 @@ export async function runWorkItemGroup(
       "group_run",
       dbPath,
     );
+  }
+
+  group = getWorkItemGroupSummary(groupId, dbPath);
+  const seenResultIds = new Set(
+    results.map((entry) => entry?.itemId).filter(Boolean),
+  );
+  for (const item of sortByGroupOrder(group.items)) {
+    if (seenResultIds.has(item.id)) {
+      continue;
+    }
+    if (["blocked", "review_needed"].includes(item.dependencyState?.state)) {
+      results.push({
+        itemId: item.id,
+        item,
+        status: "blocked",
+        reason: item.dependencyState.reason,
+        blockerIds: item.blockerIds,
+        blockers: item.dependencyState.blockers,
+        nextActionHint: item.nextActionHint,
+        dependencyState: item.dependencyState.state,
+      });
+      continue;
+    }
+    if (item.status === "completed") {
+      results.push({
+        itemId: item.id,
+        item,
+        status: "completed",
+        reason: "already_completed",
+      });
+    }
   }
 
   group = getWorkItemGroupSummary(groupId, dbPath);
@@ -2598,6 +3041,8 @@ export async function runWorkItemGroup(
         .length,
       failedCount: results.filter((entry) => entry?.run?.status === "failed")
         .length,
+      validationCount: validationResults.length,
+      progressMade,
       dependencyReadiness: group.readiness,
     },
     metadata: {
@@ -2616,6 +3061,174 @@ export async function runWorkItemGroup(
   return {
     group: getWorkItemGroupSummary(groupId, dbPath),
     results,
+    validationResults,
+  };
+}
+
+function resolveProposalSourceExecutionId(
+  proposal,
+  dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
+) {
+  if (!proposal?.workItemRunId) {
+    return null;
+  }
+  const run = withDatabase(dbPath, (db) =>
+    getWorkItemRun(db, proposal.workItemRunId),
+  );
+  return run?.result?.executionId ?? null;
+}
+
+function resolveProposalPromotionContext(
+  proposal,
+  options: LooseRecord = {},
+  dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
+) {
+  const sourceExecutionId =
+    options.executionId ??
+    proposal?.metadata?.promotion?.sourceExecutionId ??
+    resolveProposalSourceExecutionId(proposal, dbPath);
+  const targetBranch =
+    options.targetBranch ??
+    proposal?.metadata?.promotion?.targetBranch ??
+    "main";
+  const integrationBranch =
+    options.integrationBranch ??
+    proposal?.metadata?.promotion?.integrationBranch ??
+    proposal?.artifacts?.workspace?.branchName ??
+    null;
+  const blockers = [];
+  if (!proposal) {
+    blockers.push({
+      code: "proposal_not_found",
+      reason: "Proposal artifact not found.",
+    });
+  }
+  if (!sourceExecutionId) {
+    blockers.push({
+      code: "missing_promotion_source_execution",
+      reason:
+        "Proposal cannot be promoted because the originating work-item run has no durable executionId.",
+    });
+  }
+  if (!proposal?.artifacts?.workspace?.branchName && !integrationBranch) {
+    blockers.push({
+      code: "missing_workspace_branch",
+      reason:
+        "Proposal cannot be promoted because no workspace-linked branch is attached.",
+    });
+  }
+  return {
+    sourceExecutionId,
+    targetBranch,
+    integrationBranch,
+    blockers,
+    ready: blockers.length === 0,
+    links: compactObject({
+      plan: proposal
+        ? `/proposal-artifacts/${encodeURIComponent(proposal.id)}/promotion-plan`
+        : null,
+      invoke: proposal
+        ? `/proposal-artifacts/${encodeURIComponent(proposal.id)}/promotion-invoke`
+        : null,
+    }),
+  };
+}
+
+function buildProposalReviewPackage(
+  proposal,
+  dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
+) {
+  if (!proposal) {
+    return null;
+  }
+  const run = proposal.workItemRunId
+    ? getSelfBuildWorkItemRun(proposal.workItemRunId, dbPath)
+    : null;
+  const workItem = proposal.workItemId
+    ? getSelfBuildWorkItem(proposal.workItemId, dbPath)
+    : null;
+  const workspace = proposal.workItemRunId
+    ? getWorkspaceByRun(proposal.workItemRunId, dbPath)
+    : null;
+  const promotion = resolveProposalPromotionContext(proposal, {}, dbPath);
+  const executionDetail = promotion.sourceExecutionId
+    ? getExecutionDetail(promotion.sourceExecutionId, dbPath)
+    : null;
+  return {
+    proposal: buildProposalSummary(proposal),
+    workItemRun: run,
+    workItem,
+    workspace,
+    execution: executionDetail
+      ? compactObject({
+          id: executionDetail.execution?.id ?? promotion.sourceExecutionId,
+          status: executionDetail.execution?.status ?? null,
+          role: executionDetail.execution?.role ?? null,
+          workflowId: executionDetail.execution?.workflowId ?? null,
+          projectId: executionDetail.execution?.projectId ?? null,
+          coordinationGroupId:
+            executionDetail.execution?.coordinationGroupId ?? null,
+          childExecutionIds:
+            executionDetail.childExecutions?.map((child) => child.id) ?? [],
+          links: {
+            self: `/executions/${encodeURIComponent(
+              executionDetail.execution?.id ?? promotion.sourceExecutionId,
+            )}`,
+            tree: `/executions/${encodeURIComponent(
+              executionDetail.execution?.id ?? promotion.sourceExecutionId,
+            )}/tree`,
+            history: `/executions/${encodeURIComponent(
+              executionDetail.execution?.id ?? promotion.sourceExecutionId,
+            )}/history`,
+          },
+        })
+      : null,
+    promotion,
+    reviewHistory: asArray(proposal.metadata?.reviewHistory),
+    approvalHistory: asArray(proposal.metadata?.approvalHistory),
+    suggestedActions: [
+      proposal.status === "ready_for_review"
+        ? {
+            action: "review-proposal",
+            targetType: "proposal",
+            targetId: proposal.id,
+            reason: "Proposal is waiting for review.",
+            commandHint: `npm run orchestrator:proposal-review -- --proposal ${proposal.id} --status reviewed`,
+            httpHint: `/proposal-artifacts/${encodeURIComponent(proposal.id)}/review`,
+            priority: "high",
+          }
+        : null,
+      ["reviewed", "waiting_approval"].includes(String(proposal.status))
+        ? {
+            action: "approve-proposal",
+            targetType: "proposal",
+            targetId: proposal.id,
+            reason: "Proposal review completed and now waits for approval.",
+            commandHint: `npm run orchestrator:proposal-approve -- --proposal ${proposal.id} --status approved`,
+            httpHint: `/proposal-artifacts/${encodeURIComponent(proposal.id)}/approval`,
+            priority: "high",
+          }
+        : null,
+      proposal.status === "approved"
+        ? {
+            action: promotion.ready
+              ? "plan-promotion"
+              : "inspect-promotion-blockers",
+            targetType: "proposal",
+            targetId: proposal.id,
+            reason: promotion.ready
+              ? "Proposal is approved and promotion can be planned through an integrator lane."
+              : "Proposal approval completed but promotion is currently blocked.",
+            commandHint: promotion.ready
+              ? `npm run orchestrator:proposal-promotion-plan -- --proposal ${proposal.id} --target-branch ${promotion.targetBranch}`
+              : `npm run orchestrator:proposal-review-package -- --proposal ${proposal.id}`,
+            httpHint: promotion.ready
+              ? `/proposal-artifacts/${encodeURIComponent(proposal.id)}/promotion-plan`
+              : `/proposal-artifacts/${encodeURIComponent(proposal.id)}/review-package`,
+            priority: promotion.ready ? "medium" : "high",
+          }
+        : null,
+    ].filter(Boolean),
   };
 }
 
@@ -2627,6 +3240,129 @@ export function getProposalSummary(
     getProposalArtifact(db, artifactId),
   );
   return buildProposalSummary(artifact);
+}
+
+export function getProposalReviewPackage(
+  artifactId,
+  dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
+) {
+  const artifact = withDatabase(dbPath, (db) =>
+    getProposalArtifact(db, artifactId),
+  );
+  return buildProposalReviewPackage(artifact, dbPath);
+}
+
+export function planProposalPromotion(
+  artifactId,
+  options: LooseRecord = {},
+  dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
+) {
+  const artifact = withDatabase(dbPath, (db) =>
+    getProposalArtifact(db, artifactId),
+  );
+  if (!artifact) {
+    return null;
+  }
+  const reviewPackage = buildProposalReviewPackage(artifact, dbPath);
+  const promotion =
+    reviewPackage?.promotion ??
+    resolveProposalPromotionContext(artifact, options, dbPath);
+  if (!promotion.ready || !promotion.sourceExecutionId) {
+    const error = new Error(
+      `proposal promotion blocked: ${promotion.blockers[0]?.reason ?? "missing promotion source artifacts"}`,
+    );
+    (error as LooseRecord).code = "proposal_promotion_blocked";
+    (error as LooseRecord).detail = reviewPackage;
+    throw error;
+  }
+  const plan = planPromotionForExecution(promotion.sourceExecutionId, {
+    invocationId: options.invocationId ?? null,
+    targetBranch: promotion.targetBranch,
+    objective:
+      options.objective ??
+      `Promote proposal ${artifact.id} through an integrator lane without mutating canonical root directly.`,
+    featureKey:
+      options.featureKey ??
+      artifact.workItemId ??
+      artifact.workItemRunId ??
+      artifact.id,
+  });
+  return {
+    proposal: buildProposalSummary(artifact),
+    reviewPackage,
+    promotion,
+    plan,
+  };
+}
+
+export async function invokeProposalPromotion(
+  artifactId,
+  options: LooseRecord = {},
+  dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
+  sessionDbPath = process.env.SPORE_SESSION_DB_PATH,
+) {
+  const planned = planProposalPromotion(artifactId, options, dbPath);
+  if (!planned) {
+    return null;
+  }
+  const detail = await invokeFeaturePromotion(
+    planned.promotion.sourceExecutionId,
+    {
+      invocationId: options.invocationId ?? null,
+      targetBranch: planned.promotion.targetBranch,
+      objective:
+        options.objective ??
+        `Promote proposal ${artifactId} through a governed integrator lane.`,
+      featureKey:
+        options.featureKey ??
+        planned.proposal.workItemId ??
+        planned.proposal.workItemRunId ??
+        planned.proposal.id,
+      wait: options.wait === true,
+      timeout: options.timeout ?? "180000",
+      interval: options.interval ?? "1500",
+      noMonitor: options.noMonitor === true,
+      stub: options.stub === true,
+      launcher: options.launcher ?? null,
+      stepSoftTimeoutMs:
+        options.stepSoftTimeoutMs ?? options.stepSoftTimeout ?? null,
+      stepHardTimeoutMs:
+        options.stepHardTimeoutMs ?? options.stepHardTimeout ?? null,
+      sessionDbPath: sessionDbPath ?? null,
+    },
+  );
+  const proposal = withDatabase(dbPath, (db) =>
+    getProposalArtifact(db, artifactId),
+  );
+  if (proposal) {
+    withDatabase(dbPath, (db) =>
+      updateProposalArtifact(db, {
+        ...proposal,
+        updatedAt: nowIso(),
+        metadata: {
+          ...proposal.metadata,
+          promotion: compactObject({
+            ...(proposal.metadata?.promotion ?? {}),
+            status: "promotion_candidate",
+            plannedAt: nowIso(),
+            invocationId:
+              detail?.plan?.invocationId ??
+              detail?.detail?.plan?.invocationId ??
+              null,
+            targetBranch: planned.promotion.targetBranch,
+            integrationBranch: planned.promotion.integrationBranch,
+            sourceExecutionId: planned.promotion.sourceExecutionId,
+          }),
+        },
+      }),
+    );
+  }
+  return {
+    proposal: proposal ? buildProposalSummary(proposal) : planned.proposal,
+    reviewPackage: planned.reviewPackage,
+    promotion: planned.promotion,
+    detail,
+  };
 }
 
 export function getProposalByRun(runId, dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
@@ -2868,17 +3604,35 @@ export async function reviewProposalArtifact(
   if (!artifact) {
     return null;
   }
+  const status =
+    String(decision.status ?? "reviewed").trim() === "rejected"
+      ? "rejected"
+      : "reviewed";
+  const reviewedAt = nowIso();
+  const reviewEntry = compactObject({
+    id: createId("proposal-review"),
+    status,
+    by: decision.by ?? "operator",
+    comments: decision.comments ?? "",
+    reason: decision.reason ?? decision.comments ?? "",
+    reviewedAt,
+  });
   const updated = {
     ...artifact,
-    status: decision.status ?? "reviewed",
-    updatedAt: nowIso(),
-    reviewedAt: nowIso(),
+    status,
+    updatedAt: reviewedAt,
+    reviewedAt,
     metadata: {
       ...artifact.metadata,
-      review: {
-        by: decision.by ?? "operator",
-        comments: decision.comments ?? "",
-      },
+      review: reviewEntry,
+      reviewHistory: [
+        ...asArray(artifact.metadata?.reviewHistory),
+        reviewEntry,
+      ].slice(-20),
+      nextAction:
+        status === "reviewed"
+          ? "approval-or-promotion-check"
+          : "revise-work-item",
     },
   };
   withDatabase(dbPath, (db) => updateProposalArtifact(db, updated));
@@ -2897,10 +3651,29 @@ export async function approveProposalArtifact(
     return null;
   }
   const approved = decision.status ?? "approved";
+  const approvedAt = nowIso();
+  const sourceExecutionId = (() => {
+    const run = artifact.workItemRunId
+      ? withDatabase(dbPath, (db) => getWorkItemRun(db, artifact.workItemRunId))
+      : null;
+    return run?.result?.executionId ?? null;
+  })();
+  const blockers =
+    approved === "approved" && !sourceExecutionId
+      ? [
+          {
+            code: "missing_promotion_source_execution",
+            reason:
+              "Proposal approval completed, but no durable source execution was attached to the originating work-item run.",
+          },
+        ]
+      : [];
   const nextPromotion =
     approved === "approved"
       ? {
-          status: decision.promotionStatus ?? "ready_for_promotion",
+          status:
+            decision.promotionStatus ??
+            (blockers.length > 0 ? "blocked" : "promotion_candidate"),
           targetBranch:
             decision.targetBranch ??
             artifact.metadata?.promotion?.targetBranch ??
@@ -2910,31 +3683,52 @@ export async function approveProposalArtifact(
             artifact.artifacts?.workspace?.branchName ??
             artifact.metadata?.promotion?.integrationBranch ??
             null,
+          sourceExecutionId,
           source: "proposal-approval",
-          updatedAt: nowIso(),
+          blockers,
+          updatedAt: approvedAt,
         }
       : {
           status:
             approved === "rejected"
               ? "rejected"
               : (artifact.metadata?.promotion?.status ?? null),
-          updatedAt: nowIso(),
+          sourceExecutionId,
+          blockers,
+          updatedAt: approvedAt,
         };
+  const approvalEntry = compactObject({
+    id: createId("proposal-approval"),
+    status: approved,
+    by: decision.by ?? "operator",
+    comments: decision.comments ?? "",
+    reason: decision.reason ?? decision.comments ?? "",
+    approvedAt,
+    promotionStatus: nextPromotion.status ?? null,
+    sourceExecutionId,
+  });
   const updated = {
     ...artifact,
     status: approved,
-    updatedAt: nowIso(),
-    approvedAt: nowIso(),
+    updatedAt: approvedAt,
+    approvedAt,
     metadata: {
       ...artifact.metadata,
       promotion: compactObject({
         ...(artifact.metadata?.promotion ?? {}),
         ...nextPromotion,
       }),
-      approval: {
-        by: decision.by ?? "operator",
-        comments: decision.comments ?? "",
-      },
+      approval: approvalEntry,
+      approvalHistory: [
+        ...asArray(artifact.metadata?.approvalHistory),
+        approvalEntry,
+      ].slice(-20),
+      nextAction:
+        approved === "approved"
+          ? blockers.length > 0
+            ? "inspect-promotion-blockers"
+            : "promotion-plan"
+          : "revise-work-item",
     },
   };
   withDatabase(dbPath, (db) => updateProposalArtifact(db, updated));

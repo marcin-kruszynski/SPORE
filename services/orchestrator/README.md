@@ -39,7 +39,9 @@ Workflow templates may also define `stepSets`, which the service exposes back th
 - `GET /goal-plans`
 - `POST /goals/plan`
 - `GET /goal-plans/:id`
+- `POST /goal-plans/:id/review`
 - `POST /goal-plans/:id/materialize`
+- `POST /goal-plans/:id/run`
 - `GET /work-item-groups`
 - `GET /work-item-groups/:id`
 - `POST /work-item-groups/:id/run`
@@ -53,8 +55,11 @@ Workflow templates may also define `stepSets`, which the service exposes back th
 - `POST /work-item-runs/:runId/validate`
 - `GET /work-item-runs/:runId/doc-suggestions`
 - `GET /proposal-artifacts/:id`
+- `GET /proposal-artifacts/:id/review-package`
 - `POST /proposal-artifacts/:id/review`
 - `POST /proposal-artifacts/:id/approval`
+- `POST /proposal-artifacts/:id/promotion-plan`
+- `POST /proposal-artifacts/:id/promotion-invoke`
 - `GET /workspaces`
 - `GET /workspaces/:id`
 - `POST /workspaces/:id/reconcile`

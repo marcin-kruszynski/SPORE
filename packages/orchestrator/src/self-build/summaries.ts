@@ -22,8 +22,11 @@ interface WorkspaceLike extends JsonObject {
 export function proposalLinks(artifactId: string) {
   return {
     self: `/proposal-artifacts/${encodeURIComponent(artifactId)}`,
+    reviewPackage: `/proposal-artifacts/${encodeURIComponent(artifactId)}/review-package`,
     review: `/proposal-artifacts/${encodeURIComponent(artifactId)}/review`,
     approval: `/proposal-artifacts/${encodeURIComponent(artifactId)}/approval`,
+    promotionPlan: `/proposal-artifacts/${encodeURIComponent(artifactId)}/promotion-plan`,
+    promotionInvoke: `/proposal-artifacts/${encodeURIComponent(artifactId)}/promotion-invoke`,
   };
 }
 

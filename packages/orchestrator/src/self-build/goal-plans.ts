@@ -3,4 +3,6 @@ export {
   getGoalPlanSummary,
   listGoalPlansSummary,
   materializeGoalPlan,
+  reviewGoalPlan,
+  runGoalPlan,
 } from "./self-build.impl.js";

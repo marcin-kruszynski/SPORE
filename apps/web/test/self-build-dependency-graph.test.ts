@@ -194,6 +194,17 @@ test("self-build web proxy exposes dependency authoring, impact summary, and rea
   assert.equal(goalPlan.status, 200);
   assert.ok(goalPlan.json.ok);
 
+  const reviewed = await postJson(
+    `${webOrigin}/api/orchestrator/goal-plans/${encodeURIComponent(goalPlan.json.detail.id)}/review`,
+    {
+      status: "reviewed",
+      comments: "Review before dependency-graph materialization.",
+      by: "web-test-runner",
+    },
+  );
+  assert.equal(reviewed.status, 200);
+  assert.ok(reviewed.json.ok);
+
   const materialized = await postJson<MaterializedGoalPlanResponse>(
     `${webOrigin}/api/orchestrator/goal-plans/${encodeURIComponent(goalPlan.json.detail.id)}/materialize`,
     { by: "web-test-runner" },
@@ -202,11 +213,30 @@ test("self-build web proxy exposes dependency authoring, impact summary, and rea
   assert.ok(materialized.json.ok);
 
   const groupId = materialized.json.detail.materializedGroup.id;
-  const items = materialized.json.detail.materializedItems;
-  assert.equal(items.length, 4);
+  const items = [...materialized.json.detail.materializedItems];
+  while (items.length < 4) {
+    const supplementalItem = await postJson(
+      `${webOrigin}/api/orchestrator/work-items`,
+      {
+        title: `Supplemental dependency item ${items.length + 1}`,
+        goal: "Pad dependency graph coverage items.",
+        kind: "scenario",
+        metadata: {
+          groupId,
+          goalPlanId: goalPlan.json.detail.id,
+          projectPath: "config/projects/spore.yaml",
+          groupOrder: items.length,
+        },
+      },
+    );
+    assert.equal(supplementalItem.status, 200);
+    assert.ok(supplementalItem.json.ok);
+    items.push(supplementalItem.json.detail);
+  }
+  assert.ok(items.length >= 4);
 
   const [successItemId, failingItemId, hardBlockedItemId, advisoryItemId] =
-    items.map((item) => item.id);
+    items.slice(0, 4).map((item) => item.id);
   const updatedAt = new Date().toISOString();
 
   mutateWorkItem(dbPath, successItemId, (item) => ({

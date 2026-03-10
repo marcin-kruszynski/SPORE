@@ -1254,6 +1254,58 @@ async function goalPlanMaterialize(flags: CliFlags) {
   console.log(formatJson(payload));
 }
 
+async function goalPlanReview(flags: CliFlags) {
+  if (!flags.plan || !flags.status) {
+    throw new Error(
+      "use goal-plan-review --plan <id> --status <reviewed|rejected>",
+    );
+  }
+  const payload = await orchestratorRequest(
+    flags,
+    `/goal-plans/${encodeURIComponent(flags.plan)}/review`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        status: flags.status,
+        by: flags.by ?? "operator",
+        comments: flags.comments ?? "",
+        reason: flags.reason ?? flags.comments ?? "",
+      }),
+    },
+  );
+  console.log(formatJson(payload));
+}
+
+async function goalPlanRun(flags: CliFlags) {
+  if (!flags.plan) {
+    throw new Error("use goal-plan-run --plan <id>");
+  }
+  const payload = await orchestratorRequest(
+    flags,
+    `/goal-plans/${encodeURIComponent(flags.plan)}/run`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        reviewStatus: flags["review-status"] ?? null,
+        reviewComments: flags["review-comments"] ?? "",
+        reviewReason: flags["review-reason"] ?? "",
+        force: flags.force === true,
+        autoValidate: flags["auto-validate"] !== false,
+        project: flags.project,
+        wait: flags.wait !== false,
+        timeout: flags.timeout ? toNumber(flags.timeout, null) : undefined,
+        interval: flags.interval ? toNumber(flags.interval, null) : undefined,
+        noMonitor: flags["no-monitor"] === true,
+        stub: flags.stub === true,
+        launcher: flags.launcher,
+        by: flags.by ?? "operator",
+        source: "tui",
+      }),
+    },
+  );
+  console.log(formatJson(payload));
+}
+
 async function workItemGroupList(flags: CliFlags) {
   const search = new URLSearchParams();
   if (flags.status) search.set("status", String(flags.status));
@@ -1559,6 +1611,65 @@ async function proposalApprove(flags: CliFlags) {
   console.log(formatJson(payload));
 }
 
+async function proposalReviewPackage(flags: CliFlags) {
+  if (!flags.proposal) {
+    throw new Error("use proposal-review-package --proposal <id>");
+  }
+  const payload = await orchestratorRequest(
+    flags,
+    `/proposal-artifacts/${encodeURIComponent(flags.proposal)}/review-package`,
+  );
+  console.log(formatJson(payload));
+}
+
+async function proposalPromotionPlan(flags: CliFlags) {
+  if (!flags.proposal) {
+    throw new Error("use proposal-promotion-plan --proposal <id>");
+  }
+  const payload = await orchestratorRequest(
+    flags,
+    `/proposal-artifacts/${encodeURIComponent(flags.proposal)}/promotion-plan`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        invocationId: flags["invocation-id"] ?? null,
+        targetBranch: flags["target-branch"] ?? null,
+        objective: flags.objective ?? null,
+        featureKey: flags["feature-id"] ?? null,
+      }),
+    },
+  );
+  console.log(formatJson(payload));
+}
+
+async function proposalPromotionInvoke(flags: CliFlags) {
+  if (!flags.proposal) {
+    throw new Error("use proposal-promotion-invoke --proposal <id>");
+  }
+  const payload = await orchestratorRequest(
+    flags,
+    `/proposal-artifacts/${encodeURIComponent(flags.proposal)}/promotion-invoke`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        invocationId: flags["invocation-id"] ?? null,
+        targetBranch: flags["target-branch"] ?? null,
+        objective: flags.objective ?? null,
+        featureKey: flags["feature-id"] ?? null,
+        wait: flags.wait !== false,
+        timeout: flags.timeout ? toNumber(flags.timeout, null) : undefined,
+        interval: flags.interval ? toNumber(flags.interval, null) : undefined,
+        noMonitor: flags["no-monitor"] === true,
+        stub: flags.stub === true,
+        launcher: flags.launcher,
+        by: flags.by ?? "operator",
+        source: "tui",
+      }),
+    },
+  );
+  console.log(formatJson(payload));
+}
+
 async function workspaceList(flags: CliFlags) {
   const search = new URLSearchParams();
   if (flags.status) search.set("status", String(flags.status));
@@ -1746,8 +1857,16 @@ async function main() {
     await goalPlanShow(flags);
     return;
   }
+  if (command === "goal-plan-review") {
+    await goalPlanReview(flags);
+    return;
+  }
   if (command === "goal-plan-materialize") {
     await goalPlanMaterialize(flags);
+    return;
+  }
+  if (command === "goal-plan-run") {
+    await goalPlanRun(flags);
     return;
   }
   if (command === "work-item-group-list") {
@@ -1802,12 +1921,24 @@ async function main() {
     await proposalShow(flags);
     return;
   }
+  if (command === "proposal-review-package") {
+    await proposalReviewPackage(flags);
+    return;
+  }
   if (command === "proposal-review") {
     await proposalReview(flags);
     return;
   }
   if (command === "proposal-approve") {
     await proposalApprove(flags);
+    return;
+  }
+  if (command === "proposal-promotion-plan") {
+    await proposalPromotionPlan(flags);
+    return;
+  }
+  if (command === "proposal-promotion-invoke") {
+    await proposalPromotionInvoke(flags);
     return;
   }
   if (command === "workspace-list") {
@@ -1825,7 +1956,7 @@ async function main() {
     return;
   }
   throw new Error(
-    "commands: dashboard | inspect | execution | tree | family | audit | policy-diff | history | project-plan | project-invoke | promotion-plan | promotion-invoke | run-center | self-build | self-build-summary | self-build-dashboard | work-item-queue | workspace-list | workspace-show | scenario-list | scenario-show | scenario-runs | scenario-run | scenario-run-show | scenario-run-artifacts | scenario-rerun | scenario-trends | regression-list | regression-show | regression-runs | regression-run | regression-run-show | regression-report | regression-latest-report | regression-rerun | regression-trends | regression-scheduler | regression-scheduler-status | work-item-template-list | work-item-template-show | goal-plan-create | goal-plan-list | goal-plan-show | goal-plan-materialize | work-item-group-list | work-item-group-show | work-item-group-run | work-item-list | work-item-show | work-item-runs | work-item-create | work-item-run | work-item-run-show | work-item-run-rerun | work-item-validate | work-item-doc-suggestions | proposal-show | proposal-review | proposal-approve | drive | pause | hold | resume | review | approval",
+    "commands: dashboard | inspect | execution | tree | family | audit | policy-diff | history | project-plan | project-invoke | promotion-plan | promotion-invoke | run-center | self-build | self-build-summary | self-build-dashboard | work-item-queue | workspace-list | workspace-show | scenario-list | scenario-show | scenario-runs | scenario-run | scenario-run-show | scenario-run-artifacts | scenario-rerun | scenario-trends | regression-list | regression-show | regression-runs | regression-run | regression-run-show | regression-report | regression-latest-report | regression-rerun | regression-trends | regression-scheduler | regression-scheduler-status | work-item-template-list | work-item-template-show | goal-plan-create | goal-plan-list | goal-plan-show | goal-plan-review | goal-plan-materialize | goal-plan-run | work-item-group-list | work-item-group-show | work-item-group-run | work-item-list | work-item-show | work-item-runs | work-item-create | work-item-run | work-item-run-show | work-item-run-rerun | work-item-validate | work-item-doc-suggestions | proposal-show | proposal-review-package | proposal-review | proposal-approve | proposal-promotion-plan | proposal-promotion-invoke | drive | pause | hold | resume | review | approval",
   );
 }
 

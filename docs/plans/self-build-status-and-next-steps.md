@@ -115,6 +115,27 @@ Remaining gaps now start in phase 3 and beyond:
 - dependency-aware self-build execution needs to be generalized beyond the current slice
 - there is still no supervised end-to-end self-build loop that an operator can run as one product workflow
 
+## Phase 3 Progress Snapshot
+
+Phase 3 is now in progress.
+
+Delivered so far:
+
+- explicit `goal plan review` before materialization through CLI, HTTP, TUI, and Web
+- explicit `goal plan run` flow that can review, materialize, run, and validate a managed group in one operator path
+- dependency-aware `work-item groups` operating as real execution batches with durable batch history
+- richer `proposal review package` reads that aggregate proposal, originating run, workspace, execution, promotion context, and suggested actions
+- explicit proposal promotion planning and invocation through `coordinator -> integrator` lanes
+- additive proposal promotion metadata and early promotion blockers when durable source artifacts are missing
+- Web/TUI operator flows for proposal review, approval, promotion planning, and promotion invocation
+
+Still missing before phase 3 can be considered complete:
+
+- editable goal-plan recommendations before materialization
+- broader template catalog expansion
+- stronger batch-level editing and recovery controls
+- tighter validation bundle reuse and proposal validation gating
+
 ## The Next 16 Steps
 
 The next implementation wave should move in this order.

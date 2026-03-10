@@ -7,5 +7,12 @@ export * from "./metadata/constants.js";
 export * from "./scenarios/catalog.js";
 export * from "./scenarios/run-history.js";
 export * from "./self-build/self-build.js";
+export {
+  getProposalReviewPackage,
+  invokeProposalPromotion,
+  planProposalPromotion,
+  reviewGoalPlan,
+  runGoalPlan,
+} from "./self-build/self-build.js";
 export * from "./store/execution-store.js";
 export * from "./work-items/work-items.js";

@@ -1037,13 +1037,18 @@ npm run orchestrator:proposal-approve -- --proposal <proposal-id> --status appro
 | `GET` | `/goal-plans` | Durable goal-plan list for planning before execution |
 | `POST` | `/goals/plan` | Create one goal plan |
 | `GET` | `/goal-plans/:id` | One goal-plan detail |
+| `POST` | `/goal-plans/:id/review` | Record explicit goal-plan review before materialization or execution |
 | `POST` | `/goal-plans/:id/materialize` | Materialize a goal plan into a work-item group and managed items |
+| `POST` | `/goal-plans/:id/run` | Review, materialize, run, and validate a goal plan through one operator flow |
 | `GET` | `/work-item-groups` | Durable work-item group list |
 | `GET` | `/work-item-groups/:id` | One work-item group detail |
 | `POST` | `/work-item-groups/:id/run` | Execute one work-item group through managed child work items |
 | `GET` | `/proposal-artifacts/:id` | One proposal artifact with review/approval status |
+| `GET` | `/proposal-artifacts/:id/review-package` | Rich proposal drilldown including workspace, source run, promotion context, and suggested actions |
 | `POST` | `/proposal-artifacts/:id/review` | Review transition for one proposal artifact |
 | `POST` | `/proposal-artifacts/:id/approval` | Approval transition for one proposal artifact |
+| `POST` | `/proposal-artifacts/:id/promotion-plan` | Plan an explicit `coordinator -> integrator` promotion lane for one approved proposal |
+| `POST` | `/proposal-artifacts/:id/promotion-invoke` | Invoke that promotion lane with early blockers if durable promotion sources are missing |
 | `GET` | `/workspaces` | Durable workspace allocation list for mutating self-work |
 | `GET` | `/workspaces/:id` | One workspace allocation with worktree metadata |
 | `POST` | `/workspaces/:id/reconcile` | Compare allocation state with `git worktree list` and on-disk reality |

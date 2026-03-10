@@ -344,7 +344,9 @@ npm run workspace:list
 npm run orchestrator:goal-plan-create -- --goal "Stabilize CLI verification and docs follow-up"
 npm run orchestrator:goal-plan-list
 npm run orchestrator:goal-plan-show -- --plan <goal-plan-id>
+npm run orchestrator:goal-plan-review -- --plan <goal-plan-id> --status reviewed
 npm run orchestrator:goal-plan-materialize -- --plan <goal-plan-id>
+npm run orchestrator:goal-plan-run -- --plan <goal-plan-id> --stub
 npm run orchestrator:work-item-group-list
 npm run orchestrator:work-item-group-show -- --group <group-id>
 npm run orchestrator:work-item-group-run -- --group <group-id> --stub
@@ -357,8 +359,11 @@ npm run orchestrator:work-item-run-show -- --run <work-item-run-id>
 npm run orchestrator:work-item-validate -- --run <work-item-run-id> --stub
 npm run orchestrator:work-item-doc-suggestions -- --run <work-item-run-id>
 npm run orchestrator:proposal-show -- --run <work-item-run-id>
+npm run orchestrator:proposal-review-package -- --proposal <proposal-id>
 npm run orchestrator:proposal-review -- --proposal <proposal-id> --status reviewed
 npm run orchestrator:proposal-approve -- --proposal <proposal-id> --status approved
+npm run orchestrator:proposal-promotion-plan -- --proposal <proposal-id> --target-branch main
+npm run orchestrator:proposal-promotion-invoke -- --proposal <proposal-id> --target-branch main --wait --stub
 ```
 
 Live control inspection:

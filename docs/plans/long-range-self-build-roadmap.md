@@ -233,11 +233,11 @@ The biggest remaining gaps before SPORE can safely and usefully work on itself a
 - [ ] Keep the planner deterministic and inspectable before introducing any model-assisted variant.
 
 ### 12. Goal Plan Review and Materialization Flow
-- [ ] Add a stronger review stage for goal plans before materialization.
+- [x] Add a stronger review stage for goal plans before materialization.
 - [ ] Allow operators to edit, reorder, or drop recommended work items before materializing them.
 - [ ] Persist plan edits and rationale.
-- [ ] Record who approved plan materialization.
-- [ ] Ensure goal plan lineage into work-item groups remains durable and queryable.
+- [x] Record who approved plan materialization.
+- [x] Ensure goal plan lineage into work-item groups remains durable and queryable.
 
 ### 13. Work Item Templates v2
 - [ ] Expand the template catalog with realistic SPORE-specific work items.
@@ -247,27 +247,27 @@ The biggest remaining gaps before SPORE can safely and usefully work on itself a
 - [ ] Add template-level owner guidance in docs and API payloads.
 
 ### 14. Work Item Groups as Real Execution Batches
-- [ ] Generalize grouped work into a true batch execution concept, not just a loose container.
-- [ ] Add batch-level summary, batch state transitions, and batch-level validation outcomes.
-- [ ] Track partial success, blocked progress, and terminal failure cleanly.
-- [ ] Persist batch execution history and operator decisions.
-- [ ] Expose one route for complete group detail with items, dependencies, runs, proposals, and validations.
+- [x] Generalize grouped work into a true batch execution concept, not just a loose container.
+- [x] Add batch-level summary, batch state transitions, and batch-level validation outcomes.
+- [x] Track partial success, blocked progress, and terminal failure cleanly.
+- [x] Persist batch execution history and operator decisions.
+- [x] Expose one route for complete group detail with items, dependencies, runs, proposals, and validations.
 
 ### 15. Dependency-Aware Self-Work Execution
-- [ ] Integrate dependency-aware group execution deeply into self-build rather than leaving it as a side slice.
-- [ ] Support hard and advisory dependencies consistently in self-build queues and dashboards.
-- [ ] Show blocked reasons clearly and persist recovery actions.
+- [x] Integrate dependency-aware group execution deeply into self-build rather than leaving it as a side slice.
+- [x] Support hard and advisory dependencies consistently in self-build queues and dashboards.
+- [x] Show blocked reasons clearly and persist recovery actions.
 - [ ] Add operator controls for unblocking or rerouting downstream items after failures.
-- [ ] Ensure validation and proposal generation respect dependency state.
+- [x] Ensure validation and proposal generation respect dependency state.
 
 ## Phase 4 — Strengthen Proposal, Review, and Validation Semantics
 
 ### 16. Proposal Review Workflow v2
-- [ ] Turn proposal review into a richer workflow with explicit reviewer notes and rejection reasons.
-- [ ] Record proposal review outcomes as durable structured records, not only status flips.
+- [x] Turn proposal review into a richer workflow with explicit reviewer notes and rejection reasons.
+- [x] Record proposal review outcomes as durable structured records, not only status flips.
 - [ ] Add clear rework states after proposal rejection.
-- [ ] Link proposal review outcomes back to the originating work item and validation outcomes.
-- [ ] Add browser/TUI views for proposal review history.
+- [x] Link proposal review outcomes back to the originating work item and validation outcomes.
+- [x] Add browser/TUI views for proposal review history.
 
 ### 17. Validation Bundles for Work Items
 - [ ] Introduce named validation bundles that a work-item template or project can attach by default.
@@ -280,7 +280,7 @@ The biggest remaining gaps before SPORE can safely and usefully work on itself a
 - [ ] Ensure every proposal knows which validations were recommended, triggered, passed, failed, or skipped.
 - [ ] Make proposal readiness depend on explicit validation policy when required.
 - [ ] Add validation drift warnings when proposal metadata and validation outcomes no longer match.
-- [ ] Expose proposal + validation lineage in one response.
+- [x] Expose proposal + validation lineage in one response.
 - [ ] Add tests for proposal validation gating semantics.
 
 ### 19. Review/Approval Guardrails for Self-Mutation
@@ -291,11 +291,11 @@ The biggest remaining gaps before SPORE can safely and usefully work on itself a
 - [ ] Verify that safe mode prevents silent overreach into protected areas.
 
 ### 20. Validation Before Promotion
-- [ ] Add a durable `promotion candidate` state after proposal approval but before any integration or merge action.
+- [x] Add a durable `promotion candidate` state after proposal approval but before any integration or merge action.
 - [ ] Require approved proposals to pass named validations before they can be considered ready for integration.
-- [ ] Record promotion blockers explicitly.
+- [x] Record promotion blockers explicitly.
 - [ ] Add one read model for “approved but not promotion-ready” work.
-- [ ] Keep this stage supervised; no automatic integration yet.
+- [x] Keep this stage supervised; no automatic integration yet.
 
 ## Phase 5 — Add Reflection, Learning, and Knowledge Maintenance
 

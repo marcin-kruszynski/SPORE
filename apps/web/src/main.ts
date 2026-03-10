@@ -8704,6 +8704,84 @@ function renderGenericDetailRows(detail: AnyRecord = {}) {
     .join("");
 }
 
+function renderSelfBuildOperatorForm(config: AnyRecord = {}) {
+  const hiddenFields = Object.entries(config.hidden || {})
+    .filter(([, value]) => value !== undefined && value !== null)
+    .map(
+      ([key, value]) =>
+        `<input type="hidden" name="${escapeHtml(key)}" value="${escapeHtml(String(value))}">`,
+    )
+    .join("");
+  const fields = Array.isArray(config.fields)
+    ? config.fields
+        .map((field) => {
+          if (field.type === "select") {
+            const options = (field.options || [])
+              .map(
+                (option) =>
+                  `<option value="${escapeHtml(String(option.value))}" ${option.value === field.value ? "selected" : ""}>${escapeHtml(String(option.label))}</option>`,
+              )
+              .join("");
+            return `
+              <label>
+                <span class="detail-label">${escapeHtml(field.label)}</span>
+                <select name="${escapeHtml(field.name)}">${options}</select>
+              </label>
+            `;
+          }
+          if (field.type === "checkbox") {
+            return `
+              <label class="checkbox-row">
+                <input type="checkbox" name="${escapeHtml(field.name)}" ${
+                  field.checked ? "checked" : ""
+                }>
+                <span>${escapeHtml(field.label)}</span>
+              </label>
+            `;
+          }
+          return `
+            <label>
+              <span class="detail-label">${escapeHtml(field.label)}</span>
+              <input type="${escapeHtml(field.type || "text")}" name="${escapeHtml(field.name)}" value="${escapeHtml(String(field.value ?? ""))}" placeholder="${escapeHtml(String(field.placeholder ?? ""))}">
+            </label>
+          `;
+        })
+        .join("")
+    : "";
+
+  return `
+    <form class="operator-action-form" data-operator-form data-method="${escapeHtml(config.method || "POST")}" data-endpoint="${escapeHtml(config.endpoint || "#")}" data-refresh-type="${escapeHtml(config.refreshType || "")}" data-refresh-id="${escapeHtml(config.refreshId || "")}">
+      ${hiddenFields}
+      ${fields ? `<div class="dependency-form-grid">${fields}</div>` : ""}
+      <div class="dependency-form-actions">
+        <button type="submit" class="primary-button">${escapeHtml(config.label || "Submit")}</button>
+        <span class="muted" data-operator-feedback>${escapeHtml(config.help || "")}</span>
+      </div>
+    </form>
+  `;
+}
+
+function parseOperatorForm(form: HTMLFormElement) {
+  const data = new FormData(form);
+  const body: AnyRecord = {};
+  for (const [key, value] of data.entries()) {
+    if (value === "on") {
+      body[key] = true;
+      continue;
+    }
+    const text = String(value);
+    body[key] = text;
+  }
+  form
+    .querySelectorAll<HTMLInputElement>('input[type="checkbox"]')
+    .forEach((checkbox) => {
+      if (!(checkbox.name in body)) {
+        body[checkbox.name] = false;
+      }
+    });
+  return body;
+}
+
 async function openSelfBuildDetail(itemType, itemId) {
   if (!els.selfBuildDetailOverlay || !els.selfBuildDetailContent) return;
 
@@ -8720,11 +8798,13 @@ async function openSelfBuildDetail(itemType, itemId) {
     if (itemType === "work-item") {
       endpoint = `/api/orchestrator/work-items/${encodeURIComponent(itemId)}`;
       state.selectedWorkItemId = itemId;
+    } else if (itemType === "goal-plan") {
+      endpoint = `/api/orchestrator/goal-plans/${encodeURIComponent(itemId)}`;
     } else if (itemType === "work-item-group") {
       endpoint = `/api/orchestrator/work-item-groups/${encodeURIComponent(itemId)}`;
       state.selectedWorkItemGroupId = itemId;
     } else if (itemType === "proposal") {
-      endpoint = `/api/orchestrator/proposal-artifacts/${encodeURIComponent(itemId)}`;
+      endpoint = `/api/orchestrator/proposal-artifacts/${encodeURIComponent(itemId)}/review-package`;
     } else if (itemType === "work-item-run") {
       endpoint = `/api/orchestrator/work-item-runs/${encodeURIComponent(itemId)}`;
     } else if (itemType === "workspace") {
@@ -8751,7 +8831,17 @@ async function openSelfBuildDetail(itemType, itemId) {
 function renderSelfBuildDetailView(itemType, detail) {
   if (!els.selfBuildDetailContent || !els.selfBuildDetailTitle) return;
 
-  const title = detail.title || detail.label || detail.name || detail.id;
+  const title =
+    detail.title ||
+    detail.label ||
+    detail.name ||
+    detail.goal ||
+    detail.proposal?.summary?.title ||
+    detail.proposal?.id ||
+    detail.id;
+  const detailStatus =
+    detail.status || detail.state || detail.proposal?.status || "unknown";
+  const detailId = detail.id || detail.proposal?.id || "";
   els.selfBuildDetailTitle.textContent = title;
 
   let lineageHTML = "";
@@ -8783,11 +8873,11 @@ function renderSelfBuildDetailView(itemType, detail) {
       </div>
       <div class="detail-row">
         <div class="detail-label">Status</div>
-        <div class="detail-value"><span class="status-badge ${stateClass(detail.status || detail.state)}">${escapeHtml(detail.status || detail.state || "unknown")}</span></div>
+        <div class="detail-value"><span class="status-badge ${stateClass(detailStatus)}">${escapeHtml(detailStatus)}</span></div>
       </div>
       <div class="detail-row">
         <div class="detail-label">ID</div>
-        <div class="detail-value"><code>${escapeHtml(detail.id)}</code></div>
+        <div class="detail-value"><code>${escapeHtml(detailId)}</code></div>
       </div>
       ${detail.kind ? `<div class="detail-row"><div class="detail-label">Kind</div><div class="detail-value">${escapeHtml(detail.kind)}</div></div>` : ""}
       ${detail.priority ? `<div class="detail-row"><div class="detail-label">Priority</div><div class="detail-value">${escapeHtml(detail.priority)}</div></div>` : ""}
@@ -8799,7 +8889,120 @@ function renderSelfBuildDetailView(itemType, detail) {
   let dependencySection = "";
   let recentActivitySection = "";
 
-  if (itemType === "work-item") {
+  if (itemType === "goal-plan") {
+    const recommendations = Array.isArray(detail.recommendations)
+      ? detail.recommendations
+      : [];
+    const materializedGroup = detail.materializedGroup;
+    dependencySection = `
+      <section class="detail-section">
+        <div class="detail-section-heading">
+          <h3>Operator Flow</h3>
+          <p class="detail-support">Review first, then materialize, then run the managed work group with validation.</p>
+        </div>
+        ${renderSummaryObjectCard(detail.operatorFlow, "Operator Flow", "No operator flow metadata returned for this goal plan.")}
+        <div class="lineage-meta">
+          ${detail.materializedGroup?.id ? renderLineagePill("group", detail.materializedGroup.id, "root") : ""}
+          ${detail.reviewHistory?.length ? renderLineagePill("reviews", detail.reviewHistory.length, "inherited") : ""}
+          ${recommendations.length ? renderLineagePill("recommendations", recommendations.length, "inherited") : ""}
+        </div>
+        ${renderSelfBuildOperatorForm({
+          endpoint: `/api/orchestrator/goal-plans/${encodeURIComponent(detail.id)}/review`,
+          refreshType: "goal-plan",
+          refreshId: detail.id,
+          label: "Review Goal Plan",
+          help: "Mark the plan as reviewed or rejected before materialization.",
+          fields: [
+            {
+              type: "select",
+              name: "status",
+              label: "Decision",
+              value: "reviewed",
+              options: [
+                { value: "reviewed", label: "Reviewed" },
+                { value: "rejected", label: "Rejected" },
+              ],
+            },
+            {
+              type: "text",
+              name: "comments",
+              label: "Comments",
+              placeholder: "Optional operator notes",
+            },
+          ],
+        })}
+        ${renderSelfBuildOperatorForm({
+          endpoint: `/api/orchestrator/goal-plans/${encodeURIComponent(detail.id)}/materialize`,
+          refreshType: "goal-plan",
+          refreshId: detail.id,
+          label: "Materialize Goal Plan",
+          help: "Create the work-item group and managed items for this plan.",
+        })}
+        ${renderSelfBuildOperatorForm({
+          endpoint: `/api/orchestrator/goal-plans/${encodeURIComponent(detail.id)}/run`,
+          refreshType: "goal-plan",
+          refreshId: detail.id,
+          label: "Run Goal Plan",
+          help: "Materialize if needed, run the group in dependency-aware batches, and auto-validate successful runs.",
+          fields: [
+            {
+              type: "checkbox",
+              name: "autoValidate",
+              label: "Auto validate completed work-item runs",
+              checked: true,
+            },
+            {
+              type: "checkbox",
+              name: "stub",
+              label: "Use stub runtime for this operator flow",
+              checked: true,
+            },
+          ],
+        })}
+      </section>
+    `;
+    recentActivitySection = `
+      <div class="detail-section">
+        <div class="detail-section-heading">
+          <h3>Recommendations</h3>
+          <p class="detail-support">Planned self-build items that will be materialized into a dependency-aware work group.</p>
+        </div>
+        ${
+          recommendations.length === 0
+            ? "<p>No recommendations returned for this goal plan.</p>"
+            : recommendations
+                .map(
+                  (recommendation) => `
+                  <article class="dependency-item-row compact">
+                    <div class="dependency-item-header">
+                      <strong>${escapeHtml(recommendation.title || recommendation.id)}</strong>
+                      ${renderStatusBadge(recommendation.requiredGovernance || recommendation.kind || "planned")}
+                    </div>
+                    <div class="lineage-meta">
+                      ${renderLineagePill("kind", recommendation.kind || "-", "inherited")}
+                      ${renderLineagePill("risk", recommendation.riskLevel || "-", recommendation.riskLevel === "medium" ? "changed" : "inherited")}
+                      ${renderLineagePill("order", recommendation.groupOrder ?? "-", "inherited")}
+                    </div>
+                    <p class="dependency-item-reason">${escapeHtml(recommendation.goal || "No goal summary.")}</p>
+                  </article>
+                `,
+                )
+                .join("")
+        }
+        ${
+          materializedGroup
+            ? `<article class="detail-card compact-empty">
+                <strong>Materialized Group</strong>
+                <p>${escapeHtml(materializedGroup.title || materializedGroup.id)}</p>
+                <div class="lineage-meta">
+                  <button type="button" class="inline-detail-button strong-link" data-open-type="work-item-group" data-open-id="${escapeHtml(materializedGroup.id)}">Open group</button>
+                </div>
+              </article>`
+            : ""
+        }
+      </div>
+    `;
+  } else if (itemType === "work-item") {
     dependencySection = renderWorkItemDependencySection(detail);
     const runHistory = detail.runHistory?.runs || detail.runs || [];
     recentActivitySection = `
@@ -8931,6 +9134,123 @@ function renderSelfBuildDetailView(itemType, detail) {
         `,
           )
           .join("")}
+      </div>
+    `;
+  } else if (itemType === "proposal") {
+    const proposal = detail.proposal || detail;
+    dependencySection = `
+      <section class="detail-section">
+        <div class="detail-section-heading">
+          <h3>Proposal Review Package</h3>
+          <p class="detail-support">Proposal governance is separate from promotion. Approval does not merge to main.</p>
+        </div>
+        ${renderSummaryObjectCard(proposal, "Proposal Summary", "No proposal summary returned.")}
+        ${renderSummaryObjectCard(detail.promotion, "Promotion Context", "No promotion context returned for this proposal.")}
+        ${renderSuggestedActionsCard(detail.suggestedActions, "Suggested Actions", "No suggested actions returned for this proposal.")}
+        ${renderSelfBuildOperatorForm({
+          endpoint: `/api/orchestrator/proposal-artifacts/${encodeURIComponent(proposal.id)}/review`,
+          refreshType: "proposal",
+          refreshId: proposal.id,
+          label: "Review Proposal",
+          help: "Record review notes without treating approval as promotion or merge.",
+          fields: [
+            {
+              type: "select",
+              name: "status",
+              label: "Decision",
+              value: "reviewed",
+              options: [
+                { value: "reviewed", label: "Reviewed" },
+                { value: "rejected", label: "Rejected" },
+              ],
+            },
+            {
+              type: "text",
+              name: "comments",
+              label: "Comments",
+              placeholder: "Optional review notes",
+            },
+          ],
+        })}
+        ${renderSelfBuildOperatorForm({
+          endpoint: `/api/orchestrator/proposal-artifacts/${encodeURIComponent(proposal.id)}/approval`,
+          refreshType: "proposal",
+          refreshId: proposal.id,
+          label: "Approve Proposal",
+          help: "Approval marks promotion readiness; it still does not merge to the canonical branch.",
+          fields: [
+            {
+              type: "select",
+              name: "status",
+              label: "Decision",
+              value: "approved",
+              options: [
+                { value: "approved", label: "Approved" },
+                { value: "rejected", label: "Rejected" },
+              ],
+            },
+            {
+              type: "text",
+              name: "targetBranch",
+              label: "Target Branch",
+              value: detail.promotion?.targetBranch || "main",
+            },
+            {
+              type: "text",
+              name: "comments",
+              label: "Comments",
+              placeholder: "Optional approval notes",
+            },
+          ],
+        })}
+        ${renderSelfBuildOperatorForm({
+          endpoint: `/api/orchestrator/proposal-artifacts/${encodeURIComponent(proposal.id)}/promotion-plan`,
+          refreshType: "proposal",
+          refreshId: proposal.id,
+          label: "Plan Promotion",
+          help: "Build an explicit integrator lane from the durable proposal source artifacts.",
+          fields: [
+            {
+              type: "text",
+              name: "targetBranch",
+              label: "Target Branch",
+              value: detail.promotion?.targetBranch || "main",
+            },
+          ],
+        })}
+        ${renderSelfBuildOperatorForm({
+          endpoint: `/api/orchestrator/proposal-artifacts/${encodeURIComponent(proposal.id)}/promotion-invoke`,
+          refreshType: "proposal",
+          refreshId: proposal.id,
+          label: "Invoke Promotion",
+          help: "Launch the governed integrator lane. The default outcome is a promotion candidate, not a merge.",
+          fields: [
+            {
+              type: "text",
+              name: "targetBranch",
+              label: "Target Branch",
+              value: detail.promotion?.targetBranch || "main",
+            },
+            {
+              type: "checkbox",
+              name: "stub",
+              label: "Use stub runtime for promotion flow",
+              checked: true,
+            },
+          ],
+        })}
+      </section>
+    `;
+    recentActivitySection = `
+      <div class="detail-section">
+        <div class="detail-section-heading">
+          <h3>Durable Sources</h3>
+          <p class="detail-support">Integrator lanes may promote only from durable proposal, workspace, and execution artifacts.</p>
+        </div>
+        ${renderSummaryObjectCard(detail.workItemRun, "Originating Work-Item Run", "No work-item run linked to this proposal.")}
+        ${renderSummaryObjectCard(detail.workItem, "Managed Work Item", "No work item linked to this proposal.")}
+        ${renderSummaryObjectCard(detail.workspace, "Workspace", "No workspace linked to this proposal.")}
+        ${renderSummaryObjectCard(detail.execution, "Execution", "No source execution linked to this proposal.")}
       </div>
     `;
   } else if (itemType === "work-item-run") {
@@ -9069,6 +9389,46 @@ async function handleDependencyFormSubmit(event) {
   }
 }
 
+async function handleOperatorFormSubmit(event) {
+  const form = event.target.closest("[data-operator-form]");
+  if (!form) return;
+  event.preventDefault();
+
+  const feedback = form.querySelector("[data-operator-feedback]");
+  const endpoint = form.dataset.endpoint;
+  const method = form.dataset.method || "POST";
+  const refreshType = form.dataset.refreshType || "";
+  const refreshId = form.dataset.refreshId || "";
+
+  if (!endpoint) {
+    if (feedback) feedback.textContent = "Missing operator route.";
+    return;
+  }
+
+  if (feedback) feedback.textContent = "Submitting operator action...";
+
+  try {
+    const response = await fetch(endpoint, {
+      method,
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(parseOperatorForm(form)),
+    });
+    const data = await response.json();
+    if (!response.ok || !data.ok) {
+      throw new Error(data.message || data.error || "Operator action failed.");
+    }
+    if (feedback) feedback.textContent = "Action completed.";
+    await refreshSelfBuildDashboard();
+    if (refreshType && refreshId) {
+      await openSelfBuildDetail(refreshType, refreshId);
+    }
+  } catch (error) {
+    if (feedback) feedback.textContent = error.message;
+  }
+}
+
 function formatDisplayTimestamp(timestamp) {
   if (!timestamp) return "-";
   try {
@@ -9150,6 +9510,10 @@ if (els.selfBuildDetailContent) {
   els.selfBuildDetailContent.addEventListener(
     "submit",
     handleDependencyFormSubmit,
+  );
+  els.selfBuildDetailContent.addEventListener(
+    "submit",
+    handleOperatorFormSubmit,
   );
 }
 

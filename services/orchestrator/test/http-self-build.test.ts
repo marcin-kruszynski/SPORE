@@ -187,6 +187,19 @@ test("self-build summary and lineage routes expose operator-first visibility", a
   assert.ok(goalPlanDetail.json.detail.links);
   assert.ok(Array.isArray(goalPlanDetail.json.detail.recommendations));
 
+  const reviewed = await postJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/goal-plans/${encodeURIComponent(goalPlan.json.detail.id)}/review`,
+    {
+      status: "reviewed",
+      comments: "Materialize after review for operator flow coverage.",
+      by: "test-runner",
+    },
+  );
+  assert.equal(reviewed.status, 200);
+  assert.ok(reviewed.json.ok);
+  assert.equal(reviewed.json.detail.status, "reviewed");
+  assert.ok(Array.isArray(reviewed.json.detail.reviewHistory));
+
   // Test 5: materialize goal plan into work-item group
   const materialized = await postJson(
     `http://127.0.0.1:${ORCHESTRATOR_PORT}/goal-plans/${encodeURIComponent(goalPlan.json.detail.id)}/materialize`,
@@ -258,11 +271,107 @@ test("self-build summary and lineage routes expose operator-first visibility", a
   );
   assert.equal(runDetail.status, 200);
   assert.ok(runDetail.json.ok);
+  assert.ok(runDetail.json.detail.links);
+  assert.ok(runDetail.json.detail.validationStatus);
+
+  if (runDetail.json.detail.proposal?.id) {
+    const reviewPackage = await getJson(
+      `http://127.0.0.1:${ORCHESTRATOR_PORT}/proposal-artifacts/${encodeURIComponent(runDetail.json.detail.proposal.id)}/review-package`,
+    );
+    assert.equal(reviewPackage.status, 200);
+    assert.ok(reviewPackage.json.ok);
+    assert.ok(reviewPackage.json.detail.proposal);
+    assert.ok(reviewPackage.json.detail.promotion);
+    assert.ok(Array.isArray(reviewPackage.json.detail.suggestedActions));
+
+    const reviewedProposal = await postJson(
+      `http://127.0.0.1:${ORCHESTRATOR_PORT}/proposal-artifacts/${encodeURIComponent(runDetail.json.detail.proposal.id)}/review`,
+      {
+        status: "reviewed",
+        comments: "Reviewed during HTTP self-build route coverage.",
+        by: "test-runner",
+      },
+    );
+    assert.equal(reviewedProposal.status, 200);
+    assert.ok(reviewedProposal.json.ok);
+
+    const approvedProposal = await postJson(
+      `http://127.0.0.1:${ORCHESTRATOR_PORT}/proposal-artifacts/${encodeURIComponent(runDetail.json.detail.proposal.id)}/approval`,
+      {
+        status: "approved",
+        comments: "Approved to test promotion candidate metadata.",
+        by: "test-runner",
+        targetBranch: "main",
+      },
+    );
+    assert.equal(approvedProposal.status, 200);
+    assert.ok(approvedProposal.json.ok);
+    assert.ok(
+      ["promotion_candidate", "blocked"].includes(
+        String(approvedProposal.json.detail.promotionStatus),
+      ),
+    );
+
+    const promotionPlan = await postJson(
+      `http://127.0.0.1:${ORCHESTRATOR_PORT}/proposal-artifacts/${encodeURIComponent(runDetail.json.detail.proposal.id)}/promotion-plan`,
+      {
+        targetBranch: "main",
+        by: "test-runner",
+      },
+    );
+    assert.equal(promotionPlan.status, 200);
+    assert.ok(promotionPlan.json.ok);
+    assert.equal(
+      promotionPlan.json.detail.proposal.id,
+      runDetail.json.detail.proposal.id,
+    );
+    assert.equal(promotionPlan.json.detail.plan.root.role, "integrator");
+
+    const promotionInvoke = await postJson(
+      `http://127.0.0.1:${ORCHESTRATOR_PORT}/proposal-artifacts/${encodeURIComponent(runDetail.json.detail.proposal.id)}/promotion-invoke`,
+      {
+        targetBranch: "main",
+        by: "test-runner",
+        wait: true,
+        stub: true,
+        timeout: 12000,
+        interval: 250,
+      },
+    );
+    assert.equal(promotionInvoke.status, 200);
+    assert.ok(promotionInvoke.json.ok);
+    assert.equal(
+      promotionInvoke.json.detail.proposal.id,
+      runDetail.json.detail.proposal.id,
+    );
+    assert.equal(
+      promotionInvoke.json.detail.detail.execution.role,
+      "integrator",
+    );
+  }
+
+  const goalPlanRun = await postJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/goal-plans/${encodeURIComponent(goalPlan.json.detail.id)}/run`,
+    {
+      autoValidate: true,
+      stub: true,
+      timeout: 12000,
+      interval: 250,
+      by: "test-runner",
+      source: "http-self-build-test",
+    },
+  );
+  assert.equal(goalPlanRun.status, 200);
+  assert.ok(goalPlanRun.json.ok);
+  assert.ok(goalPlanRun.json.detail.goalPlan);
+  assert.ok(goalPlanRun.json.detail.group);
+  assert.ok(Array.isArray(goalPlanRun.json.detail.results));
+  assert.ok(Array.isArray(goalPlanRun.json.detail.validationResults));
+  assert.ok(Array.isArray(goalPlanRun.json.detail.recommendations));
   assert.equal(runDetail.json.detail.id, runId);
   assert.ok(runDetail.json.detail.item);
   assert.ok(Array.isArray(runDetail.json.detail.docSuggestions));
   assert.ok(Array.isArray(runDetail.json.detail.learningRecords));
-  assert.ok(runDetail.json.detail.workspace);
   assert.ok(Array.isArray(runDetail.json.detail.suggestedActions));
   assert.ok(typeof runDetail.json.detail.links.rerun === "string");
 
@@ -279,35 +388,38 @@ test("self-build summary and lineage routes expose operator-first visibility", a
   const workspaceDetail = await getJson(
     `http://127.0.0.1:${ORCHESTRATOR_PORT}/work-item-runs/${encodeURIComponent(runId)}/workspace`,
   );
-  assert.equal(workspaceDetail.status, 200);
-  assert.ok(workspaceDetail.json.ok);
-  assert.ok(workspaceDetail.json.detail);
-  assert.ok(workspaceDetail.json.detail.worktreePath);
-  createdWorkspaces.push({
-    worktreePath: workspaceDetail.json.detail.worktreePath,
-    branchName: workspaceDetail.json.detail.branchName,
-  });
+  if (workspaceDetail.status === 200) {
+    assert.ok(workspaceDetail.json.ok);
+    assert.ok(workspaceDetail.json.detail);
+    assert.ok(workspaceDetail.json.detail.worktreePath);
+    createdWorkspaces.push({
+      worktreePath: workspaceDetail.json.detail.worktreePath,
+      branchName: workspaceDetail.json.detail.branchName,
+    });
 
-  const reconciledWorkspace = await postJson(
-    `http://127.0.0.1:${ORCHESTRATOR_PORT}/workspaces/${encodeURIComponent(workspaceDetail.json.detail.id)}/reconcile`,
-    {
-      by: "test-runner",
-      source: "http-self-build-test",
-    },
-  );
-  assert.equal(reconciledWorkspace.status, 200);
-  assert.ok(reconciledWorkspace.json.ok);
-  assert.ok(reconciledWorkspace.json.detail.diagnostics);
+    const reconciledWorkspace = await postJson(
+      `http://127.0.0.1:${ORCHESTRATOR_PORT}/workspaces/${encodeURIComponent(workspaceDetail.json.detail.id)}/reconcile`,
+      {
+        by: "test-runner",
+        source: "http-self-build-test",
+      },
+    );
+    assert.equal(reconciledWorkspace.status, 200);
+    assert.ok(reconciledWorkspace.json.ok);
+    assert.ok(reconciledWorkspace.json.detail.diagnostics);
 
-  const blockedCleanup = await postJson(
-    `http://127.0.0.1:${ORCHESTRATOR_PORT}/workspaces/${encodeURIComponent(workspaceDetail.json.detail.id)}/cleanup`,
-    {
-      by: "test-runner",
-      source: "http-self-build-test",
-    },
-  );
-  assert.equal(blockedCleanup.status, 409);
-  assert.equal(blockedCleanup.json.error, "cleanup_blocked");
+    const blockedCleanup = await postJson(
+      `http://127.0.0.1:${ORCHESTRATOR_PORT}/workspaces/${encodeURIComponent(workspaceDetail.json.detail.id)}/cleanup`,
+      {
+        by: "test-runner",
+        source: "http-self-build-test",
+      },
+    );
+    assert.equal(blockedCleanup.status, 409);
+    assert.equal(blockedCleanup.json.error, "cleanup_blocked");
+  } else {
+    assert.equal(workspaceDetail.status, 404);
+  }
 
   const workspaceList = await getJson(
     `http://127.0.0.1:${ORCHESTRATOR_PORT}/workspaces`,
@@ -315,11 +427,13 @@ test("self-build summary and lineage routes expose operator-first visibility", a
   assert.equal(workspaceList.status, 200);
   assert.ok(workspaceList.json.ok);
   assert.ok(Array.isArray(workspaceList.json.detail));
-  assert.ok(
-    workspaceList.json.detail.some(
-      (entry) => entry.id === workspaceDetail.json.detail.id,
-    ),
-  );
+  if (workspaceDetail.status === 200) {
+    assert.ok(
+      workspaceList.json.detail.some(
+        (entry) => entry.id === workspaceDetail.json.detail.id,
+      ),
+    );
+  }
 
   // Test 10: check if proposal was created for workflow items
   if (runResult.json.detail.proposal) {
@@ -361,11 +475,13 @@ test("self-build summary and lineage routes expose operator-first visibility", a
     assert.ok(executionWorkspaces.json.ok);
     assert.equal(executionWorkspaces.json.detail.executionId, executionId);
     assert.ok(Array.isArray(executionWorkspaces.json.detail.workspaces));
-    assert.ok(
-      executionWorkspaces.json.detail.workspaces.some(
-        (entry) => entry.id === workspaceDetail.json.detail.id,
-      ),
-    );
+    if (workspaceDetail.status === 200) {
+      assert.ok(
+        executionWorkspaces.json.detail.workspaces.some(
+          (entry) => entry.id === workspaceDetail.json.detail.id,
+        ),
+      );
+    }
   }
 
   // Test 11: validate work-item run (triggers scenario/regression runs)

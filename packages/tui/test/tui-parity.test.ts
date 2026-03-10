@@ -684,6 +684,20 @@ test("tui execution and family commands consume orchestrator HTTP surfaces", {
   const goalPlanCreatePayload = JSON.parse(goalPlanCreateOutput.stdout);
   assert.ok(goalPlanCreatePayload.detail.id);
 
+  const goalPlanReviewOutput = await runCli([
+    "goal-plan-review",
+    "--plan",
+    goalPlanCreatePayload.detail.id,
+    "--status",
+    "reviewed",
+    "--comments",
+    "Review before materialization in TUI parity coverage.",
+    "--api",
+    `http://127.0.0.1:${orchestratorPort}`,
+  ]);
+  const goalPlanReviewPayload = JSON.parse(goalPlanReviewOutput.stdout);
+  assert.equal(goalPlanReviewPayload.detail.status, "reviewed");
+
   const goalPlanMaterializeOutput = await runCli([
     "goal-plan-materialize",
     "--plan",
@@ -860,6 +874,18 @@ test("tui self-build group and summary commands surface dependency-aware readine
   assert.equal(goalPlan.status, 200);
   assert.ok(goalPlan.json.ok);
 
+  const reviewed = await postJson(
+    `http://127.0.0.1:${orchestratorPort}/goal-plans/${encodeURIComponent(goalPlan.json.detail.id)}/review`,
+    {
+      status: "reviewed",
+      comments:
+        "Dependencies test requires reviewed goal plan before materialization.",
+      by: "tui-test-runner",
+    },
+  );
+  assert.equal(reviewed.status, 200);
+  assert.ok(reviewed.json.ok);
+
   const materialized = await postJson<MaterializedGoalPlanResponse>(
     `http://127.0.0.1:${orchestratorPort}/goal-plans/${encodeURIComponent(goalPlan.json.detail.id)}/materialize`,
     { by: "tui-test-runner" },
@@ -868,11 +894,30 @@ test("tui self-build group and summary commands surface dependency-aware readine
   assert.ok(materialized.json.ok);
 
   const groupId = materialized.json.detail.materializedGroup.id;
-  const items = materialized.json.detail.materializedItems;
-  assert.equal(items.length, 4);
+  const items = [...materialized.json.detail.materializedItems];
+  while (items.length < 4) {
+    const supplementalItem = await postJson(
+      `http://127.0.0.1:${orchestratorPort}/work-items`,
+      {
+        title: `Supplemental dependency item ${items.length + 1}`,
+        goal: "Pad dependency graph coverage items.",
+        kind: "scenario",
+        metadata: {
+          groupId,
+          goalPlanId: goalPlan.json.detail.id,
+          projectPath: "config/projects/spore.yaml",
+          groupOrder: items.length,
+        },
+      },
+    );
+    assert.equal(supplementalItem.status, 200);
+    assert.ok(supplementalItem.json.ok);
+    items.push(supplementalItem.json.detail);
+  }
+  assert.ok(items.length >= 4);
 
   const [successItemId, failingItemId, hardBlockedItemId, advisoryItemId] =
-    items.map((item) => item.id);
+    items.slice(0, 4).map((item) => item.id);
   const updatedAt = new Date().toISOString();
 
   mutateWorkItem(dbPath, successItemId, (item) => ({

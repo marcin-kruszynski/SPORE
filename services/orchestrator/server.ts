@@ -12,6 +12,7 @@ import {
   getDocSuggestionsForRun,
   getGoalPlanSummary,
   getProposalByRun,
+  getProposalReviewPackage,
   getProposalSummary,
   getRegressionLatestReport,
   getRegressionRunReport,
@@ -30,6 +31,7 @@ import {
   getWorkItemTemplate,
   getWorkspaceDetail,
   getWorkspaceDetailByRun,
+  invokeProposalPromotion,
   listExecutionEvents,
   listExecutionWorkspaces,
   listGoalPlansSummary,
@@ -39,9 +41,12 @@ import {
   listWorkItemTemplates,
   listWorkspaceSummaries,
   materializeGoalPlan,
+  planProposalPromotion,
   reconcileManagedWorkspace,
   rerunSelfBuildWorkItemRun,
+  reviewGoalPlan,
   reviewProposalArtifact,
+  runGoalPlan,
   runSelfBuildWorkItem,
   runWorkItemGroup,
   setWorkItemGroupDependencies,
@@ -995,10 +1000,10 @@ const server = http.createServer(async (request, response) => {
       request.method === "POST" &&
       parts.length === 3 &&
       parts[0] === "goal-plans" &&
-      parts[2] === "materialize"
+      parts[2] === "review"
     ) {
       const body = await readJsonBody(request);
-      const detail = await materializeGoalPlan(parts[1], body);
+      const detail = await reviewGoalPlan(parts[1], body);
       if (!detail) {
         json(response, 404, {
           ok: false,
@@ -1008,6 +1013,78 @@ const server = http.createServer(async (request, response) => {
         return;
       }
       json(response, 200, { ok: true, detail });
+      return;
+    }
+
+    if (
+      request.method === "POST" &&
+      parts.length === 3 &&
+      parts[0] === "goal-plans" &&
+      parts[2] === "run"
+    ) {
+      const body = await readJsonBody(request);
+      try {
+        const detail = await runGoalPlan(parts[1], body);
+        if (!detail) {
+          json(response, 404, {
+            ok: false,
+            error: "not_found",
+            message: `goal plan not found: ${parts[1]}`,
+          });
+          return;
+        }
+        json(response, 200, { ok: true, detail });
+      } catch (error) {
+        const code =
+          (error as { code?: string }).code === "goal_plan_review_required"
+            ? 409
+            : 500;
+        json(response, code, {
+          ok: false,
+          error:
+            (error as { code?: string }).code ??
+            (code === 409 ? "goal_plan_review_required" : "internal_error"),
+          message:
+            error instanceof Error ? error.message : "failed to run goal plan",
+        });
+      }
+      return;
+    }
+
+    if (
+      request.method === "POST" &&
+      parts.length === 3 &&
+      parts[0] === "goal-plans" &&
+      parts[2] === "materialize"
+    ) {
+      const body = await readJsonBody(request);
+      try {
+        const detail = await materializeGoalPlan(parts[1], body);
+        if (!detail) {
+          json(response, 404, {
+            ok: false,
+            error: "not_found",
+            message: `goal plan not found: ${parts[1]}`,
+          });
+          return;
+        }
+        json(response, 200, { ok: true, detail });
+      } catch (error) {
+        const code =
+          (error as { code?: string }).code === "goal_plan_review_required"
+            ? 409
+            : 500;
+        json(response, code, {
+          ok: false,
+          error:
+            (error as { code?: string }).code ??
+            (code === 409 ? "goal_plan_review_required" : "internal_error"),
+          message:
+            error instanceof Error
+              ? error.message
+              : "failed to materialize goal plan",
+        });
+      }
       return;
     }
 
@@ -1303,6 +1380,25 @@ const server = http.createServer(async (request, response) => {
     }
 
     if (
+      request.method === "GET" &&
+      parts.length === 3 &&
+      parts[0] === "proposal-artifacts" &&
+      parts[2] === "review-package"
+    ) {
+      const detail = getProposalReviewPackage(parts[1]);
+      if (!detail) {
+        json(response, 404, {
+          ok: false,
+          error: "not_found",
+          message: `proposal artifact not found: ${parts[1]}`,
+        });
+        return;
+      }
+      json(response, 200, { ok: true, detail });
+      return;
+    }
+
+    if (
       request.method === "POST" &&
       parts.length === 3 &&
       parts[0] === "proposal-artifacts" &&
@@ -1319,6 +1415,74 @@ const server = http.createServer(async (request, response) => {
         return;
       }
       json(response, 200, { ok: true, detail });
+      return;
+    }
+
+    if (
+      request.method === "POST" &&
+      parts.length === 3 &&
+      parts[0] === "proposal-artifacts" &&
+      parts[2] === "promotion-plan"
+    ) {
+      const body = await readJsonBody(request);
+      try {
+        const detail = planProposalPromotion(parts[1], body);
+        if (!detail) {
+          json(response, 404, {
+            ok: false,
+            error: "not_found",
+            message: `proposal artifact not found: ${parts[1]}`,
+          });
+          return;
+        }
+        json(response, 200, { ok: true, detail });
+      } catch (error) {
+        const detail = (error as { detail?: unknown }).detail;
+        json(response, 409, {
+          ok: false,
+          error:
+            (error as { code?: string }).code ?? "proposal_promotion_blocked",
+          message:
+            error instanceof Error
+              ? error.message
+              : "proposal promotion blocked",
+          detail,
+        });
+      }
+      return;
+    }
+
+    if (
+      request.method === "POST" &&
+      parts.length === 3 &&
+      parts[0] === "proposal-artifacts" &&
+      parts[2] === "promotion-invoke"
+    ) {
+      const body = await readJsonBody(request);
+      try {
+        const detail = await invokeProposalPromotion(parts[1], body);
+        if (!detail) {
+          json(response, 404, {
+            ok: false,
+            error: "not_found",
+            message: `proposal artifact not found: ${parts[1]}`,
+          });
+          return;
+        }
+        json(response, 200, { ok: true, detail });
+      } catch (error) {
+        const detail = (error as { detail?: unknown }).detail;
+        json(response, 409, {
+          ok: false,
+          error:
+            (error as { code?: string }).code ?? "proposal_promotion_blocked",
+          message:
+            error instanceof Error
+              ? error.message
+              : "proposal promotion blocked",
+          detail,
+        });
+      }
       return;
     }
 

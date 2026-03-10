@@ -36,7 +36,9 @@ node packages/tui/src/cli/spore-ops.js work-item-template-show --template operat
 node packages/tui/src/cli/spore-ops.js goal-plan-create --goal "Stabilize CLI verification and proposal quality"
 node packages/tui/src/cli/spore-ops.js goal-plan-list
 node packages/tui/src/cli/spore-ops.js goal-plan-show --plan <goal-plan-id>
+node packages/tui/src/cli/spore-ops.js goal-plan-review --plan <goal-plan-id> --status reviewed
 node packages/tui/src/cli/spore-ops.js goal-plan-materialize --plan <goal-plan-id>
+node packages/tui/src/cli/spore-ops.js goal-plan-run --plan <goal-plan-id> --stub
 node packages/tui/src/cli/spore-ops.js work-item-group-list
 node packages/tui/src/cli/spore-ops.js work-item-group-show --group <group-id>
 node packages/tui/src/cli/spore-ops.js work-item-group-run --group <group-id> --stub
@@ -52,8 +54,11 @@ node packages/tui/src/cli/spore-ops.js workspace-show --workspace <workspace-id>
 node packages/tui/src/cli/spore-ops.js work-item-validate --run <work-item-run-id> --stub
 node packages/tui/src/cli/spore-ops.js work-item-doc-suggestions --run <work-item-run-id>
 node packages/tui/src/cli/spore-ops.js proposal-show --run <work-item-run-id>
+node packages/tui/src/cli/spore-ops.js proposal-review-package --proposal <proposal-id>
 node packages/tui/src/cli/spore-ops.js proposal-review --proposal <proposal-id> --status reviewed
 node packages/tui/src/cli/spore-ops.js proposal-approve --proposal <proposal-id> --status approved
+node packages/tui/src/cli/spore-ops.js proposal-promotion-plan --proposal <proposal-id> --target-branch main
+node packages/tui/src/cli/spore-ops.js proposal-promotion-invoke --proposal <proposal-id> --target-branch main --wait --stub
 node packages/tui/src/cli/spore-ops.js project-plan --project config/projects/example-project.yaml --domains backend,frontend
 node packages/tui/src/cli/spore-ops.js project-invoke --project config/projects/example-project.yaml --domains backend,frontend --objective "Coordinate backend and frontend work for one project." --wait --stub
 node packages/tui/src/cli/spore-ops.js promotion-plan --execution <coordinator-root-execution-id> --target-branch main

@@ -96,7 +96,7 @@ Recommended interpretation:
 - `self-build-summary` returns one top-level summary of goal plans, groups, work items, runs, proposals, and evaluation/doc-suggestion readiness.
 - `self-build-dashboard` returns the dedicated self-build dashboard aggregate with attention states, queue summaries, recent work-item runs, and workspace health.
 - `work-item-template-list` and `work-item-template-show --template <id>` expose reusable work-item creation templates from `config/work-item-templates/`.
-- `goal-plan-create`, `goal-plan-list`, `goal-plan-show --plan <id>`, and `goal-plan-materialize --plan <id>` expose durable goal planning and plan-to-group materialization.
+- `goal-plan-create`, `goal-plan-list`, `goal-plan-show --plan <id>`, `goal-plan-review --plan <id>`, `goal-plan-materialize --plan <id>`, and `goal-plan-run --plan <id>` expose durable goal planning, explicit review before materialization, and one-shot operator execution of a reviewed goal plan.
 - `work-item-group-list`, `work-item-group-show --group <id>`, and `work-item-group-run --group <id>` expose grouped managed-work execution.
 - `work-item-list`, `work-item-show`, `work-item-create`, `work-item-run`, and `work-item-run-show` expose the first durable managed self-work surface for SPORE itself.
 - `work-item-runs --item <id>` exposes durable run history for one managed work item.
@@ -108,8 +108,10 @@ Recommended interpretation:
 - `work-item-validate --run <id>` records durable validation/evaluation artifacts for one managed run.
 - `work-item-doc-suggestions --run <id>` returns persisted documentation follow-up suggestions for one managed run.
 - `proposal-show --proposal <id>` (or `--run <work-item-run-id>`) exposes durable proposal artifact summary.
+- `proposal-review-package --proposal <id>` returns the richer operator review package with proposal, source run, workspace, execution, promotion context, and suggested actions.
 - `proposal-review --proposal <id> --status <ready_for_review|reviewed|rejected>` records proposal review state transitions.
 - `proposal-approve --proposal <id> --status <approved|rejected>` records proposal approval state transitions.
+- `proposal-promotion-plan --proposal <id>` and `proposal-promotion-invoke --proposal <id>` bridge an approved proposal into the explicit `coordinator -> integrator` promotion lane.
 - `project-plan --project <project-config> --domains <csv>` returns the explicit coordinator-root execution plan for one project.
 - `project-invoke --project <project-config> --domains <csv>` launches the explicit `orchestrator -> coordinator -> lead` family without mutating existing domain workflow role lists.
 - `promotion-plan --execution <coordinator-root-execution-id> --target-branch <branch>` returns an explicit integrator promotion lane plan and fails early if durable promotion sources are missing.

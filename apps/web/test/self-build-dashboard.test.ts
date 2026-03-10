@@ -192,6 +192,17 @@ test("self-build dashboard exposes dedicated operator-first surface with overvie
   assert.ok(goalPlan.json.ok);
   assert.ok(goalPlan.json.detail.id);
 
+  const reviewed = await postJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/goal-plans/${encodeURIComponent(goalPlan.json.detail.id)}/review`,
+    {
+      status: "reviewed",
+      comments: "Review before materialization in dashboard proxy test.",
+      by: "web-test-runner",
+    },
+  );
+  assert.equal(reviewed.status, 200);
+  assert.ok(reviewed.json.ok);
+
   // Materialize into work-item group
   const materialized = await postJson<MaterializedGoalPlanResponse>(
     `http://127.0.0.1:${ORCHESTRATOR_PORT}/goal-plans/${encodeURIComponent(goalPlan.json.detail.id)}/materialize`,
