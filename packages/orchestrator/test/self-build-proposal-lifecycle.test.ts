@@ -79,6 +79,7 @@ function insertProposalFixture({
   runStatus,
   sourceExecutionId,
   proposalStatus,
+  runResult,
   promotion,
 }: {
   dbPath: string;
@@ -87,6 +88,7 @@ function insertProposalFixture({
   runStatus: string;
   sourceExecutionId: string | null;
   proposalStatus: string;
+  runResult?: Record<string, unknown>;
   promotion?: Record<string, unknown>;
 }) {
   const workspaceId = `workspace-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
@@ -100,7 +102,8 @@ function insertProposalFixture({
       status: runStatus,
       triggerSource: "test",
       requestedBy: "test-runner",
-      result: sourceExecutionId ? { executionId: sourceExecutionId } : {},
+      result:
+        runResult ?? (sourceExecutionId ? { executionId: sourceExecutionId } : {}),
       metadata: {
         itemKind: item.kind,
         itemStatusBeforeRun: item.kind,
@@ -284,6 +287,145 @@ test("held workflow runs do not emit ready-for-review proposals", async () => {
     }
     await fs.rm(tempRoot, { recursive: true, force: true });
     await fs.rm(repoRoot, { recursive: true, force: true });
+  }
+});
+
+test("held workflow proposals stay out of review when the source run never reached governance success", async () => {
+  const tempRoot = await fs.mkdtemp(
+    path.join(os.tmpdir(), "spore-held-source-run-governance-"),
+  );
+  const dbPath = path.join(tempRoot, "orchestrator.sqlite");
+
+  try {
+    const item = createWorkItem(
+      {
+        title: "Held workflow proposal",
+        kind: "workflow",
+        goal: "Keep non-governance-held runs out of review.",
+        metadata: {
+          projectPath: "config/projects/spore.yaml",
+          domainId: "docs",
+          mutationScope: ["docs"],
+          safeMode: true,
+        },
+      },
+      dbPath,
+    );
+
+    const runId = `work-item-run-${Date.now()}`;
+    const sourceExecutionId = `execution-${Date.now()}`;
+    const { proposalId } = insertProposalFixture({
+      dbPath,
+      item,
+      runId,
+      runStatus: "blocked",
+      sourceExecutionId,
+      proposalStatus: "ready_for_review",
+      runResult: {
+        executionId: sourceExecutionId,
+        status: "held",
+      },
+    });
+
+    const proposalByRun = getProposalByRun(runId, dbPath);
+    assert.ok(proposalByRun);
+    assert.equal(proposalByRun.status, "rework_required");
+    assert.equal(proposalByRun.links.review ?? null, null);
+
+    const runDetail = getSelfBuildWorkItemRun(runId, dbPath);
+    assert.ok(runDetail);
+    assert.equal(runDetail.proposal?.status, "rework_required");
+    assert.ok(
+      runDetail.suggestedActions.every(
+        (action) => action.action !== "review-proposal",
+      ),
+    );
+
+    const reviewPackage = getProposalReviewPackage(proposalId, dbPath);
+    assert.ok(reviewPackage);
+    assert.equal(reviewPackage.governance.ready, false);
+    assert.ok(
+      reviewPackage.governance.blockers.some(
+        (blocker) => blocker.code === "invalid_proposal_source_run",
+      ),
+    );
+    assert.ok(
+      reviewPackage.suggestedActions.every(
+        (action) => action.action !== "review-proposal",
+      ),
+    );
+  } finally {
+    await fs.rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("workflow proposals remain reviewable when the source run is waiting for review", async () => {
+  const tempRoot = await fs.mkdtemp(
+    path.join(os.tmpdir(), "spore-waiting-review-source-run-"),
+  );
+  const dbPath = path.join(tempRoot, "orchestrator.sqlite");
+
+  try {
+    const item = createWorkItem(
+      {
+        title: "Waiting-review workflow proposal",
+        kind: "workflow",
+        goal: "Allow governance-held successful runs to surface proposal review.",
+        metadata: {
+          projectPath: "config/projects/spore.yaml",
+          domainId: "docs",
+          mutationScope: ["docs"],
+          safeMode: true,
+        },
+      },
+      dbPath,
+    );
+
+    const runId = `work-item-run-${Date.now()}`;
+    const sourceExecutionId = `execution-${Date.now()}`;
+    const { proposalId } = insertProposalFixture({
+      dbPath,
+      item,
+      runId,
+      runStatus: "blocked",
+      sourceExecutionId,
+      proposalStatus: "ready_for_review",
+      runResult: {
+        executionId: sourceExecutionId,
+        status: "waiting_review",
+      },
+    });
+
+    const proposalByRun = getProposalByRun(runId, dbPath);
+    assert.ok(proposalByRun);
+    assert.equal(proposalByRun.status, "ready_for_review");
+    assert.ok(proposalByRun.links.review);
+
+    const runDetail = getSelfBuildWorkItemRun(runId, dbPath);
+    assert.ok(runDetail);
+    assert.equal(runDetail.proposal?.status, "ready_for_review");
+    assert.ok(
+      runDetail.suggestedActions.some(
+        (action) => action.action === "review-proposal",
+      ),
+    );
+
+    const reviewPackage = getProposalReviewPackage(proposalId, dbPath);
+    assert.ok(reviewPackage);
+    assert.equal(reviewPackage.governance.ready, true);
+    assert.equal(reviewPackage.promotion.sourceExecutionId, sourceExecutionId);
+    assert.ok(
+      reviewPackage.governance.blockers.every(
+        (blocker) => blocker.code !== "invalid_proposal_source_run",
+      ),
+    );
+    assert.ok(
+      reviewPackage.suggestedActions.some(
+        (action) => action.action === "review-proposal",
+      ),
+    );
+  } finally {
+    await fs.rm(tempRoot, { recursive: true, force: true });
   }
 });
 

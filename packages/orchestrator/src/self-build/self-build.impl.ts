@@ -131,6 +131,11 @@ import {
 
 type LooseRecord = any;
 const activeValidationTasks = new Map<string, Promise<void>>();
+const SUCCESSFUL_PROPOSAL_SOURCE_RUN_STATUSES = new Set([
+  "completed",
+  "waiting_review",
+  "waiting_approval",
+]);
 
 type RolloutTierConfig = {
   id: string;
@@ -3365,11 +3370,34 @@ function workItemRunTerminalKind(run: LooseRecord = {}) {
   return "pending";
 }
 
+function resolveProposalSourceRunStatus(run: LooseRecord = {}) {
+  const resultStatus = toText(run?.result?.status, "");
+  if (SUCCESSFUL_PROPOSAL_SOURCE_RUN_STATUSES.has(resultStatus)) {
+    return resultStatus;
+  }
+  if (
+    ["failed", "rejected", "canceled", "stopped", "held", "paused"].includes(
+      resultStatus,
+    )
+  ) {
+    return null;
+  }
+  const runStatus = toText(run?.status, "");
+  if (SUCCESSFUL_PROPOSAL_SOURCE_RUN_STATUSES.has(runStatus)) {
+    return runStatus;
+  }
+  return workItemRunTerminalKind(run) === "completed" ? "completed" : null;
+}
+
+function describeProposalSourceRunStatus(run: LooseRecord = {}) {
+  return toText(run?.result?.status, toText(run?.status, "unknown"));
+}
+
 function canRunFeedProposalLifecycle(item, run) {
   if (!item || !run) {
     return false;
   }
-  if (workItemRunTerminalKind(run) !== "completed") {
+  if (!resolveProposalSourceRunStatus(run)) {
     return false;
   }
   if (item.kind === "workflow") {
@@ -6738,7 +6766,7 @@ function resolveProposalSourceExecutionId(
   const run = withDatabase(dbPath, (db) =>
     getWorkItemRun(db, proposal.workItemRunId),
   );
-  if (workItemRunTerminalKind(run) !== "completed") {
+  if (!resolveProposalSourceRunStatus(run)) {
     return null;
   }
   const workspace = withDatabase(dbPath, (db) =>
@@ -6779,11 +6807,11 @@ function buildProposalGovernanceContext(
       reason:
         "Proposal cannot enter review or approval because the originating work-item run is missing.",
     });
-  } else if (workItemRunTerminalKind(run) !== "completed") {
+  } else if (!resolveProposalSourceRunStatus(run)) {
     blockers.push({
       code: "invalid_proposal_source_run",
-      reason: `Proposal cannot enter review or approval because the originating work-item run is ${run.status}.`,
-      runStatus: run.status ?? null,
+      reason: `Proposal cannot enter review or approval because the originating work-item run is ${describeProposalSourceRunStatus(run)}.`,
+      runStatus: describeProposalSourceRunStatus(run),
       workItemRunId: run.id,
     });
   }
