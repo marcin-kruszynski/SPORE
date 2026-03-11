@@ -621,6 +621,44 @@ function insertProposalArtifactForWorkItem({
   return { proposalId, runId };
 }
 
+function insertFailedRerunWithoutProposal({
+  dbPath,
+  itemId,
+  rerunOf,
+}: {
+  dbPath: string;
+  itemId: string;
+  rerunOf: string;
+}) {
+  const timestamp = new Date().toISOString();
+  const runId = `work-item-run-failed-rerun-${Date.now()}`;
+  const db = openOrchestratorDatabase(dbPath);
+  try {
+    insertWorkItemRun(db, {
+      id: runId,
+      workItemId: itemId,
+      status: "failed",
+      triggerSource: "test-rerun",
+      requestedBy: "test-runner",
+      result: {
+        error: "Latest rerun failed before proposal creation.",
+      },
+      metadata: {
+        itemKind: "workflow",
+        itemStatusBeforeRun: "pending",
+        rerunOf,
+        error: "Latest rerun failed before proposal creation.",
+      },
+      createdAt: timestamp,
+      startedAt: timestamp,
+      endedAt: timestamp,
+    });
+  } finally {
+    db.close();
+  }
+  return { runId };
+}
+
 test("self-build summary and lineage routes expose operator-first visibility", async (t) => {
   const ORCHESTRATOR_PORT = await findFreePort();
   const WEB_PORT = await findFreePort();
@@ -2177,6 +2215,7 @@ test("operator chat supports proposal rework and quarantine release flows", asyn
         projectId: "spore",
         safeMode: true,
         stub: true,
+        wait: false,
         by: "test-runner",
         source: "http-operator-chat-test",
       },
@@ -2281,7 +2320,17 @@ test("operator chat supports proposal rework and quarantine release flows", asyn
   );
   const reworkThreadId = reworkThread.id;
 
-  await replyInThread(reworkThreadId, "approve");
+  const approvedReworkThread = await replyInThread(reworkThreadId, "approve");
+  const reworkGroup = asObject(asObject(approvedReworkThread.context).group);
+  const reworkSeedItem = asArray<JsonRecord>(reworkGroup.items)[0];
+  assert.ok(reworkSeedItem);
+  insertProposalArtifactForWorkItem({
+    dbPath,
+    itemId: String(reworkSeedItem.id ?? ""),
+    itemTitle: String(reworkSeedItem.title ?? "Work item"),
+    itemGoal: String(reworkSeedItem.goal ?? ""),
+    proposalStatus: "ready_for_review",
+  });
 
   const reviewPending = await waitForPendingAction(
     reworkThreadId,
@@ -2341,7 +2390,20 @@ test("operator chat supports proposal rework and quarantine release flows", asyn
   );
   const quarantineThreadId = quarantineThread.id;
 
-  await replyInThread(quarantineThreadId, "approve");
+  const approvedQuarantineThread = await replyInThread(
+    quarantineThreadId,
+    "approve",
+  );
+  const quarantineGroup = asObject(asObject(approvedQuarantineThread.context).group);
+  const quarantineSeedItem = asArray<JsonRecord>(quarantineGroup.items)[0];
+  assert.ok(quarantineSeedItem);
+  insertProposalArtifactForWorkItem({
+    dbPath,
+    itemId: String(quarantineSeedItem.id ?? ""),
+    itemTitle: String(quarantineSeedItem.title ?? "Work item"),
+    itemGoal: String(quarantineSeedItem.goal ?? ""),
+    proposalStatus: "ready_for_review",
+  });
 
   await waitForPendingAction(quarantineThreadId, "proposal-review");
 
@@ -2382,7 +2444,20 @@ test("operator chat supports proposal rework and quarantine release flows", asyn
   );
   const promotionThreadId = promotionThread.id;
 
-  await replyInThread(promotionThreadId, "approve");
+  const approvedPromotionThread = await replyInThread(
+    promotionThreadId,
+    "approve",
+  );
+  const promotionGroup = asObject(asObject(approvedPromotionThread.context).group);
+  const promotionSeedItem = asArray<JsonRecord>(promotionGroup.items)[0];
+  assert.ok(promotionSeedItem);
+  insertProposalArtifactForWorkItem({
+    dbPath,
+    itemId: String(promotionSeedItem.id ?? ""),
+    itemTitle: String(promotionSeedItem.title ?? "Work item"),
+    itemGoal: String(promotionSeedItem.goal ?? ""),
+    proposalStatus: "ready_for_review",
+  });
 
   await waitForPendingAction(promotionThreadId, "proposal-review");
 
@@ -2498,7 +2573,7 @@ test("operator chat supports proposal rework and quarantine release flows", asyn
   });
 });
 
-test("operator chat prefers the latest reviewable proposal over stale linkage", async (t) => {
+test("operator chat follows proposal lineage without letting unrelated group proposals hijack the thread", async (t) => {
   const { ORCHESTRATOR_PORT, dbPath } = await startOperatorChatServer(
     t,
     "spore-http-operator-chat-latest-review-",
@@ -2542,6 +2617,48 @@ test("operator chat prefers the latest reviewable proposal over stale linkage", 
       (action) =>
         action.actionKind === "proposal-review" &&
         action.targetId === initial.proposalId,
+      ),
+  );
+
+  const unrelatedItem = createWorkItem(
+    {
+      title: "Unrelated group item",
+      kind: "workflow",
+      goal: "Introduce an unrelated proposal in the same group.",
+      metadata: {
+        groupId: String(group.id ?? ""),
+        goalPlanId: String(asObject(approvedThread.context.goalPlan).id ?? ""),
+        projectPath: "config/projects/spore.yaml",
+        domainId: "docs",
+        mutationScope: ["docs"],
+        safeMode: true,
+      },
+    },
+    dbPath,
+  );
+  const unrelated = insertProposalArtifactForWorkItem({
+    dbPath,
+    itemId: unrelatedItem.id,
+    itemTitle: unrelatedItem.title,
+    itemGoal: unrelatedItem.goal,
+    proposalStatus: "ready_for_review",
+  });
+
+  const unrelatedRefresh = await getOperatorThreadDetail(
+    ORCHESTRATOR_PORT,
+    thread.id,
+  );
+  const unrelatedRefreshProposal = asObject(
+    asObject(unrelatedRefresh.context).proposal,
+  );
+
+  assert.equal(unrelatedRefreshProposal.id, initial.proposalId);
+  assert.notEqual(unrelatedRefreshProposal.id, unrelated.proposalId);
+  assert.ok(
+    asArray<JsonRecord>(unrelatedRefresh.pendingActions).some(
+      (action) =>
+        action.actionKind === "proposal-review" &&
+        action.targetId === initial.proposalId,
     ),
   );
 
@@ -2571,7 +2688,7 @@ test("operator chat prefers the latest reviewable proposal over stale linkage", 
   );
 });
 
-test("operator chat shows recovery guidance when the latest proposal failed", async (t) => {
+test("operator chat shows run recovery guidance when the latest rerun failed without a replacement proposal", async (t) => {
   const { ORCHESTRATOR_PORT, dbPath } = await startOperatorChatServer(
     t,
     "spore-http-operator-chat-recovery-",
@@ -2611,10 +2728,10 @@ test("operator chat shows recovery guidance when the latest proposal failed", as
   );
   assert.equal(initialProposalId, initial.proposalId);
 
-  const replacement = insertReplacementProposalArtifact(dbPath, initialProposalId, {
-    proposalStatus: "validation_failed",
-    validationStatus: "failed",
-    validationSummary: "Latest rerun failed validation and needs operator recovery.",
+  const failedRerun = insertFailedRerunWithoutProposal({
+    dbPath,
+    itemId: String(seededItem.id ?? ""),
+    rerunOf: initial.runId,
   });
 
   const refreshedThread = await getOperatorThreadDetail(
@@ -2622,15 +2739,17 @@ test("operator chat shows recovery guidance when the latest proposal failed", as
     thread.id,
   );
   const refreshedProposal = asObject(asObject(refreshedThread.context).proposal);
+  const refreshedRun = asObject(asObject(refreshedThread.context).latestRun);
   const refreshedGuidance = asObject(refreshedThread.decisionGuidance);
 
-  assert.equal(refreshedProposal.id, replacement.proposalId);
-  assert.equal(refreshedProposal.status, "validation_failed");
+  assert.equal(refreshedProposal.id, initial.proposalId);
+  assert.equal(refreshedRun.id, failedRerun.runId);
+  assert.equal(refreshedRun.status, "failed");
   assert.ok(
     asArray<JsonRecord>(refreshedThread.pendingActions).some(
       (action) =>
-        action.actionKind === "proposal-rework" &&
-        action.targetId === replacement.proposalId,
+        action.actionKind === "managed-run-recovery" &&
+        action.targetId === failedRerun.runId,
     ),
   );
   assert.ok(
@@ -2638,6 +2757,6 @@ test("operator chat shows recovery guidance when the latest proposal failed", as
       (action) => action.actionKind !== "proposal-review",
     ),
   );
-  assert.match(String(refreshedGuidance.title ?? ""), /recover/i);
-  assert.match(String(refreshedGuidance.why ?? ""), /blocked|failed/i);
+  assert.match(String(refreshedGuidance.title ?? ""), /recover|rerun/i);
+  assert.match(String(refreshedGuidance.why ?? ""), /failed/i);
 });

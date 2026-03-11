@@ -28,7 +28,12 @@ import {
   reviewGoalPlan,
   runGoalPlan,
 } from "./goal-plans.js";
-import { getSelfBuildWorkItem, runSelfBuildWorkItem } from "./managed-work.js";
+import {
+  getSelfBuildWorkItem,
+  getSelfBuildWorkItemRun,
+  rerunSelfBuildWorkItemRun,
+  runSelfBuildWorkItem,
+} from "./managed-work.js";
 import {
   approveProposalArtifact,
   getProposalReviewPackage,
@@ -49,6 +54,8 @@ interface OperatorThreadLinkage extends LooseRecord {
   activeGoalPlanId?: string | null;
   activeGroupId?: string | null;
   activeProposalId?: string | null;
+  activeWorkItemId?: string | null;
+  activeRunId?: string | null;
   integrationBranch?: string | null;
 }
 
@@ -199,6 +206,8 @@ function extractLinkage(
     activeGoalPlanId: toText(linkage.activeGoalPlanId, "") || null,
     activeGroupId: toText(linkage.activeGroupId, "") || null,
     activeProposalId: toText(linkage.activeProposalId, "") || null,
+    activeWorkItemId: toText(linkage.activeWorkItemId, "") || null,
+    activeRunId: toText(linkage.activeRunId, "") || null,
     integrationBranch: toText(linkage.integrationBranch, "") || null,
   };
 }
@@ -293,10 +302,100 @@ function summarizeProposal(proposal: LooseRecord | null) {
   };
 }
 
+function summarizeRun(run: LooseRecord | null) {
+  if (!run) {
+    return null;
+  }
+  return {
+    id: run.id,
+    workItemId: run.workItemId ?? null,
+    itemTitle: run.itemTitle ?? null,
+    status: run.status ?? null,
+    terminalKind: run.terminalKind ?? null,
+    failure: asObject(run.failure),
+    suggestedActions: asArray(run.suggestedActions),
+    createdAt: run.createdAt ?? null,
+    startedAt: run.startedAt ?? null,
+    endedAt: run.endedAt ?? null,
+  };
+}
+
+function timestampFor(value: unknown) {
+  const timestamp = new Date(String(value ?? 0)).getTime();
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function proposalTimestamp(proposal: LooseRecord | null) {
+  return Math.max(
+    timestampFor(proposal?.updatedAt),
+    timestampFor(proposal?.createdAt),
+  );
+}
+
+function runTimestamp(run: LooseRecord | null) {
+  return Math.max(
+    timestampFor(run?.endedAt),
+    timestampFor(run?.startedAt),
+    timestampFor(run?.updatedAt),
+    timestampFor(run?.createdAt),
+  );
+}
+
 function getProposalIntegrationBranch(proposal: LooseRecord | null) {
   return toText(
     asObject(asObject(asObject(proposal).metadata).promotion).integrationBranch,
     "",
+  );
+}
+
+function groupPrimaryWorkItemId(group: LooseRecord | null) {
+  const items = asArray<LooseRecord>(group?.items);
+  return items.length === 1 ? toText(items[0]?.id, "") || null : null;
+}
+
+function proposalMatchesThreadLineage(
+  proposal: LooseRecord,
+  linkage: OperatorThreadLinkage,
+  currentProposal: LooseRecord | null,
+  dbPath: string,
+) {
+  const anchorProposalId =
+    toText(currentProposal?.id, "") || toText(linkage.activeProposalId, "");
+  const anchorWorkItemId =
+    toText(currentProposal?.workItemId, "") ||
+    toText(linkage.activeWorkItemId, "");
+  const anchorRunId =
+    toText(currentProposal?.workItemRunId, "") || toText(linkage.activeRunId, "");
+
+  if (!anchorProposalId && !anchorWorkItemId && !anchorRunId) {
+    return true;
+  }
+  if (anchorProposalId && String(proposal.id) === anchorProposalId) {
+    return true;
+  }
+  if (anchorWorkItemId && toText(proposal.workItemId, "") === anchorWorkItemId) {
+    return true;
+  }
+  if (anchorRunId && toText(proposal.workItemRunId, "") === anchorRunId) {
+    return true;
+  }
+  if (anchorRunId && toText(asObject(proposal.metadata).rerunOf, "") === anchorRunId) {
+    return true;
+  }
+
+  const proposalItem = proposal.workItemId
+    ? getSelfBuildWorkItem(String(proposal.workItemId), dbPath)
+    : null;
+  const itemMetadata = asObject(proposalItem?.metadata);
+  return Boolean(
+    (anchorProposalId &&
+      [
+        toText(itemMetadata.reworkOfProposalId, ""),
+        toText(itemMetadata.originatingProposalId, ""),
+      ].includes(anchorProposalId)) ||
+      (anchorWorkItemId &&
+        toText(itemMetadata.reworkOfWorkItemId, "") === anchorWorkItemId) ||
+      (anchorRunId && toText(itemMetadata.reworkOfRunId, "") === anchorRunId),
   );
 }
 
@@ -627,6 +726,7 @@ function threadDisplayTitle(thread: LooseRecord) {
 function buildThreadEvidenceSummary(context: LooseRecord) {
   const goalPlan = asObject(context.goalPlan);
   const proposal = asObject(context.proposal);
+  const latestRun = asObject(context.latestRun);
   const activeQuarantine = asObject(context.activeQuarantine);
   const validation = asObject(proposal.validation);
   const readiness = asObject(proposal.readiness);
@@ -639,6 +739,16 @@ function buildThreadEvidenceSummary(context: LooseRecord) {
           status: toText(goalPlan.status, "planned"),
           recommendationCount: asArray(goalPlan.recommendations).length,
           nextAction: asObject(goalPlan.operatorFlow).nextAction ?? null,
+        }
+      : null,
+    latestRun: latestRun.id
+      ? {
+          id: latestRun.id,
+          workItemId: toText(latestRun.workItemId, "") || null,
+          status: toText(latestRun.status, "unknown"),
+          terminalKind: toText(latestRun.terminalKind, "") || null,
+          failureReason:
+            toText(asObject(latestRun.failure).reason, "") || null,
         }
       : null,
     proposal: proposal.id
@@ -703,16 +813,20 @@ function buildThreadProgress(
   const goalPlan = asObject(context.goalPlan);
   const group = asObject(context.group);
   const proposal = asObject(context.proposal);
+  const latestRun = asObject(context.latestRun);
   const activeQuarantine = asObject(context.activeQuarantine);
   const pendingActionKind = toText(pendingActions[0]?.actionKind, "");
   const proposalStatus = toText(proposal.status, "");
   const goalPlanStatus = toText(goalPlan.status, "");
+  const needsRunRecovery = latestRunNeedsRecovery(latestRun, proposal);
 
   let currentStage = "mission_received";
   if (pendingActionKind === "goal-plan-review") {
     currentStage = "plan_approval";
   } else if (pendingActionKind === "proposal-approval") {
     currentStage = "proposal_approval";
+  } else if (pendingActionKind === "managed-run-recovery") {
+    currentStage = "managed_work";
   } else if (
     ["proposal-review", "proposal-rework", "quarantine-release"].includes(
       pendingActionKind,
@@ -742,6 +856,11 @@ function buildThreadProgress(
   let exceptionState: string | null = null;
   if (activeQuarantine.id) {
     exceptionState = "quarantined";
+  } else if (
+    pendingActionKind === "managed-run-recovery" ||
+    (needsRunRecovery && ["failed", "blocked"].includes(toText(latestRun.status, "")))
+  ) {
+    exceptionState = "run_failed";
   } else if (proposalStatus === "validation_failed") {
     exceptionState = "validation_failed";
   } else if (proposalStatus === "promotion_blocked") {
@@ -826,6 +945,18 @@ function buildDecisionGuidance(
         secondaryActions: choices.filter((label) => label !== "Mark reviewed"),
         suggestedReplies: [],
       };
+    case "managed-run-recovery":
+      return {
+        title: "Recover the latest managed run",
+        why: "The latest rerun failed before it produced a replacement proposal, so the thread needs recovery guidance instead of stale proposal review.",
+        nextIfApproved:
+          "Rerunning starts a fresh managed run for the same work item and refreshes the thread with the new result.",
+        riskNote:
+          "Quarantine pauses the mission at the group boundary; hold keeps the thread waiting without starting new work.",
+        primaryAction: "Rerun the work item",
+        secondaryActions: choices.filter((label) => label !== "Rerun work item"),
+        suggestedReplies: [],
+      };
     case "proposal-approval":
       return {
         title: "Approve the reviewed proposal",
@@ -907,6 +1038,7 @@ function buildDecisionGuidance(
 function buildInboxSummary(action: LooseRecord, decisionGuidance: LooseRecord) {
   const urgencyByKind: Record<string, string> = {
     "goal-plan-review": "normal",
+    "managed-run-recovery": "high",
     "proposal-review": "high",
     "proposal-approval": "high",
     "proposal-rework": "high",
@@ -938,6 +1070,9 @@ function buildThreadHero(
   let statusLine = "I captured your mission and I am preparing the first plan.";
   if (exceptionState === "quarantined") {
     statusLine = "This mission is quarantined until you release it.";
+  } else if (exceptionState === "run_failed") {
+    statusLine =
+      "The latest managed run failed and needs recovery before the mission can continue.";
   } else if (exceptionState === "rework") {
     statusLine = "This mission needs rework before it can continue.";
   } else if (exceptionState === "validation_failed") {
@@ -1182,18 +1317,33 @@ function chooseActiveProposal(
   group: LooseRecord | null,
   linkage: OperatorThreadLinkage,
   currentProposal: LooseRecord | null = null,
+  dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
 ) {
   const proposals = asArray<LooseRecord>(group?.proposals);
   if (proposals.length === 0) {
     return currentProposal;
   }
-  const sorted = [...proposals].sort((left, right) => {
-    const leftTime = new Date(
-      String(left.updatedAt ?? left.createdAt ?? 0),
-    ).getTime();
-    const rightTime = new Date(
-      String(right.updatedAt ?? right.createdAt ?? 0),
-    ).getTime();
+  const lineageAnchored = proposals.filter((proposal) =>
+    proposalMatchesThreadLineage(proposal, linkage, currentProposal, dbPath),
+  );
+  const hasLineageAnchor = Boolean(
+    currentProposal?.id ||
+      linkage.activeProposalId ||
+      linkage.activeWorkItemId ||
+      linkage.activeRunId,
+  );
+  const candidates =
+    lineageAnchored.length > 0
+      ? lineageAnchored
+      : hasLineageAnchor
+        ? []
+        : proposals;
+  if (candidates.length === 0) {
+    return currentProposal;
+  }
+  const sorted = [...candidates].sort((left, right) => {
+    const rightTime = proposalTimestamp(right);
+    const leftTime = proposalTimestamp(left);
     if (rightTime !== leftTime) {
       return rightTime - leftTime;
     }
@@ -1214,11 +1364,60 @@ function chooseActiveProposal(
   return sorted[0] ?? currentProposal;
 }
 
+function resolveLatestThreadRun(
+  group: LooseRecord | null,
+  linkage: OperatorThreadLinkage,
+  proposal: LooseRecord | null,
+  dbPath: string,
+) {
+  const candidateWorkItemIds = dedupe([
+    linkage.activeWorkItemId,
+    proposal?.workItemId ? String(proposal.workItemId) : null,
+    groupPrimaryWorkItemId(group),
+  ]);
+  const runs = candidateWorkItemIds
+    .map((itemId) => getSelfBuildWorkItem(itemId, dbPath))
+    .map((item) => asObject(item.runHistory).latestRun)
+    .filter(Boolean)
+    .map((run) => getSelfBuildWorkItemRun(String(asObject(run).id), dbPath))
+    .filter(Boolean);
+
+  if (linkage.activeRunId) {
+    const exact = getSelfBuildWorkItemRun(linkage.activeRunId, dbPath);
+    if (exact) {
+      runs.push(exact);
+    }
+  }
+
+  const sorted = runs.sort((left, right) => runTimestamp(right) - runTimestamp(left));
+  return sorted[0] ?? null;
+}
+
+function latestRunNeedsRecovery(
+  latestRun: LooseRecord | null,
+  proposal: LooseRecord | null,
+) {
+  if (!latestRun) {
+    return false;
+  }
+  if (!["failed", "blocked"].includes(toText(latestRun.status, ""))) {
+    return false;
+  }
+  const latestRunProposalId =
+    toText(asObject(latestRun.proposal).id, "") ||
+    toText(asObject(latestRun.metadata).proposalArtifactId, "");
+  if (latestRunProposalId) {
+    return false;
+  }
+  return !proposal || runTimestamp(latestRun) >= proposalTimestamp(proposal);
+}
+
 function summarizeThreadContext(
   thread: LooseRecord,
   goalPlan: LooseRecord | null,
   group: LooseRecord | null,
   proposal: LooseRecord | null,
+  latestRun: LooseRecord | null,
 ) {
   const dashboard = getSelfBuildDashboard();
   return {
@@ -1226,6 +1425,7 @@ function summarizeThreadContext(
     goalPlan,
     group,
     proposal,
+    latestRun: summarizeRun(latestRun),
     linkedArtifacts: [
       artifactRef(
         "goal-plan",
@@ -1244,6 +1444,15 @@ function summarizeThreadContext(
           group?.id ? String(group.id) : "Managed work group",
         ),
         group?.status ? String(group.status) : null,
+      ),
+      artifactRef(
+        "work-item-run",
+        latestRun?.id ? String(latestRun.id) : null,
+        toText(
+          latestRun?.itemTitle,
+          latestRun?.id ? String(latestRun.id) : "Latest run",
+        ),
+        latestRun?.status ? String(latestRun.status) : null,
       ),
       artifactRef(
         "proposal",
@@ -1347,6 +1556,7 @@ function matchPendingActionChoice(message: string, action: LooseRecord | null) {
     ["rejected", ["reject", "rejected", "no", "nie", "cancel", "stop"]],
     ["edit", ["edit", "adjust", "change plan", "revise plan"]],
     ["rework", ["rework", "fix it", "repair", "redo"]],
+    ["rerun", ["rerun", "retry", "run again", "try again"]],
     ["quarantine", ["quarantine", "freeze", "isolate"]],
     ["release", ["release", "unquarantine", "resume"]],
     ["promote", ["promote", "promotion", "integrate", "ship", "yes", "tak"]],
@@ -1366,27 +1576,33 @@ async function supersedeObsoleteActions(
   threadId: string,
   goalPlan: LooseRecord | null,
   proposal: LooseRecord | null,
+  latestRun: LooseRecord | null,
   activeQuarantine: LooseRecord | null,
   dbPath: string,
 ) {
   const pending = listPendingThreadActions(threadId, dbPath);
+  const needsRunRecovery = latestRunNeedsRecovery(latestRun, proposal);
   for (const action of pending) {
     const stillRelevant =
       (action.actionKind === "goal-plan-review" &&
         action.targetId === goalPlan?.id &&
         String(goalPlan?.status ?? "") === "planned") ||
       (action.actionKind === "proposal-review" &&
+        !needsRunRecovery &&
         action.targetId === proposal?.id &&
         ["draft", "ready_for_review"].includes(
           String(proposal?.status ?? ""),
         )) ||
       (action.actionKind === "proposal-approval" &&
+        !needsRunRecovery &&
         action.targetId === proposal?.id &&
         String(proposal?.status ?? "") === "reviewed") ||
       (action.actionKind === "proposal-promotion" &&
+        !needsRunRecovery &&
         action.targetId === proposal?.id &&
         String(proposal?.status ?? "") === "promotion_ready") ||
       (action.actionKind === "proposal-rework" &&
+        !needsRunRecovery &&
         action.targetId === proposal?.id &&
         [
           "rejected",
@@ -1394,6 +1610,10 @@ async function supersedeObsoleteActions(
           "validation_failed",
           "promotion_blocked",
         ].includes(String(proposal?.status ?? ""))) ||
+      (action.actionKind === "managed-run-recovery" &&
+        needsRunRecovery &&
+        action.targetId === latestRun?.id &&
+        ["failed", "blocked"].includes(String(latestRun?.status ?? ""))) ||
       (action.actionKind === "quarantine-release" &&
         action.targetId === activeQuarantine?.id &&
         String(activeQuarantine?.status ?? "") === "active");
@@ -1537,7 +1757,8 @@ async function syncThreadState(threadId: string, dbPath: string) {
   let proposal = linkage.activeProposalId
     ? getProposalSummary(linkage.activeProposalId, dbPath)
     : null;
-  proposal = chooseActiveProposal(group, linkage, proposal);
+  proposal = chooseActiveProposal(group, linkage, proposal, dbPath);
+  let latestRun = resolveLatestThreadRun(group, linkage, proposal, dbPath);
 
   let integrationBranch =
     getProposalIntegrationBranch(proposal) || linkage.integrationBranch || null;
@@ -1553,6 +1774,7 @@ async function syncThreadState(threadId: string, dbPath: string) {
     threadId,
     goalPlan,
     proposal,
+    latestRun,
     activeQuarantine,
     dbPath,
   );
@@ -1677,7 +1899,60 @@ async function syncThreadState(threadId: string, dbPath: string) {
       group = goalPlan?.materializedGroup?.id
         ? getWorkItemGroupSummary(String(goalPlan.materializedGroup.id), dbPath)
         : group;
-      proposal = chooseActiveProposal(group, extractLinkage(thread));
+      proposal = chooseActiveProposal(group, extractLinkage(thread), proposal, dbPath);
+      latestRun = resolveLatestThreadRun(group, extractLinkage(thread), proposal, dbPath);
+    } else if (
+      latestRunNeedsRecovery(latestRun, proposal)
+    ) {
+      const recoveryTargetType = group?.id ? "work-item-group" : "work-item-group";
+      const recoveryTargetId = group?.id ? String(group.id) : null;
+      const created = createPendingAction(
+        threadId,
+        {
+          actionKind: "managed-run-recovery",
+          title: "Recover latest managed run",
+          summary: `Run ${latestRun?.id} failed before it produced a replacement proposal. Decide whether to rerun the work item, quarantine the group, or hold the thread here.`,
+          targetType: "work-item-run",
+          targetId: String(latestRun?.id),
+          payload: {
+            itemType: "work-item-run",
+            itemId: latestRun?.id ?? null,
+            workItemId: latestRun?.workItemId ?? null,
+            quarantineTargetType: recoveryTargetType,
+            quarantineTargetId: recoveryTargetId,
+            failure: asObject(latestRun?.failure),
+          },
+          options: {
+            actions: [
+              { value: "rerun", label: "Rerun work item", tone: "primary" },
+              { value: "quarantine", label: "Quarantine group", tone: "secondary" },
+              { value: "hold", label: "Hold", tone: "secondary" },
+            ],
+          },
+        },
+        dbPath,
+      );
+      if (created.created && created.action) {
+        appendThreadMessage(
+          threadId,
+          "assistant",
+          "action-request",
+          buildPendingActionMessage(created.action),
+          {
+            pendingActionId: created.action.id,
+            artifacts: [
+              artifactRef(
+                "work-item-run",
+                String(latestRun?.id ?? ""),
+                toText(latestRun?.itemTitle, String(latestRun?.id ?? "Latest run")),
+                toText(latestRun?.status, "failed"),
+              ),
+            ],
+          },
+          dbPath,
+        );
+      }
+      pendingActions = listPendingThreadActions(threadId, dbPath);
     } else if (
       proposal &&
       ["draft", "ready_for_review"].includes(String(proposal.status))
@@ -1857,7 +2132,8 @@ async function syncThreadState(threadId: string, dbPath: string) {
       group = group?.id
         ? getWorkItemGroupSummary(String(group.id), dbPath)
         : group;
-      proposal = chooseActiveProposal(group, extractLinkage(thread));
+      proposal = chooseActiveProposal(group, extractLinkage(thread), proposal, dbPath);
+      latestRun = resolveLatestThreadRun(group, extractLinkage(thread), proposal, dbPath);
       integrationBranch =
         getProposalIntegrationBranch(proposal) ||
         linkage.integrationBranch ||
@@ -1934,6 +2210,17 @@ async function syncThreadState(threadId: string, dbPath: string) {
         ? String(goalPlan.materializedGroup.id)
         : null,
     activeProposalId: proposal?.id ? String(proposal.id) : null,
+    activeWorkItemId:
+      toText(proposal?.workItemId, "") ||
+      toText(latestRun?.workItemId, "") ||
+      groupPrimaryWorkItemId(group) ||
+      extractLinkage(thread).activeWorkItemId ||
+      null,
+    activeRunId:
+      toText(latestRun?.id, "") ||
+      toText(proposal?.workItemRunId, "") ||
+      extractLinkage(thread).activeRunId ||
+      null,
     integrationBranch:
       getProposalIntegrationBranch(proposal) ||
       extractLinkage(thread).integrationBranch ||
@@ -1950,7 +2237,7 @@ async function syncThreadState(threadId: string, dbPath: string) {
     dbPath,
   );
   const context = {
-    ...summarizeThreadContext(thread, goalPlan, group, proposal),
+    ...summarizeThreadContext(thread, goalPlan, group, proposal, latestRun),
     activeQuarantine,
   };
   const actionHistory = withDatabase(dbPath, (db) =>
@@ -2081,6 +2368,8 @@ async function createGoalPlanFromMessage(
           activeGoalPlanId: plan?.id ? String(plan.id) : null,
           activeGroupId: null,
           activeProposalId: null,
+          activeWorkItemId: null,
+          activeRunId: null,
         },
       }),
     },
@@ -2180,12 +2469,14 @@ export async function createOperatorThread(
         objective: content,
       },
       execution,
-      linkage: {
-        goalPlanIds: [],
-        activeGoalPlanId: null,
-        activeGroupId: null,
-        activeProposalId: null,
-      },
+        linkage: {
+          goalPlanIds: [],
+          activeGoalPlanId: null,
+          activeGroupId: null,
+          activeProposalId: null,
+          activeWorkItemId: null,
+          activeRunId: null,
+        },
       observed: {},
     },
     createdAt,
@@ -2616,6 +2907,20 @@ export async function resolveOperatorThreadAction(
       },
       dbPath,
     );
+    if (reworkItem.id) {
+      updateThreadRecord(
+        thread,
+        {
+          metadata: mergeThreadMetadata(thread, {
+            linkage: {
+              activeWorkItemId: String(reworkItem.id),
+              activeRunId: null,
+            },
+          }),
+        },
+        dbPath,
+      );
+    }
     if (reworkItem.id && extractExecutionSettings(thread).autoRun !== false) {
       await runSelfBuildWorkItem(
         String(reworkItem.id),
@@ -2646,6 +2951,97 @@ export async function resolveOperatorThreadAction(
         dbPath,
       );
     }
+  } else if (action.actionKind === "managed-run-recovery") {
+    if (choice === "hold") {
+      closeAction(
+        action,
+        "resolved",
+        {
+          choice,
+          held: true,
+        },
+        dbPath,
+      );
+      appendThreadMessage(
+        String(action.threadId),
+        "assistant",
+        "action-result",
+        `Run ${action.targetId} stays on hold. Reply with rerun or quarantine when you want me to continue.`,
+        {},
+        dbPath,
+      );
+      return syncThreadState(String(action.threadId), dbPath);
+    }
+    if (choice === "quarantine") {
+      result = await quarantineSelfBuildTarget(
+        toText(asObject(action.payload).quarantineTargetType, "work-item-group"),
+        toText(asObject(action.payload).quarantineTargetId, ""),
+        {
+          reason:
+            payload.reason ??
+            payload.comments ??
+            "Operator requested quarantine from operator chat recovery flow.",
+          rationale: payload.comments ?? payload.reason ?? "",
+          by: payload.by ?? "operator",
+          sourceType: payload.source ?? "operator-chat",
+          sourceId: action.id,
+        },
+        dbPath,
+      );
+      closeAction(
+        action,
+        "resolved",
+        {
+          choice,
+          quarantineId: result?.id ?? null,
+        },
+        dbPath,
+      );
+      appendThreadMessage(
+        String(action.threadId),
+        "assistant",
+        "action-result",
+        `Quarantined the affected managed-work group after run ${action.targetId} failed. I will wait for an explicit release before continuing.`,
+        {},
+        dbPath,
+      );
+      return syncThreadState(String(action.threadId), dbPath);
+    }
+    result = await rerunSelfBuildWorkItemRun(
+      String(action.targetId),
+      executionRunOptions(thread, {
+        source: payload.source ?? "operator-chat-run-recovery",
+        by: payload.by ?? "operator",
+      }),
+      dbPath,
+    );
+    closeAction(
+      action,
+      "resolved",
+      {
+        choice,
+        rerunOf: action.targetId,
+        nextRunId: asObject(result?.run).id ?? null,
+      },
+      dbPath,
+    );
+    appendThreadMessage(
+      String(action.threadId),
+      "assistant",
+      "action-result",
+      `I started a fresh rerun from failed run ${action.targetId} so the thread can recover from the latest managed-work failure.`,
+      {
+        artifacts: [
+          artifactRef(
+            "work-item-run",
+            toText(asObject(result?.run).id, "") || null,
+            toText(asObject(result?.run).itemTitle, "Recovery rerun"),
+            toText(asObject(result?.run).status, "running"),
+          ),
+        ],
+      },
+      dbPath,
+    );
   } else if (action.actionKind === "quarantine-release") {
     if (choice === "hold") {
       closeAction(
