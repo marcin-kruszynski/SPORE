@@ -2299,32 +2299,61 @@ export async function listOperatorPendingActions(
   options: OperatorThreadActionListOptions = {},
   dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
 ) {
-  const actions = withDatabase(dbPath, (db) =>
-    listOperatorThreadActions(db, options),
-  );
-  const projectedActions = [];
-  for (const action of actions) {
-    const detail = await syncThreadState(String(action.threadId), dbPath);
-    const projected = asArray<LooseRecord>(detail?.pendingActions).find(
-      (entry) => String(entry.id) === String(action.id),
-    );
-    if (projected) {
-      projectedActions.push(projected);
+  const limit = Number.parseInt(String(options.limit ?? "100"), 10) || 100;
+  const scopedThreadId = options.threadId
+    ? String(options.threadId).trim()
+    : "";
+  const threadIds = scopedThreadId
+    ? [scopedThreadId]
+    : dedupe(
+        withDatabase(dbPath, (db) =>
+          listOperatorThreadActions(db, options),
+        ).map((action) => action.threadId),
+      );
+
+  const freshProjectedActions = [];
+  for (const threadId of threadIds) {
+    const detail = await syncThreadState(String(threadId), dbPath);
+    if (!detail) {
       continue;
     }
-
-    const thread = withDatabase(dbPath, (db) =>
-      getOperatorThread(db, String(action.threadId)),
-    );
-    if (!thread) {
-      projectedActions.push(describePendingAction(action));
-      continue;
-    }
-
-    const progress = buildThreadProgress(thread, {}, [], []);
-    projectedActions.push(describePendingAction(action, thread, progress));
+    freshProjectedActions.push(...asArray<LooseRecord>(detail.actionHistory));
   }
-  return projectedActions;
+
+  return freshProjectedActions
+    .filter((action) => {
+      if (scopedThreadId && String(action.threadId) !== scopedThreadId) {
+        return false;
+      }
+      if (options.status && String(action.status) !== String(options.status)) {
+        return false;
+      }
+      if (
+        options.actionKind &&
+        String(action.actionKind) !== String(options.actionKind)
+      ) {
+        return false;
+      }
+      if (
+        options.targetType &&
+        String(action.targetType) !== String(options.targetType)
+      ) {
+        return false;
+      }
+      if (
+        options.targetId &&
+        String(action.targetId) !== String(options.targetId)
+      ) {
+        return false;
+      }
+      return true;
+    })
+    .sort(
+      (left, right) =>
+        Date.parse(String(right.requestedAt ?? 0)) -
+        Date.parse(String(left.requestedAt ?? 0)),
+    )
+    .slice(0, limit);
 }
 
 export async function resolveOperatorThreadAction(

@@ -1518,7 +1518,72 @@ test("operator chat supports proposal rework and quarantine release flows", asyn
     throw new Error(`thread ${threadId} did not reach expected state in time`);
   }
 
-  function setProposalPromotionReady(proposalId) {
+  async function createStubThread(message) {
+    const payload = await postJson(
+      `http://127.0.0.1:${ORCHESTRATOR_PORT}/operator/threads`,
+      {
+        message,
+        projectId: "spore",
+        safeMode: true,
+        stub: true,
+        by: "test-runner",
+        source: "http-operator-chat-test",
+      },
+    );
+    assert.equal(payload.status, 200);
+    assert.ok(payload.json.ok);
+    return payload.json.detail;
+  }
+
+  async function replyInThread(threadId, message) {
+    const payload = await postJson(
+      `http://127.0.0.1:${ORCHESTRATOR_PORT}/operator/threads/${encodeURIComponent(threadId)}/messages`,
+      {
+        message,
+        by: "test-runner",
+        source: "http-operator-chat-test",
+      },
+    );
+    assert.equal(payload.status, 200);
+    assert.ok(payload.json.ok);
+    return payload.json.detail;
+  }
+
+  async function waitForPendingAction(threadId, actionKind) {
+    const detail = await waitForThread(
+      threadId,
+      (entry) =>
+        Array.isArray(entry.pendingActions) &&
+        entry.pendingActions.some((action) => action.actionKind === actionKind),
+    );
+    assert.ok(
+      detail.pendingActions.some((action) => action.actionKind === actionKind),
+    );
+    return detail;
+  }
+
+  async function getThreadPendingAction(threadId, actionKind) {
+    const payload = await getJson(
+      `http://127.0.0.1:${ORCHESTRATOR_PORT}/operator/actions?threadId=${encodeURIComponent(threadId)}`,
+    );
+    assert.equal(payload.status, 200);
+    assert.ok(payload.json.ok);
+    const action = payload.json.detail.find(
+      (entry) => entry.actionKind === actionKind,
+    );
+    assert.ok(action);
+    return action;
+  }
+
+  function setProposalProjectionState(
+    proposalId,
+    options: {
+      proposalStatus: string;
+      promotionStatus: string;
+      validationStatus?: string;
+      validationSummary?: string;
+    },
+  ) {
     const db = openOrchestratorDatabase(dbPath);
     try {
       const proposal = getProposalArtifact(db, proposalId);
@@ -1528,18 +1593,22 @@ test("operator chat supports proposal rework and quarantine release flows", asyn
       const validation = asObject(asObject(proposal.metadata).validation);
       updateProposalArtifact(db, {
         ...proposal,
-        status: "promotion_ready",
+        status: options.proposalStatus,
         updatedAt,
         metadata: {
           ...asObject(proposal.metadata),
           validation: {
             ...validation,
-            status: "completed",
-            summary: "Validation bundles succeeded for operator chat coverage.",
+            ...(options.validationStatus
+              ? { status: options.validationStatus }
+              : {}),
+            ...(options.validationSummary
+              ? { summary: options.validationSummary }
+              : {}),
           },
           promotion: {
             ...promotion,
-            status: "promotion_ready",
+            status: options.promotionStatus,
             blockers: [],
             sourceExecutionId:
               String(promotion.sourceExecutionId ?? "").trim() ||
@@ -1556,68 +1625,16 @@ test("operator chat supports proposal rework and quarantine release flows", asyn
     }
   }
 
-  function setProposalPromotionCandidate(proposalId) {
-    const db = openOrchestratorDatabase(dbPath);
-    try {
-      const proposal = getProposalArtifact(db, proposalId);
-      assert.ok(proposal);
-      const updatedAt = new Date().toISOString();
-      const promotion = asObject(asObject(proposal.metadata).promotion);
-      updateProposalArtifact(db, {
-        ...proposal,
-        status: "promotion_candidate",
-        updatedAt,
-        metadata: {
-          ...asObject(proposal.metadata),
-          promotion: {
-            ...promotion,
-            status: "promotion_candidate",
-            blockers: [],
-            updatedAt,
-          },
-        },
-      });
-    } finally {
-      db.close();
-    }
-  }
-
-  const reworkThread = await postJson(
-    `http://127.0.0.1:${ORCHESTRATOR_PORT}/operator/threads`,
-    {
-      message:
-        "Improve the operator web dashboard for self-build review and keep the work in safe mode.",
-      projectId: "spore",
-      safeMode: true,
-      stub: true,
-      by: "test-runner",
-      source: "http-operator-chat-test",
-    },
+  const reworkThread = await createStubThread(
+    "Improve the operator web dashboard for self-build review and keep the work in safe mode.",
   );
-  assert.equal(reworkThread.status, 200);
-  const reworkThreadId = reworkThread.json.detail.id;
+  const reworkThreadId = reworkThread.id;
 
-  await postJson(
-    `http://127.0.0.1:${ORCHESTRATOR_PORT}/operator/threads/${encodeURIComponent(reworkThreadId)}/messages`,
-    {
-      message: "approve",
-      by: "test-runner",
-      source: "http-operator-chat-test",
-    },
-  );
+  await replyInThread(reworkThreadId, "approve");
 
-  const reviewPending = await waitForThread(
+  const reviewPending = await waitForPendingAction(
     reworkThreadId,
-    (detail) =>
-      Array.isArray(detail.pendingActions) &&
-      detail.pendingActions.some(
-        (action) => action.actionKind === "proposal-review",
-      ),
-  );
-  assert.ok(
-    reviewPending.pendingActions.some(
-      (action) => action.actionKind === "proposal-review",
-    ),
+    "proposal-review",
   );
   assertThreadUxProjection(asObject(reviewPending), {
     currentStage: "proposal_review",
@@ -1627,41 +1644,21 @@ test("operator chat supports proposal rework and quarantine release flows", asyn
     suggestedReplies: "empty",
     expectDistinctTitle: true,
   });
-  const reviewPendingInbox = await getJson(
-    `http://127.0.0.1:${ORCHESTRATOR_PORT}/operator/actions?threadId=${encodeURIComponent(reworkThreadId)}`,
+  const proposalReviewAction = await getThreadPendingAction(
+    reworkThreadId,
+    "proposal-review",
   );
-  assert.equal(reviewPendingInbox.status, 200);
-  const proposalReviewAction = reviewPendingInbox.json.detail.find(
-    (action) => action.actionKind === "proposal-review",
-  );
-  assert.ok(proposalReviewAction);
   assertInboxActionProjection(proposalReviewAction, "proposal-review", {
     suggestedReplies: "empty",
     threadTitle: reviewPending.title,
     objective: asObject(reviewPending.summary).objective as string,
   });
 
-  await postJson(
-    `http://127.0.0.1:${ORCHESTRATOR_PORT}/operator/threads/${encodeURIComponent(reworkThreadId)}/messages`,
-    {
-      message: "reject",
-      by: "test-runner",
-      source: "http-operator-chat-test",
-    },
-  );
+  await replyInThread(reworkThreadId, "reject");
 
-  const reworkPending = await waitForThread(
+  const reworkPending = await waitForPendingAction(
     reworkThreadId,
-    (detail) =>
-      Array.isArray(detail.pendingActions) &&
-      detail.pendingActions.some(
-        (action) => action.actionKind === "proposal-rework",
-      ),
-  );
-  assert.ok(
-    reworkPending.pendingActions.some(
-      (action) => action.actionKind === "proposal-rework",
-    ),
+    "proposal-rework",
   );
   assertThreadUxProjection(asObject(reworkPending), {
     currentStage: "proposal_review",
@@ -1671,103 +1668,41 @@ test("operator chat supports proposal rework and quarantine release flows", asyn
     suggestedReplies: "empty",
     expectDistinctTitle: true,
   });
-  const reworkPendingInbox = await getJson(
-    `http://127.0.0.1:${ORCHESTRATOR_PORT}/operator/actions?threadId=${encodeURIComponent(reworkThreadId)}`,
+  const proposalReworkAction = await getThreadPendingAction(
+    reworkThreadId,
+    "proposal-rework",
   );
-  assert.equal(reworkPendingInbox.status, 200);
-  const proposalReworkAction = reworkPendingInbox.json.detail.find(
-    (action) => action.actionKind === "proposal-rework",
-  );
-  assert.ok(proposalReworkAction);
   assertInboxActionProjection(proposalReworkAction, "proposal-rework", {
     suggestedReplies: "empty",
     threadTitle: reworkPending.title,
     objective: asObject(reworkPending.summary).objective as string,
   });
 
-  const reworked = await postJson(
-    `http://127.0.0.1:${ORCHESTRATOR_PORT}/operator/threads/${encodeURIComponent(reworkThreadId)}/messages`,
-    {
-      message: "rework",
-      by: "test-runner",
-      source: "http-operator-chat-test",
-    },
-  );
-  assert.equal(reworked.status, 200);
-  assert.ok(reworked.json.ok);
+  const reworked = await replyInThread(reworkThreadId, "rework");
   assert.ok(
-    reworked.json.detail.messages.some((message) =>
+    reworked.messages.some((message) =>
       String(message.content).includes("Created rework item"),
     ),
   );
 
-  const quarantineThread = await postJson(
-    `http://127.0.0.1:${ORCHESTRATOR_PORT}/operator/threads`,
-    {
-      message:
-        "Improve the operator web dashboard for integration promotion review and keep the work in safe mode.",
-      projectId: "spore",
-      safeMode: true,
-      stub: true,
-      by: "test-runner",
-      source: "http-operator-chat-test",
-    },
+  const quarantineThread = await createStubThread(
+    "Improve the operator web dashboard for integration promotion review and keep the work in safe mode.",
   );
-  assert.equal(quarantineThread.status, 200);
-  const quarantineThreadId = quarantineThread.json.detail.id;
+  const quarantineThreadId = quarantineThread.id;
 
-  await postJson(
-    `http://127.0.0.1:${ORCHESTRATOR_PORT}/operator/threads/${encodeURIComponent(quarantineThreadId)}/messages`,
-    {
-      message: "approve",
-      by: "test-runner",
-      source: "http-operator-chat-test",
-    },
-  );
+  await replyInThread(quarantineThreadId, "approve");
 
-  await waitForThread(
+  await waitForPendingAction(quarantineThreadId, "proposal-review");
+
+  await replyInThread(quarantineThreadId, "reject");
+
+  await waitForPendingAction(quarantineThreadId, "proposal-rework");
+
+  await replyInThread(quarantineThreadId, "quarantine");
+
+  const releasePending = await waitForPendingAction(
     quarantineThreadId,
-    (detail) =>
-      Array.isArray(detail.pendingActions) &&
-      detail.pendingActions.some(
-        (action) => action.actionKind === "proposal-review",
-      ),
-  );
-
-  await postJson(
-    `http://127.0.0.1:${ORCHESTRATOR_PORT}/operator/threads/${encodeURIComponent(quarantineThreadId)}/messages`,
-    {
-      message: "reject",
-      by: "test-runner",
-      source: "http-operator-chat-test",
-    },
-  );
-
-  await waitForThread(
-    quarantineThreadId,
-    (detail) =>
-      Array.isArray(detail.pendingActions) &&
-      detail.pendingActions.some(
-        (action) => action.actionKind === "proposal-rework",
-      ),
-  );
-
-  await postJson(
-    `http://127.0.0.1:${ORCHESTRATOR_PORT}/operator/threads/${encodeURIComponent(quarantineThreadId)}/messages`,
-    {
-      message: "quarantine",
-      by: "test-runner",
-      source: "http-operator-chat-test",
-    },
-  );
-
-  const releasePending = await waitForThread(
-    quarantineThreadId,
-    (detail) =>
-      Array.isArray(detail.pendingActions) &&
-      detail.pendingActions.some(
-        (action) => action.actionKind === "quarantine-release",
-      ),
+    "quarantine-release",
   );
   assert.ok(releasePending.context.activeQuarantine);
   assertThreadUxProjection(asObject(releasePending), {
@@ -1778,81 +1713,33 @@ test("operator chat supports proposal rework and quarantine release flows", asyn
     suggestedReplies: "empty",
     expectDistinctTitle: true,
   });
-  const quarantinePendingInbox = await getJson(
-    `http://127.0.0.1:${ORCHESTRATOR_PORT}/operator/actions?threadId=${encodeURIComponent(quarantineThreadId)}`,
+  const quarantineReleaseAction = await getThreadPendingAction(
+    quarantineThreadId,
+    "quarantine-release",
   );
-  assert.equal(quarantinePendingInbox.status, 200);
-  const quarantineReleaseAction = quarantinePendingInbox.json.detail.find(
-    (action) => action.actionKind === "quarantine-release",
-  );
-  assert.ok(quarantineReleaseAction);
   assertInboxActionProjection(quarantineReleaseAction, "quarantine-release", {
     suggestedReplies: "empty",
     threadTitle: releasePending.title,
     objective: asObject(releasePending.summary).objective as string,
   });
 
-  const released = await postJson(
-    `http://127.0.0.1:${ORCHESTRATOR_PORT}/operator/threads/${encodeURIComponent(quarantineThreadId)}/messages`,
-    {
-      message: "release",
-      by: "test-runner",
-      source: "http-operator-chat-test",
-    },
-  );
-  assert.equal(released.status, 200);
-  assert.ok(released.json.ok);
-  assert.equal(released.json.detail.context.activeQuarantine, null);
+  const released = await replyInThread(quarantineThreadId, "release");
+  assert.equal(released.context.activeQuarantine, null);
 
-  const promotionThread = await postJson(
-    `http://127.0.0.1:${ORCHESTRATOR_PORT}/operator/threads`,
-    {
-      message:
-        "Improve the operator web dashboard for proposal promotion readiness and keep the work in safe mode.",
-      projectId: "spore",
-      safeMode: true,
-      stub: true,
-      by: "test-runner",
-      source: "http-operator-chat-test",
-    },
+  const promotionThread = await createStubThread(
+    "Improve the operator web dashboard for proposal promotion readiness and keep the work in safe mode.",
   );
-  assert.equal(promotionThread.status, 200);
-  const promotionThreadId = promotionThread.json.detail.id;
+  const promotionThreadId = promotionThread.id;
 
-  await postJson(
-    `http://127.0.0.1:${ORCHESTRATOR_PORT}/operator/threads/${encodeURIComponent(promotionThreadId)}/messages`,
-    {
-      message: "approve",
-      by: "test-runner",
-      source: "http-operator-chat-test",
-    },
-  );
+  await replyInThread(promotionThreadId, "approve");
 
-  await waitForThread(
+  await waitForPendingAction(promotionThreadId, "proposal-review");
+
+  await replyInThread(promotionThreadId, "reviewed");
+
+  const approvalPending = await waitForPendingAction(
     promotionThreadId,
-    (detail) =>
-      Array.isArray(detail.pendingActions) &&
-      detail.pendingActions.some(
-        (action) => action.actionKind === "proposal-review",
-      ),
-  );
-
-  await postJson(
-    `http://127.0.0.1:${ORCHESTRATOR_PORT}/operator/threads/${encodeURIComponent(promotionThreadId)}/messages`,
-    {
-      message: "reviewed",
-      by: "test-runner",
-      source: "http-operator-chat-test",
-    },
-  );
-
-  const approvalPending = await waitForThread(
-    promotionThreadId,
-    (detail) =>
-      Array.isArray(detail.pendingActions) &&
-      detail.pendingActions.some(
-        (action) => action.actionKind === "proposal-approval",
-      ),
+    "proposal-approval",
   );
   assertThreadUxProjection(asObject(approvalPending), {
     currentStage: "proposal_approval",
@@ -1862,14 +1749,10 @@ test("operator chat supports proposal rework and quarantine release flows", asyn
     suggestedReplies: "empty",
     expectDistinctTitle: true,
   });
-  const approvalPendingInbox = await getJson(
-    `http://127.0.0.1:${ORCHESTRATOR_PORT}/operator/actions?threadId=${encodeURIComponent(promotionThreadId)}`,
+  const proposalApprovalAction = await getThreadPendingAction(
+    promotionThreadId,
+    "proposal-approval",
   );
-  assert.equal(approvalPendingInbox.status, 200);
-  const proposalApprovalAction = approvalPendingInbox.json.detail.find(
-    (action) => action.actionKind === "proposal-approval",
-  );
-  assert.ok(proposalApprovalAction);
   assertInboxActionProjection(proposalApprovalAction, "proposal-approval", {
     suggestedReplies: "empty",
     threadTitle: approvalPending.title,
@@ -1882,7 +1765,29 @@ test("operator chat supports proposal rework and quarantine release flows", asyn
       : "",
   );
   assert.ok(promotionProposalId);
-  setProposalPromotionReady(promotionProposalId);
+  setProposalProjectionState(promotionProposalId, {
+    proposalStatus: "promotion_ready",
+    promotionStatus: "promotion_ready",
+    validationStatus: "completed",
+    validationSummary:
+      "Validation bundles succeeded for operator chat coverage.",
+  });
+
+  const refreshedPromotionInbox = await getJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/operator/actions?threadId=${encodeURIComponent(promotionThreadId)}`,
+  );
+  assert.equal(refreshedPromotionInbox.status, 200);
+  assert.ok(refreshedPromotionInbox.json.ok);
+  assert.ok(
+    refreshedPromotionInbox.json.detail.some(
+      (action) => action.actionKind === "proposal-promotion",
+    ),
+  );
+  assert.ok(
+    refreshedPromotionInbox.json.detail.every(
+      (action) => action.actionKind !== "proposal-approval",
+    ),
+  );
 
   const promotionPending = await waitForThread(
     promotionThreadId,
@@ -1900,21 +1805,20 @@ test("operator chat supports proposal rework and quarantine release flows", asyn
     suggestedReplies: "empty",
     expectDistinctTitle: true,
   });
-  const promotionPendingInbox = await getJson(
-    `http://127.0.0.1:${ORCHESTRATOR_PORT}/operator/actions?threadId=${encodeURIComponent(promotionThreadId)}`,
+  const proposalPromotionAction = await getThreadPendingAction(
+    promotionThreadId,
+    "proposal-promotion",
   );
-  assert.equal(promotionPendingInbox.status, 200);
-  const proposalPromotionAction = promotionPendingInbox.json.detail.find(
-    (action) => action.actionKind === "proposal-promotion",
-  );
-  assert.ok(proposalPromotionAction);
   assertInboxActionProjection(proposalPromotionAction, "proposal-promotion", {
     suggestedReplies: "empty",
     threadTitle: promotionPending.title,
     objective: asObject(promotionPending.summary).objective as string,
   });
 
-  setProposalPromotionCandidate(promotionProposalId);
+  setProposalProjectionState(promotionProposalId, {
+    proposalStatus: "promotion_candidate",
+    promotionStatus: "promotion_candidate",
+  });
 
   const completedThread = await waitForThread(
     promotionThreadId,
