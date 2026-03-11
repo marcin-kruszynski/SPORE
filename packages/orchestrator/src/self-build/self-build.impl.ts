@@ -4404,20 +4404,25 @@ export async function runSelfBuildWorkItem(
       );
       withDatabase(dbPath, (db) => insertProposalArtifact(db, proposal));
       if (provisionedWorkspace) {
-        const updatedWorkspace = {
-          ...provisionedWorkspace,
-          executionId:
-            failedRun.result?.executionId ??
-            provisionedWorkspace.executionId ??
-            null,
-          proposalArtifactId: proposal.id,
-          status: "active",
-          updatedAt: nowIso(),
-        };
-        withDatabase(dbPath, (db) =>
-          updateWorkspaceAllocation(db, updatedWorkspace),
+        const currentWorkspace = withDatabase(dbPath, (db) =>
+          getWorkspaceAllocation(db, provisionedWorkspace.id),
         );
-        provisionedWorkspace = updatedWorkspace;
+        if (currentWorkspace) {
+          const updatedWorkspace = {
+            ...currentWorkspace,
+            executionId:
+              failedRun.result?.executionId ??
+              currentWorkspace.executionId ??
+              null,
+            proposalArtifactId: proposal.id,
+            status: "active",
+            updatedAt: nowIso(),
+          };
+          withDatabase(dbPath, (db) =>
+            updateWorkspaceAllocation(db, updatedWorkspace),
+          );
+          provisionedWorkspace = updatedWorkspace;
+        }
       }
       failedRun.metadata = {
         ...failedRun.metadata,
@@ -4501,20 +4506,25 @@ export async function runSelfBuildWorkItem(
     );
     withDatabase(dbPath, (db) => insertProposalArtifact(db, proposal));
     if (provisionedWorkspace) {
-      const updatedWorkspace = {
-        ...provisionedWorkspace,
-        executionId:
-          runDetail.result?.executionId ??
-          provisionedWorkspace.executionId ??
-          null,
-        proposalArtifactId: proposal.id,
-        status: "settled",
-        updatedAt: nowIso(),
-      };
-      withDatabase(dbPath, (db) =>
-        updateWorkspaceAllocation(db, updatedWorkspace),
+      const currentWorkspace = withDatabase(dbPath, (db) =>
+        getWorkspaceAllocation(db, provisionedWorkspace.id),
       );
-      provisionedWorkspace = updatedWorkspace;
+      if (currentWorkspace) {
+        const updatedWorkspace = {
+          ...currentWorkspace,
+          executionId:
+            runDetail.result?.executionId ??
+            currentWorkspace.executionId ??
+            null,
+          proposalArtifactId: proposal.id,
+          status: "settled",
+          updatedAt: nowIso(),
+        };
+        withDatabase(dbPath, (db) =>
+          updateWorkspaceAllocation(db, updatedWorkspace),
+        );
+        provisionedWorkspace = updatedWorkspace;
+      }
     }
     runDetail.metadata = {
       ...runDetail.metadata,

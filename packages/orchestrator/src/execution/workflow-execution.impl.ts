@@ -318,6 +318,18 @@ function getWorkspaceHandoffMetadata(workspace) {
   return workspace?.metadata?.handoff ?? null;
 }
 
+function canReuseProvidedWorkspace(existingWorkspace, workspacePolicy) {
+  if (!existingWorkspace || !workspacePolicy?.worktreePath) {
+    return false;
+  }
+
+  const requestedWorktreePath = path.resolve(workspacePolicy.worktreePath);
+  return (
+    (!workspacePolicy.workspaceId || existingWorkspace.id === workspacePolicy.workspaceId) &&
+    path.resolve(existingWorkspace.worktreePath) === requestedWorktreePath
+  );
+}
+
 function canUseExistingVerificationWorkspace(
   existingWorkspace,
   sourceWorkspace,
@@ -520,6 +532,53 @@ async function ensureStepWorkspace(db, execution, step) {
     : [];
 
   if (workspacePolicy.worktreePath) {
+    const providedWorkspace = workspacePolicy.workItemRunId
+      ? getWorkspaceAllocationByRunId(db, workspacePolicy.workItemRunId)
+      : null;
+    if (canReuseProvidedWorkspace(providedWorkspace, workspacePolicy)) {
+      const allocation = {
+        ...providedWorkspace,
+        executionId: execution.id,
+        stepId: step.id,
+        proposalArtifactId:
+          workspacePolicy.proposalArtifactId ??
+          providedWorkspace.proposalArtifactId ??
+          null,
+        worktreePath: path.resolve(workspacePolicy.worktreePath),
+        branchName:
+          workspacePolicy.branchName ?? providedWorkspace.branchName ?? null,
+        baseRef: workspacePolicy.baseRef ?? providedWorkspace.baseRef ?? "HEAD",
+        integrationBranch:
+          workspacePolicy.integrationBranch ??
+          providedWorkspace.integrationBranch ??
+          null,
+        safeMode:
+          providedWorkspace.safeMode !== false &&
+          workspacePolicy.safeMode !== false,
+        mutationScope:
+          mutationScope.length > 0
+            ? mutationScope
+            : Array.isArray(providedWorkspace.mutationScope)
+              ? providedWorkspace.mutationScope
+              : [],
+        status: "provisioned",
+        metadata: {
+          ...providedWorkspace.metadata,
+          repoRoot,
+          source: workspacePolicy.source ?? providedWorkspace.metadata?.source ?? "workflow-step",
+          reusedWorkspace: true,
+          workspacePurpose: getAuthoringWorkspacePurpose(step),
+          handoffStatus:
+            step.role === "builder"
+              ? providedWorkspace.metadata?.handoffStatus ?? "pending"
+              : null,
+        },
+        updatedAt: now,
+      };
+      updateWorkspaceAllocation(db, allocation);
+      return allocation;
+    }
+
     const allocation = {
       id: workspacePolicy.workspaceId ?? createWorkspaceAllocationId(step),
       projectId: execution.projectId,

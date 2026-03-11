@@ -64,6 +64,14 @@ async function readOptionalFile(
   }
 }
 
+function resolveDisplayWorkingDirectory(plan: SessionPlan): string | null {
+  const rawCwd = plan.session?.cwd ?? plan.metadata?.workspace?.cwd ?? null;
+  if (!rawCwd) {
+    return null;
+  }
+  return path.isAbsolute(rawCwd) ? rawCwd : path.join(PROJECT_ROOT, rawCwd);
+}
+
 export async function writeLaunchAssets({
   sessionId,
   plan,
@@ -95,6 +103,7 @@ export async function writeLaunchAssets({
     ? path.join(PROJECT_ROOT, plan.pi.systemPromptRef)
     : null;
   const rolePrompt = await readOptionalFile(rolePromptPath);
+  const workingDirectory = resolveDisplayWorkingDirectory(plan);
   const briefContent = briefPath
     ? await readOptionalFile(
         path.isAbsolute(briefPath)
@@ -121,7 +130,7 @@ export async function writeLaunchAssets({
     "",
     "## Startup Context",
     `- Retrieval bundle: ${contextPath}`,
-    plan.session?.cwd ? `- Working directory: ${plan.session.cwd}` : null,
+    workingDirectory ? `- Working directory: ${workingDirectory}` : null,
     plan.metadata?.workspace?.id
       ? `- Workspace ID: ${plan.metadata.workspace.id}`
       : null,

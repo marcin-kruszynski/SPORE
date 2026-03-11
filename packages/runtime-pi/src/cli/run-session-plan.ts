@@ -58,6 +58,17 @@ function resolveRequiredPath(filePath: string | null, label: string): string {
   return filePath;
 }
 
+function resolvePlanWorkingDirectory(plan: SessionPlan): string | null {
+  const candidates = [plan.session?.cwd, plan.metadata?.workspace?.cwd];
+  for (const candidate of candidates) {
+    const resolved = resolvePath(candidate);
+    if (resolved) {
+      return resolveRequiredPath(resolved, "cwd");
+    }
+  }
+  return null;
+}
+
 async function loadOrBuildPlan(flags: CliFlags): Promise<SessionPlan> {
   if (flags.plan) {
     const raw = await fs.readFile(
@@ -201,10 +212,7 @@ async function main() {
     launcherType,
     assets,
     stubDurationSeconds: Number.parseInt(flags["stub-seconds"] ?? "2", 10),
-    cwd:
-      plan.session?.cwd && resolvePath(plan.session.cwd)
-        ? resolveRequiredPath(resolvePath(plan.session.cwd), "cwd")
-        : PROJECT_ROOT,
+    cwd: resolvePlanWorkingDirectory(plan) ?? PROJECT_ROOT,
     workspace: plan.metadata?.workspace ?? null,
   });
 
