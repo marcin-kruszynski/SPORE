@@ -130,6 +130,8 @@ import {
 } from "./summaries.js";
 
 type LooseRecord = any;
+const activeValidationTasks = new Map<string, Promise<void>>();
+
 type RolloutTierConfig = {
   id: string;
   label: string;
@@ -1021,6 +1023,437 @@ function resolveValidationBundleIdsForWorkItem(
   return fromItem;
 }
 
+function buildValidationError(kind, id, message) {
+  return compactObject({
+    kind,
+    id: id ?? null,
+    message: toText(message, "validation failed"),
+  });
+}
+
+function resolveValidationTarget(run, proposal) {
+  if (proposal?.id) {
+    return {
+      targetType: "proposal",
+      targetId: String(proposal.id),
+    };
+  }
+  return {
+    targetType: "work-item-run",
+    targetId: String(run?.id ?? ""),
+  };
+}
+
+function primaryValidationBundleId(
+  bundleIds: string[] = [],
+  fallbackScenarioIds: string[] = [],
+  fallbackRegressionIds: string[] = [],
+) {
+  if (bundleIds.length > 0) {
+    return bundleIds[0];
+  }
+  if (fallbackScenarioIds.length > 0 || fallbackRegressionIds.length > 0) {
+    return "__fallback__";
+  }
+  return "__fallback__";
+}
+
+function buildValidationState(
+  run,
+  proposal,
+  options: LooseRecord = {},
+) {
+  const previous =
+    proposal?.metadata?.validation ?? run?.metadata?.validation ?? {};
+  const bundleIds = dedupe(options.bundleIds ?? previous.bundleIds ?? []);
+  const bundleId =
+    options.bundleId ??
+    primaryValidationBundleId(
+      bundleIds,
+      dedupe(options.fallbackScenarioIds ?? []),
+      dedupe(options.fallbackRegressionIds ?? []),
+    );
+  const target = resolveValidationTarget(run, proposal);
+  return {
+    ...(previous && typeof previous === "object" ? previous : {}),
+    id: toText(previous.id, createId("validation")),
+    targetType: target.targetType,
+    targetId: target.targetId,
+    bundleId,
+    bundleIds,
+    status: options.status ?? previous.status ?? "queued",
+    scenarioRunIds: dedupe(options.scenarioRunIds ?? previous.scenarioRunIds ?? []),
+    regressionRunIds: dedupe(
+      options.regressionRunIds ?? previous.regressionRunIds ?? [],
+    ),
+    startedAt:
+      options.startedAt !== undefined
+        ? options.startedAt
+        : (previous.startedAt ?? null),
+    endedAt:
+      options.endedAt !== undefined ? options.endedAt : (previous.endedAt ?? null),
+    error: options.error ?? previous.error ?? null,
+    errors: asArray(options.errors ?? previous.errors ?? []),
+    bundleResults: asArray(options.bundleResults ?? previous.bundleResults ?? []),
+    validatedAt:
+      options.validatedAt !== undefined
+        ? options.validatedAt
+        : (previous.validatedAt ?? null),
+    validationFingerprint:
+      options.validationFingerprint !== undefined
+        ? options.validationFingerprint
+        : (previous.validationFingerprint ?? null),
+    validationDrift:
+      options.validationDrift !== undefined
+        ? options.validationDrift
+        : previous.validationDrift === true,
+  };
+}
+
+function persistValidationStateForRun(runId, state, dbPath) {
+  return withDatabase(dbPath, (db) => {
+    const run = getWorkItemRun(db, runId);
+    if (!run) {
+      return { run: null, proposal: null };
+    }
+    const updatedRun = {
+      ...run,
+      metadata: {
+        ...run.metadata,
+        validationBundleIds: dedupe(state.bundleIds ?? []).filter(
+          (bundleId) => bundleId !== "__fallback__",
+        ),
+        validation: state,
+      },
+    };
+    updateWorkItemRun(db, updatedRun);
+    const proposal = getProposalArtifactByRunId(db, runId);
+    if (!proposal) {
+      return { run: updatedRun, proposal: null };
+    }
+    const updatedProposal = {
+      ...proposal,
+      updatedAt: nowIso(),
+      metadata: {
+        ...proposal.metadata,
+        validation: state,
+      },
+    };
+    updateProposalArtifact(db, updatedProposal);
+    return {
+      run: updatedRun,
+      proposal: updatedProposal,
+    };
+  });
+}
+
+async function executeWorkItemRunValidation(
+  runId,
+  bundleIds: string[],
+  fallbackScenarioIds: string[],
+  fallbackRegressionIds: string[],
+  options: LooseRecord = {},
+  dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
+) {
+  const run = withDatabase(dbPath, (db) => getWorkItemRun(db, runId));
+  if (!run) {
+    return null;
+  }
+  const item = withDatabase(dbPath, (db) => getWorkItem(db, run.workItemId));
+  if (!item) {
+    return null;
+  }
+  const proposal = withDatabase(dbPath, (db) => getProposalArtifactByRunId(db, runId));
+  const startedAt = nowIso();
+  const runningState = buildValidationState(run, proposal, {
+    bundleIds,
+    fallbackScenarioIds,
+    fallbackRegressionIds,
+    status: "running",
+    startedAt,
+    endedAt: null,
+    error: null,
+    errors: [],
+    scenarioRunIds: [],
+    regressionRunIds: [],
+    bundleResults: [],
+    validatedAt: null,
+  });
+  persistValidationStateForRun(runId, runningState, dbPath);
+
+  const bundleResults = [];
+  let scenarioRuns = [];
+  let regressionRuns = [];
+  let validationErrors = [];
+  const effectiveBundleIds =
+    bundleIds.length > 0 ? bundleIds : [primaryValidationBundleId([], fallbackScenarioIds, fallbackRegressionIds)];
+
+  for (const bundleId of effectiveBundleIds) {
+    const definition =
+      bundleId === "__fallback__"
+        ? {
+            id: "__fallback__",
+            label: "Fallback Validation",
+            scenarios: fallbackScenarioIds,
+            regressions: fallbackRegressionIds,
+            requiredForProposalReadiness: false,
+            requiredForPromotionReadiness: false,
+          }
+        : await getValidationBundleDefinition(bundleId);
+    if (!definition) {
+      const error = buildValidationError(
+        "validation-bundle",
+        bundleId,
+        `validation bundle not found: ${bundleId}`,
+      );
+      bundleResults.push(
+        summarizeValidationBundleRecord(bundleId, null, {
+          status: "failed",
+          errors: [error],
+        }),
+      );
+      validationErrors.push(error);
+      continue;
+    }
+    const localScenarioRuns = [];
+    const localRegressionRuns = [];
+    const localErrors = [];
+    for (const scenarioId of dedupe(definition.scenarios ?? [])) {
+      const scenarioDefinition = await getScenarioDefinition(scenarioId);
+      if (!scenarioDefinition) continue;
+      try {
+        const result = await runScenarioById(
+          scenarioId,
+          {
+            project: item.metadata?.projectPath ?? "config/projects/spore.yaml",
+            wait: true,
+            timeout: options.timeout ?? "180000",
+            interval: options.interval ?? "1500",
+            noMonitor: options.noMonitor === true,
+            stub: options.stub !== false,
+            launcher: options.launcher ?? null,
+            source: options.source ?? "work-item-validation",
+            by: options.by ?? "operator",
+          },
+          dbPath,
+        );
+        localScenarioRuns.push(result.run.id);
+      } catch (error) {
+        localErrors.push(
+          buildValidationError(
+            "scenario",
+            scenarioId,
+            error instanceof Error ? error.message : String(error),
+          ),
+        );
+      }
+    }
+    for (const regressionId of dedupe(definition.regressions ?? [])) {
+      const regressionDefinition = await getRegressionDefinition(regressionId);
+      if (!regressionDefinition) continue;
+      try {
+        const result = await runRegressionById(
+          regressionId,
+          {
+            project: item.metadata?.projectPath ?? "config/projects/spore.yaml",
+            timeout: options.timeout ?? "180000",
+            interval: options.interval ?? "1500",
+            noMonitor: options.noMonitor === true,
+            stub: options.stub !== false,
+            launcher: options.launcher ?? null,
+            source: options.source ?? "work-item-validation",
+            by: options.by ?? "operator",
+          },
+          dbPath,
+        );
+        localRegressionRuns.push(result.run.id);
+      } catch (error) {
+        localErrors.push(
+          buildValidationError(
+            "regression",
+            regressionId,
+            error instanceof Error ? error.message : String(error),
+          ),
+        );
+      }
+    }
+    scenarioRuns = [...scenarioRuns, ...localScenarioRuns];
+    regressionRuns = [...regressionRuns, ...localRegressionRuns];
+    validationErrors = [...validationErrors, ...localErrors];
+    bundleResults.push(
+      summarizeValidationBundleRecord(bundleId, definition, {
+        scenarioRunIds: localScenarioRuns,
+        regressionRunIds: localRegressionRuns,
+        errors: localErrors,
+        status:
+          localErrors.length > 0
+            ? "failed"
+            : localScenarioRuns.length === 0 && localRegressionRuns.length === 0
+              ? "not_configured"
+              : "completed",
+        validatedAt: nowIso(),
+      }),
+    );
+  }
+
+  const endedAt = nowIso();
+  const completedState = buildValidationState(run, proposal, {
+    bundleIds,
+    fallbackScenarioIds,
+    fallbackRegressionIds,
+    status:
+      validationErrors.length > 0
+        ? "failed"
+        : regressionRuns.length === 0 && scenarioRuns.length === 0
+          ? "completed"
+          : "completed",
+    scenarioRunIds: dedupe(scenarioRuns),
+    regressionRunIds: dedupe(regressionRuns),
+    errors: validationErrors,
+    error: validationErrors[0] ?? null,
+    bundleResults,
+    startedAt: runningState.startedAt ?? startedAt,
+    endedAt,
+    validatedAt: endedAt,
+  });
+  const currentFingerprint = proposal
+    ? computeProposalContentFingerprint(proposal)
+    : null;
+  completedState.validationFingerprint = currentFingerprint;
+  completedState.validationDrift = false;
+
+  const persisted = persistValidationStateForRun(runId, completedState, dbPath);
+  const updatedRun = persisted.run;
+  const refreshedProposal = withDatabase(dbPath, (db) =>
+    getProposalArtifactByRunId(db, runId),
+  );
+  if (updatedRun) {
+    const nextRun = {
+      ...updatedRun,
+      metadata: {
+        ...updatedRun.metadata,
+        docSuggestions: buildDocSuggestionsHelper(item, updatedRun, refreshedProposal),
+      },
+    };
+    withDatabase(dbPath, (db) => updateWorkItemRun(db, nextRun));
+  }
+  if (proposal && refreshedProposal) {
+    const validationStatus = buildProposalValidationStatus({
+      ...refreshedProposal,
+      metadata: {
+        ...refreshedProposal.metadata,
+        validation: completedState,
+      },
+    });
+    const nextStatus =
+      completedState.status === "failed"
+        ? "validation_failed"
+        : validationStatus.ready &&
+            [
+              "reviewed",
+              "approved",
+              "validation_required",
+              "promotion_blocked",
+              "promotion_ready",
+            ].includes(String(proposal.status))
+          ? "promotion_ready"
+          : completedState.status === "completed"
+            ? "reviewed"
+            : proposal.status;
+    withDatabase(dbPath, (db) =>
+      updateProposalArtifact(db, {
+        ...refreshedProposal,
+        status: nextStatus,
+        updatedAt: nowIso(),
+        metadata: {
+          ...refreshedProposal.metadata,
+          validation: completedState,
+          promotion: compactObject({
+            ...(refreshedProposal.metadata?.promotion ?? {}),
+            blockers: validationStatus.blockers,
+            status:
+              nextStatus === "promotion_ready"
+                ? "promotion_ready"
+                : (refreshedProposal.metadata?.promotion?.status ?? "blocked"),
+            updatedAt: nowIso(),
+          }),
+        },
+      }),
+    );
+  }
+  const finalRun = withDatabase(dbPath, (db) => getWorkItemRun(db, runId));
+  const finalProposal = withDatabase(dbPath, (db) => getProposalArtifactByRunId(db, runId));
+  if (finalRun) {
+    await syncDocSuggestionRecordsForRun(item, finalRun, finalProposal, dbPath);
+  }
+  return getSelfBuildWorkItemRun(runId, dbPath);
+}
+
+function scheduleWorkItemRunValidation(
+  runId,
+  bundleIds: string[],
+  fallbackScenarioIds: string[],
+  fallbackRegressionIds: string[],
+  options: LooseRecord = {},
+  dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
+) {
+  const existing = activeValidationTasks.get(runId);
+  if (existing) {
+    return existing;
+  }
+  const task = new Promise<void>((resolve) => {
+    setTimeout(() => {
+      (async () => {
+        try {
+          await executeWorkItemRunValidation(
+            runId,
+            bundleIds,
+            fallbackScenarioIds,
+            fallbackRegressionIds,
+            options,
+            dbPath,
+          );
+        } catch (error) {
+          const run = withDatabase(dbPath, (db) => getWorkItemRun(db, runId));
+          const proposal = withDatabase(dbPath, (db) =>
+            getProposalArtifactByRunId(db, runId),
+          );
+          if (run) {
+            const failedAt = nowIso();
+            const failure = buildValidationError(
+              "validation",
+              runId,
+              error instanceof Error ? error.message : String(error),
+            );
+            const failedState = buildValidationState(run, proposal, {
+              bundleIds,
+              fallbackScenarioIds,
+              fallbackRegressionIds,
+              status: "failed",
+              startedAt:
+                proposal?.metadata?.validation?.startedAt ??
+                run.metadata?.validation?.startedAt ??
+                failedAt,
+              endedAt: failedAt,
+              validatedAt: failedAt,
+              error: failure,
+              errors: [failure],
+            });
+            persistValidationStateForRun(runId, failedState, dbPath);
+          }
+        } finally {
+          activeValidationTasks.delete(runId);
+          resolve();
+        }
+      })().catch(() => {
+        resolve();
+      });
+    }, 0);
+  });
+  activeValidationTasks.set(runId, task);
+  return task;
+}
+
 function summarizeValidationBundleRecord(
   bundleId,
   definition,
@@ -1903,6 +2336,10 @@ function buildTemplatePayload(template, payload: LooseRecord = {}) {
         ...(template.recommendedRegressions ?? []),
         ...(payloadMetadata.recommendedRegressions ?? []),
       ]),
+      recommendedValidationBundles: dedupe([
+        ...(template.recommendedValidationBundles ?? []),
+        ...(payloadMetadata.recommendedValidationBundles ?? []),
+      ]),
       safeModeEligible: template.safeModeEligible !== false,
       selfBuildEligible: template.selfBuildEligible !== false,
     }),
@@ -2038,7 +2475,7 @@ function buildGoalRecommendations({
         "Validate with frontend-ui-pass.",
       ],
       relatedScenarios: ["frontend-ui-pass"],
-      relatedRegressions: ["local-fast"],
+      relatedRegressions: [],
       metadata: {
         templateId: "operator-ui-pass",
         workflowPath: "config/workflows/frontend-ui-pass.yaml",
@@ -2052,7 +2489,8 @@ function buildGoalRecommendations({
         requiresProposal: true,
         codeOriented: true,
         recommendedScenarios: ["frontend-ui-pass"],
-        recommendedRegressions: ["local-fast"],
+        recommendedRegressions: [],
+        recommendedValidationBundles: ["frontend-ui-pass"],
       },
     });
   }
@@ -5877,7 +6315,22 @@ export async function validateWorkItemGroupBundle(
                 payload.bundles ??
                 (payload.bundle ? [payload.bundle] : []),
             ),
-            validatedAt: nowIso(),
+            status: validationResults.every(
+              (result) => result?.validation?.status === "completed",
+            )
+              ? "completed"
+              : validationResults.some((result) =>
+                    ["queued", "running"].includes(
+                      String(result?.validation?.status ?? ""),
+                    ),
+                  )
+                ? "running"
+                : validationResults.some(
+                      (result) => result?.validation?.status === "failed",
+                    )
+                  ? "failed"
+                  : "queued",
+            queuedAt: nowIso(),
             runIds: validationResults
               .map((result) => result?.id)
               .filter(Boolean),
@@ -6817,6 +7270,7 @@ export async function validateWorkItemRun(
   if (!item) {
     return null;
   }
+  const proposal = withDatabase(dbPath, (db) => getProposalArtifactByRunId(db, runId));
   const bundleIds = resolveValidationBundleIdsForWorkItem(item, run, options);
   const fallbackScenarioIds = dedupe(
     item.metadata?.recommendedScenarios ?? item.relatedScenarios ?? [],
@@ -6824,217 +7278,44 @@ export async function validateWorkItemRun(
   const fallbackRegressionIds = dedupe(
     item.metadata?.recommendedRegressions ?? item.relatedRegressions ?? [],
   );
-  const bundleResults = [];
-  let scenarioRuns = [];
-  let regressionRuns = [];
-  let validationErrors = [];
-  const effectiveBundleIds =
-    bundleIds.length > 0 ? bundleIds : ["__fallback__"];
-  for (const bundleId of effectiveBundleIds) {
-    const definition =
-      bundleId === "__fallback__"
-        ? {
-            id: "__fallback__",
-            label: "Fallback Validation",
-            scenarios: fallbackScenarioIds,
-            regressions: fallbackRegressionIds,
-            requiredForProposalReadiness: false,
-            requiredForPromotionReadiness: false,
-          }
-        : await getValidationBundleDefinition(bundleId);
-    if (!definition) {
-      bundleResults.push(
-        summarizeValidationBundleRecord(bundleId, null, {
-          status: "failed",
-          errors: [
-            {
-              kind: "validation-bundle",
-              id: bundleId,
-              message: `validation bundle not found: ${bundleId}`,
-            },
-          ],
-        }),
-      );
-      continue;
+  const shouldWait = options.wait !== false;
+  const currentValidation = proposal?.metadata?.validation ?? run.metadata?.validation;
+  if (
+    currentValidation &&
+    ["queued", "running"].includes(String(currentValidation.status))
+  ) {
+    if (shouldWait) {
+      await (activeValidationTasks.get(runId) ?? Promise.resolve());
     }
-    const localScenarioRuns = [];
-    const localRegressionRuns = [];
-    const localErrors = [];
-    for (const scenarioId of dedupe(definition.scenarios ?? [])) {
-      const scenarioDefinition = await getScenarioDefinition(scenarioId);
-      if (!scenarioDefinition) continue;
-      try {
-        const result = await runScenarioById(
-          scenarioId,
-          {
-            project: item.metadata?.projectPath ?? "config/projects/spore.yaml",
-            wait: true,
-            timeout: options.timeout ?? "180000",
-            interval: options.interval ?? "1500",
-            noMonitor: options.noMonitor === true,
-            stub: options.stub !== false,
-            launcher: options.launcher ?? null,
-            source: options.source ?? "work-item-validation",
-            by: options.by ?? "operator",
-          },
-          dbPath,
-        );
-        localScenarioRuns.push(result.run.id);
-      } catch (error) {
-        localErrors.push({
-          kind: "scenario",
-          id: scenarioId,
-          message: error instanceof Error ? error.message : String(error),
-        });
-      }
-    }
-    for (const regressionId of dedupe(definition.regressions ?? [])) {
-      const regressionDefinition = await getRegressionDefinition(regressionId);
-      if (!regressionDefinition) continue;
-      try {
-        const result = await runRegressionById(
-          regressionId,
-          {
-            project: item.metadata?.projectPath ?? "config/projects/spore.yaml",
-            timeout: options.timeout ?? "180000",
-            interval: options.interval ?? "1500",
-            noMonitor: options.noMonitor === true,
-            stub: options.stub !== false,
-            launcher: options.launcher ?? null,
-            source: options.source ?? "work-item-validation",
-            by: options.by ?? "operator",
-          },
-          dbPath,
-        );
-        localRegressionRuns.push(result.run.id);
-      } catch (error) {
-        localErrors.push({
-          kind: "regression",
-          id: regressionId,
-          message: error instanceof Error ? error.message : String(error),
-        });
-      }
-    }
-    scenarioRuns = [...scenarioRuns, ...localScenarioRuns];
-    regressionRuns = [...regressionRuns, ...localRegressionRuns];
-    validationErrors = [...validationErrors, ...localErrors];
-    bundleResults.push(
-      summarizeValidationBundleRecord(bundleId, definition, {
-        scenarioRunIds: localScenarioRuns,
-        regressionRunIds: localRegressionRuns,
-        errors: localErrors,
-        status:
-          localErrors.length > 0
-            ? "failed"
-            : localScenarioRuns.length === 0 && localRegressionRuns.length === 0
-              ? "not_configured"
-              : "completed",
-        validatedAt: nowIso(),
-      }),
-    );
+    return getSelfBuildWorkItemRun(runId, dbPath);
   }
-  const validation: LooseRecord = {
-    status:
-      validationErrors.length > 0
-        ? "failed"
-        : regressionRuns.length === 0 && scenarioRuns.length === 0
-          ? "not_configured"
-          : "completed",
-    scenarioRunIds: dedupe(scenarioRuns),
-    regressionRunIds: dedupe(regressionRuns),
-    errors: validationErrors,
-    bundleIds: bundleResults.map((record) => record.bundleId),
-    bundleResults,
-    validatedAt: nowIso(),
-  };
-  const proposal = withDatabase(dbPath, (db) =>
-    getProposalArtifactByRunId(db, runId),
-  );
-  const currentFingerprint = proposal
-    ? computeProposalContentFingerprint(proposal)
-    : null;
-  validation.validationFingerprint = currentFingerprint;
-  validation.validationDrift = false;
-  const updatedRun = {
-    ...run,
-    metadata: {
-      ...run.metadata,
-      validationBundleIds: bundleResults
-        .map((record) => record.bundleId)
-        .filter((bundleId) => bundleId && bundleId !== "__fallback__"),
-      validation,
-      docSuggestions: buildDocSuggestionsHelper(item, run, proposal),
-    },
-  };
-  withDatabase(dbPath, (db) => updateWorkItemRun(db, updatedRun));
-  const refreshedProposal = withDatabase(dbPath, (db) =>
-    getProposalArtifactByRunId(db, runId),
-  );
-  if (proposal) {
-    const validationStatus = buildProposalValidationStatus({
-      ...proposal,
-      metadata: {
-        ...proposal.metadata,
-        validation: {
-          ...validation,
-          validationFingerprint: currentFingerprint,
-          validationDrift: false,
-        },
-      },
-    });
-    const nextStatus =
-      validation.status === "failed"
-        ? "validation_failed"
-        : validationStatus.ready &&
-            [
-              "reviewed",
-              "approved",
-              "validation_required",
-              "promotion_blocked",
-              "promotion_ready",
-            ].includes(String(proposal.status))
-          ? "promotion_ready"
-          : validation.status === "completed"
-            ? "reviewed"
-            : proposal.status;
-    withDatabase(dbPath, (db) =>
-      updateProposalArtifact(db, {
-        ...proposal,
-        status: nextStatus,
-        updatedAt: nowIso(),
-        metadata: {
-          ...proposal.metadata,
-          validation: {
-            ...validation,
-            validationFingerprint: currentFingerprint,
-            validationDrift: false,
-          },
-          promotion: compactObject({
-            ...(proposal.metadata?.promotion ?? {}),
-            blockers: validationStatus.blockers,
-            status:
-              nextStatus === "promotion_ready"
-                ? "promotion_ready"
-                : (proposal.metadata?.promotion?.status ?? "blocked"),
-            updatedAt: nowIso(),
-          }),
-        },
-      }),
-    );
-  }
-  const docSuggestions = await syncDocSuggestionRecordsForRun(
-    item,
-    updatedRun,
-    refreshedProposal,
+  const queuedState = buildValidationState(run, proposal, {
+    bundleIds,
+    fallbackScenarioIds,
+    fallbackRegressionIds,
+    status: "queued",
+    scenarioRunIds: [],
+    regressionRunIds: [],
+    startedAt: null,
+    endedAt: null,
+    error: null,
+    errors: [],
+    bundleResults: [],
+    validatedAt: null,
+  });
+  persistValidationStateForRun(runId, queuedState, dbPath);
+  const task = scheduleWorkItemRunValidation(
+    runId,
+    bundleIds,
+    fallbackScenarioIds,
+    fallbackRegressionIds,
+    options,
     dbPath,
   );
-  const detail = getSelfBuildWorkItemRun(runId, dbPath);
-  return detail
-    ? {
-        ...detail,
-        docSuggestions,
-      }
-    : detail;
+  if (shouldWait) {
+    await task;
+  }
+  return getSelfBuildWorkItemRun(runId, dbPath);
 }
 
 export function getDocSuggestionsForRun(

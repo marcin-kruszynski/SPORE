@@ -764,6 +764,10 @@ function buildThreadEvidenceSummary(context: LooseRecord) {
       : null,
     validation: proposal.id
       ? {
+          id: toText(validation.id, "") || null,
+          targetType: toText(validation.targetType, "") || null,
+          targetId: toText(validation.targetId, "") || null,
+          bundleId: toText(validation.bundleId, "") || null,
           status:
             toText(validation.status, "") ||
             (toText(proposal.status, "") === "validation_required"
@@ -773,6 +777,11 @@ function buildThreadEvidenceSummary(context: LooseRecord) {
             toText(validation.summary, "") ||
             toText(validation.message, "") ||
             null,
+          scenarioRunIds: asArray(validation.scenarioRunIds),
+          regressionRunIds: asArray(validation.regressionRunIds),
+          startedAt: validation.startedAt ?? null,
+          endedAt: validation.endedAt ?? null,
+          error: validation.error ?? null,
           blockerCount: asArray(validation.blockers).length,
         }
       : null,
@@ -2193,6 +2202,7 @@ async function syncThreadState(threadId: string, dbPath: string) {
           String(group.id),
           executionRunOptions(thread, {
             source: "operator-chat-validation",
+            wait: false,
           }),
           dbPath,
         );

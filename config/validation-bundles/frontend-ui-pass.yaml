@@ -1,0 +1,18 @@
+id: frontend-ui-pass
+label: Frontend UI Pass
+description: Frontend-focused proposal validation for operator web UI work.
+scenarios:
+  - frontend-ui-pass
+regressions: []
+requiredForProposalReadiness: true
+requiredForPromotionReadiness: false
+allowedAutoSkip: false
+allowedFailureClassifications: []
+maxDurationMs: 300000
+appliesToTemplates:
+  - operator-ui-pass
+appliesToMutationScopes:
+  - apps/web
+  - docs
+appliesToProjectRoles:
+  - operator

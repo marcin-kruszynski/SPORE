@@ -1934,7 +1934,10 @@ const server = http.createServer(async (request, response) => {
       parts[2] === "validate-bundle"
     ) {
       const body = await readJsonBody(request);
-      const detail = await validateWorkItemGroupBundle(parts[1], body);
+      const detail = await validateWorkItemGroupBundle(parts[1], {
+        ...body,
+        wait: body.wait ?? false,
+      });
       if (!detail) {
         json(response, 404, {
           ok: false,
@@ -2119,7 +2122,10 @@ const server = http.createServer(async (request, response) => {
       parts[2] === "validate"
     ) {
       const body = await readJsonBody(request);
-      const detail = await validateWorkItemRun(parts[1], body);
+      const detail = await validateWorkItemRun(parts[1], {
+        ...body,
+        wait: body.wait ?? false,
+      });
       if (!detail) {
         json(response, 404, {
           ok: false,
@@ -2139,7 +2145,10 @@ const server = http.createServer(async (request, response) => {
       parts[2] === "validate-bundle"
     ) {
       const body = await readJsonBody(request);
-      const detail = await validateWorkItemRun(parts[1], body);
+      const detail = await validateWorkItemRun(parts[1], {
+        ...body,
+        wait: body.wait ?? false,
+      });
       if (!detail) {
         json(response, 404, {
           ok: false,

@@ -1,0 +1,427 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import {
+  findFreePort,
+  getJson,
+  makeTempPaths,
+  postJson,
+  startProcess,
+  stopProcess,
+  waitForHealth,
+  withEventLogPath,
+} from "@spore/test-support";
+
+import {
+  getProposalArtifact,
+  insertProposalArtifact,
+  insertWorkItemRun,
+  openOrchestratorDatabase,
+} from "../../../packages/orchestrator/src/store/execution-store.js";
+import type { HarnessTempPathsWithEventLog } from "./helpers/http-harness.js";
+
+type JsonRecord = Record<string, unknown>;
+
+function asObject(value: unknown): JsonRecord {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as JsonRecord)
+    : {};
+}
+
+function asArray<T = JsonRecord>(value: unknown): T[] {
+  return Array.isArray(value) ? (value as T[]) : [];
+}
+
+async function startServer(t: test.TestContext, prefix: string) {
+  const port = await findFreePort();
+  const { dbPath, sessionDbPath, eventLogPath } = withEventLogPath(
+    await makeTempPaths(prefix),
+  ) as HarnessTempPathsWithEventLog;
+
+  const server = startProcess("node", ["services/orchestrator/server.js"], {
+    SPORE_ORCHESTRATOR_PORT: String(port),
+    SPORE_ORCHESTRATOR_DB_PATH: dbPath,
+    SPORE_SESSION_DB_PATH: sessionDbPath,
+    SPORE_EVENT_LOG_PATH: eventLogPath,
+  });
+
+  t.after(async () => {
+    await stopProcess(server);
+  });
+
+  await waitForHealth(`http://127.0.0.1:${port}/health`);
+  return { port, dbPath };
+}
+
+async function waitForValidationState(
+  port: number,
+  runId: string,
+  predicate: (state: JsonRecord) => boolean,
+  timeoutMs = 60000,
+) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    const payload = await getJson(
+      `http://127.0.0.1:${port}/work-item-runs/${encodeURIComponent(runId)}`,
+    );
+    assert.equal(payload.status, 200);
+    const state = asObject(payload.json.detail?.validation);
+    if (predicate(state)) {
+      return {
+        detail: asObject(payload.json.detail),
+        state,
+      };
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error(`timed out waiting for validation state on run ${runId}`);
+}
+
+async function waitForThreadDetail(
+  port: number,
+  threadId: string,
+  predicate: (detail: JsonRecord) => boolean,
+  timeoutMs = 60000,
+) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    const payload = await getJson(
+      `http://127.0.0.1:${port}/operator/threads/${encodeURIComponent(threadId)}`,
+    );
+    assert.equal(payload.status, 200);
+    assert.ok(payload.json.ok);
+    const detail = asObject(payload.json.detail);
+    if (predicate(detail)) {
+      return detail;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error(`timed out waiting for thread ${threadId}`);
+}
+
+async function replyInThread(port: number, threadId: string, message: string) {
+  const payload = await postJson(
+    `http://127.0.0.1:${port}/operator/threads/${encodeURIComponent(threadId)}/messages`,
+    {
+      message,
+      by: "test-runner",
+      source: "http-self-build-validation-test",
+    },
+  );
+  assert.equal(payload.status, 200);
+  assert.ok(payload.json.ok);
+  return asObject(payload.json.detail);
+}
+
+async function createOperatorUiRun(port: number, dbPath: string) {
+  const item = await postJson(`http://127.0.0.1:${port}/work-items`, {
+    templateId: "operator-ui-pass",
+    goal: "Add a day/night mode toggle to the operator dashboard.",
+    by: "test-runner",
+    source: "http-self-build-validation-test",
+  });
+  assert.equal(item.status, 200);
+  assert.ok(item.json.ok);
+
+  const itemId = String(item.json.detail.id);
+  const { runId, proposalId } = seedProposalForWorkItem(
+    dbPath,
+    itemId,
+    String(item.json.detail.title ?? "Operator UI pass"),
+    String(item.json.detail.goal ?? ""),
+    "validation_required",
+  );
+
+  return {
+    itemId,
+    runId,
+    proposalId,
+  };
+}
+
+function seedProposalForWorkItem(
+  dbPath: string,
+  itemId: string,
+  itemTitle: string,
+  itemGoal: string,
+  proposalStatus = "validation_required",
+) {
+  const runId = `work-item-run-${Date.now()}`;
+  const proposalId = `proposal-${Date.now()}`;
+  const timestamp = new Date().toISOString();
+  const db = openOrchestratorDatabase(dbPath);
+  try {
+    insertWorkItemRun(db, {
+      id: runId,
+      workItemId: itemId,
+      status: "completed",
+      triggerSource: "test-seed",
+      requestedBy: "test-runner",
+      result: {
+        executionId: `execution:${runId}`,
+      },
+      metadata: {
+        itemKind: "workflow",
+        itemStatusBeforeRun: "pending",
+      },
+      createdAt: timestamp,
+      startedAt: timestamp,
+      endedAt: timestamp,
+    });
+    insertProposalArtifact(db, {
+      id: proposalId,
+      workItemRunId: runId,
+      workItemId: itemId,
+      status: proposalStatus,
+      kind: "workflow",
+      summary: {
+        title: `${itemTitle} proposal`,
+        goal: itemGoal,
+        runStatus: "completed",
+        safeMode: true,
+      },
+      artifacts: {
+        changeSummary: itemGoal,
+        proposedFiles: [],
+        diffSummary: {
+          fileCount: 0,
+          trackedFileCount: 0,
+          untrackedFileCount: 0,
+          addedCount: 0,
+          modifiedCount: 0,
+          deletedCount: 0,
+          renamedCount: 0,
+          conflictedCount: 0,
+          insertionCount: 0,
+          deletionCount: 0,
+        },
+        changedFilesByScope: [],
+        patchArtifact: {
+          path: `artifacts/proposals/${proposalId}.patch`,
+          byteLength: 0,
+          preview: "",
+        },
+        reviewNotes: {
+          requiredReview: true,
+          requiredApproval: true,
+          safeMode: true,
+        },
+        testSummary: {
+          validationStatus: "pending",
+          scenarioRunIds: [],
+          regressionRunIds: [],
+        },
+        docImpact: {
+          relatedDocs: [],
+          relatedScenarios: [],
+          relatedRegressions: [],
+        },
+      },
+      metadata: {
+        source: "test-seed",
+        promotion: {
+          status: "blocked",
+          targetBranch: "main",
+          sourceExecutionId: `execution:${runId}`,
+        },
+      },
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      reviewedAt: timestamp,
+      approvedAt: timestamp,
+    });
+  } finally {
+    db.close();
+  }
+  return { runId, proposalId };
+}
+
+test("work-item validation queues a narrow frontend bundle and persists state", async (t) => {
+  const { port, dbPath } = await startServer(
+    t,
+    "spore-http-self-build-validation-",
+  );
+  const { runId, proposalId } = await createOperatorUiRun(port, dbPath);
+
+  const queued = await postJson(
+    `http://127.0.0.1:${port}/work-item-runs/${encodeURIComponent(runId)}/validate`,
+    {
+      stub: true,
+      timeout: 12000,
+      interval: 250,
+      by: "test-runner",
+      source: "http-self-build-validation-test",
+    },
+  );
+  assert.equal(queued.status, 200);
+  assert.ok(queued.json.ok);
+
+  const queuedState = asObject(queued.json.detail?.validation);
+  assert.equal(queuedState.status, "queued");
+  assert.ok(typeof queuedState.id === "string");
+  assert.equal(queuedState.targetType, "proposal");
+  assert.equal(queuedState.targetId, proposalId);
+  assert.equal(queuedState.bundleId, "frontend-ui-pass");
+  assert.deepEqual(asArray(queuedState.scenarioRunIds), []);
+  assert.deepEqual(asArray(queuedState.regressionRunIds), []);
+  assert.equal(queuedState.startedAt ?? null, null);
+  assert.equal(queuedState.endedAt ?? null, null);
+  assert.equal(queuedState.error ?? null, null);
+
+  const persistedQueued = await getJson(
+    `http://127.0.0.1:${port}/work-item-runs/${encodeURIComponent(runId)}`,
+  );
+  assert.equal(persistedQueued.status, 200);
+  assert.equal(
+    asObject(persistedQueued.json.detail?.validation).id,
+    queuedState.id,
+  );
+
+  const completed = await waitForValidationState(
+    port,
+    runId,
+    (state) => String(state.status) === "completed",
+  );
+  assert.equal(completed.state.id, queuedState.id);
+  assert.equal(completed.state.targetType, "proposal");
+  assert.equal(completed.state.targetId, proposalId);
+  assert.equal(completed.state.bundleId, "frontend-ui-pass");
+  assert.ok(typeof completed.state.startedAt === "string");
+  assert.ok(typeof completed.state.endedAt === "string");
+  assert.ok(asArray(completed.state.scenarioRunIds).length > 0);
+  assert.deepEqual(asArray(completed.state.regressionRunIds), []);
+  assert.equal(completed.state.error ?? null, null);
+
+  const proposal = await getJson(
+    `http://127.0.0.1:${port}/proposal-artifacts/${encodeURIComponent(proposalId)}`,
+  );
+  assert.equal(proposal.status, 200);
+  assert.equal(asObject(proposal.json.detail?.validation).id, queuedState.id);
+  assert.equal(
+    asObject(proposal.json.detail?.validation).bundleId,
+    "frontend-ui-pass",
+  );
+
+  const localFastRuns = await getJson(
+    `http://127.0.0.1:${port}/regressions/local-fast/runs?limit=5`,
+  );
+  assert.equal(localFastRuns.status, 200);
+  assert.ok(localFastRuns.json.ok);
+  assert.deepEqual(asArray(localFastRuns.json.detail?.runs), []);
+});
+
+test("operator chat reads persisted validation state while auto-validation runs", async (t) => {
+  const { port, dbPath } = await startServer(
+    t,
+    "spore-http-self-build-validation-operator-chat-",
+  );
+
+  const createdThread = await postJson(`http://127.0.0.1:${port}/operator/threads`, {
+    message:
+      "Improve the operator web dashboard for self-build review and keep the work in safe mode.",
+    projectId: "spore",
+    safeMode: true,
+    stub: true,
+    wait: false,
+    by: "test-runner",
+    source: "http-self-build-validation-test",
+  });
+  assert.equal(createdThread.status, 200);
+  assert.ok(createdThread.json.ok);
+
+  const threadId = String(createdThread.json.detail.id);
+  await replyInThread(port, threadId, "approve");
+
+  const materialized = await waitForThreadDetail(
+    port,
+    threadId,
+    (detail) =>
+      asArray<JsonRecord>(asObject(asObject(detail.context).group).items).length >
+      0,
+  );
+
+  const group = asObject(asObject(materialized.context).group);
+  const seededItem = asArray<JsonRecord>(group.items)[0];
+  assert.ok(seededItem);
+
+  const { runId, proposalId } = seedProposalForWorkItem(
+    dbPath,
+    String(seededItem.id),
+    String(seededItem.title ?? "Work item"),
+    String(seededItem.goal ?? ""),
+    "ready_for_review",
+  );
+  assert.ok(runId);
+  assert.ok(proposalId);
+
+  await waitForThreadDetail(
+    port,
+    threadId,
+    (detail) =>
+      asArray<JsonRecord>(detail.pendingActions).some(
+        (action) => action.actionKind === "proposal-review",
+      ),
+  );
+
+  await replyInThread(port, threadId, "reviewed");
+
+  await waitForThreadDetail(
+    port,
+    threadId,
+    (detail) =>
+      asArray<JsonRecord>(detail.pendingActions).some(
+        (action) => action.actionKind === "proposal-approval",
+      ),
+  );
+
+  const triggered = await replyInThread(port, threadId, "approve");
+
+  const progress = asObject(triggered.progress);
+  assert.equal(progress.currentStage, "validation");
+
+  const evidenceValidation = asObject(
+    asObject(triggered.evidenceSummary).validation,
+  );
+  const proposalValidation = asObject(
+    asObject(asObject(triggered.context).proposal).validation,
+  );
+
+  assert.ok(["queued", "running", "completed"].includes(String(evidenceValidation.status)));
+  assert.equal(evidenceValidation.id, proposalValidation.id);
+  assert.equal(evidenceValidation.targetType, "proposal");
+  assert.equal(evidenceValidation.targetId, proposalId);
+  assert.equal(evidenceValidation.bundleId, "frontend-ui-pass");
+
+  const completed = await waitForValidationState(
+    port,
+    runId,
+    (state) => String(state.status) === "completed",
+  );
+  assert.equal(completed.state.targetType, "proposal");
+  assert.equal(completed.state.targetId, proposalId);
+
+  const settledThread = await getJson(
+    `http://127.0.0.1:${port}/operator/threads/${encodeURIComponent(threadId)}`,
+  );
+  assert.equal(settledThread.status, 200);
+  assert.ok(settledThread.json.ok);
+  const settledEvidenceValidation = asObject(
+    asObject(settledThread.json.detail?.evidenceSummary).validation,
+  );
+  assert.equal(settledEvidenceValidation.id, completed.state.id);
+  assert.equal(settledEvidenceValidation.status, "completed");
+  assert.equal(settledEvidenceValidation.bundleId, "frontend-ui-pass");
+
+  const db = openOrchestratorDatabase(dbPath);
+  try {
+    const proposal = getProposalArtifact(db, proposalId);
+    assert.ok(proposal);
+    assert.equal(
+      asObject(proposal.metadata).validation &&
+        asObject(asObject(proposal.metadata).validation).id,
+      completed.state.id,
+    );
+  } finally {
+    db.close();
+  }
+});
