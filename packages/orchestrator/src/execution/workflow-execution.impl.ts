@@ -52,7 +52,6 @@ import {
   getEscalation,
   getExecution,
   getStep,
-  getWorkspaceAllocationByRunId,
   getWorkspaceAllocationByStepId,
   insertApproval,
   insertAuditRecord,
@@ -299,12 +298,10 @@ function buildWorkItemRoleIsolationWorkspacePolicy(db, execution, step) {
     return null;
   }
 
-  const ownerWorkspace =
-    listWorkspaceAllocations(db, {
-      workItemRunId: sourceWorkspacePolicy.workItemRunId,
-      ownerType: "work-item-run",
-      limit: 1,
-    })[0] ?? null;
+  const ownerWorkspace = getAuthoritativeRunWorkspace(
+    db,
+    sourceWorkspacePolicy.workItemRunId,
+  );
   const executionWorkspacePolicy =
     getExecutionPolicy(execution)?.runtimePolicy?.workspace ?? {};
 
@@ -339,6 +336,19 @@ function buildWorkItemRoleIsolationWorkspacePolicy(db, execution, step) {
       null,
     source: sourceWorkspacePolicy.source ?? "work-item-run",
   };
+}
+
+function getAuthoritativeRunWorkspace(db, workItemRunId) {
+  if (!workItemRunId) {
+    return null;
+  }
+  return (
+    listWorkspaceAllocations(db, {
+      workItemRunId,
+      ownerType: "work-item-run",
+      limit: 1,
+    })[0] ?? null
+  );
 }
 
 function getWorkspacePolicy(db, step, execution) {
@@ -612,7 +622,7 @@ async function ensureStepWorkspace(db, execution, step) {
 
   if (workspacePolicy.worktreePath) {
     const providedWorkspace = workspacePolicy.workItemRunId
-      ? getWorkspaceAllocationByRunId(db, workspacePolicy.workItemRunId)
+      ? getAuthoritativeRunWorkspace(db, workspacePolicy.workItemRunId)
       : null;
     if (canReuseProvidedWorkspace(providedWorkspace, workspacePolicy)) {
       const allocation = {
@@ -844,7 +854,7 @@ async function publishBuilderWorkspaceHandoff(db, execution, step) {
   };
   updateWorkspaceAllocation(db, updatedWorkspace);
   if (workspace.workItemRunId) {
-    const ownerWorkspace = getWorkspaceAllocationByRunId(
+    const ownerWorkspace = getAuthoritativeRunWorkspace(
       db,
       workspace.workItemRunId,
     );
