@@ -9,6 +9,7 @@ This file is the broader inventory view over `docs/`. It separates active ground
 - `docs/plans/project-state-and-direction-handoff.md`
 - `docs/plans/self-build-status-and-next-steps.md`
 - `docs/plans/roadmap.md`
+- `docs/plans/operator-chat-surface-plan.md`
 - `docs/plans/long-range-self-build-roadmap.md`
 - `docs/plans/full-self-build-implementation-plan.md`
 
@@ -52,6 +53,7 @@ This file is the broader inventory view over `docs/`. It separates active ground
 - `docs/decisions/ADR-0006-project-coordinator-role.md`
 - `docs/decisions/ADR-0007-feature-integrator-promotion-boundary.md`
 - `docs/decisions/ADR-0008-typescript-first-codebase.md`
+- `docs/decisions/ADR-0012-operator-chat-surface.md`
 
 ### References And Research
 

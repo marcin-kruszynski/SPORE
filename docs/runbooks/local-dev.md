@@ -421,6 +421,13 @@ npm run orchestrator:proposal-review -- --proposal <proposal-id> --status review
 npm run orchestrator:proposal-approve -- --proposal <proposal-id> --status approved
 npm run orchestrator:proposal-promotion-plan -- --proposal <proposal-id> --target-branch main
 npm run orchestrator:proposal-promotion-invoke -- --proposal <proposal-id> --target-branch main --wait --stub
+curl http://127.0.0.1:8789/operator/threads
+curl -N http://127.0.0.1:8789/operator/threads/<thread-id>/stream
+curl -X POST http://127.0.0.1:8789/operator/threads -H 'content-type: application/json' -d '{"message":"Refresh the self-build onboarding docs in safe mode.","projectId":"spore","safeMode":true,"stub":true}'
+curl -X POST http://127.0.0.1:8789/operator/threads/<thread-id>/messages -H 'content-type: application/json' -d '{"message":"keep only docs","by":"operator","source":"curl"}'
+curl -X POST http://127.0.0.1:8789/operator/threads/<thread-id>/messages -H 'content-type: application/json' -d '{"message":"approve","by":"operator","source":"curl"}'
+curl http://127.0.0.1:8789/operator/actions
+curl http://127.0.0.1:8789/operator/actions?threadId=<thread-id>
 ```
 
 Live control inspection:

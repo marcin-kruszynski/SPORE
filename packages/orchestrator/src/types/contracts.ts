@@ -122,6 +122,21 @@ export interface SelfBuildDecisionListOptions extends JsonObject {
   limit?: number | string;
 }
 
+export interface OperatorThreadListOptions extends JsonObject {
+  status?: string;
+  projectId?: string;
+  limit?: number | string;
+}
+
+export interface OperatorThreadActionListOptions extends JsonObject {
+  threadId?: string;
+  status?: string;
+  actionKind?: string;
+  targetType?: string;
+  targetId?: string;
+  limit?: number | string;
+}
+
 export interface QuarantineRecordListOptions extends JsonObject {
   status?: string;
   targetType?: string;

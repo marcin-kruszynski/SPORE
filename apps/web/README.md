@@ -116,6 +116,14 @@ This app now provides the first minimal browser-based operator surface for SPORE
   - recent work-item run history with rerun affordances
   - workspace health drilldowns
   - execution-level workspace summaries for mutating workflow runs
+- now renders a dedicated Operator Chat surface that lets operators:
+  - start a self-build mission in freeform text
+  - follow the selected mission through a live thread stream
+  - inspect a global inbox of pending decisions across all operator threads
+  - review orchestrator-generated goal plans from the same thread
+  - edit pending goal plans directly in chat with commands such as `keep only docs` or `drop 2`
+  - approve, reject, rework, quarantine, release, or promote pending governance gates with action buttons or chat replies
+  - follow linked goal plans, groups, proposals, and integration branches without leaving the browser mission-control view
 
 ## Run
 

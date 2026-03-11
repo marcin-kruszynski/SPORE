@@ -46,7 +46,41 @@ The current browser surface now renders:
 - coordination-group list/detail and child-lineage reads when those surfaces are available,
 - workflow-level pause, hold, and resume controls through orchestrator APIs,
 - escalation resolve and resume controls through orchestrator APIs,
-- live execution follow through the orchestrator SSE stream.
+- live execution follow through the orchestrator SSE stream,
+- a dedicated `Operator Chat` surface for conversation-first self-build control.
+
+## Conversation-First Operator Chat
+
+The browser and orchestrator now also expose a conversation-first operator surface for self-build.
+
+The preferred routes for that surface are:
+
+- `GET /operator/threads`
+- `POST /operator/threads`
+- `GET /operator/threads/:id`
+- `GET /operator/threads/:id/stream`
+- `POST /operator/threads/:id/messages`
+- `GET /operator/actions`
+- `POST /operator/actions/:id/resolve`
+
+This surface is intentionally thin over orchestrator-owned state.
+
+Operators can:
+
+- state a mission in freeform text,
+- ask for status in freeform text,
+- edit a goal plan in chat with instructions such as `keep only docs`, `drop 2`, or `prioritize operator-ui-pass`,
+- inspect a global inbox of pending decisions across all operator threads,
+- resolve review, rework, quarantine-release, and promotion gates through action buttons,
+- resolve the same gates by replying in chat with direct answers such as `approve`, `reject`, `rework`, `quarantine`, `release`, `promote`, or `hold`,
+- follow one selected mission through a live SSE thread stream.
+
+The important boundary is unchanged:
+
+- chat controls the flow,
+- durable self-build artifacts remain the source of truth.
+
+That means threads and pending actions are operator-facing coordination records, while goal plans, work-item groups, proposals, validations, and promotion state stay authoritative.
 
 That split keeps the state model centralized while allowing future CLI and Web UI work to grow from the same contracts.
 

@@ -21,6 +21,7 @@
           <nav class="view-nav">
             <button type="button" id="view-run-center" class="view-button active" data-view="run-center">Run Center</button>
             <button type="button" id="view-self-build" class="view-button" data-view="self-build">Self-Build</button>
+            <button type="button" id="view-operator-chat" class="view-button" data-view="operator-chat">Operator Chat</button>
           </nav>
           <button type="button" id="refresh-button" class="primary-button">Refresh</button>
           <label class="toggle">
@@ -173,6 +174,122 @@
             </div>
             <div id="self-build-detail-content" class="detail-content"></div>
           </div>
+        </div>
+      </section>
+
+      <section id="operator-chat-view" class="view-container" style="display: none;">
+        <div class="operator-chat-layout">
+          <aside class="panel operator-chat-sidebar">
+            <div class="panel-header">
+              <div>
+                <h2>Threads</h2>
+                <p class="section-note">Conversation-first control over goal plans, review gates, validation, and promotion.</p>
+              </div>
+              <span id="operator-thread-count" class="muted">0 threads</span>
+            </div>
+
+            <form id="operator-thread-form" class="workflow-form operator-thread-form">
+              <label class="form-label" for="operator-thread-message">New Mission</label>
+              <textarea id="operator-thread-message" rows="5" placeholder="Describe what you want SPORE to change or investigate."></textarea>
+              <div class="inline-grid operator-thread-settings">
+                <div>
+                  <label class="form-label" for="operator-thread-project">Project</label>
+                  <input id="operator-thread-project" type="text" value="spore" placeholder="spore" />
+                </div>
+                <div>
+                  <label class="form-label" for="operator-thread-runtime">Execution</label>
+                  <select id="operator-thread-runtime">
+                    <option value="stub" selected>Stub</option>
+                    <option value="real">Real PI</option>
+                  </select>
+                </div>
+              </div>
+              <div class="control-row operator-thread-toggles">
+                <label class="toggle">
+                  <input id="operator-thread-safe-mode" type="checkbox" checked />
+                  <span>Safe mode</span>
+                </label>
+                <label class="toggle">
+                  <input id="operator-thread-auto-validate" type="checkbox" checked />
+                  <span>Auto validate</span>
+                </label>
+              </div>
+              <div class="control-row">
+                <button type="submit" class="primary-button">Start Thread</button>
+                <span id="operator-thread-feedback" class="muted">The orchestrator will turn this into a governed self-build flow.</span>
+              </div>
+            </form>
+
+            <div class="panel-header nested">
+              <h3>Global Inbox</h3>
+              <span id="operator-inbox-count" class="muted">0 pending</span>
+            </div>
+            <div id="operator-inbox-list" class="operator-action-list detail-card empty-state">
+              Pending decisions across all missions will appear here.
+            </div>
+
+            <div class="panel-header nested">
+              <h3>Threads</h3>
+              <span class="muted">Mission list</span>
+            </div>
+            <div id="operator-thread-list" class="operator-thread-list"></div>
+          </aside>
+
+          <section class="panel operator-chat-main">
+            <div class="panel-header">
+              <div>
+                <h2 id="operator-chat-title">Operator Conversation</h2>
+                <p id="operator-chat-subtitle" class="section-note">Start a thread to let the orchestrator plan, run, validate, and stop for approvals only when needed.</p>
+              </div>
+              <span id="operator-chat-state" class="muted">thread: idle</span>
+            </div>
+
+            <div id="operator-chat-empty" class="detail-card empty-state">
+              No conversation selected. Start a new mission from the sidebar and the orchestrator will build the plan, manage the flow, and surface operator decisions here.
+            </div>
+
+            <div id="operator-chat-shell" class="operator-chat-shell" style="display: none;">
+              <div id="operator-message-list" class="operator-message-list"></div>
+              <form id="operator-chat-composer" class="operator-chat-composer">
+                <label class="form-label" for="operator-chat-input">Reply</label>
+                <textarea id="operator-chat-input" rows="4" placeholder="Reply in natural language, or answer directly with: approve, reject, edit, rework, quarantine, release, promote, hold, status."></textarea>
+                <div class="control-row">
+                  <button type="submit" class="primary-button">Send</button>
+                  <span id="operator-chat-feedback" class="muted">The orchestrator will route your message to the right governance step.</span>
+                </div>
+              </form>
+            </div>
+          </section>
+
+          <aside class="panel operator-chat-context">
+            <div class="panel-header">
+              <div>
+                <h2>Mission Control</h2>
+                <p class="section-note">Pending operator decisions, linked artifacts, and current execution settings.</p>
+              </div>
+              <span id="operator-pending-count" class="muted">0 pending</span>
+            </div>
+
+            <div id="operator-pending-actions" class="operator-action-list detail-card empty-state">
+              Pending decisions will appear here.
+            </div>
+
+            <div class="panel-header nested">
+              <h3>Linked Artifacts</h3>
+              <span id="operator-artifact-count" class="muted">0 links</span>
+            </div>
+            <div id="operator-linked-artifacts" class="operator-artifact-list detail-card empty-state">
+              The orchestrator will attach goal plans, groups, proposals, and integration branches here.
+            </div>
+
+            <div class="panel-header nested">
+              <h3>Thread Settings</h3>
+              <span class="muted">Execution policy</span>
+            </div>
+            <div id="operator-thread-settings" class="detail-card empty-state">
+              Thread execution settings will appear here.
+            </div>
+          </aside>
         </div>
       </section>
 

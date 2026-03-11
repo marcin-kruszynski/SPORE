@@ -1,0 +1,2238 @@
+import crypto from "node:crypto";
+import { DEFAULT_ORCHESTRATOR_DB_PATH } from "../metadata/constants.js";
+import { openOrchestratorDatabase } from "../store/db.js";
+import {
+  findActiveQuarantineRecord,
+  findPendingOperatorThreadAction,
+  getOperatorThread,
+  getOperatorThreadAction,
+  insertOperatorThreadAction,
+  insertOperatorThreadMessage,
+  listOperatorThreadActions,
+  listOperatorThreadMessages,
+  listOperatorThreads,
+  updateOperatorThreadAction,
+  upsertOperatorThread,
+} from "../store/execution-store.js";
+import type {
+  OperatorThreadActionListOptions,
+  OperatorThreadListOptions,
+} from "../types/contracts.js";
+import { getSelfBuildDashboard, getSelfBuildSummary } from "./dashboard.js";
+import {
+  createGoalPlan,
+  editGoalPlan,
+  getGoalPlanSummary,
+  quarantineSelfBuildTarget,
+  releaseSelfBuildQuarantine,
+  reviewGoalPlan,
+  runGoalPlan,
+} from "./goal-plans.js";
+import { getSelfBuildWorkItem, runSelfBuildWorkItem } from "./managed-work.js";
+import {
+  approveProposalArtifact,
+  getProposalReviewPackage,
+  getProposalSummary,
+  invokeProposalPromotion,
+  reviewProposalArtifact,
+  reworkProposalArtifact,
+} from "./proposal-lifecycle.js";
+import {
+  getWorkItemGroupSummary,
+  validateWorkItemGroupBundle,
+} from "./work-item-groups.js";
+
+type LooseRecord = Record<string, unknown>;
+
+interface OperatorThreadLinkage extends LooseRecord {
+  goalPlanIds?: string[];
+  activeGoalPlanId?: string | null;
+  activeGroupId?: string | null;
+  activeProposalId?: string | null;
+  integrationBranch?: string | null;
+}
+
+interface OperatorThreadExecutionSettings extends LooseRecord {
+  projectId?: string;
+  safeMode?: boolean;
+  mode?: string;
+  stub?: boolean;
+  launcher?: string | null;
+  wait?: boolean;
+  timeout?: number;
+  interval?: number;
+  autoValidate?: boolean;
+  autoRun?: boolean;
+  autoPromote?: boolean;
+}
+
+function withDatabase<T>(
+  dbPath: string,
+  fn: (db: ReturnType<typeof openOrchestratorDatabase>) => T,
+): T {
+  const db = openOrchestratorDatabase(dbPath);
+  try {
+    return fn(db);
+  } finally {
+    db.close();
+  }
+}
+
+function nowIso(): string {
+  return new Date().toISOString();
+}
+
+function createId(prefix: string): string {
+  return `${prefix}:${crypto.randomUUID()}`;
+}
+
+function asObject(value: unknown): LooseRecord {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as LooseRecord)
+    : {};
+}
+
+function asArray<T>(value: unknown): T[] {
+  return Array.isArray(value) ? (value as T[]) : [];
+}
+
+function toText(value: unknown, fallback = ""): string {
+  const text = String(value ?? "").trim();
+  return text || fallback;
+}
+
+function dedupe(values: unknown[]): string[] {
+  return [
+    ...new Set(
+      values.map((value) => String(value ?? "").trim()).filter(Boolean),
+    ),
+  ];
+}
+
+function containsAny(text: string, candidates: string[]): boolean {
+  const normalized = normalizeMessage(text);
+  return candidates.some((candidate) => normalized.includes(candidate));
+}
+
+function normalizeMessage(value: string): string {
+  return value.toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+function safeExcerpt(value: string, max = 96): string {
+  const text = value.trim();
+  return text.length > max ? `${text.slice(0, max - 1).trimEnd()}...` : text;
+}
+
+function threadLinks(threadId: string) {
+  return {
+    self: `/operator/threads/${encodeURIComponent(threadId)}`,
+    messages: `/operator/threads/${encodeURIComponent(threadId)}/messages`,
+    actions: `/operator/actions?threadId=${encodeURIComponent(threadId)}`,
+  };
+}
+
+function actionLinks(actionId: string) {
+  return {
+    self: `/operator/actions/${encodeURIComponent(actionId)}`,
+    resolve: `/operator/actions/${encodeURIComponent(actionId)}/resolve`,
+  };
+}
+
+function normalizeExecutionSettings(
+  payload: LooseRecord = {},
+): OperatorThreadExecutionSettings {
+  const timeout =
+    Number.parseInt(String(payload.timeout ?? "180000"), 10) || 180000;
+  const interval =
+    Number.parseInt(String(payload.interval ?? "1500"), 10) || 1500;
+  return {
+    projectId: toText(payload.projectId ?? payload.project, "spore"),
+    safeMode: payload.safeMode !== false,
+    mode: toText(payload.mode, "supervised"),
+    stub: payload.stub !== false,
+    launcher: payload.launcher ? String(payload.launcher) : null,
+    wait: payload.wait !== false,
+    timeout,
+    interval,
+    autoValidate: payload.autoValidate !== false,
+    autoRun: payload.autoRun !== false,
+    autoPromote: payload.autoPromote === true,
+  };
+}
+
+function extractExecutionSettings(
+  thread: LooseRecord | null | undefined,
+): OperatorThreadExecutionSettings {
+  return normalizeExecutionSettings(
+    asObject(asObject(thread?.metadata).execution),
+  );
+}
+
+function extractLinkage(
+  thread: LooseRecord | null | undefined,
+): OperatorThreadLinkage {
+  const linkage = asObject(asObject(thread?.metadata).linkage);
+  return {
+    goalPlanIds: dedupe(asArray(linkage.goalPlanIds)),
+    activeGoalPlanId: toText(linkage.activeGoalPlanId, "") || null,
+    activeGroupId: toText(linkage.activeGroupId, "") || null,
+    activeProposalId: toText(linkage.activeProposalId, "") || null,
+    integrationBranch: toText(linkage.integrationBranch, "") || null,
+  };
+}
+
+function mergeThreadMetadata(
+  thread: LooseRecord,
+  next: {
+    execution?: LooseRecord;
+    linkage?: OperatorThreadLinkage;
+    mission?: LooseRecord;
+    observed?: LooseRecord;
+  } = {},
+): LooseRecord {
+  const metadata = asObject(thread.metadata);
+  return {
+    ...metadata,
+    execution: {
+      ...asObject(metadata.execution),
+      ...asObject(next.execution),
+    },
+    linkage: {
+      ...extractLinkage(thread),
+      ...asObject(next.linkage),
+      goalPlanIds: dedupe([
+        ...asArray(extractLinkage(thread).goalPlanIds),
+        ...asArray(asObject(next.linkage).goalPlanIds),
+      ]),
+    },
+    mission: {
+      ...asObject(metadata.mission),
+      ...asObject(next.mission),
+    },
+    observed: {
+      ...asObject(metadata.observed),
+      ...asObject(next.observed),
+    },
+  };
+}
+
+function artifactRef(
+  itemType: string,
+  itemId: string | null | undefined,
+  title: string,
+  status: string | null | undefined,
+) {
+  if (!itemType || !itemId) {
+    return null;
+  }
+  return {
+    itemType,
+    itemId,
+    title,
+    status: status ?? null,
+  };
+}
+
+function summarizeGoalPlan(plan: LooseRecord | null) {
+  if (!plan) {
+    return null;
+  }
+  const recommendations = asArray<LooseRecord>(plan.recommendations);
+  const titles = recommendations
+    .slice(0, 3)
+    .map((entry) =>
+      toText(entry.title, entry.id ? String(entry.id) : "recommendation"),
+    )
+    .filter(Boolean);
+  return {
+    id: plan.id,
+    title: plan.title,
+    status: plan.status,
+    recommendationCount: recommendations.length,
+    previewTitles: titles,
+    nextAction: asObject(plan.operatorFlow).nextAction ?? null,
+  };
+}
+
+function summarizeProposal(proposal: LooseRecord | null) {
+  if (!proposal) {
+    return null;
+  }
+  return {
+    id: proposal.id,
+    title:
+      toText(asObject(proposal.summary).title, "") ||
+      toText(proposal.title, "") ||
+      toText(proposal.id, "proposal"),
+    status: proposal.status,
+    ready: asObject(proposal.readiness).ready === true,
+    blockerCount: asArray(asObject(proposal.readiness).blockers).length,
+    validationStatus: asObject(proposal.validation).status ?? null,
+  };
+}
+
+function getProposalIntegrationBranch(proposal: LooseRecord | null) {
+  return toText(
+    asObject(asObject(asObject(proposal).metadata).promotion).integrationBranch,
+    "",
+  );
+}
+
+function listGoalPlanRecommendations(plan: LooseRecord | null) {
+  return asArray<LooseRecord>(plan?.recommendations ?? []);
+}
+
+function recommendationPreview(plan: LooseRecord | null) {
+  return listGoalPlanRecommendations(plan)
+    .map(
+      (entry) =>
+        `[${toText(entry.id, "?")}] ${toText(entry.title, "Work item")}`,
+    )
+    .join("; ");
+}
+
+function detectPlanEditScopes(message: string) {
+  const scopes = [];
+  if (containsAny(message, ["docs", "doc", "readme", "adr"])) {
+    scopes.push("docs");
+  }
+  if (containsAny(message, ["config", "schema", "schemas"])) {
+    scopes.push("config");
+  }
+  if (containsAny(message, ["web", "ui", "frontend", "dashboard"])) {
+    scopes.push("web");
+  }
+  if (containsAny(message, ["runtime", "backend", "session", "gateway"])) {
+    scopes.push("runtime");
+  }
+  if (containsAny(message, ["cli", "terminal"])) {
+    scopes.push("cli");
+  }
+  return dedupe(scopes);
+}
+
+function recommendationMatchesScope(
+  recommendation: LooseRecord,
+  scope: string,
+) {
+  const metadata = asObject(recommendation.metadata);
+  const domainId = toText(metadata.domainId, "");
+  const templateId = toText(metadata.templateId, "");
+  const taskClass = toText(metadata.taskClass, "");
+  const targetPaths = asArray<string>(metadata.targetPaths).map((entry) =>
+    String(entry),
+  );
+  switch (scope) {
+    case "docs":
+      return (
+        templateId === "docs-maintenance-pass" ||
+        taskClass === "documentation" ||
+        targetPaths.every(
+          (entry) =>
+            entry.startsWith("docs") ||
+            entry === "README.md" ||
+            entry === "runbooks",
+        )
+      );
+    case "config":
+      return (
+        templateId === "config-schema-maintenance" ||
+        taskClass === "config-hardening" ||
+        targetPaths.some(
+          (entry) => entry.startsWith("config") || entry.startsWith("schemas"),
+        )
+      );
+    case "web":
+      return (
+        domainId === "frontend" ||
+        templateId === "operator-ui-pass" ||
+        taskClass === "operator-surface" ||
+        targetPaths.some((entry) => entry.startsWith("apps/web"))
+      );
+    case "runtime":
+      return (
+        domainId === "backend" ||
+        templateId === "runtime-validation-pass" ||
+        taskClass === "runtime-validation" ||
+        targetPaths.some(
+          (entry) =>
+            entry.startsWith("packages/runtime-pi") ||
+            entry.startsWith("services/session-gateway") ||
+            entry.startsWith("services/orchestrator"),
+        )
+      );
+    case "cli":
+      return domainId === "cli" || templateId === "general-self-work";
+    default:
+      return false;
+  }
+}
+
+function parseRecommendationIdsFromMessage(
+  message: string,
+  recommendations: LooseRecord[],
+) {
+  const normalized = normalizeMessage(message);
+  const matched = [];
+  for (const recommendation of recommendations) {
+    const id = toText(recommendation.id, "");
+    const title = normalizeMessage(toText(recommendation.title, ""));
+    const templateId = normalizeMessage(
+      toText(asObject(recommendation.metadata).templateId, ""),
+    );
+    if (
+      id &&
+      new RegExp(`\\b${id.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&")}\\b`).test(
+        normalized,
+      )
+    ) {
+      matched.push(id);
+      continue;
+    }
+    if (title && normalized.includes(title)) {
+      matched.push(id);
+      continue;
+    }
+    if (templateId && normalized.includes(templateId)) {
+      matched.push(id);
+    }
+  }
+  return dedupe(matched);
+}
+
+function resequenceRecommendations(recommendations: LooseRecord[]) {
+  return recommendations.map((recommendation, index, entries) => ({
+    ...recommendation,
+    groupOrder: index,
+    dependsOn:
+      index === 0 ? [] : [String(entries[index - 1]?.id ?? "")].filter(Boolean),
+  }));
+}
+
+function parseGoalPlanEditMessage(plan: LooseRecord | null, message: string) {
+  const recommendations = listGoalPlanRecommendations(plan);
+  if (recommendations.length === 0) {
+    return { detected: false };
+  }
+  const normalized = normalizeMessage(message);
+  const scopes = detectPlanEditScopes(normalized);
+  const matchedIds = parseRecommendationIdsFromMessage(
+    normalized,
+    recommendations,
+  );
+  const matchedRecommendations = recommendations.filter(
+    (entry) =>
+      matchedIds.includes(String(entry.id)) ||
+      scopes.some((scope) => recommendationMatchesScope(entry, scope)),
+  );
+  const hasKeep = /\b(keep only|keep|scope to|focus on)\b/.test(normalized);
+  const hasDrop = /\b(drop|remove|without|exclude)\b/.test(normalized);
+  const hasPrioritize = /\b(prioritize|move first|start with)\b/.test(
+    normalized,
+  );
+  const requestsPlanPreview = containsAny(normalized, [
+    "show plan",
+    "show recommendations",
+    "list recommendations",
+    "show options",
+    "edit plan",
+  ]);
+
+  if (requestsPlanPreview) {
+    return {
+      detected: true,
+      previewOnly: true,
+      summary: `Current plan options: ${recommendationPreview(plan)}. You can reply with commands like “keep only docs”, “drop 2”, or “prioritize operator-ui-pass”.`,
+    };
+  }
+  if (hasKeep && matchedRecommendations.length > 0) {
+    return {
+      detected: true,
+      recommendations: resequenceRecommendations(matchedRecommendations),
+      summary: `Updated the goal plan to keep ${matchedRecommendations.length} recommendation(s): ${matchedRecommendations.map((entry) => toText(entry.title, String(entry.id))).join("; ")}.`,
+    };
+  }
+  if (hasDrop && matchedRecommendations.length > 0) {
+    const remaining = recommendations.filter(
+      (entry) =>
+        !matchedRecommendations.some((candidate) => candidate.id === entry.id),
+    );
+    if (remaining.length > 0) {
+      return {
+        detected: true,
+        recommendations: resequenceRecommendations(remaining),
+        summary: `Dropped ${matchedRecommendations.length} recommendation(s) from the goal plan. Remaining work: ${remaining.map((entry) => toText(entry.title, String(entry.id))).join("; ")}.`,
+      };
+    }
+  }
+  if (hasPrioritize && matchedRecommendations.length > 0) {
+    const prioritizedIds = new Set(
+      matchedRecommendations.map((entry) => String(entry.id)),
+    );
+    const reordered = resequenceRecommendations([
+      ...matchedRecommendations,
+      ...recommendations.filter(
+        (entry) => !prioritizedIds.has(String(entry.id)),
+      ),
+    ]);
+    return {
+      detected: true,
+      recommendations: reordered,
+      summary: `Moved ${matchedRecommendations.map((entry) => toText(entry.title, String(entry.id))).join("; ")} to the front of the goal plan.`,
+    };
+  }
+  return { detected: false };
+}
+
+async function applyGoalPlanEditMessage(
+  threadId: string,
+  goalPlan: LooseRecord,
+  message: string,
+  payload: LooseRecord,
+  dbPath: string,
+) {
+  const parsed = parseGoalPlanEditMessage(goalPlan, message);
+  if (!parsed.detected) {
+    return null;
+  }
+  if (parsed.previewOnly) {
+    appendThreadMessage(
+      threadId,
+      "assistant",
+      "summary",
+      parsed.summary,
+      {
+        artifacts: [
+          artifactRef(
+            "goal-plan",
+            String(goalPlan.id),
+            toText(goalPlan.title, String(goalPlan.id)),
+            String(goalPlan.status),
+          ),
+        ],
+      },
+      dbPath,
+    );
+    return getGoalPlanSummary(String(goalPlan.id), dbPath);
+  }
+  const edited = await editGoalPlan(
+    String(goalPlan.id),
+    {
+      recommendations: parsed.recommendations,
+      rationale: message,
+      by: payload.by ?? "operator",
+      source: payload.source ?? "operator-chat",
+    },
+    dbPath,
+  );
+  appendThreadMessage(
+    threadId,
+    "assistant",
+    "summary",
+    `${parsed.summary} Updated plan options: ${recommendationPreview(edited)}.`,
+    {
+      artifacts: [
+        artifactRef(
+          "goal-plan",
+          String(goalPlan.id),
+          toText(edited?.title, String(goalPlan.id)),
+          toText(edited?.status, "planned"),
+        ),
+      ],
+    },
+    dbPath,
+  );
+  return edited;
+}
+
+function buildThreadSummary(
+  thread: LooseRecord,
+  messages: LooseRecord[],
+  pendingActions: LooseRecord[],
+  context: LooseRecord,
+) {
+  const lastMessage = messages.at(-1);
+  const goalPlan = asObject(context.goalPlan);
+  const group = asObject(context.group);
+  const proposal = asObject(context.proposal);
+  return {
+    objective:
+      toText(
+        asObject(thread.metadata).mission &&
+          asObject(asObject(thread.metadata).mission).objective,
+        "",
+      ) || toText(thread.title, ""),
+    pendingActionCount: pendingActions.length,
+    lastMessageRole: lastMessage?.role ?? null,
+    lastMessageAt:
+      lastMessage?.createdAt ?? thread.latestMessageAt ?? thread.updatedAt,
+    lastMessageExcerpt: lastMessage
+      ? safeExcerpt(toText(lastMessage.content, ""), 140)
+      : null,
+    goalPlan: summarizeGoalPlan(goalPlan),
+    group: group.id
+      ? {
+          id: group.id,
+          title: group.title,
+          status: group.status,
+          itemCount: group.itemCount ?? asArray(group.items).length,
+        }
+      : null,
+    proposal: summarizeProposal(proposal),
+  };
+}
+
+function updateThreadRecord(
+  thread: LooseRecord,
+  updates: {
+    title?: string;
+    status?: string;
+    metadata?: LooseRecord;
+    summary?: LooseRecord;
+    latestMessageAt?: string | null;
+    updatedAt?: string;
+  },
+  dbPath: string,
+) {
+  const next = {
+    ...thread,
+    title: updates.title ?? thread.title,
+    status: updates.status ?? thread.status,
+    metadata: updates.metadata ?? thread.metadata,
+    summary: updates.summary ?? thread.summary,
+    latestMessageAt:
+      updates.latestMessageAt !== undefined
+        ? updates.latestMessageAt
+        : (thread.latestMessageAt ?? null),
+    updatedAt: updates.updatedAt ?? nowIso(),
+  };
+  return withDatabase(dbPath, (db) => upsertOperatorThread(db, next));
+}
+
+function appendThreadMessage(
+  threadId: string,
+  role: string,
+  kind: string,
+  content: string,
+  payload: LooseRecord = {},
+  dbPath: string,
+) {
+  const createdAt = nowIso();
+  withDatabase(dbPath, (db) =>
+    insertOperatorThreadMessage(db, {
+      id: createId("operator-message"),
+      threadId,
+      role,
+      kind,
+      content,
+      payload,
+      createdAt,
+    }),
+  );
+  const thread = withDatabase(dbPath, (db) => getOperatorThread(db, threadId));
+  if (thread) {
+    updateThreadRecord(
+      thread,
+      {
+        latestMessageAt: createdAt,
+        updatedAt: createdAt,
+      },
+      dbPath,
+    );
+  }
+  return createdAt;
+}
+
+function listPendingThreadActions(threadId: string, dbPath: string) {
+  return withDatabase(dbPath, (db) =>
+    listOperatorThreadActions(db, {
+      threadId,
+      status: "pending",
+      limit: 50,
+    }),
+  );
+}
+
+function closeAction(
+  action: LooseRecord,
+  status: string,
+  resolution: LooseRecord,
+  dbPath: string,
+) {
+  const updated = {
+    ...action,
+    status,
+    updatedAt: nowIso(),
+    resolvedAt: nowIso(),
+    resolution,
+  };
+  withDatabase(dbPath, (db) => updateOperatorThreadAction(db, updated));
+  return updated;
+}
+
+function createPendingAction(
+  threadId: string,
+  config: {
+    actionKind: string;
+    title: string;
+    summary: string;
+    targetType: string;
+    targetId: string;
+    payload?: LooseRecord;
+    options?: LooseRecord;
+    links?: LooseRecord;
+    requestedBy?: string;
+  },
+  dbPath: string,
+) {
+  const existing = withDatabase(dbPath, (db) =>
+    findPendingOperatorThreadAction(
+      db,
+      threadId,
+      config.actionKind,
+      config.targetType,
+      config.targetId,
+    ),
+  );
+  if (existing) {
+    return { action: existing, created: false };
+  }
+  const requestedAt = nowIso();
+  const action = {
+    id: createId("operator-action"),
+    threadId,
+    status: "pending",
+    actionKind: config.actionKind,
+    title: config.title,
+    summary: config.summary,
+    targetType: config.targetType,
+    targetId: config.targetId,
+    payload: config.payload ?? {},
+    options: config.options ?? {},
+    links: {
+      ...actionLinks(createId("placeholder")),
+      ...config.links,
+    },
+    requestedBy: config.requestedBy ?? "orchestrator",
+    requestedAt,
+    updatedAt: requestedAt,
+    resolvedAt: null,
+    resolution: {},
+  };
+  action.links = {
+    ...actionLinks(action.id),
+    ...config.links,
+  };
+  withDatabase(dbPath, (db) => insertOperatorThreadAction(db, action));
+  return {
+    action: withDatabase(dbPath, (db) =>
+      getOperatorThreadAction(db, action.id),
+    ),
+    created: true,
+  };
+}
+
+function chooseActiveProposal(
+  group: LooseRecord | null,
+  linkage: OperatorThreadLinkage,
+) {
+  const proposals = asArray<LooseRecord>(group?.proposals);
+  if (proposals.length === 0) {
+    return null;
+  }
+  if (linkage.activeProposalId) {
+    const exact = proposals.find(
+      (proposal) => String(proposal.id) === String(linkage.activeProposalId),
+    );
+    if (exact) {
+      return exact;
+    }
+  }
+  const priority = [
+    "ready_for_review",
+    "reviewed",
+    "validation_required",
+    "validation_failed",
+    "promotion_ready",
+    "promotion_candidate",
+    "rework_required",
+  ];
+  for (const status of priority) {
+    const match = proposals.find(
+      (proposal) => String(proposal.status) === status,
+    );
+    if (match) {
+      return match;
+    }
+  }
+  return proposals[0] ?? null;
+}
+
+function describePendingAction(action: LooseRecord | null) {
+  if (!action) {
+    return null;
+  }
+  const options = asObject(action.options);
+  const choices = asArray<LooseRecord>(options.actions).map((entry) => ({
+    value: entry.value,
+    label: entry.label,
+    tone: entry.tone ?? "secondary",
+  }));
+  return {
+    ...action,
+    choices,
+    links: {
+      ...actionLinks(String(action.id)),
+      ...asObject(action.links),
+    },
+  };
+}
+
+function summarizeThreadContext(
+  thread: LooseRecord,
+  goalPlan: LooseRecord | null,
+  group: LooseRecord | null,
+  proposal: LooseRecord | null,
+) {
+  const dashboard = getSelfBuildDashboard();
+  return {
+    mission: asObject(thread.metadata).mission ?? {},
+    goalPlan,
+    group,
+    proposal,
+    linkedArtifacts: [
+      artifactRef(
+        "goal-plan",
+        goalPlan?.id ? String(goalPlan.id) : null,
+        toText(
+          goalPlan?.title,
+          goalPlan?.id ? String(goalPlan.id) : "Goal plan",
+        ),
+        goalPlan?.status ? String(goalPlan.status) : null,
+      ),
+      artifactRef(
+        "work-item-group",
+        group?.id ? String(group.id) : null,
+        toText(
+          group?.title,
+          group?.id ? String(group.id) : "Managed work group",
+        ),
+        group?.status ? String(group.status) : null,
+      ),
+      artifactRef(
+        "proposal",
+        proposal?.id ? String(proposal.id) : null,
+        toText(
+          asObject(proposal?.summary).title,
+          proposal?.id ? String(proposal.id) : "Proposal",
+        ),
+        proposal?.status ? String(proposal.status) : null,
+      ),
+      artifactRef(
+        "integration-branch",
+        toText(
+          asObject(asObject(proposal?.metadata).promotion).integrationBranch,
+          "",
+        ) || null,
+        toText(
+          asObject(asObject(proposal?.metadata).promotion).integrationBranch,
+          "Integration branch",
+        ),
+        toText(asObject(asObject(proposal?.metadata).promotion).status, "") ||
+          null,
+      ),
+    ].filter(Boolean),
+    globalSummary: {
+      counts: asObject(getSelfBuildSummary().counts),
+      attentionSummary: asObject(dashboard.attentionSummary),
+      lifecycle: asObject(dashboard.lifecycle),
+      queueSummary: asObject(dashboard.queueSummary),
+    },
+  };
+}
+
+function inferThreadStatus(
+  goalPlan: LooseRecord | null,
+  group: LooseRecord | null,
+  proposal: LooseRecord | null,
+  pendingActions: LooseRecord[],
+) {
+  if (pendingActions.length > 0) {
+    return "waiting_operator";
+  }
+  if (
+    ["failed", "blocked", "quarantined"].includes(String(group?.status ?? ""))
+  ) {
+    return "blocked";
+  }
+  if (
+    ["rejected", "rework_required"].includes(String(proposal?.status ?? ""))
+  ) {
+    return "blocked";
+  }
+  if (
+    String(proposal?.status ?? "") === "promotion_candidate" ||
+    String(goalPlan?.status ?? "") === "completed"
+  ) {
+    return "completed";
+  }
+  if (goalPlan || group || proposal) {
+    return "running";
+  }
+  return "active";
+}
+
+function buildPendingActionMessage(action: LooseRecord) {
+  const choices = asArray<LooseRecord>(asObject(action.options).actions);
+  const labels = choices
+    .map((entry) => String(entry.label ?? entry.value ?? ""))
+    .filter(Boolean);
+  const suffix = labels.length > 0 ? ` Options: ${labels.join(" / ")}.` : "";
+  return `${toText(action.summary, action.title ? String(action.title) : "Operator decision required")}${suffix}`;
+}
+
+function matchPendingActionChoice(message: string, action: LooseRecord | null) {
+  if (!action) {
+    return null;
+  }
+  const normalized = normalizeMessage(message);
+  const actions = asArray<LooseRecord>(asObject(action.options).actions);
+  if (actions.length === 0) {
+    return null;
+  }
+  const matches = new Map<string, string[]>([
+    [
+      "approve",
+      [
+        "approve",
+        "approved",
+        "accept",
+        "accepted",
+        "yes",
+        "tak",
+        "ok",
+        "continue",
+        "go ahead",
+        "run it",
+      ],
+    ],
+    ["reviewed", ["review", "reviewed", "approve", "accept", "yes", "tak"]],
+    ["reject", ["reject", "rejected", "no", "nie", "cancel", "stop"]],
+    ["rejected", ["reject", "rejected", "no", "nie", "cancel", "stop"]],
+    ["edit", ["edit", "adjust", "change plan", "revise plan"]],
+    ["rework", ["rework", "fix it", "repair", "redo"]],
+    ["quarantine", ["quarantine", "freeze", "isolate"]],
+    ["release", ["release", "unquarantine", "resume"]],
+    ["promote", ["promote", "promotion", "integrate", "ship", "yes", "tak"]],
+    ["hold", ["hold", "wait", "later", "pause", "not now"]],
+  ]);
+  for (const entry of actions) {
+    const value = toText(entry.value, "");
+    const aliases = matches.get(value) ?? [value];
+    if (aliases.some((alias) => normalized.includes(alias))) {
+      return value;
+    }
+  }
+  return null;
+}
+
+async function supersedeObsoleteActions(
+  threadId: string,
+  goalPlan: LooseRecord | null,
+  proposal: LooseRecord | null,
+  activeQuarantine: LooseRecord | null,
+  dbPath: string,
+) {
+  const pending = listPendingThreadActions(threadId, dbPath);
+  for (const action of pending) {
+    const stillRelevant =
+      (action.actionKind === "goal-plan-review" &&
+        action.targetId === goalPlan?.id &&
+        String(goalPlan?.status ?? "") === "planned") ||
+      (action.actionKind === "proposal-review" &&
+        action.targetId === proposal?.id &&
+        ["draft", "ready_for_review"].includes(
+          String(proposal?.status ?? ""),
+        )) ||
+      (action.actionKind === "proposal-approval" &&
+        action.targetId === proposal?.id &&
+        String(proposal?.status ?? "") === "reviewed") ||
+      (action.actionKind === "proposal-promotion" &&
+        action.targetId === proposal?.id &&
+        String(proposal?.status ?? "") === "promotion_ready") ||
+      (action.actionKind === "proposal-rework" &&
+        action.targetId === proposal?.id &&
+        [
+          "rejected",
+          "rework_required",
+          "validation_failed",
+          "promotion_blocked",
+        ].includes(String(proposal?.status ?? ""))) ||
+      (action.actionKind === "quarantine-release" &&
+        action.targetId === activeQuarantine?.id &&
+        String(activeQuarantine?.status ?? "") === "active");
+    if (!stillRelevant) {
+      closeAction(
+        action,
+        "superseded",
+        {
+          status: "superseded",
+          reason: "Target state changed before the operator responded.",
+        },
+        dbPath,
+      );
+    }
+  }
+}
+
+function findThreadQuarantine(
+  goalPlan: LooseRecord | null,
+  group: LooseRecord | null,
+  proposal: LooseRecord | null,
+  integrationBranch: string | null,
+  dbPath: string,
+) {
+  const targets = [
+    goalPlan?.id ? ["goal-plan", String(goalPlan.id)] : null,
+    group?.id ? ["work-item-group", String(group.id)] : null,
+    proposal?.id ? ["proposal", String(proposal.id)] : null,
+    integrationBranch ? ["integration-branch", integrationBranch] : null,
+  ].filter(Boolean) as Array<[string, string]>;
+  for (const [targetType, targetId] of targets) {
+    const record = withDatabase(dbPath, (db) =>
+      findActiveQuarantineRecord(db, targetType, targetId),
+    );
+    if (record) {
+      return record;
+    }
+  }
+  return null;
+}
+
+function executionRunOptions(thread: LooseRecord, overrides: LooseRecord = {}) {
+  const execution = extractExecutionSettings(thread);
+  return {
+    project: execution.projectId ?? "spore",
+    safeMode: execution.safeMode !== false,
+    wait: execution.wait !== false,
+    timeout: String(overrides.timeout ?? execution.timeout ?? 180000),
+    interval: String(overrides.interval ?? execution.interval ?? 1500),
+    stub:
+      overrides.stub !== undefined
+        ? overrides.stub === true
+        : execution.stub !== false,
+    launcher:
+      overrides.launcher !== undefined
+        ? overrides.launcher
+        : execution.launcher,
+    by: overrides.by ?? "operator-chat",
+    source: overrides.source ?? "operator-chat",
+  };
+}
+
+function buildStatusReply(
+  thread: LooseRecord,
+  goalPlan: LooseRecord | null,
+  group: LooseRecord | null,
+  proposal: LooseRecord | null,
+  pendingActions: LooseRecord[],
+) {
+  const lines = [`Thread status: ${thread.status}.`];
+  if (goalPlan) {
+    lines.push(`Goal plan ${goalPlan.id} is ${goalPlan.status}.`);
+  }
+  if (group) {
+    lines.push(`Managed work group ${group.id} is ${group.status}.`);
+  }
+  if (proposal) {
+    lines.push(`Proposal ${proposal.id} is ${proposal.status}.`);
+  }
+  if (pendingActions[0]) {
+    lines.push(
+      `Waiting for operator decision: ${toText(pendingActions[0].title, String(pendingActions[0].actionKind ?? "action"))}.`,
+    );
+  }
+  if (!goalPlan && !group && !proposal && pendingActions.length === 0) {
+    lines.push(
+      "No managed self-build artifacts are linked to this thread yet.",
+    );
+  }
+  return lines.join(" ");
+}
+
+function messageRequestsStatus(message: string) {
+  return containsAny(message, [
+    "status",
+    "summary",
+    "state",
+    "where are we",
+    "what next",
+    "co dalej",
+    "stan",
+    "podsum",
+  ]);
+}
+
+function messageRequestsHelp(message: string) {
+  return containsAny(message, [
+    "help",
+    "what can you do",
+    "pomoc",
+    "commands",
+    "capabilities",
+  ]);
+}
+
+async function syncThreadState(threadId: string, dbPath: string) {
+  let thread = withDatabase(dbPath, (db) => getOperatorThread(db, threadId));
+  if (!thread) {
+    return null;
+  }
+
+  const linkage = extractLinkage(thread);
+  let goalPlan = linkage.activeGoalPlanId
+    ? getGoalPlanSummary(linkage.activeGoalPlanId, dbPath)
+    : null;
+  if (!goalPlan && asArray(linkage.goalPlanIds).length > 0) {
+    const latestGoalPlanId = asArray<string>(linkage.goalPlanIds).at(-1);
+    goalPlan = latestGoalPlanId
+      ? getGoalPlanSummary(latestGoalPlanId, dbPath)
+      : null;
+  }
+  let group = linkage.activeGroupId
+    ? getWorkItemGroupSummary(linkage.activeGroupId, dbPath)
+    : null;
+  if (!group && goalPlan?.materializedGroup?.id) {
+    group = getWorkItemGroupSummary(
+      String(goalPlan.materializedGroup.id),
+      dbPath,
+    );
+  }
+  let proposal = linkage.activeProposalId
+    ? getProposalSummary(linkage.activeProposalId, dbPath)
+    : null;
+  if (!proposal) {
+    proposal = chooseActiveProposal(group, linkage);
+  }
+
+  let integrationBranch =
+    getProposalIntegrationBranch(proposal) || linkage.integrationBranch || null;
+  let activeQuarantine = findThreadQuarantine(
+    goalPlan,
+    group,
+    proposal,
+    integrationBranch,
+    dbPath,
+  );
+
+  await supersedeObsoleteActions(
+    threadId,
+    goalPlan,
+    proposal,
+    activeQuarantine,
+    dbPath,
+  );
+
+  let pendingActions = listPendingThreadActions(threadId, dbPath);
+  if (pendingActions.length === 0) {
+    if (activeQuarantine) {
+      const created = createPendingAction(
+        threadId,
+        {
+          actionKind: "quarantine-release",
+          title: "Release quarantine",
+          summary: `Quarantine ${activeQuarantine.id} is active for ${activeQuarantine.targetType} ${activeQuarantine.targetId}. Decide whether to keep it in place or release it back into the governed flow.`,
+          targetType: "quarantine",
+          targetId: String(activeQuarantine.id),
+          payload: {
+            itemType: activeQuarantine.targetType,
+            itemId: activeQuarantine.targetId,
+            quarantineId: activeQuarantine.id,
+          },
+          options: {
+            actions: [
+              {
+                value: "release",
+                label: "Release quarantine",
+                tone: "primary",
+              },
+              { value: "hold", label: "Keep quarantined", tone: "secondary" },
+            ],
+          },
+        },
+        dbPath,
+      );
+      if (created.created && created.action) {
+        appendThreadMessage(
+          threadId,
+          "assistant",
+          "action-request",
+          buildPendingActionMessage(created.action),
+          {
+            pendingActionId: created.action.id,
+          },
+          dbPath,
+        );
+      }
+      pendingActions = listPendingThreadActions(threadId, dbPath);
+    } else if (goalPlan && String(goalPlan.status) === "planned") {
+      const created = createPendingAction(
+        threadId,
+        {
+          actionKind: "goal-plan-review",
+          title: "Review goal plan",
+          summary: `Goal plan ${goalPlan.id} is ready for operator review. Plan options: ${recommendationPreview(goalPlan)}. Reply with approve, reject, or edit. You can also say “keep only docs”, “drop 2”, or “prioritize operator-ui-pass”.`,
+          targetType: "goal-plan",
+          targetId: String(goalPlan.id),
+          payload: {
+            itemType: "goal-plan",
+            itemId: goalPlan.id,
+          },
+          options: {
+            actions: [
+              { value: "approve", label: "Approve plan", tone: "primary" },
+              { value: "edit", label: "Edit in chat", tone: "secondary" },
+              { value: "reject", label: "Reject plan", tone: "secondary" },
+            ],
+          },
+        },
+        dbPath,
+      );
+      if (created.created && created.action) {
+        appendThreadMessage(
+          threadId,
+          "assistant",
+          "action-request",
+          buildPendingActionMessage(created.action),
+          {
+            pendingActionId: created.action.id,
+            artifacts: [
+              artifactRef(
+                "goal-plan",
+                String(goalPlan.id),
+                toText(goalPlan.title, String(goalPlan.id)),
+                String(goalPlan.status),
+              ),
+            ],
+          },
+          dbPath,
+        );
+      }
+      pendingActions = listPendingThreadActions(threadId, dbPath);
+    } else if (
+      goalPlan &&
+      ["reviewed", "materialized"].includes(String(goalPlan.status)) &&
+      extractExecutionSettings(thread).autoRun !== false
+    ) {
+      appendThreadMessage(
+        threadId,
+        "assistant",
+        "event",
+        `Goal plan ${goalPlan.id} is approved. I am materializing and running managed work now.`,
+        {
+          artifacts: [
+            artifactRef(
+              "goal-plan",
+              String(goalPlan.id),
+              toText(goalPlan.title, String(goalPlan.id)),
+              String(goalPlan.status),
+            ),
+          ],
+        },
+        dbPath,
+      );
+      await runGoalPlan(
+        String(goalPlan.id),
+        {
+          ...executionRunOptions(thread),
+          autoValidate: extractExecutionSettings(thread).autoValidate !== false,
+        },
+        dbPath,
+      );
+      goalPlan = getGoalPlanSummary(String(goalPlan.id), dbPath);
+      group = goalPlan?.materializedGroup?.id
+        ? getWorkItemGroupSummary(String(goalPlan.materializedGroup.id), dbPath)
+        : group;
+      proposal = chooseActiveProposal(group, extractLinkage(thread));
+    } else if (
+      proposal &&
+      ["draft", "ready_for_review"].includes(String(proposal.status))
+    ) {
+      const created = createPendingAction(
+        threadId,
+        {
+          actionKind: "proposal-review",
+          title: "Review proposal",
+          summary: `Proposal ${proposal.id} needs review before approval and validation.`,
+          targetType: "proposal",
+          targetId: String(proposal.id),
+          payload: {
+            itemType: "proposal",
+            itemId: proposal.id,
+          },
+          options: {
+            actions: [
+              { value: "reviewed", label: "Mark reviewed", tone: "primary" },
+              {
+                value: "rejected",
+                label: "Reject proposal",
+                tone: "secondary",
+              },
+            ],
+          },
+        },
+        dbPath,
+      );
+      if (created.created && created.action) {
+        appendThreadMessage(
+          threadId,
+          "assistant",
+          "action-request",
+          buildPendingActionMessage(created.action),
+          {
+            pendingActionId: created.action.id,
+            artifacts: [
+              artifactRef(
+                "proposal",
+                String(proposal.id),
+                toText(asObject(proposal.summary).title, String(proposal.id)),
+                String(proposal.status),
+              ),
+            ],
+          },
+          dbPath,
+        );
+      }
+      pendingActions = listPendingThreadActions(threadId, dbPath);
+    } else if (proposal && String(proposal.status) === "reviewed") {
+      const created = createPendingAction(
+        threadId,
+        {
+          actionKind: "proposal-approval",
+          title: "Approve proposal",
+          summary: `Proposal ${proposal.id} has been reviewed and now needs approval before validation and promotion checks.`,
+          targetType: "proposal",
+          targetId: String(proposal.id),
+          payload: {
+            itemType: "proposal",
+            itemId: proposal.id,
+          },
+          options: {
+            actions: [
+              { value: "approve", label: "Approve proposal", tone: "primary" },
+              { value: "reject", label: "Reject proposal", tone: "secondary" },
+            ],
+          },
+        },
+        dbPath,
+      );
+      if (created.created && created.action) {
+        appendThreadMessage(
+          threadId,
+          "assistant",
+          "action-request",
+          buildPendingActionMessage(created.action),
+          {
+            pendingActionId: created.action.id,
+            artifacts: [
+              artifactRef(
+                "proposal",
+                String(proposal.id),
+                toText(asObject(proposal.summary).title, String(proposal.id)),
+                String(proposal.status),
+              ),
+            ],
+          },
+          dbPath,
+        );
+      }
+      pendingActions = listPendingThreadActions(threadId, dbPath);
+    } else if (
+      proposal &&
+      [
+        "rejected",
+        "rework_required",
+        "validation_failed",
+        "promotion_blocked",
+      ].includes(String(proposal.status))
+    ) {
+      const created = createPendingAction(
+        threadId,
+        {
+          actionKind: "proposal-rework",
+          title: "Rework or quarantine proposal",
+          summary: `Proposal ${proposal.id} is ${proposal.status}. Decide whether to create rework, quarantine the target, or hold the conversation here.`,
+          targetType: "proposal",
+          targetId: String(proposal.id),
+          payload: {
+            itemType: "proposal",
+            itemId: proposal.id,
+          },
+          options: {
+            actions: [
+              { value: "rework", label: "Create rework", tone: "primary" },
+              { value: "quarantine", label: "Quarantine", tone: "secondary" },
+              { value: "hold", label: "Hold", tone: "secondary" },
+            ],
+          },
+        },
+        dbPath,
+      );
+      if (created.created && created.action) {
+        appendThreadMessage(
+          threadId,
+          "assistant",
+          "action-request",
+          buildPendingActionMessage(created.action),
+          {
+            pendingActionId: created.action.id,
+            artifacts: [
+              artifactRef(
+                "proposal",
+                String(proposal.id),
+                toText(asObject(proposal.summary).title, String(proposal.id)),
+                String(proposal.status),
+              ),
+            ],
+          },
+          dbPath,
+        );
+      }
+      pendingActions = listPendingThreadActions(threadId, dbPath);
+    } else if (
+      proposal &&
+      String(proposal.status) === "validation_required" &&
+      extractExecutionSettings(thread).autoValidate !== false
+    ) {
+      appendThreadMessage(
+        threadId,
+        "assistant",
+        "event",
+        `Proposal ${proposal.id} needs validation. I am running the configured validation flow now.`,
+        {
+          artifacts: [
+            artifactRef(
+              "proposal",
+              String(proposal.id),
+              toText(asObject(proposal.summary).title, String(proposal.id)),
+              String(proposal.status),
+            ),
+          ],
+        },
+        dbPath,
+      );
+      if (group?.id) {
+        await validateWorkItemGroupBundle(
+          String(group.id),
+          executionRunOptions(thread, {
+            source: "operator-chat-validation",
+          }),
+          dbPath,
+        );
+      }
+      group = group?.id
+        ? getWorkItemGroupSummary(String(group.id), dbPath)
+        : group;
+      proposal = chooseActiveProposal(group, extractLinkage(thread));
+      integrationBranch =
+        getProposalIntegrationBranch(proposal) ||
+        linkage.integrationBranch ||
+        null;
+      activeQuarantine = findThreadQuarantine(
+        goalPlan,
+        group,
+        proposal,
+        integrationBranch,
+        dbPath,
+      );
+    } else if (proposal && String(proposal.status) === "promotion_ready") {
+      const reviewPackage = getProposalReviewPackage(
+        String(proposal.id),
+        dbPath,
+      );
+      const created = createPendingAction(
+        threadId,
+        {
+          actionKind: "proposal-promotion",
+          title: "Promote proposal",
+          summary: `Proposal ${proposal.id} is promotion-ready. Decide whether the orchestrator should promote it to the configured integration branch.`,
+          targetType: "proposal",
+          targetId: String(proposal.id),
+          payload: {
+            itemType: "proposal",
+            itemId: proposal.id,
+            reviewPackage,
+          },
+          options: {
+            actions: [
+              {
+                value: "promote",
+                label: "Promote to integration",
+                tone: "primary",
+              },
+              { value: "hold", label: "Hold here", tone: "secondary" },
+            ],
+          },
+        },
+        dbPath,
+      );
+      if (created.created && created.action) {
+        appendThreadMessage(
+          threadId,
+          "assistant",
+          "action-request",
+          buildPendingActionMessage(created.action),
+          {
+            pendingActionId: created.action.id,
+            artifacts: [
+              artifactRef(
+                "proposal",
+                String(proposal.id),
+                toText(asObject(proposal.summary).title, String(proposal.id)),
+                String(proposal.status),
+              ),
+            ],
+          },
+          dbPath,
+        );
+      }
+      pendingActions = listPendingThreadActions(threadId, dbPath);
+    }
+  }
+
+  thread = withDatabase(dbPath, (db) => getOperatorThread(db, threadId));
+  const nextLinkage = {
+    ...extractLinkage(thread),
+    activeGoalPlanId: goalPlan?.id ? String(goalPlan.id) : null,
+    activeGroupId: group?.id
+      ? String(group.id)
+      : goalPlan?.materializedGroup?.id
+        ? String(goalPlan.materializedGroup.id)
+        : null,
+    activeProposalId: proposal?.id ? String(proposal.id) : null,
+    integrationBranch:
+      getProposalIntegrationBranch(proposal) ||
+      extractLinkage(thread).integrationBranch ||
+      null,
+  };
+  const messages = withDatabase(dbPath, (db) =>
+    listOperatorThreadMessages(db, threadId, 200),
+  );
+  activeQuarantine = findThreadQuarantine(
+    goalPlan,
+    group,
+    proposal,
+    nextLinkage.integrationBranch,
+    dbPath,
+  );
+  const context = {
+    ...summarizeThreadContext(thread, goalPlan, group, proposal),
+    activeQuarantine,
+  };
+  const summary = buildThreadSummary(thread, messages, pendingActions, context);
+  const status = inferThreadStatus(goalPlan, group, proposal, pendingActions);
+  const updated = updateThreadRecord(
+    thread,
+    {
+      status,
+      metadata: mergeThreadMetadata(thread, {
+        linkage: nextLinkage,
+      }),
+      summary,
+      latestMessageAt:
+        messages.at(-1)?.createdAt ?? thread.latestMessageAt ?? null,
+    },
+    dbPath,
+  );
+  return {
+    ...updated,
+    messages,
+    pendingActions: pendingActions.map(describePendingAction),
+    actionHistory: withDatabase(dbPath, (db) =>
+      listOperatorThreadActions(db, {
+        threadId,
+        limit: 100,
+      }),
+    ).map(describePendingAction),
+    context,
+    links: threadLinks(threadId),
+  };
+}
+
+async function createGoalPlanFromMessage(
+  thread: LooseRecord,
+  content: string,
+  payload: LooseRecord,
+  dbPath: string,
+) {
+  const execution = extractExecutionSettings(thread);
+  const plan = await createGoalPlan(
+    {
+      goal: content,
+      title: payload.title ?? safeExcerpt(content, 80),
+      projectId: execution.projectId ?? "spore",
+      mode: execution.mode ?? "supervised",
+      safeMode: execution.safeMode !== false,
+      by: payload.by ?? "operator",
+      source: payload.source ?? "operator-chat",
+      reviewRequired: payload.reviewRequired !== false,
+    },
+    dbPath,
+  );
+  const recommendationCount = asArray(plan?.recommendations).length;
+  const previewTitles = asArray<LooseRecord>(plan?.recommendations)
+    .slice(0, 3)
+    .map(
+      (entry) =>
+        `[${toText(entry.id, "?")}] ${toText(entry.title, "recommended work")}`,
+    )
+    .filter(Boolean);
+  const preview =
+    previewTitles.length > 0
+      ? ` Suggested work: ${previewTitles.join("; ")}.`
+      : "";
+  appendThreadMessage(
+    String(thread.id),
+    "assistant",
+    "summary",
+    `I created goal plan ${plan?.id} with ${recommendationCount} recommended work item(s).${preview}`,
+    {
+      artifacts: [
+        artifactRef(
+          "goal-plan",
+          plan?.id ? String(plan.id) : null,
+          toText(plan?.title, plan?.id ? String(plan.id) : "Goal plan"),
+          plan?.status ? String(plan.status) : null,
+        ),
+      ],
+    },
+    dbPath,
+  );
+  updateThreadRecord(
+    thread,
+    {
+      metadata: mergeThreadMetadata(thread, {
+        mission: {
+          objective: content,
+          lastOperatorRequest: content,
+        },
+        linkage: {
+          goalPlanIds: dedupe([
+            ...asArray(extractLinkage(thread).goalPlanIds),
+            plan?.id ? String(plan.id) : null,
+          ]),
+          activeGoalPlanId: plan?.id ? String(plan.id) : null,
+          activeGroupId: null,
+          activeProposalId: null,
+        },
+      }),
+    },
+    dbPath,
+  );
+}
+
+async function replyWithStatus(thread: LooseRecord, dbPath: string) {
+  const detail = await syncThreadState(String(thread.id), dbPath);
+  appendThreadMessage(
+    String(thread.id),
+    "assistant",
+    "summary",
+    buildStatusReply(
+      detail,
+      asObject(detail.context).goalPlan as LooseRecord | null,
+      asObject(detail.context).group as LooseRecord | null,
+      asObject(detail.context).proposal as LooseRecord | null,
+      asArray(detail.pendingActions),
+    ),
+    {
+      context: detail.context,
+    },
+    dbPath,
+  );
+  return syncThreadState(String(thread.id), dbPath);
+}
+
+function helpReply() {
+  return [
+    "Tell me what you want SPORE to do and I will turn that into a governed self-build flow.",
+    "I can create a goal plan, edit that plan in chat, stop for review and approval, run managed work, trigger validation, request rework or quarantine, release quarantines, and ask before promotion.",
+    "You can answer directly in chat with commands like: approve, reject, edit, keep only docs, drop 2, rework, quarantine, release, promote, hold, status.",
+  ].join(" ");
+}
+
+export function listOperatorThreadsSummary(
+  options: OperatorThreadListOptions = {},
+  dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
+) {
+  return withDatabase(dbPath, (db) => listOperatorThreads(db, options)).map(
+    (thread) => ({
+      ...thread,
+      links: threadLinks(String(thread.id)),
+      pendingActionCount: withDatabase(
+        dbPath,
+        (db) =>
+          listOperatorThreadActions(db, {
+            threadId: String(thread.id),
+            status: "pending",
+            limit: 20,
+          }).length,
+      ),
+    }),
+  );
+}
+
+export async function getOperatorThreadDetail(
+  threadId: string,
+  dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
+) {
+  return syncThreadState(threadId, dbPath);
+}
+
+export async function createOperatorThread(
+  payload: LooseRecord = {},
+  dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
+) {
+  const content = toText(
+    payload.message ?? payload.goal ?? payload.objective,
+    "",
+  );
+  if (!content) {
+    throw new Error("operator thread requires a message");
+  }
+  const createdAt = nowIso();
+  const execution = normalizeExecutionSettings(payload);
+  const thread = {
+    id: createId("operator-thread"),
+    title: toText(payload.title, safeExcerpt(content, 72)),
+    projectId: execution.projectId ?? "spore",
+    status: "active",
+    summary: {
+      objective: content,
+      pendingActionCount: 0,
+      lastMessageExcerpt: safeExcerpt(content, 140),
+    },
+    metadata: {
+      mission: {
+        objective: content,
+      },
+      execution,
+      linkage: {
+        goalPlanIds: [],
+        activeGoalPlanId: null,
+        activeGroupId: null,
+        activeProposalId: null,
+      },
+      observed: {},
+    },
+    createdAt,
+    updatedAt: createdAt,
+    latestMessageAt: createdAt,
+  };
+  withDatabase(dbPath, (db) => upsertOperatorThread(db, thread));
+  appendThreadMessage(thread.id, "operator", "message", content, {}, dbPath);
+  await createGoalPlanFromMessage(thread, content, payload, dbPath);
+  return syncThreadState(thread.id, dbPath);
+}
+
+export async function postOperatorThreadMessage(
+  threadId: string,
+  payload: LooseRecord = {},
+  dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
+) {
+  const thread = withDatabase(dbPath, (db) => getOperatorThread(db, threadId));
+  if (!thread) {
+    return null;
+  }
+  const content = toText(payload.message ?? payload.content, "");
+  if (!content) {
+    throw new Error("operator message requires content");
+  }
+  appendThreadMessage(threadId, "operator", "message", content, {}, dbPath);
+  const synced = await syncThreadState(threadId, dbPath);
+  const pendingAction = asArray<LooseRecord>(synced.pendingActions)[0] ?? null;
+  const matchedChoice = matchPendingActionChoice(content, pendingAction);
+  const activeGoalPlan = asObject(asObject(synced.context).goalPlan);
+  if (
+    pendingAction?.actionKind === "goal-plan-review" &&
+    activeGoalPlan?.id &&
+    (!matchedChoice || matchedChoice === "edit")
+  ) {
+    const edited = await applyGoalPlanEditMessage(
+      threadId,
+      activeGoalPlan,
+      content,
+      payload,
+      dbPath,
+    );
+    if (edited) {
+      return syncThreadState(threadId, dbPath);
+    }
+    if (matchedChoice === "edit") {
+      appendThreadMessage(
+        threadId,
+        "assistant",
+        "summary",
+        `You can edit the current plan by saying things like “keep only docs”, “drop 2”, “prioritize operator-ui-pass”, or “show plan”. Current options: ${recommendationPreview(activeGoalPlan)}.`,
+        {
+          artifacts: [
+            artifactRef(
+              "goal-plan",
+              String(activeGoalPlan.id),
+              toText(activeGoalPlan.title, String(activeGoalPlan.id)),
+              String(activeGoalPlan.status),
+            ),
+          ],
+        },
+        dbPath,
+      );
+      return syncThreadState(threadId, dbPath);
+    }
+  }
+  if (matchedChoice && pendingAction?.id) {
+    return resolveOperatorThreadAction(
+      String(pendingAction.id),
+      {
+        choice: matchedChoice,
+        comments: content,
+        by: payload.by ?? "operator",
+        source: payload.source ?? "operator-chat",
+      },
+      dbPath,
+    );
+  }
+  if (messageRequestsHelp(content)) {
+    appendThreadMessage(
+      threadId,
+      "assistant",
+      "summary",
+      helpReply(),
+      {},
+      dbPath,
+    );
+    return syncThreadState(threadId, dbPath);
+  }
+  if (messageRequestsStatus(content)) {
+    return replyWithStatus(thread, dbPath);
+  }
+  if (pendingAction?.id) {
+    appendThreadMessage(
+      threadId,
+      "assistant",
+      "summary",
+      `I still need a decision on ${toText(pendingAction.title, String(pendingAction.actionKind ?? "the pending action"))}. Reply with one of the available actions or ask for status/help.`,
+      {},
+      dbPath,
+    );
+    return syncThreadState(threadId, dbPath);
+  }
+  await createGoalPlanFromMessage(thread, content, payload, dbPath);
+  return syncThreadState(threadId, dbPath);
+}
+
+export function listOperatorPendingActions(
+  options: OperatorThreadActionListOptions = {},
+  dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
+) {
+  return withDatabase(dbPath, (db) =>
+    listOperatorThreadActions(db, options),
+  ).map(describePendingAction);
+}
+
+export async function resolveOperatorThreadAction(
+  actionId: string,
+  payload: LooseRecord = {},
+  dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
+) {
+  const action = withDatabase(dbPath, (db) =>
+    getOperatorThreadAction(db, actionId),
+  );
+  if (!action) {
+    return null;
+  }
+  if (String(action.status) !== "pending") {
+    return syncThreadState(String(action.threadId), dbPath);
+  }
+  const thread = withDatabase(dbPath, (db) =>
+    getOperatorThread(db, String(action.threadId)),
+  );
+  if (!thread) {
+    return null;
+  }
+  const choice = toText(payload.choice, "approve");
+  let result: LooseRecord | null = null;
+  if (action.actionKind === "goal-plan-review") {
+    if (choice === "edit") {
+      appendThreadMessage(
+        String(action.threadId),
+        "assistant",
+        "summary",
+        `Tell me how to reshape goal plan ${action.targetId}. Try “keep only docs”, “drop 2”, “prioritize operator-ui-pass”, or “show plan”.`,
+        {},
+        dbPath,
+      );
+      return syncThreadState(String(action.threadId), dbPath);
+    }
+    result = await reviewGoalPlan(
+      String(action.targetId),
+      {
+        status: choice === "reject" ? "rejected" : "reviewed",
+        comments: payload.comments ?? "",
+        reason: payload.reason ?? payload.comments ?? "",
+        by: payload.by ?? "operator",
+        source: payload.source ?? "operator-chat",
+      },
+      dbPath,
+    );
+    closeAction(
+      action,
+      "resolved",
+      {
+        choice,
+        resultStatus: result?.status ?? null,
+      },
+      dbPath,
+    );
+    appendThreadMessage(
+      String(action.threadId),
+      "assistant",
+      "action-result",
+      choice === "reject"
+        ? `Goal plan ${action.targetId} was rejected. Send a revised request when you want a new plan.`
+        : `Goal plan ${action.targetId} was approved. I will continue the managed self-build flow now.`,
+      {
+        artifacts: [
+          artifactRef(
+            "goal-plan",
+            String(action.targetId),
+            toText(result?.title, String(action.targetId)),
+            toText(result?.status, ""),
+          ),
+        ],
+      },
+      dbPath,
+    );
+  } else if (action.actionKind === "proposal-review") {
+    result = await reviewProposalArtifact(
+      String(action.targetId),
+      {
+        status:
+          choice === "rejected" || choice === "reject"
+            ? "rejected"
+            : "reviewed",
+        comments: payload.comments ?? "",
+        reason: payload.reason ?? payload.comments ?? "",
+        by: payload.by ?? "operator",
+        source: payload.source ?? "operator-chat",
+      },
+      dbPath,
+    );
+    closeAction(
+      action,
+      "resolved",
+      {
+        choice,
+        resultStatus: result?.status ?? null,
+      },
+      dbPath,
+    );
+    appendThreadMessage(
+      String(action.threadId),
+      "assistant",
+      "action-result",
+      choice === "rejected" || choice === "reject"
+        ? `Proposal ${action.targetId} was rejected during review.`
+        : `Proposal ${action.targetId} was marked as reviewed and can move to approval.`,
+      {
+        artifacts: [
+          artifactRef(
+            "proposal",
+            String(action.targetId),
+            toText(asObject(result?.summary).title, String(action.targetId)),
+            result?.status ? String(result.status) : null,
+          ),
+        ],
+      },
+      dbPath,
+    );
+  } else if (action.actionKind === "proposal-approval") {
+    result = await approveProposalArtifact(
+      String(action.targetId),
+      {
+        status: choice === "reject" ? "rejected" : "approved",
+        comments: payload.comments ?? "",
+        reason: payload.reason ?? payload.comments ?? "",
+        by: payload.by ?? "operator",
+        source: payload.source ?? "operator-chat",
+      },
+      dbPath,
+    );
+    closeAction(
+      action,
+      "resolved",
+      {
+        choice,
+        resultStatus: result?.status ?? null,
+      },
+      dbPath,
+    );
+    appendThreadMessage(
+      String(action.threadId),
+      "assistant",
+      "action-result",
+      choice === "reject"
+        ? `Proposal ${action.targetId} was rejected during approval.`
+        : `Proposal ${action.targetId} was approved. I will continue with validation and readiness checks.`,
+      {
+        artifacts: [
+          artifactRef(
+            "proposal",
+            String(action.targetId),
+            toText(asObject(result?.summary).title, String(action.targetId)),
+            result?.status ? String(result.status) : null,
+          ),
+        ],
+      },
+      dbPath,
+    );
+  } else if (action.actionKind === "proposal-rework") {
+    if (choice === "hold") {
+      closeAction(
+        action,
+        "resolved",
+        {
+          choice,
+          held: true,
+        },
+        dbPath,
+      );
+      appendThreadMessage(
+        String(action.threadId),
+        "assistant",
+        "action-result",
+        `Proposal ${action.targetId} stays on hold. Reply with rework or quarantine when you want me to continue.`,
+        {},
+        dbPath,
+      );
+      return syncThreadState(String(action.threadId), dbPath);
+    }
+    if (choice === "quarantine") {
+      result = await quarantineSelfBuildTarget(
+        "proposal",
+        String(action.targetId),
+        {
+          reason:
+            payload.reason ??
+            payload.comments ??
+            "Operator requested quarantine from operator chat.",
+          rationale: payload.comments ?? payload.reason ?? "",
+          by: payload.by ?? "operator",
+          sourceType: payload.source ?? "operator-chat",
+          sourceId: action.id,
+        },
+        dbPath,
+      );
+      closeAction(
+        action,
+        "resolved",
+        {
+          choice,
+          quarantineId: result?.id ?? null,
+        },
+        dbPath,
+      );
+      appendThreadMessage(
+        String(action.threadId),
+        "assistant",
+        "action-result",
+        `Proposal ${action.targetId} has been quarantined. I will wait for an explicit release before continuing.`,
+        {},
+        dbPath,
+      );
+      return syncThreadState(String(action.threadId), dbPath);
+    }
+    result = await reworkProposalArtifact(
+      String(action.targetId),
+      {
+        comments: payload.comments ?? "",
+        rationale: payload.reason ?? payload.comments ?? "",
+        by: payload.by ?? "operator",
+        source: payload.source ?? "operator-chat",
+      },
+      dbPath,
+    );
+    const reworkItem = asObject(result?.reworkItem);
+    closeAction(
+      action,
+      "resolved",
+      {
+        choice,
+        reworkItemId: reworkItem.id ?? null,
+      },
+      dbPath,
+    );
+    appendThreadMessage(
+      String(action.threadId),
+      "assistant",
+      "action-result",
+      reworkItem.id
+        ? `Created rework item ${reworkItem.id} for proposal ${action.targetId}.`
+        : `Created a proposal rework request for ${action.targetId}.`,
+      {
+        artifacts: [
+          artifactRef(
+            "work-item",
+            reworkItem.id ? String(reworkItem.id) : null,
+            toText(reworkItem.title, "Rework item"),
+            toText(reworkItem.status, "pending"),
+          ),
+        ],
+      },
+      dbPath,
+    );
+    if (reworkItem.id && extractExecutionSettings(thread).autoRun !== false) {
+      await runSelfBuildWorkItem(
+        String(reworkItem.id),
+        executionRunOptions(thread, {
+          source: payload.source ?? "operator-chat-rework-run",
+          by: payload.by ?? "operator",
+        }),
+        dbPath,
+      );
+      const refreshedItem = getSelfBuildWorkItem(String(reworkItem.id), dbPath);
+      appendThreadMessage(
+        String(action.threadId),
+        "assistant",
+        "event",
+        `I started the rework item ${reworkItem.id} so the managed flow can continue without another manual step.`,
+        {
+          artifacts: [
+            artifactRef(
+              "work-item",
+              refreshedItem?.id
+                ? String(refreshedItem.id)
+                : String(reworkItem.id),
+              toText(refreshedItem?.title, String(reworkItem.id)),
+              toText(refreshedItem?.status, "running"),
+            ),
+          ],
+        },
+        dbPath,
+      );
+    }
+  } else if (action.actionKind === "quarantine-release") {
+    if (choice === "hold") {
+      closeAction(
+        action,
+        "resolved",
+        {
+          choice,
+          held: true,
+        },
+        dbPath,
+      );
+      appendThreadMessage(
+        String(action.threadId),
+        "assistant",
+        "action-result",
+        `Quarantine ${action.targetId} remains active. Reply with release when you want to continue.`,
+        {},
+        dbPath,
+      );
+      return syncThreadState(String(action.threadId), dbPath);
+    }
+    result = await releaseSelfBuildQuarantine(
+      String(action.targetId),
+      {
+        reason:
+          payload.reason ?? payload.comments ?? "Released from operator chat.",
+        by: payload.by ?? "operator",
+        nextStatus: payload.nextStatus ?? null,
+      },
+      dbPath,
+    );
+    closeAction(
+      action,
+      "resolved",
+      {
+        choice,
+        releaseStatus: result?.status ?? null,
+      },
+      dbPath,
+    );
+    appendThreadMessage(
+      String(action.threadId),
+      "assistant",
+      "action-result",
+      `Released quarantine ${action.targetId}. I will resume the governed self-build flow from the underlying target state.`,
+      {},
+      dbPath,
+    );
+  } else if (action.actionKind === "proposal-promotion") {
+    if (choice === "hold") {
+      closeAction(
+        action,
+        "resolved",
+        {
+          choice,
+          held: true,
+        },
+        dbPath,
+      );
+      appendThreadMessage(
+        String(action.threadId),
+        "assistant",
+        "action-result",
+        `Promotion for proposal ${action.targetId} is on hold. Send “promote” when you want me to continue.`,
+        {},
+        dbPath,
+      );
+      return syncThreadState(String(action.threadId), dbPath);
+    }
+    result = await invokeProposalPromotion(
+      String(action.targetId),
+      {
+        ...executionRunOptions(thread, {
+          source: payload.source ?? "operator-chat-promotion",
+          by: payload.by ?? "operator",
+        }),
+      },
+      dbPath,
+    );
+    closeAction(
+      action,
+      "resolved",
+      {
+        choice,
+        integrationBranch:
+          toText(asObject(result?.promotion).integrationBranch, "") ||
+          getProposalIntegrationBranch(asObject(result?.proposal)),
+      },
+      dbPath,
+    );
+    const integrationBranch =
+      toText(asObject(result?.promotion).integrationBranch, "") ||
+      getProposalIntegrationBranch(asObject(result?.proposal));
+    appendThreadMessage(
+      String(action.threadId),
+      "assistant",
+      "action-result",
+      integrationBranch
+        ? `Promotion launched for proposal ${action.targetId}. Current integration branch: ${integrationBranch}.`
+        : `Promotion launched for proposal ${action.targetId}.`,
+      {
+        artifacts: [
+          artifactRef(
+            "integration-branch",
+            integrationBranch || null,
+            integrationBranch || "Integration branch",
+            "promotion_candidate",
+          ),
+        ],
+      },
+      dbPath,
+    );
+  } else {
+    throw new Error(`unsupported operator action kind: ${action.actionKind}`);
+  }
+  return syncThreadState(String(action.threadId), dbPath);
+}

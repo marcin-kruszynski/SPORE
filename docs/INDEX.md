@@ -41,6 +41,7 @@ Use `docs/` as ground truth for product state, architecture, operations, and dir
 - Project handoff: [plans/project-state-and-direction-handoff.md](plans/project-state-and-direction-handoff.md)
 - Self-build status: [plans/self-build-status-and-next-steps.md](plans/self-build-status-and-next-steps.md)
 - Current roadmap: [plans/roadmap.md](plans/roadmap.md)
+- Operator chat plan: [plans/operator-chat-surface-plan.md](plans/operator-chat-surface-plan.md)
 - Long-range self-build roadmap: [plans/long-range-self-build-roadmap.md](plans/long-range-self-build-roadmap.md)
 - Full self-build implementation plan: [plans/full-self-build-implementation-plan.md](plans/full-self-build-implementation-plan.md)
 
@@ -53,6 +54,7 @@ Use `docs/` as ground truth for product state, architecture, operations, and dir
 - Project coordinator role: [decisions/ADR-0006-project-coordinator-role.md](decisions/ADR-0006-project-coordinator-role.md)
 - Feature integrator promotion boundary: [decisions/ADR-0007-feature-integrator-promotion-boundary.md](decisions/ADR-0007-feature-integrator-promotion-boundary.md)
 - TypeScript-first codebase: [decisions/ADR-0008-typescript-first-codebase.md](decisions/ADR-0008-typescript-first-codebase.md)
+- Conversation-first operator chat surface: [decisions/ADR-0012-operator-chat-surface.md](decisions/ADR-0012-operator-chat-surface.md)
 
 Note: early bootstrap history contains two accepted `ADR-0001` files. Keep both as historical foundation records and do not reuse that number.
 

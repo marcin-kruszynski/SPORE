@@ -2,6 +2,8 @@
 import { DatabaseSync } from "node:sqlite";
 import type {
   DocSuggestionRecordListOptions,
+  OperatorThreadActionListOptions,
+  OperatorThreadListOptions,
   PolicyRecommendationReviewListOptions,
   QuarantineRecordListOptions,
   RollbackRecordListOptions,
@@ -15,6 +17,9 @@ import {
   mapGoalPlan,
   mapIntegrationBranch,
   mapLearningRecord,
+  mapOperatorThread,
+  mapOperatorThreadAction,
+  mapOperatorThreadMessage,
   mapPolicyRecommendationReview,
   mapProposalArtifact,
   mapQuarantineRecord,
@@ -421,6 +426,50 @@ export function openOrchestratorDatabase(dbPath) {
       metadata_json TEXT,
       created_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS operator_threads (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      project_id TEXT,
+      status TEXT NOT NULL,
+      summary_json TEXT,
+      metadata_json TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      latest_message_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_operator_threads_status_updated
+      ON operator_threads(status, updated_at DESC);
+    CREATE TABLE IF NOT EXISTS operator_thread_messages (
+      id TEXT PRIMARY KEY,
+      thread_id TEXT NOT NULL,
+      role TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      content TEXT NOT NULL,
+      payload_json TEXT,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_operator_thread_messages_thread_created
+      ON operator_thread_messages(thread_id, created_at ASC);
+    CREATE TABLE IF NOT EXISTS operator_thread_actions (
+      id TEXT PRIMARY KEY,
+      thread_id TEXT NOT NULL,
+      status TEXT NOT NULL,
+      action_kind TEXT NOT NULL,
+      title TEXT NOT NULL,
+      summary TEXT,
+      target_type TEXT,
+      target_id TEXT,
+      payload_json TEXT,
+      options_json TEXT,
+      links_json TEXT,
+      requested_by TEXT,
+      requested_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      resolved_at TEXT,
+      resolution_json TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_operator_thread_actions_thread_status_requested
+      ON operator_thread_actions(thread_id, status, requested_at DESC);
     CREATE TABLE IF NOT EXISTS self_build_override_records (
       id TEXT PRIMARY KEY,
       target_type TEXT NOT NULL,
@@ -3255,6 +3304,367 @@ export function listSelfBuildDecisions(
     .prepare(sql)
     .all(...params, limit)
     .map((record) => mapSelfBuildDecision(record));
+}
+
+export function insertOperatorThread(db, thread) {
+  db.prepare(`
+    INSERT INTO operator_threads (
+      id, title, project_id, status, summary_json, metadata_json,
+      created_at, updated_at, latest_message_at
+    ) VALUES (
+      @id, @title, @projectId, @status, @summaryJson, @metadataJson,
+      @createdAt, @updatedAt, @latestMessageAt
+    )
+  `).run({
+    id: thread.id,
+    title: thread.title,
+    projectId: thread.projectId ?? null,
+    status: thread.status,
+    summaryJson: JSON.stringify(thread.summary ?? {}),
+    metadataJson: JSON.stringify(thread.metadata ?? {}),
+    createdAt: thread.createdAt,
+    updatedAt: thread.updatedAt,
+    latestMessageAt: thread.latestMessageAt ?? null,
+  });
+}
+
+export function updateOperatorThread(db, thread) {
+  db.prepare(`
+    UPDATE operator_threads SET
+      title = @title,
+      project_id = @projectId,
+      status = @status,
+      summary_json = @summaryJson,
+      metadata_json = @metadataJson,
+      updated_at = @updatedAt,
+      latest_message_at = @latestMessageAt
+    WHERE id = @id
+  `).run({
+    id: thread.id,
+    title: thread.title,
+    projectId: thread.projectId ?? null,
+    status: thread.status,
+    summaryJson: JSON.stringify(thread.summary ?? {}),
+    metadataJson: JSON.stringify(thread.metadata ?? {}),
+    updatedAt: thread.updatedAt,
+    latestMessageAt: thread.latestMessageAt ?? null,
+  });
+}
+
+export function getOperatorThread(db, threadId) {
+  const record = db
+    .prepare(`
+      SELECT
+        id,
+        title,
+        project_id AS projectId,
+        status,
+        summary_json AS summaryJson,
+        metadata_json AS metadataJson,
+        created_at AS createdAt,
+        updated_at AS updatedAt,
+        latest_message_at AS latestMessageAt
+      FROM operator_threads
+      WHERE id = ?
+    `)
+    .get(threadId);
+  return mapOperatorThread(record);
+}
+
+export function listOperatorThreads(
+  db,
+  options: OperatorThreadListOptions = {},
+) {
+  const status = options.status ? String(options.status).trim() : null;
+  const projectId = options.projectId ? String(options.projectId).trim() : null;
+  const limit = Number.parseInt(String(options.limit ?? "50"), 10) || 50;
+  const where = [];
+  const params = [];
+  if (status) {
+    where.push("status = ?");
+    params.push(status);
+  }
+  if (projectId) {
+    where.push("project_id = ?");
+    params.push(projectId);
+  }
+  const sql = `
+    SELECT
+      id,
+      title,
+      project_id AS projectId,
+      status,
+      summary_json AS summaryJson,
+      metadata_json AS metadataJson,
+      created_at AS createdAt,
+      updated_at AS updatedAt,
+      latest_message_at AS latestMessageAt
+    FROM operator_threads
+    ${where.length > 0 ? `WHERE ${where.join(" AND ")}` : ""}
+    ORDER BY COALESCE(latest_message_at, updated_at) DESC, updated_at DESC
+    LIMIT ?
+  `;
+  return db
+    .prepare(sql)
+    .all(...params, limit)
+    .map((record) => mapOperatorThread(record));
+}
+
+export function upsertOperatorThread(db, thread) {
+  const existing = getOperatorThread(db, thread.id);
+  if (existing) {
+    updateOperatorThread(db, { ...existing, ...thread });
+    return getOperatorThread(db, thread.id);
+  }
+  insertOperatorThread(db, thread);
+  return getOperatorThread(db, thread.id);
+}
+
+export function insertOperatorThreadMessage(db, message) {
+  db.prepare(`
+    INSERT INTO operator_thread_messages (
+      id, thread_id, role, kind, content, payload_json, created_at
+    ) VALUES (
+      @id, @threadId, @role, @kind, @content, @payloadJson, @createdAt
+    )
+  `).run({
+    id: message.id,
+    threadId: message.threadId,
+    role: message.role,
+    kind: message.kind,
+    content: message.content,
+    payloadJson: JSON.stringify(message.payload ?? {}),
+    createdAt: message.createdAt,
+  });
+}
+
+export function listOperatorThreadMessages(db, threadId, limit = 200) {
+  return db
+    .prepare(`
+      SELECT
+        id,
+        thread_id AS threadId,
+        role,
+        kind,
+        content,
+        payload_json AS payloadJson,
+        created_at AS createdAt
+      FROM operator_thread_messages
+      WHERE thread_id = ?
+      ORDER BY created_at ASC
+      LIMIT ?
+    `)
+    .all(threadId, limit)
+    .map((record) => mapOperatorThreadMessage(record));
+}
+
+export function insertOperatorThreadAction(db, action) {
+  db.prepare(`
+    INSERT INTO operator_thread_actions (
+      id, thread_id, status, action_kind, title, summary, target_type, target_id,
+      payload_json, options_json, links_json, requested_by, requested_at, updated_at,
+      resolved_at, resolution_json
+    ) VALUES (
+      @id, @threadId, @status, @actionKind, @title, @summary, @targetType, @targetId,
+      @payloadJson, @optionsJson, @linksJson, @requestedBy, @requestedAt, @updatedAt,
+      @resolvedAt, @resolutionJson
+    )
+  `).run({
+    id: action.id,
+    threadId: action.threadId,
+    status: action.status,
+    actionKind: action.actionKind,
+    title: action.title,
+    summary: action.summary ?? null,
+    targetType: action.targetType ?? null,
+    targetId: action.targetId ?? null,
+    payloadJson: JSON.stringify(action.payload ?? {}),
+    optionsJson: JSON.stringify(action.options ?? {}),
+    linksJson: JSON.stringify(action.links ?? {}),
+    requestedBy: action.requestedBy ?? null,
+    requestedAt: action.requestedAt,
+    updatedAt: action.updatedAt ?? action.requestedAt,
+    resolvedAt: action.resolvedAt ?? null,
+    resolutionJson: JSON.stringify(action.resolution ?? {}),
+  });
+}
+
+export function updateOperatorThreadAction(db, action) {
+  db.prepare(`
+    UPDATE operator_thread_actions SET
+      thread_id = @threadId,
+      status = @status,
+      action_kind = @actionKind,
+      title = @title,
+      summary = @summary,
+      target_type = @targetType,
+      target_id = @targetId,
+      payload_json = @payloadJson,
+      options_json = @optionsJson,
+      links_json = @linksJson,
+      requested_by = @requestedBy,
+      requested_at = @requestedAt,
+      updated_at = @updatedAt,
+      resolved_at = @resolvedAt,
+      resolution_json = @resolutionJson
+    WHERE id = @id
+  `).run({
+    id: action.id,
+    threadId: action.threadId,
+    status: action.status,
+    actionKind: action.actionKind,
+    title: action.title,
+    summary: action.summary ?? null,
+    targetType: action.targetType ?? null,
+    targetId: action.targetId ?? null,
+    payloadJson: JSON.stringify(action.payload ?? {}),
+    optionsJson: JSON.stringify(action.options ?? {}),
+    linksJson: JSON.stringify(action.links ?? {}),
+    requestedBy: action.requestedBy ?? null,
+    requestedAt: action.requestedAt,
+    updatedAt: action.updatedAt ?? action.requestedAt,
+    resolvedAt: action.resolvedAt ?? null,
+    resolutionJson: JSON.stringify(action.resolution ?? {}),
+  });
+}
+
+export function getOperatorThreadAction(db, actionId) {
+  const record = db
+    .prepare(`
+      SELECT
+        id,
+        thread_id AS threadId,
+        status,
+        action_kind AS actionKind,
+        title,
+        summary,
+        target_type AS targetType,
+        target_id AS targetId,
+        payload_json AS payloadJson,
+        options_json AS optionsJson,
+        links_json AS linksJson,
+        requested_by AS requestedBy,
+        requested_at AS requestedAt,
+        updated_at AS updatedAt,
+        resolved_at AS resolvedAt,
+        resolution_json AS resolutionJson
+      FROM operator_thread_actions
+      WHERE id = ?
+    `)
+    .get(actionId);
+  return mapOperatorThreadAction(record);
+}
+
+export function findPendingOperatorThreadAction(
+  db,
+  threadId,
+  actionKind = null,
+  targetType = null,
+  targetId = null,
+) {
+  const record = db
+    .prepare(`
+      SELECT
+        id,
+        thread_id AS threadId,
+        status,
+        action_kind AS actionKind,
+        title,
+        summary,
+        target_type AS targetType,
+        target_id AS targetId,
+        payload_json AS payloadJson,
+        options_json AS optionsJson,
+        links_json AS linksJson,
+        requested_by AS requestedBy,
+        requested_at AS requestedAt,
+        updated_at AS updatedAt,
+        resolved_at AS resolvedAt,
+        resolution_json AS resolutionJson
+      FROM operator_thread_actions
+      WHERE thread_id = ?
+        AND status = 'pending'
+        AND (? IS NULL OR action_kind = ?)
+        AND (? IS NULL OR target_type = ?)
+        AND (? IS NULL OR target_id = ?)
+      ORDER BY requested_at DESC
+      LIMIT 1
+    `)
+    .get(
+      threadId,
+      actionKind,
+      actionKind,
+      targetType,
+      targetType,
+      targetId,
+      targetId,
+    );
+  return mapOperatorThreadAction(record);
+}
+
+export function listOperatorThreadActions(
+  db,
+  options: OperatorThreadActionListOptions = {},
+) {
+  const threadId = options.threadId ? String(options.threadId).trim() : null;
+  const status = options.status ? String(options.status).trim() : null;
+  const actionKind = options.actionKind
+    ? String(options.actionKind).trim()
+    : null;
+  const targetType = options.targetType
+    ? String(options.targetType).trim()
+    : null;
+  const targetId = options.targetId ? String(options.targetId).trim() : null;
+  const limit = Number.parseInt(String(options.limit ?? "100"), 10) || 100;
+  const where = [];
+  const params = [];
+  if (threadId) {
+    where.push("thread_id = ?");
+    params.push(threadId);
+  }
+  if (status) {
+    where.push("status = ?");
+    params.push(status);
+  }
+  if (actionKind) {
+    where.push("action_kind = ?");
+    params.push(actionKind);
+  }
+  if (targetType) {
+    where.push("target_type = ?");
+    params.push(targetType);
+  }
+  if (targetId) {
+    where.push("target_id = ?");
+    params.push(targetId);
+  }
+  const sql = `
+    SELECT
+      id,
+      thread_id AS threadId,
+      status,
+      action_kind AS actionKind,
+      title,
+      summary,
+      target_type AS targetType,
+      target_id AS targetId,
+      payload_json AS payloadJson,
+      options_json AS optionsJson,
+      links_json AS linksJson,
+      requested_by AS requestedBy,
+      requested_at AS requestedAt,
+      updated_at AS updatedAt,
+      resolved_at AS resolvedAt,
+      resolution_json AS resolutionJson
+    FROM operator_thread_actions
+    ${where.length > 0 ? `WHERE ${where.join(" AND ")}` : ""}
+    ORDER BY requested_at DESC
+    LIMIT ?
+  `;
+  return db
+    .prepare(sql)
+    .all(...params, limit)
+    .map((record) => mapOperatorThreadAction(record));
 }
 
 export function insertSelfBuildOverrideRecord(db, record) {

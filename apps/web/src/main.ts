@@ -89,12 +89,23 @@ const state: AnyRecord = {
   autoRefreshTimer: null,
   eventSource: null,
   executionEventSource: null,
+  operatorThreadEventSource: null,
   activeTab: "events",
   // Self-build dashboard state
   activeView: "run-center",
   selfBuildWorkItems: [],
   selfBuildGroups: [],
   selfBuildDependencyImpact: null,
+  operatorThreads: [],
+  operatorThreadsState: "idle",
+  operatorThreadsError: null,
+  selectedOperatorThreadId: null,
+  operatorThreadDetail: null,
+  operatorThreadDetailState: "idle",
+  operatorThreadDetailError: null,
+  operatorPendingInbox: [],
+  operatorPendingInboxState: "idle",
+  operatorPendingInboxError: null,
   selfBuildFilters: {
     status: "",
     group: "",
@@ -210,8 +221,10 @@ const els: AnyRecord = {
   // Self-build dashboard elements
   viewRunCenterButton: document.getElementById("view-run-center"),
   viewSelfBuildButton: document.getElementById("view-self-build"),
+  viewOperatorChatButton: document.getElementById("view-operator-chat"),
   runCenterView: document.getElementById("run-center-view"),
   selfBuildView: document.getElementById("self-build-view"),
+  operatorChatView: document.getElementById("operator-chat-view"),
   selfBuildOverview: document.getElementById("self-build-overview"),
   selfBuildDashboardState: document.getElementById(
     "self-build-dashboard-state",
@@ -252,6 +265,33 @@ const els: AnyRecord = {
   selfBuildBackButton: document.getElementById("self-build-back-button"),
   selfBuildDetailTitle: document.getElementById("self-build-detail-title"),
   selfBuildDetailContent: document.getElementById("self-build-detail-content"),
+  operatorThreadForm: document.getElementById("operator-thread-form"),
+  operatorThreadMessage: document.getElementById("operator-thread-message"),
+  operatorThreadProject: document.getElementById("operator-thread-project"),
+  operatorThreadRuntime: document.getElementById("operator-thread-runtime"),
+  operatorThreadSafeMode: document.getElementById("operator-thread-safe-mode"),
+  operatorThreadAutoValidate: document.getElementById(
+    "operator-thread-auto-validate",
+  ),
+  operatorThreadFeedback: document.getElementById("operator-thread-feedback"),
+  operatorInboxCount: document.getElementById("operator-inbox-count"),
+  operatorInboxList: document.getElementById("operator-inbox-list"),
+  operatorThreadList: document.getElementById("operator-thread-list"),
+  operatorThreadCount: document.getElementById("operator-thread-count"),
+  operatorChatTitle: document.getElementById("operator-chat-title"),
+  operatorChatSubtitle: document.getElementById("operator-chat-subtitle"),
+  operatorChatState: document.getElementById("operator-chat-state"),
+  operatorChatEmpty: document.getElementById("operator-chat-empty"),
+  operatorChatShell: document.getElementById("operator-chat-shell"),
+  operatorMessageList: document.getElementById("operator-message-list"),
+  operatorChatComposer: document.getElementById("operator-chat-composer"),
+  operatorChatInput: document.getElementById("operator-chat-input"),
+  operatorChatFeedback: document.getElementById("operator-chat-feedback"),
+  operatorPendingCount: document.getElementById("operator-pending-count"),
+  operatorPendingActions: document.getElementById("operator-pending-actions"),
+  operatorArtifactCount: document.getElementById("operator-artifact-count"),
+  operatorLinkedArtifacts: document.getElementById("operator-linked-artifacts"),
+  operatorThreadSettings: document.getElementById("operator-thread-settings"),
 };
 
 function escapeHtml(value) {
@@ -7397,6 +7437,8 @@ async function refresh() {
   await Promise.all([
     loadRunCenterSummary(),
     loadSelfBuildSummary(),
+    loadOperatorThreads(),
+    loadOperatorPendingInbox(),
     loadScenarioCatalog(),
     loadRegressionCatalog(),
   ]);
@@ -7422,6 +7464,7 @@ async function refresh() {
   detailPromises.push(loadScenarioDetail());
   detailPromises.push(loadRegressionDetail());
   detailPromises.push(loadWorkItemRunDrilldown());
+  detailPromises.push(loadOperatorThreadDetail());
   const results = await Promise.all(detailPromises);
   if (state.selectedSessionId) {
     state.detail = results[0];
@@ -7438,6 +7481,9 @@ async function refresh() {
   renderExecutionDetail();
   renderExecutionHistory(state.executionDetail);
   renderDetail();
+  renderOperatorInbox();
+  renderOperatorThreads();
+  renderOperatorChat();
 }
 
 async function runScenario(stub = false) {
@@ -8021,6 +8067,12 @@ function switchView(viewName) {
       viewName === "self-build",
     );
   }
+  if (els.viewOperatorChatButton) {
+    els.viewOperatorChatButton.classList.toggle(
+      "active",
+      viewName === "operator-chat",
+    );
+  }
 
   // Toggle view visibility
   if (els.runCenterView) {
@@ -8029,15 +8081,27 @@ function switchView(viewName) {
   if (els.selfBuildView) {
     els.selfBuildView.style.display = viewName === "self-build" ? "" : "none";
   }
+  if (els.operatorChatView) {
+    els.operatorChatView.style.display =
+      viewName === "operator-chat" ? "" : "none";
+  }
 
   // Hide detail overlay when switching views
   if (els.selfBuildDetailOverlay) {
     els.selfBuildDetailOverlay.style.display = "none";
   }
 
+  if (viewName !== "operator-chat" && state.operatorThreadEventSource) {
+    state.operatorThreadEventSource.close();
+    state.operatorThreadEventSource = null;
+  }
+
   // Refresh data for the active view
   if (viewName === "self-build") {
     refreshSelfBuildDashboard();
+  }
+  if (viewName === "operator-chat") {
+    refreshOperatorChat();
   }
 }
 
@@ -8072,6 +8136,647 @@ async function refreshSelfBuildDashboard() {
     state.selfBuildSummaryState = "error";
     state.selfBuildSummaryError = error.message;
     console.error("Failed to load self-build summary:", error);
+  }
+}
+
+async function orchestratorJson(path, options: RequestInit = {}) {
+  const response = await fetch(`/api/orchestrator${path}`, {
+    headers: {
+      "content-type": "application/json",
+    },
+    ...options,
+  });
+  const text = await response.text();
+  let payload: AnyRecord = {};
+  if (text) {
+    try {
+      payload = JSON.parse(text);
+    } catch {
+      payload = { message: text };
+    }
+  }
+  if (!response.ok || !payload.ok) {
+    throw new Error(
+      payload.message || payload.error || `request failed: ${response.status}`,
+    );
+  }
+  return payload;
+}
+
+async function loadOperatorThreads() {
+  state.operatorThreadsState = "loading";
+  try {
+    const payload = await orchestratorJson("/operator/threads");
+    state.operatorThreads = Array.isArray(payload.detail) ? payload.detail : [];
+    state.operatorThreadsState = "loaded";
+    state.operatorThreadsError = null;
+    if (
+      !state.selectedOperatorThreadId &&
+      Array.isArray(state.operatorThreads) &&
+      state.operatorThreads[0]?.id
+    ) {
+      state.selectedOperatorThreadId = state.operatorThreads[0].id;
+    }
+  } catch (error) {
+    state.operatorThreadsState = "error";
+    state.operatorThreadsError = error.message;
+  }
+}
+
+async function loadOperatorPendingInbox() {
+  state.operatorPendingInboxState = "loading";
+  try {
+    const payload = await orchestratorJson(
+      "/operator/actions?status=pending&limit=100",
+    );
+    state.operatorPendingInbox = Array.isArray(payload.detail)
+      ? payload.detail
+      : [];
+    state.operatorPendingInboxState = "loaded";
+    state.operatorPendingInboxError = null;
+  } catch (error) {
+    state.operatorPendingInboxState = "error";
+    state.operatorPendingInboxError = error.message;
+  }
+}
+
+async function loadOperatorThreadDetail() {
+  if (!state.selectedOperatorThreadId) {
+    state.operatorThreadDetail = null;
+    state.operatorThreadDetailState = "idle";
+    state.operatorThreadDetailError = null;
+    return;
+  }
+  state.operatorThreadDetailState = "loading";
+  try {
+    const payload = await orchestratorJson(
+      `/operator/threads/${encodeURIComponent(state.selectedOperatorThreadId)}`,
+    );
+    state.operatorThreadDetail = payload.detail ?? null;
+    state.operatorThreadDetailState = "loaded";
+    state.operatorThreadDetailError = null;
+  } catch (error) {
+    state.operatorThreadDetailState = "error";
+    state.operatorThreadDetailError = error.message;
+  }
+}
+
+function connectOperatorThreadEventStream() {
+  if (state.operatorThreadEventSource) {
+    state.operatorThreadEventSource.close();
+    state.operatorThreadEventSource = null;
+  }
+
+  if (state.activeView !== "operator-chat" || !state.selectedOperatorThreadId) {
+    return;
+  }
+
+  const source = new EventSource(
+    `/api/orchestrator/operator/threads/${encodeURIComponent(state.selectedOperatorThreadId)}/stream`,
+  );
+  state.operatorThreadEventSource = source;
+
+  source.addEventListener("thread-ready", (event) => {
+    try {
+      const payload = JSON.parse(event.data);
+      if (payload.ok) {
+        state.operatorThreadDetail = payload.detail ?? null;
+        renderOperatorChat();
+        Promise.all([loadOperatorThreads(), loadOperatorPendingInbox()])
+          .then(() => {
+            renderOperatorInbox();
+            renderOperatorThreads();
+          })
+          .catch((error) => console.error(error));
+      }
+    } catch (error) {
+      console.error(error);
+    }
+  });
+
+  source.addEventListener("thread-update", (event) => {
+    try {
+      const payload = JSON.parse(event.data);
+      if (payload.ok) {
+        state.operatorThreadDetail = payload.detail ?? null;
+        state.operatorThreadDetailState = "loaded";
+        renderOperatorChat();
+        Promise.all([loadOperatorThreads(), loadOperatorPendingInbox()])
+          .then(() => {
+            renderOperatorInbox();
+            renderOperatorThreads();
+          })
+          .catch((error) => console.error(error));
+      }
+    } catch (error) {
+      console.error(error);
+    }
+  });
+
+  source.addEventListener("error", () => {
+    if (els.operatorChatFeedback && state.activeView === "operator-chat") {
+      els.operatorChatFeedback.textContent =
+        "Operator chat live stream reconnecting...";
+    }
+  });
+}
+
+async function refreshOperatorChat() {
+  await loadOperatorThreads();
+  await loadOperatorPendingInbox();
+  await loadOperatorThreadDetail();
+  renderOperatorInbox();
+  renderOperatorThreads();
+  renderOperatorChat();
+  connectOperatorThreadEventStream();
+}
+
+function operatorThreadLookup(threadId) {
+  return Array.isArray(state.operatorThreads)
+    ? state.operatorThreads.find((entry) => entry.id === threadId) || null
+    : null;
+}
+
+function renderOperatorInbox() {
+  if (!els.operatorInboxList) {
+    return;
+  }
+  const actions = Array.isArray(state.operatorPendingInbox)
+    ? state.operatorPendingInbox
+    : [];
+  if (els.operatorInboxCount) {
+    els.operatorInboxCount.textContent = `${actions.length} pending`;
+  }
+  if (actions.length === 0) {
+    els.operatorInboxList.className =
+      "operator-action-list detail-card empty-state";
+    els.operatorInboxList.textContent =
+      "No pending decisions across operator threads right now.";
+    return;
+  }
+  els.operatorInboxList.className = "operator-inbox-list";
+  els.operatorInboxList.innerHTML = actions
+    .map((action) => {
+      const choices = Array.isArray(action.choices) ? action.choices : [];
+      const thread = operatorThreadLookup(action.threadId);
+      const active = action.threadId === state.selectedOperatorThreadId;
+      return `
+        <article class="operator-action-card ${active ? "active" : ""}" data-thread-id="${escapeHtml(String(action.threadId || ""))}">
+          <div class="operator-action-header">
+            <div>
+              <strong>${escapeHtml(String(action.title || action.actionKind || "Decision"))}</strong>
+              <div class="muted">${escapeHtml(String(action.targetType || "target"))}:${escapeHtml(String(action.targetId || "-"))}</div>
+            </div>
+            ${renderStatusBadge(action.status || "pending")}
+          </div>
+          <div class="operator-action-summary">${escapeHtml(String(action.summary || "Operator decision required."))}</div>
+          <div class="operator-inbox-thread">${escapeHtml(String(thread?.title || thread?.summary?.objective || action.threadId || "operator thread"))}</div>
+          ${choices.length > 0 ? `<div class="operator-action-controls">${choices.map((entry) => renderOperatorActionButton(action.id, entry)).join("")}</div>` : ""}
+        </article>
+      `;
+    })
+    .join("");
+}
+
+function renderOperatorThreads() {
+  if (!els.operatorThreadList) {
+    return;
+  }
+  const threads = Array.isArray(state.operatorThreads)
+    ? state.operatorThreads
+    : [];
+  if (els.operatorThreadCount) {
+    els.operatorThreadCount.textContent = `${threads.length} thread${
+      threads.length === 1 ? "" : "s"
+    }`;
+  }
+  if (threads.length === 0) {
+    els.operatorThreadList.innerHTML =
+      '<div class="detail-card empty-state">No operator threads yet. Start a mission and the orchestrator will handle the flow from here.</div>';
+    return;
+  }
+  els.operatorThreadList.innerHTML = threads
+    .map((thread) => {
+      const summary = thread.summary || {};
+      const goalPlan = summary.goalPlan || {};
+      const proposal = summary.proposal || {};
+      const pendingCount = Number(summary.pendingActionCount ?? 0);
+      const active = thread.id === state.selectedOperatorThreadId;
+      return `
+        <article class="operator-thread-card ${active ? "active" : ""}" data-thread-id="${escapeHtml(String(thread.id))}">
+          <div class="operator-thread-header">
+            <div class="operator-thread-title-row">
+              <strong>${escapeHtml(String(thread.title || summary.objective || thread.id))}</strong>
+              <span class="muted">${escapeHtml(String(summary.objective || "Conversation-first operator flow"))}</span>
+            </div>
+            ${renderStatusBadge(thread.status || "idle")}
+          </div>
+          <div class="operator-thread-excerpt">${escapeHtml(String(summary.lastMessageExcerpt || "No messages yet."))}</div>
+          <div class="operator-thread-meta">
+            ${goalPlan.id ? `<span class="detail-pill">plan:${escapeHtml(String(goalPlan.status || "unknown"))}</span>` : ""}
+            ${proposal.id ? `<span class="detail-pill">proposal:${escapeHtml(String(proposal.status || "unknown"))}</span>` : ""}
+            ${pendingCount > 0 ? `<span class="detail-pill emphasized">pending:${pendingCount}</span>` : `<span class="detail-pill">pending:0</span>`}
+            <span class="muted">${escapeHtml(formatDisplayTimestamp(summary.lastMessageAt || thread.updatedAt))}</span>
+          </div>
+        </article>
+      `;
+    })
+    .join("");
+}
+
+function renderOperatorArtifactButton(artifact) {
+  if (!artifact?.itemType || !artifact?.itemId) {
+    return "";
+  }
+  return `
+    <button
+      type="button"
+      class="operator-artifact-button"
+      data-open-self-build="true"
+      data-open-type="${escapeHtml(String(artifact.itemType))}"
+      data-open-id="${escapeHtml(String(artifact.itemId))}"
+    >
+      ${escapeHtml(String(artifact.title || artifact.itemId))}
+    </button>
+  `;
+}
+
+function renderOperatorActionButton(actionId, action) {
+  const tone = action.tone === "primary" ? "primary" : "secondary";
+  return `
+    <button
+      type="button"
+      class="operator-action-button ${tone}"
+      data-operator-action-id="${escapeHtml(String(actionId))}"
+      data-operator-action-choice="${escapeHtml(String(action.value))}"
+    >
+      ${escapeHtml(String(action.label || action.value))}
+    </button>
+  `;
+}
+
+function renderOperatorMessages(detail) {
+  if (!els.operatorMessageList) {
+    return;
+  }
+  const messages = Array.isArray(detail?.messages) ? detail.messages : [];
+  els.operatorMessageList.innerHTML =
+    messages.length > 0
+      ? messages
+          .map((message) => {
+            const payload = message.payload || {};
+            const artifacts = Array.isArray(payload.artifacts)
+              ? payload.artifacts
+              : [];
+            const pendingActionId = payload.pendingActionId || null;
+            const pendingAction = Array.isArray(detail.pendingActions)
+              ? detail.pendingActions.find(
+                  (entry) => entry.id === pendingActionId,
+                )
+              : null;
+            const actionButtons = Array.isArray(pendingAction?.choices)
+              ? pendingAction.choices
+                  .map((entry) =>
+                    renderOperatorActionButton(pendingAction.id, entry),
+                  )
+                  .join("")
+              : "";
+            return `
+              <article class="operator-message-card" data-role="${escapeHtml(String(message.role || "assistant"))}">
+                <div class="operator-message-header">
+                  <div>
+                    <div class="operator-message-role">${escapeHtml(String(message.role || "assistant"))}</div>
+                    <strong>${escapeHtml(String(message.kind || "message"))}</strong>
+                  </div>
+                  <span class="muted">${escapeHtml(formatDisplayTimestamp(message.createdAt))}</span>
+                </div>
+                <div class="operator-message-content">${escapeHtml(String(message.content || ""))}</div>
+                ${artifacts.length > 0 ? `<div class="operator-message-artifacts">${artifacts.map(renderOperatorArtifactButton).join("")}</div>` : ""}
+                ${actionButtons ? `<div class="operator-action-controls">${actionButtons}</div>` : ""}
+              </article>
+            `;
+          })
+          .join("")
+      : '<div class="detail-card empty-state">Conversation history will appear here.</div>';
+}
+
+function renderOperatorPendingActions(detail) {
+  if (!els.operatorPendingActions) {
+    return;
+  }
+  const actions = Array.isArray(detail?.pendingActions)
+    ? detail.pendingActions
+    : [];
+  if (els.operatorPendingCount) {
+    els.operatorPendingCount.textContent = `${actions.length} pending`;
+  }
+  if (actions.length === 0) {
+    els.operatorPendingActions.className =
+      "operator-action-list detail-card empty-state";
+    els.operatorPendingActions.textContent =
+      "No pending operator decisions. The orchestrator can continue without a manual gate right now.";
+    return;
+  }
+  els.operatorPendingActions.className = "operator-action-list";
+  els.operatorPendingActions.innerHTML = actions
+    .map((action) => {
+      const choices = Array.isArray(action.choices) ? action.choices : [];
+      return `
+        <article class="operator-action-card">
+          <div class="operator-action-header">
+            <div>
+              <strong>${escapeHtml(String(action.title || action.actionKind || "Decision"))}</strong>
+              <div class="muted">${escapeHtml(String(action.targetType || "target"))}:${escapeHtml(String(action.targetId || "-"))}</div>
+            </div>
+            ${renderStatusBadge(action.status || "pending")}
+          </div>
+          <div class="operator-action-summary">${escapeHtml(String(action.summary || "Operator decision required."))}</div>
+          ${choices.length > 0 ? `<div class="operator-action-controls">${choices.map((entry) => renderOperatorActionButton(action.id, entry)).join("")}</div>` : ""}
+        </article>
+      `;
+    })
+    .join("");
+}
+
+function renderOperatorLinkedArtifacts(detail) {
+  if (!els.operatorLinkedArtifacts) {
+    return;
+  }
+  const artifacts = Array.isArray(detail?.context?.linkedArtifacts)
+    ? detail.context.linkedArtifacts.filter(Boolean)
+    : [];
+  const activeQuarantine = detail?.context?.activeQuarantine || null;
+  if (els.operatorArtifactCount) {
+    els.operatorArtifactCount.textContent = `${
+      artifacts.length + (activeQuarantine ? 1 : 0)
+    } links`;
+  }
+  if (artifacts.length === 0 && !activeQuarantine) {
+    els.operatorLinkedArtifacts.className = "detail-card empty-state";
+    els.operatorLinkedArtifacts.textContent =
+      "No linked artifacts yet. Goal plans, managed work groups, proposals, and integration branches will appear here.";
+    return;
+  }
+  els.operatorLinkedArtifacts.className = "operator-artifact-list";
+  const quarantineCard = activeQuarantine
+    ? `
+        <article class="operator-artifact-card">
+          <div class="operator-artifact-header">
+            <div>
+              <strong>${escapeHtml(String(activeQuarantine.id))}</strong>
+              <div class="muted">active quarantine on ${escapeHtml(String(activeQuarantine.targetType || "target"))}</div>
+            </div>
+            ${renderStatusBadge(activeQuarantine.status || "active")}
+          </div>
+          <div class="operator-artifact-summary">${escapeHtml(String(activeQuarantine.reason || "Quarantine is active for this mission."))}</div>
+        </article>
+      `
+    : "";
+  els.operatorLinkedArtifacts.innerHTML = `${quarantineCard}${artifacts
+    .map(
+      (artifact) => `
+        <article class="operator-artifact-card">
+          <div class="operator-artifact-header">
+            <div>
+              <strong>${escapeHtml(String(artifact.title || artifact.itemId))}</strong>
+              <div class="muted">${escapeHtml(String(artifact.itemType || "artifact"))}</div>
+            </div>
+            ${renderStatusBadge(artifact.status || "linked")}
+          </div>
+          <div class="operator-artifact-actions">${renderOperatorArtifactButton(artifact)}</div>
+        </article>
+      `,
+    )
+    .join("")}`;
+}
+
+function renderOperatorThreadSettings(detail) {
+  if (!els.operatorThreadSettings) {
+    return;
+  }
+  const execution = detail?.metadata?.execution || {};
+  const settings = [
+    ["Project", execution.projectId || "spore"],
+    ["Runtime", execution.stub === false ? "real PI" : "stub"],
+    ["Safe mode", execution.safeMode === false ? "off" : "on"],
+    ["Auto validate", execution.autoValidate === false ? "off" : "on"],
+    ["Auto run", execution.autoRun === false ? "off" : "on"],
+    ["Auto promote", execution.autoPromote === true ? "on" : "manual gate"],
+  ];
+  els.operatorThreadSettings.className = "detail-card";
+  els.operatorThreadSettings.innerHTML = `
+    <div class="operator-settings-grid">
+      ${settings
+        .map(
+          ([label, value]) => `
+            <div class="operator-setting-row">
+              <span class="detail-label">${escapeHtml(String(label))}</span>
+              <strong>${escapeHtml(String(value))}</strong>
+            </div>
+          `,
+        )
+        .join("")}
+    </div>
+  `;
+}
+
+function renderOperatorChat() {
+  const detail = state.operatorThreadDetail;
+  if (els.operatorChatTitle) {
+    els.operatorChatTitle.textContent =
+      detail?.title || "Operator Conversation";
+  }
+  if (els.operatorChatSubtitle) {
+    els.operatorChatSubtitle.textContent =
+      detail?.summary?.objective ||
+      "Start a thread to let the orchestrator manage self-build on your behalf.";
+  }
+  if (els.operatorChatState) {
+    els.operatorChatState.textContent = detail
+      ? `thread:${detail.status || "idle"} · pending:${
+          Array.isArray(detail.pendingActions)
+            ? detail.pendingActions.length
+            : 0
+        }`
+      : `thread:${state.operatorThreadDetailState}`;
+  }
+
+  if (!detail) {
+    if (els.operatorChatEmpty) els.operatorChatEmpty.style.display = "block";
+    if (els.operatorChatShell) els.operatorChatShell.style.display = "none";
+    renderOperatorPendingActions(null);
+    renderOperatorLinkedArtifacts(null);
+    renderOperatorThreadSettings({ metadata: { execution: {} } });
+    return;
+  }
+
+  if (els.operatorChatEmpty) els.operatorChatEmpty.style.display = "none";
+  if (els.operatorChatShell) els.operatorChatShell.style.display = "grid";
+
+  renderOperatorMessages(detail);
+  renderOperatorPendingActions(detail);
+  renderOperatorLinkedArtifacts(detail);
+  renderOperatorThreadSettings(detail);
+}
+
+async function createOperatorThreadFromForm() {
+  if (!els.operatorThreadMessage) {
+    return;
+  }
+  const message = els.operatorThreadMessage.value?.trim() || "";
+  if (!message) {
+    if (els.operatorThreadFeedback) {
+      els.operatorThreadFeedback.textContent =
+        "Describe a mission first so the orchestrator can create a goal plan.";
+    }
+    return;
+  }
+  if (els.operatorThreadFeedback) {
+    els.operatorThreadFeedback.textContent = "Starting operator thread...";
+  }
+  try {
+    const payload = await orchestratorJson("/operator/threads", {
+      method: "POST",
+      body: JSON.stringify({
+        message,
+        projectId: els.operatorThreadProject?.value?.trim() || "spore",
+        safeMode: els.operatorThreadSafeMode?.checked !== false,
+        autoValidate: els.operatorThreadAutoValidate?.checked !== false,
+        stub: els.operatorThreadRuntime?.value !== "real",
+        by: "web-operator",
+        source: "web-operator-chat",
+      }),
+    });
+    state.selectedOperatorThreadId = payload.detail?.id || null;
+    if (els.operatorThreadMessage) {
+      els.operatorThreadMessage.value = "";
+    }
+    if (els.operatorThreadFeedback) {
+      els.operatorThreadFeedback.textContent =
+        "Thread started. The orchestrator created the first managed step.";
+    }
+    await refreshOperatorChat();
+  } catch (error) {
+    if (els.operatorThreadFeedback) {
+      els.operatorThreadFeedback.textContent = error.message;
+    }
+  }
+}
+
+async function sendOperatorChatReply() {
+  if (!state.selectedOperatorThreadId || !els.operatorChatInput) {
+    return;
+  }
+  const message = els.operatorChatInput.value?.trim() || "";
+  if (!message) {
+    if (els.operatorChatFeedback) {
+      els.operatorChatFeedback.textContent = "Type a reply first.";
+    }
+    return;
+  }
+  if (els.operatorChatFeedback) {
+    els.operatorChatFeedback.textContent = "Sending to orchestrator...";
+  }
+  try {
+    const payload = await orchestratorJson(
+      `/operator/threads/${encodeURIComponent(state.selectedOperatorThreadId)}/messages`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          message,
+          by: "web-operator",
+          source: "web-operator-chat",
+        }),
+      },
+    );
+    state.operatorThreadDetail = payload.detail ?? null;
+    if (els.operatorChatInput) {
+      els.operatorChatInput.value = "";
+    }
+    if (els.operatorChatFeedback) {
+      els.operatorChatFeedback.textContent =
+        "Message delivered. The orchestrator updated the mission state.";
+    }
+    await Promise.all([loadOperatorThreads(), loadOperatorPendingInbox()]);
+    renderOperatorInbox();
+    renderOperatorThreads();
+    renderOperatorChat();
+  } catch (error) {
+    if (els.operatorChatFeedback) {
+      els.operatorChatFeedback.textContent = error.message;
+    }
+  }
+}
+
+async function resolveOperatorChatAction(actionId, choice) {
+  if (els.operatorChatFeedback) {
+    els.operatorChatFeedback.textContent = "Resolving operator action...";
+  }
+  try {
+    const payload = await orchestratorJson(
+      `/operator/actions/${encodeURIComponent(actionId)}/resolve`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          choice,
+          by: "web-operator",
+          source: "web-operator-chat",
+        }),
+      },
+    );
+    state.operatorThreadDetail = payload.detail ?? null;
+    state.selectedOperatorThreadId =
+      payload.detail?.id || state.selectedOperatorThreadId;
+    await Promise.all([loadOperatorThreads(), loadOperatorPendingInbox()]);
+    renderOperatorInbox();
+    renderOperatorThreads();
+    renderOperatorChat();
+    connectOperatorThreadEventStream();
+    if (els.operatorChatFeedback) {
+      els.operatorChatFeedback.textContent =
+        "Decision recorded. The orchestrator continued the flow.";
+    }
+  } catch (error) {
+    if (els.operatorChatFeedback) {
+      els.operatorChatFeedback.textContent = error.message;
+    }
+  }
+}
+
+async function handleOperatorChatClick(event) {
+  const target = event.target as HTMLElement | null;
+  const actionButton = target?.closest(
+    "[data-operator-action-id]",
+  ) as HTMLElement | null;
+  if (actionButton?.dataset.operatorActionId) {
+    await resolveOperatorChatAction(
+      actionButton.dataset.operatorActionId,
+      actionButton.dataset.operatorActionChoice || "approve",
+    );
+    return;
+  }
+
+  const threadCard = target?.closest("[data-thread-id]") as HTMLElement | null;
+  if (threadCard?.dataset.threadId) {
+    state.selectedOperatorThreadId = threadCard.dataset.threadId;
+    await loadOperatorThreadDetail();
+    connectOperatorThreadEventStream();
+    renderOperatorInbox();
+    renderOperatorThreads();
+    renderOperatorChat();
+    return;
+  }
+
+  const artifactButton = target?.closest(
+    "[data-open-self-build='true']",
+  ) as HTMLElement | null;
+  if (artifactButton?.dataset.openType && artifactButton?.dataset.openId) {
+    switchView("self-build");
+    await refreshSelfBuildDashboard();
+    await openSelfBuildDetail(
+      artifactButton.dataset.openType,
+      artifactButton.dataset.openId,
+    );
   }
 }
 
@@ -11034,6 +11739,12 @@ if (els.viewSelfBuildButton) {
   );
 }
 
+if (els.viewOperatorChatButton) {
+  els.viewOperatorChatButton.addEventListener("click", () =>
+    switchView("operator-chat"),
+  );
+}
+
 if (els.selfBuildBackButton) {
   els.selfBuildBackButton.addEventListener("click", () => {
     if (els.selfBuildDetailOverlay) {
@@ -11071,6 +11782,20 @@ if (els.selfBuildFilterReset) {
   });
 }
 
+if (els.operatorThreadForm) {
+  els.operatorThreadForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    createOperatorThreadFromForm();
+  });
+}
+
+if (els.operatorChatComposer) {
+  els.operatorChatComposer.addEventListener("submit", (event) => {
+    event.preventDefault();
+    sendOperatorChatReply();
+  });
+}
+
 [
   els.groupReadinessList,
   els.urgentWorkQueue,
@@ -11085,6 +11810,20 @@ if (els.selfBuildFilterReset) {
 [els.selfBuildRecentRuns, els.selfBuildWorkspaceHealth].forEach((element) => {
   if (element) {
     element.addEventListener("click", handleSelfBuildClick);
+  }
+});
+
+[
+  els.operatorThreadList,
+  els.operatorInboxList,
+  els.operatorMessageList,
+  els.operatorPendingActions,
+  els.operatorLinkedArtifacts,
+].forEach((element) => {
+  if (element) {
+    element.addEventListener("click", (event) => {
+      handleOperatorChatClick(event);
+    });
   }
 });
 

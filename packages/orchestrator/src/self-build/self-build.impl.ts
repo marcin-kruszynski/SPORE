@@ -1922,6 +1922,14 @@ function extractGoalDomain(goal = "", explicitDomain = null) {
     return "docs";
   }
   if (
+    normalized.includes("frontend") ||
+    normalized.includes("web") ||
+    normalized.includes("ui") ||
+    normalized.includes("dashboard")
+  ) {
+    return "frontend";
+  }
+  if (
     normalized.includes("cli") ||
     normalized.includes("terminal") ||
     normalized.includes("operator")
@@ -1939,11 +1947,17 @@ function buildGoalRecommendations({
   projectConfig = null,
 }) {
   const normalized = String(goal).toLowerCase();
-  const activeDomains = dedupe(projectConfig?.activeDomains ?? []);
+  const activeDomains = dedupe(
+    asArray(projectConfig?.activeDomains)
+      .map((entry) =>
+        typeof entry === "string" ? entry : entry?.id ? String(entry.id) : "",
+      )
+      .filter(Boolean),
+  );
   const hasDomain = (candidate) =>
-    activeDomains.length === 0 ||
-    activeDomains.includes(candidate) ||
-    candidate === domainId;
+    candidate === domainId ||
+    (!domainId &&
+      (activeDomains.length === 0 || activeDomains.includes(candidate)));
   const recommendations = [];
 
   if (
@@ -7929,6 +7943,27 @@ export async function releaseSelfBuildQuarantine(
             (String(group.status) === "quarantined" ? "blocked" : group.status),
           updatedAt: now,
           metadata: mergeMetadata(group.metadata ?? {}, {
+            quarantine: {
+              id: record.id,
+              status: "released",
+              reason: record.reason,
+              releasedAt: now,
+            },
+          }),
+        });
+      }
+    } else if (record.targetType === "proposal") {
+      const artifact = getProposalArtifact(db, record.targetId);
+      if (artifact) {
+        updateProposalArtifact(db, {
+          ...artifact,
+          status:
+            payload.nextStatus ??
+            (String(artifact.status) === "promotion_blocked"
+              ? "validation_required"
+              : artifact.status),
+          updatedAt: now,
+          metadata: mergeMetadata(artifact.metadata ?? {}, {
             quarantine: {
               id: record.id,
               status: "released",

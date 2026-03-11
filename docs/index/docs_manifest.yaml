@@ -195,6 +195,13 @@ documents:
     owner: architecture-council
     tags: [self-build, backlog, next-steps]
     path: docs/plans/self-build-status-and-next-steps.md
+  - id: operator-chat-surface-plan
+    type: roadmap
+    domain: shared
+    status: active
+    owner: architecture-council
+    tags: [operator-chat, web, orchestration]
+    path: docs/plans/operator-chat-surface-plan.md
   - id: current-roadmap
     type: roadmap
     domain: shared
@@ -265,6 +272,13 @@ documents:
     owner: architecture-council
     tags: [typescript, codebase, migration]
     path: docs/decisions/ADR-0008-typescript-first-codebase.md
+  - id: adr-operator-chat-surface
+    type: decision
+    domain: shared
+    status: accepted
+    owner: architecture-council
+    tags: [operator-chat, web, governance]
+    path: docs/decisions/ADR-0012-operator-chat-surface.md
   - id: bootstrap-completion-summary
     type: historical
     domain: shared

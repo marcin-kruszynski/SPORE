@@ -2,6 +2,15 @@ export * from "./autonomy-controls.js";
 export * from "./dashboard.js";
 export * from "./goal-plans.js";
 export * from "./managed-work.js";
+export * from "./operator-chat.js";
+export {
+  createOperatorThread,
+  getOperatorThreadDetail,
+  listOperatorPendingActions,
+  listOperatorThreadsSummary,
+  postOperatorThreadMessage,
+  resolveOperatorThreadAction,
+} from "./operator-chat.js";
 export * from "./proposal-lifecycle.js";
 export {
   createSelfBuildOverride,

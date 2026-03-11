@@ -24,6 +24,13 @@ Workflow templates may also define `stepSets`, which the service exposes back th
 - `GET /executions/:id/events`
 - `GET /executions/:id/escalations`
 - `GET /run-center/summary`
+- `GET /operator/threads`
+- `POST /operator/threads`
+- `GET /operator/threads/:id`
+- `GET /operator/threads/:id/stream`
+- `POST /operator/threads/:id/messages`
+- `GET /operator/actions`
+- `POST /operator/actions/:id/resolve`
 - `GET /self-build/dashboard`
 - `GET /self-build/summary`
 - `GET /self-build/decisions`
@@ -176,6 +183,19 @@ curl http://127.0.0.1:8789/executions/branch-review-001/escalations
 curl -N http://127.0.0.1:8789/stream/executions?execution=branch-approval-001
 
 curl http://127.0.0.1:8789/run-center/summary
+curl http://127.0.0.1:8789/operator/threads
+curl -N http://127.0.0.1:8789/operator/threads/<thread-id>/stream
+curl -X POST http://127.0.0.1:8789/operator/threads \
+  -H 'content-type: application/json' \
+  -d '{"message":"Refresh the self-build onboarding docs and keep the mission in safe mode.","projectId":"spore","safeMode":true,"stub":true}'
+curl -X POST http://127.0.0.1:8789/operator/threads/<thread-id>/messages \
+  -H 'content-type: application/json' \
+  -d '{"message":"keep only docs","by":"operator","source":"curl"}'
+curl -X POST http://127.0.0.1:8789/operator/threads/<thread-id>/messages \
+  -H 'content-type: application/json' \
+  -d '{"message":"approve","by":"operator","source":"curl"}'
+curl http://127.0.0.1:8789/operator/actions
+curl http://127.0.0.1:8789/operator/actions?threadId=<thread-id>
 curl http://127.0.0.1:8789/self-build/dashboard
 curl http://127.0.0.1:8789/self-build/summary
 curl http://127.0.0.1:8789/self-build/decisions

@@ -449,7 +449,7 @@ Currently emitted events:
 | **TUI** | terminal | Node CLI | Implemented (dashboard, history, self-build triage) |
 | **Session Gateway** | 8787 | `node:http` | Implemented (REST + SSE) |
 | **Orchestrator Service** | 8789 | `node:http` | Implemented (planning, governance, self-build, promotion) |
-| **Web Console** | 8788 | Vanilla JS SPA | Implemented (gateway + orchestrator operator console) |
+| **Web Console** | 8788 | Vanilla JS SPA | Implemented (gateway + orchestrator operator console + operator chat) |
 | **CLI App** | terminal | planned | `apps/cli/` scaffold only |
 
 ---
@@ -771,7 +771,7 @@ This repository is in the **bootstrap-plus-executable-foundation** phase.
 | Workspace Manager | **Working** | Git worktree provisioning, reconcile, cleanup, snapshot-aware verification support |
 | TUI / Package CLIs | **Working** | Dashboard, execution inspection, run-center, self-build triage, package-level operator commands |
 | Session Gateway | **Working** | REST API, SSE streaming, control actions (stop/complete/steer) |
-| Web Console | **Working** | SPA over gateway + orchestrator proxies with run-center, lineage, and self-build views |
+| Web Console | **Working** | SPA over gateway + orchestrator proxies with run-center, lineage, self-build views, and operator chat |
 | Reference Analysis | **Complete** | Reference synthesis and comparative analysis documented |
 
 ### What is not yet implemented
@@ -1265,8 +1265,10 @@ SPORE synthesizes concepts from six reference projects, adapting (never cloning)
 | [docs/plans/project-state-and-direction-handoff.md](docs/plans/project-state-and-direction-handoff.md) | Current project state, maturity, and direction |
 | [docs/plans/self-build-status-and-next-steps.md](docs/plans/self-build-status-and-next-steps.md) | Tactical self-build status and next work |
 | [docs/plans/roadmap.md](docs/plans/roadmap.md) | Current roadmap and priorities |
+| [docs/plans/operator-chat-surface-plan.md](docs/plans/operator-chat-surface-plan.md) | Operator-chat implementation plan |
 | [docs/decisions/ADR-0001-repo-foundation.md](docs/decisions/ADR-0001-repo-foundation.md) | ADR: Repository foundation |
 | [docs/decisions/ADR-0002-runtime-pi-first.md](docs/decisions/ADR-0002-runtime-pi-first.md) | ADR: PI-first runtime |
+| [docs/decisions/ADR-0012-operator-chat-surface.md](docs/decisions/ADR-0012-operator-chat-surface.md) | ADR: Conversation-first operator chat |
 | [docs/roadmap/IMPLEMENTATION_ROADMAP.md](docs/roadmap/IMPLEMENTATION_ROADMAP.md) | Historical bootstrap roadmap |
 | [docs/plans/bootstrap-completion-summary.md](docs/plans/bootstrap-completion-summary.md) | Historical bootstrap completion summary |
 | [docs/operations/BOOTSTRAP_STATUS.md](docs/operations/BOOTSTRAP_STATUS.md) | Historical bootstrap status snapshot |

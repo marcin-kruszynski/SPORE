@@ -93,6 +93,14 @@ import {
   validateWorkItemGroupBundle,
   validateWorkItemRun,
 } from "@spore/orchestrator";
+import {
+  createOperatorThread,
+  getOperatorThreadDetail,
+  listOperatorPendingActions,
+  listOperatorThreadsSummary,
+  postOperatorThreadMessage,
+  resolveOperatorThreadAction,
+} from "../../packages/orchestrator/src/self-build/operator-chat.js";
 
 function json(response, statusCode, payload) {
   response.writeHead(statusCode, {
@@ -439,6 +447,190 @@ const server = http.createServer(async (request, response) => {
           domain: url.searchParams.get("domain")?.trim() || null,
         }),
       });
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/operator/threads") {
+      json(response, 200, {
+        ok: true,
+        detail: listOperatorThreadsSummary({
+          status: url.searchParams.get("status")?.trim() || null,
+          projectId: url.searchParams.get("projectId")?.trim() || null,
+          limit: url.searchParams.get("limit")?.trim() || "50",
+        }),
+      });
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/operator/threads") {
+      const body = await readJsonBody(request);
+      const detail = await createOperatorThread({
+        ...body,
+        by: body.by ?? "operator",
+        source: body.source ?? "http",
+      });
+      json(response, 200, { ok: true, detail });
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/operator/actions") {
+      json(response, 200, {
+        ok: true,
+        detail: listOperatorPendingActions({
+          threadId: url.searchParams.get("threadId")?.trim() || null,
+          status: url.searchParams.get("status")?.trim() || "pending",
+          actionKind: url.searchParams.get("actionKind")?.trim() || null,
+          targetType: url.searchParams.get("targetType")?.trim() || null,
+          targetId: url.searchParams.get("targetId")?.trim() || null,
+          limit: url.searchParams.get("limit")?.trim() || "100",
+        }),
+      });
+      return;
+    }
+
+    if (
+      request.method === "GET" &&
+      parts.length === 4 &&
+      parts[0] === "operator" &&
+      parts[1] === "threads" &&
+      parts[3] === "stream"
+    ) {
+      const threadId = decodeURIComponent(parts[2]);
+      response.writeHead(200, {
+        "content-type": "text/event-stream; charset=utf-8",
+        "cache-control": "no-cache, no-transform",
+        connection: "keep-alive",
+      });
+      response.write(": connected\n\n");
+
+      let closed = false;
+      let lastSignature = "";
+
+      const heartbeat = setInterval(() => {
+        if (!closed) {
+          response.write(": heartbeat\n\n");
+        }
+      }, 5000);
+
+      const buildSignature = (detail) =>
+        JSON.stringify({
+          updatedAt: detail?.updatedAt ?? null,
+          latestMessageAt: detail?.summary?.lastMessageAt ?? null,
+          pendingActions: Array.isArray(detail?.pendingActions)
+            ? detail.pendingActions.map((entry) => [entry.id, entry.status])
+            : [],
+          messageCount: Array.isArray(detail?.messages)
+            ? detail.messages.length
+            : 0,
+        });
+
+      const poll = async (eventName = "thread-update") => {
+        if (closed) {
+          return;
+        }
+        try {
+          const detail = await getOperatorThreadDetail(threadId);
+          if (!detail) {
+            sse(response, "error", {
+              ok: false,
+              message: `operator thread not found: ${threadId}`,
+            });
+            return;
+          }
+          const signature = buildSignature(detail);
+          if (eventName === "thread-ready" || signature !== lastSignature) {
+            lastSignature = signature;
+            sse(response, eventName, {
+              ok: true,
+              detail,
+            });
+          }
+        } catch (error) {
+          sse(response, "error", {
+            ok: false,
+            message: error.message,
+          });
+        }
+      };
+
+      const interval = setInterval(() => {
+        poll().catch(() => {});
+      }, 1000);
+
+      await poll("thread-ready");
+
+      const cleanup = () => {
+        if (closed) {
+          return;
+        }
+        closed = true;
+        clearInterval(heartbeat);
+        clearInterval(interval);
+        response.end();
+      };
+
+      request.on("close", cleanup);
+      response.on("close", cleanup);
+      return;
+    }
+
+    if (
+      request.method === "GET" &&
+      parts.length === 3 &&
+      parts[0] === "operator" &&
+      parts[1] === "threads"
+    ) {
+      const threadId = decodeURIComponent(parts[2]);
+      const detail = await getOperatorThreadDetail(threadId);
+      if (!detail) {
+        notFound(response, `operator thread not found: ${threadId}`);
+        return;
+      }
+      json(response, 200, { ok: true, detail });
+      return;
+    }
+
+    if (
+      request.method === "POST" &&
+      parts.length === 4 &&
+      parts[0] === "operator" &&
+      parts[1] === "threads" &&
+      parts[3] === "messages"
+    ) {
+      const threadId = decodeURIComponent(parts[2]);
+      const body = await readJsonBody(request);
+      const detail = await postOperatorThreadMessage(threadId, {
+        ...body,
+        by: body.by ?? "operator",
+        source: body.source ?? "http",
+      });
+      if (!detail) {
+        notFound(response, `operator thread not found: ${threadId}`);
+        return;
+      }
+      json(response, 200, { ok: true, detail });
+      return;
+    }
+
+    if (
+      request.method === "POST" &&
+      parts.length === 4 &&
+      parts[0] === "operator" &&
+      parts[1] === "actions" &&
+      parts[3] === "resolve"
+    ) {
+      const actionId = decodeURIComponent(parts[2]);
+      const body = await readJsonBody(request);
+      const detail = await resolveOperatorThreadAction(actionId, {
+        ...body,
+        by: body.by ?? "operator",
+        source: body.source ?? "http",
+      });
+      if (!detail) {
+        notFound(response, `operator action not found: ${actionId}`);
+        return;
+      }
+      json(response, 200, { ok: true, detail });
       return;
     }
 

@@ -7,6 +7,7 @@ import {
   getJson,
   makeTempPaths,
   postJson,
+  sleep,
   startProcess,
   stopProcess,
   waitForHealth,
@@ -243,12 +244,10 @@ test("self-build summary and lineage routes expose operator-first visibility", a
   assert.ok(edited.json.ok);
   assert.ok(Array.isArray(edited.json.detail.editedRecommendations));
   assert.ok(Array.isArray(edited.json.detail.editHistory));
-  if (editedRecommendations.length > 0) {
-    assert.equal(
-      edited.json.detail.editedRecommendations[0].id,
-      editedRecommendations[0].id,
-    );
-  }
+  assert.equal(
+    edited.json.detail.editedRecommendations.length,
+    editedRecommendations.length,
+  );
 
   const reviewed = await postJson(
     `http://127.0.0.1:${ORCHESTRATOR_PORT}/goal-plans/${encodeURIComponent(goalPlan.json.detail.id)}/review`,
@@ -1160,4 +1159,366 @@ test("self-build summary and lineage routes expose operator-first visibility", a
   );
   assert.equal(webIntegrationBranches.status, 200);
   assert.ok(webIntegrationBranches.json.ok);
+});
+
+test("operator chat routes create governed threads and accept chat-driven approvals", async (t) => {
+  const ORCHESTRATOR_PORT = await findFreePort();
+  const { dbPath, sessionDbPath, eventLogPath } = withEventLogPath(
+    await makeTempPaths("spore-http-operator-chat-"),
+  ) as HarnessTempPathsWithEventLog;
+
+  const orchestrator = startProcess(
+    "node",
+    ["services/orchestrator/server.js"],
+    {
+      SPORE_ORCHESTRATOR_PORT: String(ORCHESTRATOR_PORT),
+      SPORE_ORCHESTRATOR_DB_PATH: dbPath,
+      SPORE_SESSION_DB_PATH: sessionDbPath,
+      SPORE_EVENT_LOG_PATH: eventLogPath,
+    },
+  );
+
+  t.after(async () => {
+    await stopProcess(orchestrator);
+  });
+
+  await waitForHealth(`http://127.0.0.1:${ORCHESTRATOR_PORT}/health`);
+
+  const createdThread = await postJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/operator/threads`,
+    {
+      message:
+        "Refresh the self-build onboarding docs and keep the change in safe mode.",
+      projectId: "spore",
+      safeMode: true,
+      stub: true,
+      by: "test-runner",
+      source: "http-operator-chat-test",
+    },
+  );
+  assert.equal(createdThread.status, 200);
+  assert.ok(createdThread.json.ok);
+  assert.ok(createdThread.json.detail.id);
+  assert.ok(Array.isArray(createdThread.json.detail.messages));
+  assert.ok(Array.isArray(createdThread.json.detail.pendingActions));
+  assert.ok(
+    createdThread.json.detail.pendingActions.some(
+      (action) => action.actionKind === "goal-plan-review",
+    ),
+  );
+
+  const threadId = createdThread.json.detail.id;
+
+  const streamController = new AbortController();
+  const streamResponse = await fetch(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/operator/threads/${encodeURIComponent(threadId)}/stream`,
+    { signal: streamController.signal },
+  );
+  assert.equal(streamResponse.status, 200);
+  assert.match(
+    streamResponse.headers.get("content-type") ?? "",
+    /text\/event-stream/,
+  );
+  const reader = streamResponse.body?.getReader();
+  let streamChunk = "";
+  if (reader) {
+    while (!streamChunk.includes("event: thread-ready")) {
+      const { value, done } = await reader.read();
+      if (done) {
+        break;
+      }
+      streamChunk += new TextDecoder().decode(value);
+    }
+  }
+  streamController.abort();
+  await reader?.cancel().catch(() => {});
+  assert.ok(streamChunk.includes("event: thread-ready"));
+
+  const threadList = await getJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/operator/threads`,
+  );
+  assert.equal(threadList.status, 200);
+  assert.ok(threadList.json.ok);
+  assert.ok(Array.isArray(threadList.json.detail));
+  assert.ok(threadList.json.detail.some((entry) => entry.id === threadId));
+
+  const globalPending = await getJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/operator/actions`,
+  );
+  assert.equal(globalPending.status, 200);
+  assert.ok(globalPending.json.ok);
+  assert.ok(
+    globalPending.json.detail.some((entry) => entry.threadId === threadId),
+  );
+
+  const editedThread = await postJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/operator/threads/${encodeURIComponent(threadId)}/messages`,
+    {
+      message: "keep only docs",
+      by: "test-runner",
+      source: "http-operator-chat-test",
+    },
+  );
+  assert.equal(editedThread.status, 200);
+  assert.ok(editedThread.json.ok);
+  assert.equal(
+    editedThread.json.detail.context.goalPlan.recommendations.length,
+    1,
+  );
+  assert.equal(
+    editedThread.json.detail.context.goalPlan.recommendations[0].metadata
+      .templateId,
+    "docs-maintenance-pass",
+  );
+
+  const statusReply = await postJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/operator/threads/${encodeURIComponent(threadId)}/messages`,
+    {
+      message: "status",
+      by: "test-runner",
+      source: "http-operator-chat-test",
+    },
+  );
+  assert.equal(statusReply.status, 200);
+  assert.ok(statusReply.json.ok);
+  assert.ok(
+    statusReply.json.detail.messages.some(
+      (message) =>
+        message.role === "assistant" &&
+        String(message.content).includes("Thread status:"),
+    ),
+  );
+
+  const approvedViaChat = await postJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/operator/threads/${encodeURIComponent(threadId)}/messages`,
+    {
+      message: "approve",
+      by: "test-runner",
+      source: "http-operator-chat-test",
+    },
+  );
+  assert.equal(approvedViaChat.status, 200);
+  assert.ok(approvedViaChat.json.ok);
+  assert.ok(
+    approvedViaChat.json.detail.actionHistory.some(
+      (action) =>
+        action.actionKind === "goal-plan-review" &&
+        ["resolved", "superseded"].includes(String(action.status)),
+    ),
+  );
+  assert.ok(approvedViaChat.json.detail.context.goalPlan);
+  assert.ok(
+    [
+      "reviewed",
+      "materialized",
+      "running",
+      "completed",
+      "blocked",
+      "waiting_operator",
+    ].includes(String(approvedViaChat.json.detail.status)),
+  );
+
+  const pendingActions = await getJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/operator/actions?threadId=${encodeURIComponent(threadId)}`,
+  );
+  assert.equal(pendingActions.status, 200);
+  assert.ok(pendingActions.json.ok);
+  assert.ok(Array.isArray(pendingActions.json.detail));
+});
+
+test("operator chat supports proposal rework and quarantine release flows", async (t) => {
+  const ORCHESTRATOR_PORT = await findFreePort();
+  const { dbPath, sessionDbPath, eventLogPath } = withEventLogPath(
+    await makeTempPaths("spore-http-operator-chat-advanced-"),
+  ) as HarnessTempPathsWithEventLog;
+
+  const orchestrator = startProcess(
+    "node",
+    ["services/orchestrator/server.js"],
+    {
+      SPORE_ORCHESTRATOR_PORT: String(ORCHESTRATOR_PORT),
+      SPORE_ORCHESTRATOR_DB_PATH: dbPath,
+      SPORE_SESSION_DB_PATH: sessionDbPath,
+      SPORE_EVENT_LOG_PATH: eventLogPath,
+    },
+  );
+
+  t.after(async () => {
+    await stopProcess(orchestrator);
+  });
+
+  await waitForHealth(`http://127.0.0.1:${ORCHESTRATOR_PORT}/health`);
+
+  async function waitForThread(threadId, predicate) {
+    for (let attempt = 0; attempt < 30; attempt += 1) {
+      const payload = await getJson(
+        `http://127.0.0.1:${ORCHESTRATOR_PORT}/operator/threads/${encodeURIComponent(threadId)}`,
+      );
+      assert.equal(payload.status, 200);
+      if (predicate(payload.json.detail)) {
+        return payload.json.detail;
+      }
+      await sleep(200);
+    }
+    throw new Error(`thread ${threadId} did not reach expected state in time`);
+  }
+
+  const reworkThread = await postJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/operator/threads`,
+    {
+      message:
+        "Improve the operator web dashboard for self-build review and keep the work in safe mode.",
+      projectId: "spore",
+      safeMode: true,
+      stub: true,
+      by: "test-runner",
+      source: "http-operator-chat-test",
+    },
+  );
+  assert.equal(reworkThread.status, 200);
+  const reworkThreadId = reworkThread.json.detail.id;
+
+  await postJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/operator/threads/${encodeURIComponent(reworkThreadId)}/messages`,
+    {
+      message: "approve",
+      by: "test-runner",
+      source: "http-operator-chat-test",
+    },
+  );
+
+  const reviewPending = await waitForThread(
+    reworkThreadId,
+    (detail) =>
+      Array.isArray(detail.pendingActions) &&
+      detail.pendingActions.some(
+        (action) => action.actionKind === "proposal-review",
+      ),
+  );
+  assert.ok(
+    reviewPending.pendingActions.some(
+      (action) => action.actionKind === "proposal-review",
+    ),
+  );
+
+  await postJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/operator/threads/${encodeURIComponent(reworkThreadId)}/messages`,
+    {
+      message: "reject",
+      by: "test-runner",
+      source: "http-operator-chat-test",
+    },
+  );
+
+  const reworkPending = await waitForThread(
+    reworkThreadId,
+    (detail) =>
+      Array.isArray(detail.pendingActions) &&
+      detail.pendingActions.some(
+        (action) => action.actionKind === "proposal-rework",
+      ),
+  );
+  assert.ok(
+    reworkPending.pendingActions.some(
+      (action) => action.actionKind === "proposal-rework",
+    ),
+  );
+
+  const reworked = await postJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/operator/threads/${encodeURIComponent(reworkThreadId)}/messages`,
+    {
+      message: "rework",
+      by: "test-runner",
+      source: "http-operator-chat-test",
+    },
+  );
+  assert.equal(reworked.status, 200);
+  assert.ok(reworked.json.ok);
+  assert.ok(
+    reworked.json.detail.messages.some((message) =>
+      String(message.content).includes("Created rework item"),
+    ),
+  );
+
+  const quarantineThread = await postJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/operator/threads`,
+    {
+      message:
+        "Improve the operator web dashboard for integration promotion review and keep the work in safe mode.",
+      projectId: "spore",
+      safeMode: true,
+      stub: true,
+      by: "test-runner",
+      source: "http-operator-chat-test",
+    },
+  );
+  assert.equal(quarantineThread.status, 200);
+  const quarantineThreadId = quarantineThread.json.detail.id;
+
+  await postJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/operator/threads/${encodeURIComponent(quarantineThreadId)}/messages`,
+    {
+      message: "approve",
+      by: "test-runner",
+      source: "http-operator-chat-test",
+    },
+  );
+
+  await waitForThread(
+    quarantineThreadId,
+    (detail) =>
+      Array.isArray(detail.pendingActions) &&
+      detail.pendingActions.some(
+        (action) => action.actionKind === "proposal-review",
+      ),
+  );
+
+  await postJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/operator/threads/${encodeURIComponent(quarantineThreadId)}/messages`,
+    {
+      message: "reject",
+      by: "test-runner",
+      source: "http-operator-chat-test",
+    },
+  );
+
+  await waitForThread(
+    quarantineThreadId,
+    (detail) =>
+      Array.isArray(detail.pendingActions) &&
+      detail.pendingActions.some(
+        (action) => action.actionKind === "proposal-rework",
+      ),
+  );
+
+  await postJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/operator/threads/${encodeURIComponent(quarantineThreadId)}/messages`,
+    {
+      message: "quarantine",
+      by: "test-runner",
+      source: "http-operator-chat-test",
+    },
+  );
+
+  const releasePending = await waitForThread(
+    quarantineThreadId,
+    (detail) =>
+      Array.isArray(detail.pendingActions) &&
+      detail.pendingActions.some(
+        (action) => action.actionKind === "quarantine-release",
+      ),
+  );
+  assert.ok(releasePending.context.activeQuarantine);
+
+  const released = await postJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/operator/threads/${encodeURIComponent(quarantineThreadId)}/messages`,
+    {
+      message: "release",
+      by: "test-runner",
+      source: "http-operator-chat-test",
+    },
+  );
+  assert.equal(released.status, 200);
+  assert.ok(released.json.ok);
+  assert.equal(released.json.detail.context.activeQuarantine, null);
 });

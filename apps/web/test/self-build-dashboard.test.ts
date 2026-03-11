@@ -503,3 +503,119 @@ test("self-build dashboard exposes dedicated operator-first surface with overvie
   assert.ok(intakeViaWeb.json.ok);
   assert.ok(Array.isArray(intakeViaWeb.json.detail));
 });
+
+test("web proxy exposes operator chat routes and operator chat shell", async (t) => {
+  const ORCHESTRATOR_PORT = await findFreePort();
+  const WEB_PORT = await findFreePort();
+  const { dbPath, sessionDbPath, eventLogPath } = (await makeTempPaths(
+    "spore-web-operator-chat-",
+  )) as TempPaths;
+
+  const orchestrator = startProcess(
+    "node",
+    ["services/orchestrator/server.js"],
+    {
+      SPORE_ORCHESTRATOR_PORT: String(ORCHESTRATOR_PORT),
+      SPORE_ORCHESTRATOR_DB_PATH: dbPath,
+      SPORE_SESSION_DB_PATH: sessionDbPath,
+      SPORE_EVENT_LOG_PATH: eventLogPath,
+    },
+  );
+  const web = startProcess("node", ["apps/web/server.js"], {
+    SPORE_WEB_PORT: String(WEB_PORT),
+    SPORE_ORCHESTRATOR_ORIGIN: `http://127.0.0.1:${ORCHESTRATOR_PORT}`,
+    SPORE_GATEWAY_ORIGIN: "http://127.0.0.1:65535",
+  });
+
+  t.after(async () => {
+    await Promise.all([stopProcess(orchestrator), stopProcess(web)]);
+  });
+
+  const webOrigin = `http://127.0.0.1:${WEB_PORT}`;
+  await waitForHealth(`http://127.0.0.1:${ORCHESTRATOR_PORT}/health`);
+  await waitForHealth(`${webOrigin}/`);
+
+  const htmlResponse = await fetch(`${webOrigin}/`);
+  assert.equal(htmlResponse.status, 200);
+  const html = await htmlResponse.text();
+  assert.ok(html.includes("Operator Chat"));
+  assert.ok(html.includes("operator-chat-view"));
+  assert.ok(html.includes("operator-inbox-list"));
+
+  const createdThread = await postJson(
+    `${webOrigin}/api/orchestrator/operator/threads`,
+    {
+      message:
+        "Tighten the operator chat onboarding copy and keep the mission in safe mode.",
+      projectId: "spore",
+      safeMode: true,
+      stub: true,
+      by: "web-test-runner",
+      source: "web-operator-chat-test",
+    },
+  );
+  assert.equal(createdThread.status, 200);
+  assert.ok(createdThread.json.ok);
+  assert.ok(createdThread.json.detail.id);
+  assert.ok(Array.isArray(createdThread.json.detail.pendingActions));
+
+  const threadId = createdThread.json.detail.id;
+  const streamController = new AbortController();
+  const streamResponse = await fetch(
+    `${webOrigin}/api/orchestrator/operator/threads/${encodeURIComponent(threadId)}/stream`,
+    { signal: streamController.signal },
+  );
+  assert.equal(streamResponse.status, 200);
+  assert.match(
+    streamResponse.headers.get("content-type") ?? "",
+    /text\/event-stream/,
+  );
+  const reader = streamResponse.body?.getReader();
+  let streamChunk = "";
+  if (reader) {
+    while (!streamChunk.includes("event: thread-ready")) {
+      const { value, done } = await reader.read();
+      if (done) {
+        break;
+      }
+      streamChunk += new TextDecoder().decode(value);
+    }
+  }
+  streamController.abort();
+  await reader?.cancel().catch(() => {});
+  assert.ok(streamChunk.includes("event: thread-ready"));
+
+  const threadList = await getJson(
+    `${webOrigin}/api/orchestrator/operator/threads`,
+  );
+  assert.equal(threadList.status, 200);
+  assert.ok(threadList.json.ok);
+  assert.ok(threadList.json.detail.some((entry) => entry.id === threadId));
+
+  const globalPending = await getJson(
+    `${webOrigin}/api/orchestrator/operator/actions`,
+  );
+  assert.equal(globalPending.status, 200);
+  assert.ok(globalPending.json.ok);
+  assert.ok(
+    globalPending.json.detail.some((entry) => entry.threadId === threadId),
+  );
+
+  const statusReply = await postJson(
+    `${webOrigin}/api/orchestrator/operator/threads/${encodeURIComponent(threadId)}/messages`,
+    {
+      message: "status",
+      by: "web-test-runner",
+      source: "web-operator-chat-test",
+    },
+  );
+  assert.equal(statusReply.status, 200);
+  assert.ok(statusReply.json.ok);
+  assert.ok(
+    statusReply.json.detail.messages.some(
+      (message) =>
+        message.role === "assistant" &&
+        String(message.content).includes("Thread status:"),
+    ),
+  );
+});

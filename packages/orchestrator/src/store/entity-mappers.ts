@@ -159,6 +159,37 @@ export function mapSelfBuildDecision(record) {
     : null;
 }
 
+export function mapOperatorThread(record) {
+  return record
+    ? {
+        ...record,
+        summary: parseJsonField(record.summaryJson, {}),
+        metadata: parseJsonField(record.metadataJson, {}),
+      }
+    : null;
+}
+
+export function mapOperatorThreadMessage(record) {
+  return record
+    ? {
+        ...record,
+        payload: parseJsonField(record.payloadJson, {}),
+      }
+    : null;
+}
+
+export function mapOperatorThreadAction(record) {
+  return record
+    ? {
+        ...record,
+        payload: parseJsonField(record.payloadJson, {}),
+        options: parseJsonField(record.optionsJson, {}),
+        links: parseJsonField(record.linksJson, {}),
+        resolution: parseJsonField(record.resolutionJson, {}),
+      }
+    : null;
+}
+
 export function mapQuarantineRecord(record) {
   return record
     ? {

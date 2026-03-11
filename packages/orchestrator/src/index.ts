@@ -8,8 +8,10 @@ export * from "./scenarios/catalog.js";
 export * from "./scenarios/run-history.js";
 export * from "./self-build/self-build.js";
 export {
+  createOperatorThread,
   createSelfBuildOverride,
   getDocSuggestionSummary,
+  getOperatorThreadDetail,
   getPolicyRecommendationSummary,
   getProposalReviewPackage,
   getSelfBuildIntakeSummary,
@@ -18,6 +20,8 @@ export {
   getSelfBuildOverrideSummary,
   getSelfBuildPolicyRecommendations,
   invokeProposalPromotion,
+  listOperatorPendingActions,
+  listOperatorThreadsSummary,
   listPolicyRecommendationReviewSummaries,
   listSelfBuildDecisionSummaries,
   listSelfBuildDocSuggestionSummaries,
@@ -30,10 +34,12 @@ export {
   materializePolicyRecommendation,
   materializeSelfBuildIntake,
   planProposalPromotion,
+  postOperatorThreadMessage,
   quarantineSelfBuildTarget,
   refreshSelfBuildIntake,
   releaseSelfBuildOverride,
   releaseSelfBuildQuarantine,
+  resolveOperatorThreadAction,
   reviewDocSuggestionRecord,
   reviewGoalPlan,
   reviewPolicyRecommendation,
