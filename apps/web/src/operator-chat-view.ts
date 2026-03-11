@@ -209,7 +209,7 @@ export function renderOperatorProgress(
           (stage) => `
           <div class="operator-progress-stage ${escapeHtml(stateClass(stage.status))}" data-stage-id="${escapeHtml(toText(stage.id, "stage"))}">
             <span class="operator-progress-stage-status">${escapeHtml(toText(stage.status, "upcoming"))}</span>
-            <strong>${escapeHtml(toText(stage.title, toText(stage.label, humanizeState(stage.id, "Stage"))))}</strong>
+            <strong>${escapeHtml(toText(stage.title, toText(stage.label, toText(stage.id, "Stage"))))}</strong>
           </div>
         `,
         )

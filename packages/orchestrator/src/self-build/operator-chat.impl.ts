@@ -70,7 +70,7 @@ const OPERATOR_PROGRESS_STAGES = [
   { id: "mission_received", title: "Mission received" },
   { id: "plan_prepared", title: "Plan prepared" },
   { id: "plan_approval", title: "Plan approval" },
-  { id: "managed_work", title: "Managed work" },
+  { id: "managed_work", title: "Managed work running" },
   { id: "proposal_review", title: "Proposal review" },
   { id: "proposal_approval", title: "Proposal approval" },
   { id: "validation", title: "Validation" },

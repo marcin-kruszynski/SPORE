@@ -72,6 +72,13 @@ function assertThreadUxProjection(
     stages.map((stage) => String(stage.id ?? "")),
     OPERATOR_PROGRESS_STAGE_IDS,
   );
+  assert.equal(
+    String(
+      stages.find((stage) => String(stage.id ?? "") === "managed_work")?.title ??
+        "",
+    ),
+    "Managed work running",
+  );
   assert.equal(typeof progress.currentStage, "string");
   assert.equal(typeof progress.currentState, "string");
   if (expectations.currentStage) {

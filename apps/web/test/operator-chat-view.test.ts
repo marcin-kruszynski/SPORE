@@ -29,7 +29,7 @@ const detail = {
       { id: "mission_received", title: "Mission received", status: "complete" },
       { id: "plan_prepared", title: "Plan prepared", status: "complete" },
       { id: "plan_approval", title: "Plan approval", status: "current" },
-      { id: "managed_work", title: "Managed work", status: "upcoming" },
+      { id: "managed_work", title: "Managed work running", status: "upcoming" },
     ],
   },
   decisionGuidance: {
@@ -74,6 +74,7 @@ test("renderOperatorProgress renders the authored progress strip", () => {
   assert.match(html, /current/);
   assert.match(html, /Current state/);
   assert.match(html, /Plan Approval/);
+  assert.match(html, /Managed work running/);
 });
 
 test("renderOperatorProgress surfaces exception overlays from the real payload", () => {
@@ -95,6 +96,23 @@ test("renderOperatorProgress surfaces exception overlays from the real payload",
   assert.match(html, /quarantined/);
   assert.match(html, /Exception state/);
   assert.match(html, /operator-progress-overlay/);
+});
+
+test("renderOperatorProgress falls back to the raw stage id when title is absent", () => {
+  const html = renderOperatorProgress({
+    ...detail,
+    progress: {
+      currentStage: "managed_work",
+      currentState: "managed_work",
+      exceptionState: null,
+      stages: [{ id: "managed_work", status: "current" }],
+    },
+  });
+
+  assert.match(
+    html,
+    /data-stage-id="managed_work">\s*<span class="operator-progress-stage-status">current<\/span>\s*<strong>managed_work<\/strong>/,
+  );
 });
 
 test("renderOperatorCurrentDecision renders decision guidance as the lead card", () => {
