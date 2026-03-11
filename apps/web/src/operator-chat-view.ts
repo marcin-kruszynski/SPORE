@@ -204,7 +204,10 @@ export function renderOperatorProgress(
     );
   }
 
-  const currentState = humanizeState(progress?.currentState, "Mission Received");
+  const currentState = humanizeState(
+    progress?.currentState,
+    "Mission Received",
+  );
   const exceptionState = toText(progress?.exceptionState, "");
 
   return `

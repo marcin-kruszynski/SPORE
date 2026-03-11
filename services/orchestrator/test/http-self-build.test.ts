@@ -74,8 +74,8 @@ function assertThreadUxProjection(
   );
   assert.equal(
     String(
-      stages.find((stage) => String(stage.id ?? "") === "managed_work")?.title ??
-        "",
+      stages.find((stage) => String(stage.id ?? "") === "managed_work")
+        ?.title ?? "",
     ),
     "Managed work running",
   );

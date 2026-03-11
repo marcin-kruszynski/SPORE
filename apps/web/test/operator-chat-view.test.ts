@@ -86,7 +86,11 @@ test("renderOperatorProgress surfaces exception overlays from the real payload",
       exceptionState: "quarantined",
       stages: [
         { id: "proposal_review", title: "Proposal review", status: "current" },
-        { id: "proposal_approval", title: "Proposal approval", status: "upcoming" },
+        {
+          id: "proposal_approval",
+          title: "Proposal approval",
+          status: "upcoming",
+        },
       ],
     },
   });
@@ -109,10 +113,7 @@ test("renderOperatorProgress falls back to the raw stage id when title is absent
     },
   });
 
-  assert.match(
-    html,
-    /data-stage-id="managed_work"/,
-  );
+  assert.match(html, /data-stage-id="managed_work"/);
   assert.match(html, /Stage title unavailable/);
   assert.match(html, /managed_work/);
   assert.doesNotMatch(html, /<strong>managed_work<\/strong>/);
