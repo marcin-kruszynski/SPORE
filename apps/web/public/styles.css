@@ -2257,6 +2257,8 @@ button:disabled {
 .operator-current-decision-card {
   display: grid;
   gap: 14px;
+  position: sticky;
+  top: 20px;
   border-radius: 24px;
   padding: 22px;
   background: linear-gradient(180deg, rgba(255, 248, 240, 0.98), rgba(255, 255, 255, 0.88));
@@ -2374,6 +2376,14 @@ button:disabled {
 .operator-inbox-row {
   gap: 10px;
   background: rgba(255, 252, 247, 0.94);
+}
+
+.operator-inbox-decision-title {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent-dark);
 }
 
 .operator-inbox-row.active {

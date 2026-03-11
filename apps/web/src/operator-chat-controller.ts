@@ -86,35 +86,9 @@ function toText(value: unknown, fallback = ""): string {
   return text || fallback;
 }
 
-function normalizePendingActions(detail: ThreadEventProjection | null | undefined) {
-  return Array.isArray(detail?.pendingActions)
-    ? detail.pendingActions.map((action) => ({
-        id: toText(action?.id, ""),
-        status: toText(action?.status, "pending"),
-      }))
-    : [];
-}
-
-function eventRefreshSignature(detail: ThreadEventProjection | null | undefined) {
-  if (!detail) {
-    return null;
-  }
-
-  return JSON.stringify({
-    id: toText(detail.id, ""),
-    status: toText(detail.status, ""),
-    currentStage: toText(detail.progress?.currentStage, ""),
-    currentState: toText(detail.progress?.currentState, ""),
-    exceptionState: toText(detail.progress?.exceptionState, ""),
-    urgency: toText(detail.inboxSummary?.urgency, ""),
-    reason: toText(detail.inboxSummary?.reason, ""),
-    waitingLabel: toText(detail.inboxSummary?.waitingLabel, ""),
-    decisionTitle: toText(detail.decisionGuidance?.title, ""),
-    primaryAction: toText(detail.decisionGuidance?.primaryAction, ""),
-    phase: toText(detail.hero?.phase, ""),
-    statusLine: toText(detail.hero?.statusLine, ""),
-    pendingActions: normalizePendingActions(detail),
-  });
+interface FocusableDecisionTarget {
+  scrollIntoView?: (options?: ScrollIntoViewOptions) => void;
+  focus?: (options?: FocusOptions) => void;
 }
 
 export function buildQuickReplySubmission(
@@ -158,6 +132,22 @@ export function deriveMissionFocusState(
   };
 }
 
+export function focusCurrentDecisionCard(
+  target: FocusableDecisionTarget | null | undefined,
+): boolean {
+  if (!target) {
+    return false;
+  }
+
+  target.scrollIntoView?.({
+    behavior: "smooth",
+    block: "start",
+    inline: "nearest",
+  });
+  target.focus?.({ preventScroll: true });
+  return true;
+}
+
 export function resolveInboxRowContent(
   action: OperatorActionProjection,
   threadFallback: OperatorThreadFallback | null = null,
@@ -197,5 +187,6 @@ export function shouldRefreshInboxFromThreadEvent(
   previous: ThreadEventProjection | null | undefined,
   next: ThreadEventProjection | null | undefined,
 ): boolean {
-  return eventRefreshSignature(previous) !== eventRefreshSignature(next);
+  void previous;
+  return Boolean(next);
 }

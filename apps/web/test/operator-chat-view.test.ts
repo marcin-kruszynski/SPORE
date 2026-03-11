@@ -118,5 +118,6 @@ test("renderOperatorInboxRow uses thread and inbox projections for core row cont
   );
   assert.match(html, /Plan approval is waiting before managed work can start\./);
   assert.match(html, /Waiting for plan approval/);
+  assert.match(html, /Review the mission plan/);
   assert.doesNotMatch(html, /fallback summary should not lead the row/);
 });

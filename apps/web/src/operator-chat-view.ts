@@ -176,6 +176,7 @@ export function renderOperatorCurrentDecision(
     <article
       class="${classes.join(" ")}"
       data-current-decision="true"
+      tabindex="-1"
       data-highlighted-action-id="${escapeHtml(options.highlightedActionId ?? "")}" 
     >
       <div class="operator-current-decision-header">
@@ -300,6 +301,7 @@ export function renderOperatorInboxRow(
         </div>
         ${renderStatusBadge(content.urgency, "urgency")}
       </div>
+      <div class="operator-inbox-decision-title">${escapeHtml(content.decisionTitle)}</div>
       <div class="operator-action-summary">${escapeHtml(content.reason)}</div>
       <div class="operator-inbox-thread">${escapeHtml(content.objective)}</div>
       ${content.primaryAction ? `<div class="operator-inbox-primary-action detail-pill emphasized">${escapeHtml(content.primaryAction)}</div>` : ""}

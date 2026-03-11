@@ -5,6 +5,7 @@ import {
   buildInboxActionSubmission,
   buildQuickReplySubmission,
   deriveMissionFocusState,
+  focusCurrentDecisionCard,
   resolveInboxRowContent,
   shouldRefreshInboxFromThreadEvent,
 } from "../src/operator-chat-controller.js";
@@ -58,6 +59,24 @@ test("deriveMissionFocusState focuses the owning mission and highlights the deci
       missionFocusSource: "inbox",
     },
   );
+});
+
+test("focusCurrentDecisionCard scrolls and focuses the current decision card", () => {
+  const calls: string[] = [];
+  const target = {
+    scrollIntoView(options?: unknown) {
+      calls.push(JSON.stringify(options));
+    },
+    focus(options?: unknown) {
+      calls.push(`focus:${JSON.stringify(options)}`);
+    },
+  };
+
+  assert.equal(focusCurrentDecisionCard(target), true);
+  assert.deepEqual(calls, [
+    JSON.stringify({ behavior: "smooth", block: "start", inline: "nearest" }),
+    "focus:{\"preventScroll\":true}",
+  ]);
 });
 
 test("resolveInboxRowContent prefers action projections over thread-list fallbacks", () => {
@@ -133,7 +152,7 @@ test("shouldRefreshInboxFromThreadEvent returns true when decision state changes
   assert.equal(shouldRefreshInboxFromThreadEvent(previous, next), true);
 });
 
-test("shouldRefreshInboxFromThreadEvent returns false when the inbox projection is unchanged", () => {
+test("shouldRefreshInboxFromThreadEvent returns true even when the inbox projection is unchanged", () => {
   const previous = {
     id: "thread-5",
     status: "waiting_review",
@@ -154,5 +173,5 @@ test("shouldRefreshInboxFromThreadEvent returns false when the inbox projection 
     pendingActions: [{ id: "action-plan-review", status: "pending" }],
   };
 
-  assert.equal(shouldRefreshInboxFromThreadEvent(previous, next), false);
+  assert.equal(shouldRefreshInboxFromThreadEvent(previous, next), true);
 });

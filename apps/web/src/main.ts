@@ -5,6 +5,7 @@ import {
   buildInboxActionSubmission,
   buildQuickReplySubmission,
   deriveMissionFocusState,
+  focusCurrentDecisionCard,
   shouldRefreshInboxFromThreadEvent,
 } from "./operator-chat-controller.js";
 import {
@@ -8667,6 +8668,13 @@ function renderOperatorChat() {
   renderOperatorThreadSettings(detail);
 }
 
+function focusOperatorCurrentDecision() {
+  const currentDecisionCard = els.operatorCurrentDecision?.querySelector(
+    "[data-current-decision='true']",
+  );
+  focusCurrentDecisionCard(currentDecisionCard);
+}
+
 async function createOperatorThreadFromForm() {
   if (!els.operatorThreadMessage) {
     return;
@@ -8830,6 +8838,7 @@ async function handleOperatorChatClick(event) {
     renderOperatorInbox();
     renderOperatorThreads();
     renderOperatorChat();
+    focusOperatorCurrentDecision();
     return;
   }
 
