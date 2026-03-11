@@ -1670,6 +1670,18 @@ function withValidationTrace(detail, selection = null) {
   };
 }
 
+function readValidationTraceSelection(detail) {
+  const trace =
+    detail?.trace && typeof detail.trace === "object" && !Array.isArray(detail.trace)
+      ? detail.trace
+      : {};
+  return trace.validation &&
+      typeof trace.validation === "object" &&
+      !Array.isArray(trace.validation)
+    ? trace.validation
+    : null;
+}
+
 function computeProposalContentFingerprint(proposal) {
   return hashPayload({
     summary: proposal?.summary ?? {},
@@ -3210,10 +3222,10 @@ function buildWorkspaceAllocationTrace(
   const summary =
     decision === "reused"
       ? `Reused workspace allocation ${reusedFromAllocationId ?? allocation.id ?? "unknown"} for run ${allocation.workItemRunId ?? allocation.ownerId ?? "unknown"}.`
-      : sourceWorkspaceId
-        ? `Created a derived workspace from source allocation ${sourceWorkspaceId} for run ${allocation.workItemRunId ?? allocation.ownerId ?? "unknown"}.`
       : decision === "failed"
         ? `Workspace allocation failed for run ${allocation.workItemRunId ?? allocation.ownerId ?? "unknown"}.`
+        : sourceWorkspaceId
+          ? `Created a derived workspace from source allocation ${sourceWorkspaceId} for run ${allocation.workItemRunId ?? allocation.ownerId ?? "unknown"}.`
         : decision === "cleaned"
           ? `Workspace allocation was cleaned after run ${allocation.workItemRunId ?? allocation.ownerId ?? "unknown"}.`
           : `Created a dedicated workspace for run ${allocation.workItemRunId ?? allocation.ownerId ?? "unknown"}.`;
@@ -7632,8 +7644,9 @@ export async function queueWorkItemRunValidation(
     if (!getActiveValidationTask(runId)) {
       persistValidationStateForRun(runId, buildQueuedValidationState(context), dbPath);
       ensureWorkItemRunValidationTask(context, options, dbPath);
+      return withValidationTrace(getSelfBuildWorkItemRun(runId, dbPath), context.selection);
     }
-    return withValidationTrace(getSelfBuildWorkItemRun(runId, dbPath), context.selection);
+    return withValidationTrace(getSelfBuildWorkItemRun(runId, dbPath));
   }
   const queuedState = buildQueuedValidationState(context);
   persistValidationStateForRun(runId, queuedState, dbPath);
@@ -7654,17 +7667,10 @@ export async function waitForWorkItemRunValidation(
   if (task) {
     await task;
   }
-  const queuedTrace =
-    queued?.trace && typeof queued.trace === "object" && !Array.isArray(queued.trace)
-      ? queued.trace
-      : {};
-  const queuedValidationTrace =
-    queuedTrace.validation &&
-    typeof queuedTrace.validation === "object" &&
-    !Array.isArray(queuedTrace.validation)
-      ? queuedTrace.validation
-      : null;
-  return withValidationTrace(getSelfBuildWorkItemRun(runId, dbPath), queuedValidationTrace);
+  return withValidationTrace(
+    getSelfBuildWorkItemRun(runId, dbPath),
+    readValidationTraceSelection(queued),
+  );
 }
 
 export async function validateWorkItemRun(

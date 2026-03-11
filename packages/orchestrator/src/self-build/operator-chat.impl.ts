@@ -1144,6 +1144,7 @@ function buildThreadHero(
 function buildPendingActionTrace(
   action: LooseRecord | null,
   context: LooseRecord = {},
+  options: { allowStoredTrace?: boolean } = {},
 ) {
   if (!action) {
     return {
@@ -1153,7 +1154,10 @@ function buildPendingActionTrace(
     };
   }
   const storedTrace = asObject(asObject(action.payload).trace);
-  if (storedTrace.scope === "captured-at-action-creation") {
+  if (
+    options.allowStoredTrace === true &&
+    storedTrace.scope === "captured-at-action-creation"
+  ) {
     return storedTrace;
   }
   const proposal = asObject(context.proposal);
@@ -1225,6 +1229,7 @@ function describePendingAction(
   thread?: LooseRecord,
   progress?: LooseRecord,
   context: LooseRecord = {},
+  traceOptions: { allowStoredTrace?: boolean } = {},
 ) {
   if (!action) {
     return null;
@@ -1240,7 +1245,7 @@ function describePendingAction(
   return {
     ...action,
     choices,
-    trace: buildPendingActionTrace(action, context),
+    trace: buildPendingActionTrace(action, context, traceOptions),
     decisionGuidance,
     threadSummary:
       thread && progress
@@ -2460,10 +2465,18 @@ async function syncThreadState(threadId: string, dbPath: string) {
   const hero = buildThreadHero(thread, progress, pendingActions);
   const evidenceSummary = buildThreadEvidenceSummary(context);
   const projectedPendingActions = pendingActions
-    .map((action) => describePendingAction(action, thread, progress, context))
+    .map((action) =>
+      describePendingAction(action, thread, progress, context, {
+        allowStoredTrace: false,
+      })
+    )
     .filter(Boolean);
   const projectedActionHistory = actionHistory
-    .map((action) => describePendingAction(action, thread, progress, context))
+    .map((action) =>
+      describePendingAction(action, thread, progress, context, {
+        allowStoredTrace: true,
+      })
+    )
     .filter(Boolean);
   const summary = buildThreadSummary(thread, messages, pendingActions, context);
   const status = inferThreadStatus(goalPlan, group, proposal, pendingActions);
@@ -2506,7 +2519,9 @@ async function syncThreadState(threadId: string, dbPath: string) {
     context,
     trace: {
       proposalSelection: proposalSelection.trace,
-      pendingAction: buildPendingActionTrace(projectedPendingActions[0] ?? null, context),
+      pendingAction:
+        asObject(projectedPendingActions[0]).trace ??
+        buildPendingActionTrace(projectedPendingActions[0] ?? null, context),
     },
     links: threadLinks(threadId),
   };

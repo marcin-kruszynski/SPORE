@@ -8,12 +8,14 @@ import test from "node:test";
 
 import {
   createWorkItem,
+  getWorkspaceAllocation,
   getProposalArtifact,
   insertProposalArtifact,
   insertWorkItemRun,
   insertWorkspaceAllocation,
   openOrchestratorDatabase,
   updateProposalArtifact,
+  updateWorkspaceAllocation,
 } from "@spore/orchestrator";
 import {
   findFreePort,
@@ -2299,6 +2301,121 @@ test("self-build read surfaces expose concise trace summaries for workspace, val
   );
 });
 
+test("queued validation trace stays aligned with the scheduled bundle while validation is already active", async (t) => {
+  const ORCHESTRATOR_PORT = await findFreePort();
+  const { dbPath, sessionDbPath, eventLogPath } = withEventLogPath(
+    await makeTempPaths("spore-http-self-build-validation-trace-queue-"),
+  ) as HarnessTempPathsWithEventLog;
+  const worktreeRoot = `${dbPath}.worktrees`;
+  const repoRoot = await makeTempRepo();
+
+  const orchestrator = startProcess(
+    "node",
+    ["services/orchestrator/server.js"],
+    {
+      SPORE_ORCHESTRATOR_PORT: String(ORCHESTRATOR_PORT),
+      SPORE_ORCHESTRATOR_DB_PATH: dbPath,
+      SPORE_SESSION_DB_PATH: sessionDbPath,
+      SPORE_EVENT_LOG_PATH: eventLogPath,
+      SPORE_WORKSPACE_REPO_ROOT: repoRoot,
+      SPORE_WORKTREE_ROOT: worktreeRoot,
+    },
+  );
+
+  t.after(async () => {
+    await stopProcess(orchestrator);
+  });
+  t.after(async () => {
+    await fs.rm(worktreeRoot, { recursive: true, force: true });
+    await fs.rm(repoRoot, { recursive: true, force: true });
+  });
+
+  await waitForHealth(`http://127.0.0.1:${ORCHESTRATOR_PORT}/health`);
+
+  const item = createWorkItem(
+    {
+      title: "Validation queue observability fixture",
+      kind: "workflow",
+      goal: "Keep trace aligned with the bundle already scheduled.",
+      metadata: {
+        projectPath: "config/projects/spore.yaml",
+        projectId: "spore",
+        domainId: "docs",
+        mutationScope: ["docs"],
+        safeMode: true,
+      },
+    },
+    dbPath,
+  );
+  const seeded = insertProposalArtifactForWorkItem({
+    dbPath,
+    itemId: item.id,
+    itemTitle: item.title,
+    itemGoal: item.goal,
+    proposalStatus: "reviewed",
+  });
+
+  const firstQueue = await postJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/work-item-runs/${encodeURIComponent(seeded.runId)}/validate-bundle`,
+    {
+      bundleIds: ["proposal-ready-fast"],
+      stub: true,
+      timeout: 12000,
+      interval: 250,
+      by: "test-runner",
+      source: "http-self-build-validation-trace-test",
+    },
+  );
+  assert.equal(firstQueue.status, 200);
+  assert.ok(firstQueue.json.ok);
+
+  let runningSeen = false;
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const current = await getJson(
+      `http://127.0.0.1:${ORCHESTRATOR_PORT}/work-item-runs/${encodeURIComponent(seeded.runId)}`,
+    );
+    assert.equal(current.status, 200);
+    assert.ok(current.json.ok);
+    const validation = asObject(current.json.detail.validation);
+    if (["queued", "running"].includes(String(validation.status ?? ""))) {
+      runningSeen = true;
+      break;
+    }
+    await sleep(100);
+  }
+  assert.ok(runningSeen);
+
+  const secondQueue = await postJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/work-item-runs/${encodeURIComponent(seeded.runId)}/validate-bundle`,
+    {
+      bundleIds: ["integration-ready-core"],
+      stub: true,
+      timeout: 12000,
+      interval: 250,
+      by: "test-runner",
+      source: "http-self-build-validation-trace-test",
+    },
+  );
+  assert.equal(secondQueue.status, 200);
+  assert.ok(secondQueue.json.ok);
+  assert.equal(
+    String(asObject(asObject(secondQueue.json.detail.trace).validation).source ?? ""),
+    "run-state",
+  );
+  assert.deepEqual(
+    asArray(asObject(asObject(secondQueue.json.detail.trace).validation).selectedBundleIds),
+    ["proposal-ready-fast"],
+  );
+  assert.doesNotMatch(
+    String(asObject(asObject(secondQueue.json.detail.trace).validation).summary ?? ""),
+    /integration-ready-core/i,
+  );
+  assert.ok(
+    asArray(asObject(asObject(secondQueue.json.detail.trace).validation).reasons)
+      .every((reason) => !/integration-ready-core/i.test(String(reason))),
+  );
+});
+
 test("self-build workflow workspace reuse trace explains reused allocations over HTTP", async (t) => {
   const ORCHESTRATOR_PORT = await findFreePort();
   const { dbPath, sessionDbPath, eventLogPath } = withEventLogPath(
@@ -2412,6 +2529,46 @@ test("self-build workflow workspace reuse trace explains reused allocations over
   assert.match(
     String(asObject(asObject(verificationWorkspace.trace).allocation).summary ?? ""),
     /created|workspace/i,
+  );
+
+  const db = openOrchestratorDatabase(dbPath);
+  try {
+    const allocation = getWorkspaceAllocation(
+      db,
+      String(verificationWorkspace.id ?? ""),
+    );
+    assert.ok(allocation);
+    updateWorkspaceAllocation(db, {
+      ...allocation,
+      status: "failed",
+      metadata: {
+        ...asObject(allocation.metadata),
+        error: "verification workspace failed to provision",
+      },
+      updatedAt: new Date().toISOString(),
+    });
+  } finally {
+    db.close();
+  }
+
+  const failedVerificationWorkspace = await getJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/workspaces/${encodeURIComponent(String(verificationWorkspace.id ?? ""))}`,
+  );
+  assert.equal(failedVerificationWorkspace.status, 200);
+  assert.ok(failedVerificationWorkspace.json.ok);
+  assert.equal(
+    String(
+      asObject(asObject(failedVerificationWorkspace.json.detail.trace).allocation)
+        .decision ?? "",
+    ),
+    "failed",
+  );
+  assert.match(
+    String(
+      asObject(asObject(failedVerificationWorkspace.json.detail.trace).allocation)
+        .summary ?? "",
+    ),
+    /failed|provision/i,
   );
 });
 
@@ -3097,12 +3254,25 @@ test("operator chat follows proposal lineage without letting unrelated group pro
     String(asObject(initialReviewHistoryAction.trace).summary ?? ""),
     new RegExp(replacement.proposalId),
   );
-  assert.ok(
-    asArray<JsonRecord>(refreshedThread.pendingActions).some(
-      (action) =>
-        action.actionKind === "proposal-review" &&
-        action.targetId === replacement.proposalId,
-    ),
+  const replacementPendingAction = asArray<JsonRecord>(
+    refreshedThread.pendingActions,
+  ).find(
+    (action) =>
+      action.actionKind === "proposal-review" &&
+      action.targetId === replacement.proposalId,
+  );
+  assert.ok(replacementPendingAction);
+  assert.notEqual(
+    String(asObject(replacementPendingAction.trace).scope ?? ""),
+    "captured-at-action-creation",
+  );
+  assert.match(
+    String(asObject(replacementPendingAction.trace).summary ?? ""),
+    new RegExp(replacement.proposalId),
+  );
+  assert.doesNotMatch(
+    String(asObject(replacementPendingAction.trace).summary ?? ""),
+    new RegExp(initialProposalId),
   );
   assert.ok(
     asArray<JsonRecord>(refreshedThread.pendingActions).every(
