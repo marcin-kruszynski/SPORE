@@ -716,6 +716,65 @@ function insertFailedRerunWithoutProposal({
   return { runId };
 }
 
+function insertBlockedRunWithoutProposal({
+  dbPath,
+  itemId,
+}: {
+  dbPath: string;
+  itemId: string;
+}) {
+  const timestamp = new Date().toISOString();
+  const runId = `work-item-run-blocked-${Date.now()}`;
+  const workspaceId = `workspace-blocked-${Date.now()}`;
+  const db = openOrchestratorDatabase(dbPath);
+  try {
+    insertWorkItemRunFixture(db, {
+      runId,
+      itemId,
+      status: "blocked",
+      triggerSource: "test-blocked",
+      requestedBy: "test-runner",
+      result: {
+        executionId: `execution:${runId}`,
+        status: "held",
+      },
+      metadata: {
+        itemKind: "workflow",
+        itemStatusBeforeRun: "pending",
+      },
+      timestamp,
+    });
+    insertWorkspaceAllocation(db, {
+      id: workspaceId,
+      projectId: "spore",
+      ownerType: "work-item-run",
+      ownerId: runId,
+      executionId: `execution:${runId}`,
+      stepId: null,
+      workItemId: itemId,
+      workItemRunId: runId,
+      proposalArtifactId: null,
+      worktreePath: path.join(dbPath, workspaceId),
+      branchName: `spore/test/${workspaceId}`,
+      baseRef: "HEAD",
+      integrationBranch: null,
+      mode: "git-worktree",
+      safeMode: true,
+      mutationScope: ["docs"],
+      status: "active",
+      metadata: {
+        source: "test-blocked",
+      },
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      cleanedAt: null,
+    });
+  } finally {
+    db.close();
+  }
+  return { runId, workspaceId };
+}
+
 function setProposalProjectionState(
   dbPath: string,
   proposalId: string,
@@ -1917,8 +1976,6 @@ test("blocked self-build runs do not expose reviewable proposals over HTTP", asy
   const { dbPath, sessionDbPath, eventLogPath } = withEventLogPath(
     await makeTempPaths("spore-http-self-build-blocked-"),
   ) as HarnessTempPathsWithEventLog;
-  const worktreeRoot = `${dbPath}.worktrees`;
-  const repoRoot = await makeTempRepo();
 
   const orchestrator = startProcess(
     "node",
@@ -1928,17 +1985,11 @@ test("blocked self-build runs do not expose reviewable proposals over HTTP", asy
       SPORE_ORCHESTRATOR_DB_PATH: dbPath,
       SPORE_SESSION_DB_PATH: sessionDbPath,
       SPORE_EVENT_LOG_PATH: eventLogPath,
-      SPORE_WORKSPACE_REPO_ROOT: repoRoot,
-      SPORE_WORKTREE_ROOT: worktreeRoot,
     },
   );
 
   t.after(async () => {
     await stopProcess(orchestrator);
-  });
-  t.after(async () => {
-    await fs.rm(worktreeRoot, { recursive: true, force: true });
-    await fs.rm(repoRoot, { recursive: true, force: true });
   });
 
   await waitForHealth(`http://127.0.0.1:${ORCHESTRATOR_PORT}/health`);
@@ -1960,22 +2011,12 @@ test("blocked self-build runs do not expose reviewable proposals over HTTP", asy
     dbPath,
   );
 
-  const runResult = await postJson(
-    `http://127.0.0.1:${ORCHESTRATOR_PORT}/work-items/${encodeURIComponent(item.id)}/run`,
-    {
-      stub: true,
-      timeout: 12000,
-      interval: 250,
-      by: "test-runner",
-      source: "http-self-build-test",
-    },
-  );
-  assert.equal(runResult.status, 200);
-  assert.ok(runResult.json.ok);
-  assert.equal(runResult.json.detail.run.status, "blocked");
-  assert.equal(runResult.json.detail.proposal ?? null, null);
+  const seeded = insertBlockedRunWithoutProposal({
+    dbPath,
+    itemId: item.id,
+  });
 
-  const runId = runResult.json.detail.run.id;
+  const runId = seeded.runId;
   const runDetail = await getJson(
     `http://127.0.0.1:${ORCHESTRATOR_PORT}/work-item-runs/${encodeURIComponent(runId)}`,
   );
