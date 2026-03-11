@@ -2565,6 +2565,51 @@ function workItemRunTerminalKind(run: LooseRecord = {}) {
   return "pending";
 }
 
+function canRunFeedProposalLifecycle(item, run) {
+  if (!item || !run) {
+    return false;
+  }
+  if (workItemRunTerminalKind(run) !== "completed") {
+    return false;
+  }
+  if (item.kind === "workflow") {
+    return Boolean(toText(run?.result?.executionId, ""));
+  }
+  return true;
+}
+
+function syncWorkspaceAllocationForRunOutcome(
+  workspace,
+  run,
+  proposal = null,
+  dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
+) {
+  if (!workspace || !run) {
+    return workspace;
+  }
+  const currentWorkspace = withDatabase(dbPath, (db) =>
+    getWorkspaceAllocation(db, workspace.id),
+  );
+  if (!currentWorkspace) {
+    return workspace;
+  }
+  const terminalKind = workItemRunTerminalKind(run);
+  const updatedWorkspace = {
+    ...currentWorkspace,
+    executionId: run.result?.executionId ?? currentWorkspace.executionId ?? null,
+    proposalArtifactId: proposal?.id ?? null,
+    status:
+      terminalKind === "failed"
+        ? "failed"
+        : terminalKind === "blocked"
+          ? "active"
+          : "settled",
+    updatedAt: nowIso(),
+  };
+  withDatabase(dbPath, (db) => updateWorkspaceAllocation(db, updatedWorkspace));
+  return updatedWorkspace;
+}
+
 function buildWorkItemRunLinks(run) {
   const result = run?.result ?? {};
   return compactObject({
@@ -4363,7 +4408,12 @@ export async function runSelfBuildWorkItem(
       ? getManagedWorkItemRun(failedItem.metadata.lastRunId, dbPath)
       : null;
     let proposal = null;
-    if (failedItem && failedRun && workItemKindRequiresProposal(failedItem)) {
+    if (
+      failedItem &&
+      failedRun &&
+      workItemKindRequiresProposal(failedItem) &&
+      canRunFeedProposalLifecycle(failedItem, failedRun)
+    ) {
       const now = nowIso();
       const proposalWorkspace =
         provisionedWorkspace ?? getWorkspaceByRun(failedRun.id, dbPath);
@@ -4403,30 +4453,17 @@ export async function runSelfBuildWorkItem(
         nowIso,
       );
       withDatabase(dbPath, (db) => insertProposalArtifact(db, proposal));
-      if (provisionedWorkspace) {
-        const currentWorkspace = withDatabase(dbPath, (db) =>
-          getWorkspaceAllocation(db, provisionedWorkspace.id),
-        );
-        if (currentWorkspace) {
-          const updatedWorkspace = {
-            ...currentWorkspace,
-            executionId:
-              failedRun.result?.executionId ??
-              currentWorkspace.executionId ??
-              null,
-            proposalArtifactId: proposal.id,
-            status: "active",
-            updatedAt: nowIso(),
-          };
-          withDatabase(dbPath, (db) =>
-            updateWorkspaceAllocation(db, updatedWorkspace),
-          );
-          provisionedWorkspace = updatedWorkspace;
-        }
-      }
+    }
+    provisionedWorkspace = syncWorkspaceAllocationForRunOutcome(
+      provisionedWorkspace,
+      failedRun,
+      proposal,
+      dbPath,
+    );
+    if (failedItem && failedRun) {
       failedRun.metadata = {
         ...failedRun.metadata,
-        proposalArtifactId: proposal.id,
+        proposalArtifactId: proposal?.id ?? null,
         docSuggestions: buildDocSuggestionsHelper(
           failedItem,
           failedRun,
@@ -4465,7 +4502,10 @@ export async function runSelfBuildWorkItem(
   const runDetail = getManagedWorkItemRun(result.run.id, dbPath);
   const settledItem = withDatabase(dbPath, (db) => getWorkItem(db, itemId));
   let proposal = null;
-  if (workItemKindRequiresProposal(settledItem)) {
+  if (
+    workItemKindRequiresProposal(settledItem) &&
+    canRunFeedProposalLifecycle(settledItem, runDetail)
+  ) {
     const now = nowIso();
     const proposalWorkspace =
       provisionedWorkspace ?? getWorkspaceByRun(runDetail.id, dbPath);
@@ -4505,38 +4545,19 @@ export async function runSelfBuildWorkItem(
       nowIso,
     );
     withDatabase(dbPath, (db) => insertProposalArtifact(db, proposal));
-    if (provisionedWorkspace) {
-      const currentWorkspace = withDatabase(dbPath, (db) =>
-        getWorkspaceAllocation(db, provisionedWorkspace.id),
-      );
-      if (currentWorkspace) {
-        const updatedWorkspace = {
-          ...currentWorkspace,
-          executionId:
-            runDetail.result?.executionId ??
-            currentWorkspace.executionId ??
-            null,
-          proposalArtifactId: proposal.id,
-          status: "settled",
-          updatedAt: nowIso(),
-        };
-        withDatabase(dbPath, (db) =>
-          updateWorkspaceAllocation(db, updatedWorkspace),
-        );
-        provisionedWorkspace = updatedWorkspace;
-      }
-    }
-    runDetail.metadata = {
-      ...runDetail.metadata,
-      proposalArtifactId: proposal.id,
-      docSuggestions: buildDocSuggestionsHelper(
-        settledItem,
-        runDetail,
-        proposal,
-      ),
-    };
-    withDatabase(dbPath, (db) => updateWorkItemRun(db, runDetail));
   }
+  provisionedWorkspace = syncWorkspaceAllocationForRunOutcome(
+    provisionedWorkspace,
+    runDetail,
+    proposal,
+    dbPath,
+  );
+  runDetail.metadata = {
+    ...runDetail.metadata,
+    proposalArtifactId: proposal?.id ?? null,
+    docSuggestions: buildDocSuggestionsHelper(settledItem, runDetail, proposal),
+  };
+  withDatabase(dbPath, (db) => updateWorkItemRun(db, runDetail));
   const learningRecord = await maybeCreateLearningRecord(
     settledItem,
     runDetail,
@@ -5855,7 +5876,10 @@ function resolveProposalSourceExecutionId(
   const run = withDatabase(dbPath, (db) =>
     getWorkItemRun(db, proposal.workItemRunId),
   );
-  return run?.result?.executionId ?? null;
+  if (workItemRunTerminalKind(run) !== "completed") {
+    return null;
+  }
+  return toText(run?.result?.executionId, "") || null;
 }
 
 function resolveProposalPromotionContext(
@@ -5874,7 +5898,6 @@ function resolveProposalPromotionContext(
   const integrationBranch =
     options.integrationBranch ??
     proposal?.metadata?.promotion?.integrationBranch ??
-    proposal?.artifacts?.workspace?.branchName ??
     null;
   const blockers = [];
   if (!proposal) {
@@ -6511,12 +6534,7 @@ export async function approveProposalArtifact(
   }
   const approved = decision.status ?? "approved";
   const approvedAt = nowIso();
-  const sourceExecutionId = (() => {
-    const run = artifact.workItemRunId
-      ? withDatabase(dbPath, (db) => getWorkItemRun(db, artifact.workItemRunId))
-      : null;
-    return run?.result?.executionId ?? null;
-  })();
+  const sourceExecutionId = resolveProposalSourceExecutionId(artifact, dbPath);
   const blockers =
     approved === "approved" && !sourceExecutionId
       ? [
@@ -6558,7 +6576,6 @@ export async function approveProposalArtifact(
             null,
           integrationBranch:
             decision.integrationBranch ??
-            artifact.artifacts?.workspace?.branchName ??
             artifact.metadata?.promotion?.integrationBranch ??
             null,
           sourceExecutionId,

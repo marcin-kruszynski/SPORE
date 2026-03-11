@@ -1,8 +1,13 @@
 import assert from "node:assert/strict";
+import type { SpawnOptionsWithoutStdio } from "node:child_process";
+import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
 
 import {
+  createWorkItem,
   getProposalArtifact,
   openOrchestratorDatabase,
   updateProposalArtifact,
@@ -22,6 +27,50 @@ import { removeWorkspace } from "@spore/workspace-manager";
 import type { HarnessTempPathsWithEventLog } from "./helpers/http-harness.js";
 
 type JsonRecord = Record<string, unknown>;
+
+function run(command: string, args: string[], options: SpawnOptionsWithoutStdio = {}) {
+  return new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
+    const child = spawn(command, args, {
+      cwd: options.cwd,
+      env: { ...process.env, ...(options.env ?? {}) },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk.toString();
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk.toString();
+    });
+    child.on("exit", (code) => {
+      if (code === 0) {
+        resolve({ stdout, stderr });
+        return;
+      }
+      reject(
+        new Error(stderr || stdout || `${command} failed with code ${code}`),
+      );
+    });
+  });
+}
+
+async function makeTempRepo() {
+  const repoRoot = await fs.mkdtemp(
+    path.join(os.tmpdir(), "spore-http-self-build-proposals-"),
+  );
+  await run("git", ["init", "-b", "main"], { cwd: repoRoot });
+  await run("git", ["config", "user.name", "SPORE Test"], { cwd: repoRoot });
+  await run("git", ["config", "user.email", "spore-test@example.com"], {
+    cwd: repoRoot,
+  });
+  await fs.writeFile(path.join(repoRoot, "README.md"), "# temp repo\n", "utf8");
+  await fs.mkdir(path.join(repoRoot, "docs"), { recursive: true });
+  await fs.writeFile(path.join(repoRoot, "docs", "guide.md"), "# guide\n", "utf8");
+  await run("git", ["add", "README.md", "docs/guide.md"], { cwd: repoRoot });
+  await run("git", ["commit", "-m", "init"], { cwd: repoRoot });
+  return repoRoot;
+}
 
 const OPERATOR_PROGRESS_STAGE_IDS = [
   "mission_received",
@@ -1303,6 +1352,91 @@ test("self-build summary and lineage routes expose operator-first visibility", a
   );
   assert.equal(webIntegrationBranches.status, 200);
   assert.ok(webIntegrationBranches.json.ok);
+});
+
+test("blocked self-build runs do not expose reviewable proposals over HTTP", async (t) => {
+  const ORCHESTRATOR_PORT = await findFreePort();
+  const { dbPath, sessionDbPath, eventLogPath } = withEventLogPath(
+    await makeTempPaths("spore-http-self-build-blocked-"),
+  ) as HarnessTempPathsWithEventLog;
+  const worktreeRoot = `${dbPath}.worktrees`;
+  const repoRoot = await makeTempRepo();
+
+  const orchestrator = startProcess(
+    "node",
+    ["services/orchestrator/server.js"],
+    {
+      SPORE_ORCHESTRATOR_PORT: String(ORCHESTRATOR_PORT),
+      SPORE_ORCHESTRATOR_DB_PATH: dbPath,
+      SPORE_SESSION_DB_PATH: sessionDbPath,
+      SPORE_EVENT_LOG_PATH: eventLogPath,
+      SPORE_WORKSPACE_REPO_ROOT: repoRoot,
+      SPORE_WORKTREE_ROOT: worktreeRoot,
+    },
+  );
+
+  t.after(async () => {
+    await stopProcess(orchestrator);
+  });
+  t.after(async () => {
+    await fs.rm(worktreeRoot, { recursive: true, force: true });
+    await fs.rm(repoRoot, { recursive: true, force: true });
+  });
+
+  await waitForHealth(`http://127.0.0.1:${ORCHESTRATOR_PORT}/health`);
+
+  const item = createWorkItem(
+    {
+      title: "Hold HTTP self-build proposal lifecycle",
+      kind: "workflow",
+      goal: "Ensure held runs stay diagnostic-only.",
+      metadata: {
+        workflowPath: "config/workflows/cli-verification-pass.yaml",
+        projectPath: "config/projects/spore.yaml",
+        domainId: "docs",
+        roles: ["lead", "builder", "tester", "reviewer"],
+        mutationScope: ["docs"],
+        safeMode: true,
+      },
+    },
+    dbPath,
+  );
+
+  const runResult = await postJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/work-items/${encodeURIComponent(item.id)}/run`,
+    {
+      stub: true,
+      timeout: 12000,
+      interval: 250,
+      by: "test-runner",
+      source: "http-self-build-test",
+    },
+  );
+  assert.equal(runResult.status, 200);
+  assert.ok(runResult.json.ok);
+  assert.equal(runResult.json.detail.run.status, "blocked");
+  assert.equal(runResult.json.detail.proposal ?? null, null);
+
+  const runId = runResult.json.detail.run.id;
+  const runDetail = await getJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/work-item-runs/${encodeURIComponent(runId)}`,
+  );
+  assert.equal(runDetail.status, 200);
+  assert.ok(runDetail.json.ok);
+  assert.equal(runDetail.json.detail.proposal, null);
+  assert.equal(runDetail.json.detail.failure.code, "work_item_run_blocked");
+  assert.ok(
+    asArray<JsonRecord>(runDetail.json.detail.suggestedActions).every(
+      (action) => action.action !== "review-proposal",
+    ),
+  );
+
+  const summary = await getJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/self-build/summary`,
+  );
+  assert.equal(summary.status, 200);
+  assert.ok(summary.json.ok);
+  assert.equal(summary.json.detail.counts.waitingReviewProposals, 0);
 });
 
 test("operator chat routes create governed threads and accept chat-driven approvals", async (t) => {
