@@ -423,6 +423,111 @@ async function replyInOperatorThread(
   return payload.json.detail;
 }
 
+function insertWorkItemRunFixture(
+  db: ReturnType<typeof openOrchestratorDatabase>,
+  options: {
+    runId: string;
+    itemId: string;
+    status: string;
+    triggerSource: string;
+    requestedBy: string;
+    result?: JsonRecord;
+    metadata?: JsonRecord;
+    timestamp: string;
+  },
+) {
+  insertWorkItemRun(db, {
+    id: options.runId,
+    workItemId: options.itemId,
+    status: options.status,
+    triggerSource: options.triggerSource,
+    requestedBy: options.requestedBy,
+    result: options.result ?? {},
+    metadata: options.metadata ?? {},
+    createdAt: options.timestamp,
+    startedAt: options.timestamp,
+    endedAt: options.timestamp,
+  });
+}
+
+function insertProposalArtifactFixture(
+  db: ReturnType<typeof openOrchestratorDatabase>,
+  options: {
+    proposalId: string;
+    runId: string;
+    itemId: string;
+    itemTitle: string;
+    itemGoal: string;
+    proposalStatus: string;
+    timestamp: string;
+    summaryOverrides?: JsonRecord;
+    metadataOverrides?: JsonRecord;
+  },
+) {
+  insertProposalArtifact(db, {
+    id: options.proposalId,
+    workItemRunId: options.runId,
+    workItemId: options.itemId,
+    status: options.proposalStatus,
+    kind: "workflow",
+    summary: {
+      title: `${options.itemTitle} proposal`,
+      goal: options.itemGoal,
+      runStatus: "completed",
+      safeMode: true,
+      ...(options.summaryOverrides ?? {}),
+    },
+    artifacts: {
+      changeSummary: options.itemGoal,
+      proposedFiles: [],
+      diffSummary: {
+        fileCount: 0,
+        trackedFileCount: 0,
+        untrackedFileCount: 0,
+        addedCount: 0,
+        modifiedCount: 0,
+        deletedCount: 0,
+        renamedCount: 0,
+        conflictedCount: 0,
+        insertionCount: 0,
+        deletionCount: 0,
+      },
+      changedFilesByScope: [],
+      patchArtifact: {
+        path: `artifacts/proposals/${options.proposalId}.patch`,
+        byteLength: 0,
+        preview: "",
+      },
+      reviewNotes: {
+        requiredReview: true,
+        requiredApproval: true,
+        safeMode: true,
+      },
+      testSummary: {
+        validationStatus: "pending",
+        scenarioRunIds: [],
+        regressionRunIds: [],
+      },
+      docImpact: {
+        relatedDocs: [],
+        relatedScenarios: [],
+        relatedRegressions: [],
+      },
+    },
+    metadata: {
+      source: "test",
+      promotion: {
+        status: null,
+      },
+      ...(options.metadataOverrides ?? {}),
+    },
+    createdAt: options.timestamp,
+    updatedAt: options.timestamp,
+    reviewedAt: null,
+    approvedAt: null,
+  });
+}
+
 function insertReplacementProposalArtifact(
   dbPath: string,
   baseProposalId: string,
@@ -449,9 +554,9 @@ function insertReplacementProposalArtifact(
     const validation = asObject(metadata.validation);
     const promotion = asObject(metadata.promotion);
 
-    insertWorkItemRun(db, {
-      id: runId,
-      workItemId: baseProposal.workItemId,
+    insertWorkItemRunFixture(db, {
+      runId,
+      itemId: String(baseProposal.workItemId),
       status: "completed",
       triggerSource: "test-rerun",
       requestedBy: "test-runner",
@@ -463,21 +568,22 @@ function insertReplacementProposalArtifact(
         itemStatusBeforeRun: "pending",
         rerunOf: baseProposal.workItemRunId,
       },
-      createdAt: timestamp,
-      startedAt: timestamp,
-      endedAt: timestamp,
+      timestamp,
     });
 
-    insertProposalArtifact(db, {
-      ...baseProposal,
-      id: proposalId,
-      workItemRunId: runId,
-      status: options.proposalStatus,
-      summary: {
+    insertProposalArtifactFixture(db, {
+      proposalId,
+      runId,
+      itemId: String(baseProposal.workItemId),
+      itemTitle: String(summary.title ?? baseProposalId),
+      itemGoal: String(summary.goal ?? ""),
+      proposalStatus: options.proposalStatus,
+      timestamp,
+      summaryOverrides: {
         ...summary,
         title: `${String(summary.title ?? baseProposalId)} rerun`,
       },
-      metadata: {
+      metadataOverrides: {
         ...metadata,
         validation: {
           ...validation,
@@ -505,10 +611,6 @@ function insertReplacementProposalArtifact(
           updatedAt: timestamp,
         },
       },
-      createdAt: timestamp,
-      updatedAt: timestamp,
-      reviewedAt: null,
-      approvedAt: null,
     });
 
     return {
@@ -538,9 +640,9 @@ function insertProposalArtifactForWorkItem({
   const proposalId = `proposal-seed-${Date.now()}`;
   const db = openOrchestratorDatabase(dbPath);
   try {
-    insertWorkItemRun(db, {
-      id: runId,
-      workItemId: itemId,
+    insertWorkItemRunFixture(db, {
+      runId,
+      itemId,
       status: "completed",
       triggerSource: "test-seed",
       requestedBy: "test-runner",
@@ -551,69 +653,16 @@ function insertProposalArtifactForWorkItem({
         itemKind: "workflow",
         itemStatusBeforeRun: "pending",
       },
-      createdAt: timestamp,
-      startedAt: timestamp,
-      endedAt: timestamp,
+      timestamp,
     });
-    insertProposalArtifact(db, {
-      id: proposalId,
-      workItemRunId: runId,
-      workItemId: itemId,
-      status: proposalStatus,
-      kind: "workflow",
-      summary: {
-        title: `${itemTitle} proposal`,
-        goal: itemGoal,
-        runStatus: "completed",
-        safeMode: true,
-      },
-      artifacts: {
-        changeSummary: itemGoal,
-        proposedFiles: [],
-        diffSummary: {
-          fileCount: 0,
-          trackedFileCount: 0,
-          untrackedFileCount: 0,
-          addedCount: 0,
-          modifiedCount: 0,
-          deletedCount: 0,
-          renamedCount: 0,
-          conflictedCount: 0,
-          insertionCount: 0,
-          deletionCount: 0,
-        },
-        changedFilesByScope: [],
-        patchArtifact: {
-          path: `artifacts/proposals/${proposalId}.patch`,
-          byteLength: 0,
-          preview: "",
-        },
-        reviewNotes: {
-          requiredReview: true,
-          requiredApproval: true,
-          safeMode: true,
-        },
-        testSummary: {
-          validationStatus: "pending",
-          scenarioRunIds: [],
-          regressionRunIds: [],
-        },
-        docImpact: {
-          relatedDocs: [],
-          relatedScenarios: [],
-          relatedRegressions: [],
-        },
-      },
-      metadata: {
-        source: "test",
-        promotion: {
-          status: null,
-        },
-      },
-      createdAt: timestamp,
-      updatedAt: timestamp,
-      reviewedAt: null,
-      approvedAt: null,
+    insertProposalArtifactFixture(db, {
+      proposalId,
+      runId,
+      itemId,
+      itemTitle,
+      itemGoal,
+      proposalStatus,
+      timestamp,
     });
   } finally {
     db.close();
@@ -634,9 +683,9 @@ function insertFailedRerunWithoutProposal({
   const runId = `work-item-run-failed-rerun-${Date.now()}`;
   const db = openOrchestratorDatabase(dbPath);
   try {
-    insertWorkItemRun(db, {
-      id: runId,
-      workItemId: itemId,
+    insertWorkItemRunFixture(db, {
+      runId,
+      itemId,
       status: "failed",
       triggerSource: "test-rerun",
       requestedBy: "test-runner",
@@ -649,14 +698,61 @@ function insertFailedRerunWithoutProposal({
         rerunOf,
         error: "Latest rerun failed before proposal creation.",
       },
-      createdAt: timestamp,
-      startedAt: timestamp,
-      endedAt: timestamp,
+      timestamp,
     });
   } finally {
     db.close();
   }
   return { runId };
+}
+
+function setProposalProjectionState(
+  dbPath: string,
+  proposalId: string,
+  options: {
+    proposalStatus: string;
+    promotionStatus: string;
+    validationStatus?: string;
+    validationSummary?: string;
+  },
+) {
+  const db = openOrchestratorDatabase(dbPath);
+  try {
+    const proposal = getProposalArtifact(db, proposalId);
+    assert.ok(proposal);
+    const updatedAt = new Date().toISOString();
+    const promotion = asObject(asObject(proposal.metadata).promotion);
+    const validation = asObject(asObject(proposal.metadata).validation);
+    updateProposalArtifact(db, {
+      ...proposal,
+      status: options.proposalStatus,
+      updatedAt,
+      metadata: {
+        ...asObject(proposal.metadata),
+        validation: {
+          ...validation,
+          ...(options.validationStatus ? { status: options.validationStatus } : {}),
+          ...(options.validationSummary
+            ? { summary: options.validationSummary }
+            : {}),
+        },
+        promotion: {
+          ...promotion,
+          status: options.promotionStatus,
+          blockers: [],
+          sourceExecutionId:
+            String(promotion.sourceExecutionId ?? "").trim() ||
+            "execution:operator-chat-test",
+          integrationBranch:
+            String(promotion.integrationBranch ?? "").trim() ||
+            "spore/test/operator-chat-promotion",
+          updatedAt,
+        },
+      },
+    });
+  } finally {
+    db.close();
+  }
 }
 
 test("self-build summary and lineage routes expose operator-first visibility", async (t) => {
@@ -2265,56 +2361,6 @@ test("operator chat supports proposal rework and quarantine release flows", asyn
     return action;
   }
 
-  function setProposalProjectionState(
-    proposalId,
-    options: {
-      proposalStatus: string;
-      promotionStatus: string;
-      validationStatus?: string;
-      validationSummary?: string;
-    },
-  ) {
-    const db = openOrchestratorDatabase(dbPath);
-    try {
-      const proposal = getProposalArtifact(db, proposalId);
-      assert.ok(proposal);
-      const updatedAt = new Date().toISOString();
-      const promotion = asObject(asObject(proposal.metadata).promotion);
-      const validation = asObject(asObject(proposal.metadata).validation);
-      updateProposalArtifact(db, {
-        ...proposal,
-        status: options.proposalStatus,
-        updatedAt,
-        metadata: {
-          ...asObject(proposal.metadata),
-          validation: {
-            ...validation,
-            ...(options.validationStatus
-              ? { status: options.validationStatus }
-              : {}),
-            ...(options.validationSummary
-              ? { summary: options.validationSummary }
-              : {}),
-          },
-          promotion: {
-            ...promotion,
-            status: options.promotionStatus,
-            blockers: [],
-            sourceExecutionId:
-              String(promotion.sourceExecutionId ?? "").trim() ||
-              "execution:operator-chat-test",
-            integrationBranch:
-              String(promotion.integrationBranch ?? "").trim() ||
-              "spore/test/operator-chat-promotion",
-            updatedAt,
-          },
-        },
-      });
-    } finally {
-      db.close();
-    }
-  }
-
   const reworkThread = await createStubThread(
     "Improve the operator web dashboard for self-build review and keep the work in safe mode.",
   );
@@ -2491,7 +2537,7 @@ test("operator chat supports proposal rework and quarantine release flows", asyn
       : "",
   );
   assert.ok(promotionProposalId);
-  setProposalProjectionState(promotionProposalId, {
+  setProposalProjectionState(dbPath, promotionProposalId, {
     proposalStatus: "promotion_ready",
     promotionStatus: "promotion_ready",
     validationStatus: "completed",
@@ -2554,7 +2600,7 @@ test("operator chat supports proposal rework and quarantine release flows", asyn
     objective: asObject(promotionPending.summary).objective as string,
   });
 
-  setProposalProjectionState(promotionProposalId, {
+  setProposalProjectionState(dbPath, promotionProposalId, {
     proposalStatus: "promotion_candidate",
     promotionStatus: "promotion_candidate",
   });

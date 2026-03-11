@@ -853,34 +853,34 @@ function buildThreadProgress(
     currentStage = "plan_prepared";
   }
 
-  let exceptionState: string | null = null;
+  let stateOverride: string | null = null;
   if (activeQuarantine.id) {
-    exceptionState = "quarantined";
+    stateOverride = "quarantined";
   } else if (
     pendingActionKind === "managed-run-recovery" ||
     (needsRunRecovery && ["failed", "blocked"].includes(toText(latestRun.status, "")))
   ) {
-    exceptionState = "run_failed";
+    stateOverride = "run_failed";
   } else if (proposalStatus === "validation_failed") {
-    exceptionState = "validation_failed";
+    stateOverride = "validation_failed";
   } else if (proposalStatus === "promotion_blocked") {
-    exceptionState = "promotion_blocked";
+    stateOverride = "promotion_blocked";
   } else if (
     pendingActionKind === "proposal-rework" ||
     ["rejected", "rework_required"].includes(proposalStatus)
   ) {
-    exceptionState = "rework";
+    stateOverride = "rework";
   } else if (
     String(thread.status) === "completed" ||
     proposalStatus === "promotion_candidate" ||
     goalPlanStatus === "completed"
   ) {
-    exceptionState = "completed";
+    stateOverride = "completed";
   } else if (
     pendingActions.length === 0 &&
     actionHistory.some((action) => asObject(action.resolution).held === true)
   ) {
-    exceptionState = "held";
+    stateOverride = "held";
   }
 
   const currentIndex = OPERATOR_PROGRESS_STAGES.findIndex(
@@ -890,7 +890,7 @@ function buildThreadProgress(
     stages: OPERATOR_PROGRESS_STAGES.map((stage, index) => ({
       ...stage,
       status:
-        exceptionState === "completed"
+        stateOverride === "completed"
           ? "complete"
           : index < currentIndex
             ? "complete"
@@ -899,8 +899,9 @@ function buildThreadProgress(
               : "upcoming",
     })),
     currentStage,
-    currentState: exceptionState ?? currentStage,
-    exceptionState,
+    currentState: stateOverride ?? currentStage,
+    stateOverride,
+    exceptionState: stateOverride,
   };
 }
 
@@ -1012,7 +1013,10 @@ function buildDecisionGuidance(
         suggestedReplies: [],
       };
     default:
-      if (toText(progress.exceptionState, "") === "completed") {
+      if (
+        toText(progress.stateOverride, "") === "completed" ||
+        toText(progress.exceptionState, "") === "completed"
+      ) {
         return {
           title: "Mission complete",
           why: "The mission reached a completed promotion state and no further operator decision is pending.",
@@ -1064,26 +1068,29 @@ function buildThreadHero(
 ) {
   const execution = extractExecutionSettings(thread);
   const currentStage = toText(progress.currentStage, "mission_received");
-  const exceptionState = toText(progress.exceptionState, "") || null;
+  const stateOverride =
+    toText(progress.stateOverride, "") ||
+    toText(progress.exceptionState, "") ||
+    null;
   const pendingAction = pendingActions[0] ?? null;
 
   let statusLine = "I captured your mission and I am preparing the first plan.";
-  if (exceptionState === "quarantined") {
+  if (stateOverride === "quarantined") {
     statusLine = "This mission is quarantined until you release it.";
-  } else if (exceptionState === "run_failed") {
+  } else if (stateOverride === "run_failed") {
     statusLine =
       "The latest managed run failed and needs recovery before the mission can continue.";
-  } else if (exceptionState === "rework") {
+  } else if (stateOverride === "rework") {
     statusLine = "This mission needs rework before it can continue.";
-  } else if (exceptionState === "validation_failed") {
+  } else if (stateOverride === "validation_failed") {
     statusLine =
       "This mission is blocked because the proposal failed validation.";
-  } else if (exceptionState === "promotion_blocked") {
+  } else if (stateOverride === "promotion_blocked") {
     statusLine =
       "This mission is blocked because promotion cannot continue yet.";
-  } else if (exceptionState === "held") {
+  } else if (stateOverride === "held") {
     statusLine = "This mission is on hold until you tell me how to continue.";
-  } else if (exceptionState === "completed") {
+  } else if (stateOverride === "completed") {
     statusLine =
       "This mission completed and the promotion flow has already been launched.";
   } else if (currentStage === "plan_approval") {
@@ -1729,6 +1736,314 @@ function messageRequestsHelp(message: string) {
   ]);
 }
 
+function requestThreadAction(
+  threadId: string,
+  config: {
+    actionKind: string;
+    title: string;
+    summary: string;
+    targetType: string;
+    targetId: string;
+    payload?: LooseRecord;
+    options?: LooseRecord;
+  },
+  messagePayload: LooseRecord,
+  dbPath: string,
+) {
+  const created = createPendingAction(threadId, config, dbPath);
+  if (created.created && created.action) {
+    appendThreadMessage(
+      threadId,
+      "assistant",
+      "action-request",
+      buildPendingActionMessage(created.action),
+      {
+        pendingActionId: created.action.id,
+        ...messagePayload,
+      },
+      dbPath,
+    );
+  }
+  return listPendingThreadActions(threadId, dbPath);
+}
+
+function requestQuarantineReleaseAction(
+  threadId: string,
+  activeQuarantine: LooseRecord,
+  dbPath: string,
+) {
+  return requestThreadAction(
+    threadId,
+    {
+      actionKind: "quarantine-release",
+      title: "Release quarantine",
+      summary: `Quarantine ${activeQuarantine.id} is active for ${activeQuarantine.targetType} ${activeQuarantine.targetId}. Decide whether to keep it in place or release it back into the governed flow.`,
+      targetType: "quarantine",
+      targetId: String(activeQuarantine.id),
+      payload: {
+        itemType: activeQuarantine.targetType,
+        itemId: activeQuarantine.targetId,
+        quarantineId: activeQuarantine.id,
+      },
+      options: {
+        actions: [
+          {
+            value: "release",
+            label: "Release quarantine",
+            tone: "primary",
+          },
+          { value: "hold", label: "Keep quarantined", tone: "secondary" },
+        ],
+      },
+    },
+    {},
+    dbPath,
+  );
+}
+
+function requestGoalPlanReviewAction(
+  threadId: string,
+  goalPlan: LooseRecord,
+  dbPath: string,
+) {
+  return requestThreadAction(
+    threadId,
+    {
+      actionKind: "goal-plan-review",
+      title: "Review goal plan",
+      summary: `Goal plan ${goalPlan.id} is ready for operator review. Plan options: ${recommendationPreview(goalPlan)}. Reply with approve, reject, or edit. You can also say “keep only docs”, “drop 2”, or “prioritize operator-ui-pass”.`,
+      targetType: "goal-plan",
+      targetId: String(goalPlan.id),
+      payload: {
+        itemType: "goal-plan",
+        itemId: goalPlan.id,
+      },
+      options: {
+        actions: [
+          { value: "approve", label: "Approve plan", tone: "primary" },
+          { value: "edit", label: "Edit in chat", tone: "secondary" },
+          { value: "reject", label: "Reject plan", tone: "secondary" },
+        ],
+      },
+    },
+    {
+      artifacts: [
+        artifactRef(
+          "goal-plan",
+          String(goalPlan.id),
+          toText(goalPlan.title, String(goalPlan.id)),
+          String(goalPlan.status),
+        ),
+      ],
+    },
+    dbPath,
+  );
+}
+
+function requestProposalReviewAction(
+  threadId: string,
+  proposal: LooseRecord,
+  dbPath: string,
+) {
+  return requestThreadAction(
+    threadId,
+    {
+      actionKind: "proposal-review",
+      title: "Review proposal",
+      summary: `Proposal ${proposal.id} needs review before approval and validation.`,
+      targetType: "proposal",
+      targetId: String(proposal.id),
+      payload: {
+        itemType: "proposal",
+        itemId: proposal.id,
+      },
+      options: {
+        actions: [
+          { value: "reviewed", label: "Mark reviewed", tone: "primary" },
+          { value: "rejected", label: "Reject proposal", tone: "secondary" },
+        ],
+      },
+    },
+    {
+      artifacts: [
+        artifactRef(
+          "proposal",
+          String(proposal.id),
+          toText(asObject(proposal.summary).title, String(proposal.id)),
+          String(proposal.status),
+        ),
+      ],
+    },
+    dbPath,
+  );
+}
+
+function requestProposalApprovalAction(
+  threadId: string,
+  proposal: LooseRecord,
+  dbPath: string,
+) {
+  return requestThreadAction(
+    threadId,
+    {
+      actionKind: "proposal-approval",
+      title: "Approve proposal",
+      summary: `Proposal ${proposal.id} has been reviewed and now needs approval before validation and promotion checks.`,
+      targetType: "proposal",
+      targetId: String(proposal.id),
+      payload: {
+        itemType: "proposal",
+        itemId: proposal.id,
+      },
+      options: {
+        actions: [
+          { value: "approve", label: "Approve proposal", tone: "primary" },
+          { value: "reject", label: "Reject proposal", tone: "secondary" },
+        ],
+      },
+    },
+    {
+      artifacts: [
+        artifactRef(
+          "proposal",
+          String(proposal.id),
+          toText(asObject(proposal.summary).title, String(proposal.id)),
+          String(proposal.status),
+        ),
+      ],
+    },
+    dbPath,
+  );
+}
+
+function requestProposalReworkAction(
+  threadId: string,
+  proposal: LooseRecord,
+  dbPath: string,
+) {
+  return requestThreadAction(
+    threadId,
+    {
+      actionKind: "proposal-rework",
+      title: "Rework or quarantine proposal",
+      summary: `Proposal ${proposal.id} is ${proposal.status}. Decide whether to create rework, quarantine the target, or hold the conversation here.`,
+      targetType: "proposal",
+      targetId: String(proposal.id),
+      payload: {
+        itemType: "proposal",
+        itemId: proposal.id,
+      },
+      options: {
+        actions: [
+          { value: "rework", label: "Create rework", tone: "primary" },
+          { value: "quarantine", label: "Quarantine", tone: "secondary" },
+          { value: "hold", label: "Hold", tone: "secondary" },
+        ],
+      },
+    },
+    {
+      artifacts: [
+        artifactRef(
+          "proposal",
+          String(proposal.id),
+          toText(asObject(proposal.summary).title, String(proposal.id)),
+          String(proposal.status),
+        ),
+      ],
+    },
+    dbPath,
+  );
+}
+
+function requestManagedRunRecoveryAction(
+  threadId: string,
+  latestRun: LooseRecord,
+  group: LooseRecord | null,
+  dbPath: string,
+) {
+  const recoveryTargetId = group?.id ? String(group.id) : null;
+  return requestThreadAction(
+    threadId,
+    {
+      actionKind: "managed-run-recovery",
+      title: "Recover latest managed run",
+      summary: `Run ${latestRun.id} failed before it produced a replacement proposal. Decide whether to rerun the work item, quarantine the group, or hold the thread here.`,
+      targetType: "work-item-run",
+      targetId: String(latestRun.id),
+      payload: {
+        itemType: "work-item-run",
+        itemId: latestRun.id ?? null,
+        workItemId: latestRun.workItemId ?? null,
+        quarantineTargetType: "work-item-group",
+        quarantineTargetId: recoveryTargetId,
+        failure: asObject(latestRun.failure),
+      },
+      options: {
+        actions: [
+          { value: "rerun", label: "Rerun work item", tone: "primary" },
+          { value: "quarantine", label: "Quarantine group", tone: "secondary" },
+          { value: "hold", label: "Hold", tone: "secondary" },
+        ],
+      },
+    },
+    {
+      artifacts: [
+        artifactRef(
+          "work-item-run",
+          String(latestRun.id),
+          toText(latestRun.itemTitle, String(latestRun.id)),
+          toText(latestRun.status, "failed"),
+        ),
+      ],
+    },
+    dbPath,
+  );
+}
+
+function requestProposalPromotionAction(
+  threadId: string,
+  proposal: LooseRecord,
+  reviewPackage: LooseRecord,
+  dbPath: string,
+) {
+  return requestThreadAction(
+    threadId,
+    {
+      actionKind: "proposal-promotion",
+      title: "Promote proposal",
+      summary: `Proposal ${proposal.id} is promotion-ready. Decide whether the orchestrator should promote it to the configured integration branch.`,
+      targetType: "proposal",
+      targetId: String(proposal.id),
+      payload: {
+        itemType: "proposal",
+        itemId: proposal.id,
+        reviewPackage,
+      },
+      options: {
+        actions: [
+          {
+            value: "promote",
+            label: "Promote to integration",
+            tone: "primary",
+          },
+          { value: "hold", label: "Hold here", tone: "secondary" },
+        ],
+      },
+    },
+    {
+      artifacts: [
+        artifactRef(
+          "proposal",
+          String(proposal.id),
+          toText(asObject(proposal.summary).title, String(proposal.id)),
+          String(proposal.status),
+        ),
+      ],
+    },
+    dbPath,
+  );
+}
+
 async function syncThreadState(threadId: string, dbPath: string) {
   let thread = withDatabase(dbPath, (db) => getOperatorThread(db, threadId));
   if (!thread) {
@@ -1782,89 +2097,13 @@ async function syncThreadState(threadId: string, dbPath: string) {
   let pendingActions = listPendingThreadActions(threadId, dbPath);
   if (pendingActions.length === 0) {
     if (activeQuarantine) {
-      const created = createPendingAction(
+      pendingActions = requestQuarantineReleaseAction(
         threadId,
-        {
-          actionKind: "quarantine-release",
-          title: "Release quarantine",
-          summary: `Quarantine ${activeQuarantine.id} is active for ${activeQuarantine.targetType} ${activeQuarantine.targetId}. Decide whether to keep it in place or release it back into the governed flow.`,
-          targetType: "quarantine",
-          targetId: String(activeQuarantine.id),
-          payload: {
-            itemType: activeQuarantine.targetType,
-            itemId: activeQuarantine.targetId,
-            quarantineId: activeQuarantine.id,
-          },
-          options: {
-            actions: [
-              {
-                value: "release",
-                label: "Release quarantine",
-                tone: "primary",
-              },
-              { value: "hold", label: "Keep quarantined", tone: "secondary" },
-            ],
-          },
-        },
+        activeQuarantine,
         dbPath,
       );
-      if (created.created && created.action) {
-        appendThreadMessage(
-          threadId,
-          "assistant",
-          "action-request",
-          buildPendingActionMessage(created.action),
-          {
-            pendingActionId: created.action.id,
-          },
-          dbPath,
-        );
-      }
-      pendingActions = listPendingThreadActions(threadId, dbPath);
     } else if (goalPlan && String(goalPlan.status) === "planned") {
-      const created = createPendingAction(
-        threadId,
-        {
-          actionKind: "goal-plan-review",
-          title: "Review goal plan",
-          summary: `Goal plan ${goalPlan.id} is ready for operator review. Plan options: ${recommendationPreview(goalPlan)}. Reply with approve, reject, or edit. You can also say “keep only docs”, “drop 2”, or “prioritize operator-ui-pass”.`,
-          targetType: "goal-plan",
-          targetId: String(goalPlan.id),
-          payload: {
-            itemType: "goal-plan",
-            itemId: goalPlan.id,
-          },
-          options: {
-            actions: [
-              { value: "approve", label: "Approve plan", tone: "primary" },
-              { value: "edit", label: "Edit in chat", tone: "secondary" },
-              { value: "reject", label: "Reject plan", tone: "secondary" },
-            ],
-          },
-        },
-        dbPath,
-      );
-      if (created.created && created.action) {
-        appendThreadMessage(
-          threadId,
-          "assistant",
-          "action-request",
-          buildPendingActionMessage(created.action),
-          {
-            pendingActionId: created.action.id,
-            artifacts: [
-              artifactRef(
-                "goal-plan",
-                String(goalPlan.id),
-                toText(goalPlan.title, String(goalPlan.id)),
-                String(goalPlan.status),
-              ),
-            ],
-          },
-          dbPath,
-        );
-      }
-      pendingActions = listPendingThreadActions(threadId, dbPath);
+      pendingActions = requestGoalPlanReviewAction(threadId, goalPlan, dbPath);
     } else if (
       goalPlan &&
       ["reviewed", "materialized"].includes(String(goalPlan.status)) &&
@@ -1904,148 +2143,19 @@ async function syncThreadState(threadId: string, dbPath: string) {
     } else if (
       latestRunNeedsRecovery(latestRun, proposal)
     ) {
-      const recoveryTargetType = group?.id ? "work-item-group" : "work-item-group";
-      const recoveryTargetId = group?.id ? String(group.id) : null;
-      const created = createPendingAction(
+      pendingActions = requestManagedRunRecoveryAction(
         threadId,
-        {
-          actionKind: "managed-run-recovery",
-          title: "Recover latest managed run",
-          summary: `Run ${latestRun?.id} failed before it produced a replacement proposal. Decide whether to rerun the work item, quarantine the group, or hold the thread here.`,
-          targetType: "work-item-run",
-          targetId: String(latestRun?.id),
-          payload: {
-            itemType: "work-item-run",
-            itemId: latestRun?.id ?? null,
-            workItemId: latestRun?.workItemId ?? null,
-            quarantineTargetType: recoveryTargetType,
-            quarantineTargetId: recoveryTargetId,
-            failure: asObject(latestRun?.failure),
-          },
-          options: {
-            actions: [
-              { value: "rerun", label: "Rerun work item", tone: "primary" },
-              { value: "quarantine", label: "Quarantine group", tone: "secondary" },
-              { value: "hold", label: "Hold", tone: "secondary" },
-            ],
-          },
-        },
+        latestRun,
+        group,
         dbPath,
       );
-      if (created.created && created.action) {
-        appendThreadMessage(
-          threadId,
-          "assistant",
-          "action-request",
-          buildPendingActionMessage(created.action),
-          {
-            pendingActionId: created.action.id,
-            artifacts: [
-              artifactRef(
-                "work-item-run",
-                String(latestRun?.id ?? ""),
-                toText(latestRun?.itemTitle, String(latestRun?.id ?? "Latest run")),
-                toText(latestRun?.status, "failed"),
-              ),
-            ],
-          },
-          dbPath,
-        );
-      }
-      pendingActions = listPendingThreadActions(threadId, dbPath);
     } else if (
       proposal &&
       ["draft", "ready_for_review"].includes(String(proposal.status))
     ) {
-      const created = createPendingAction(
-        threadId,
-        {
-          actionKind: "proposal-review",
-          title: "Review proposal",
-          summary: `Proposal ${proposal.id} needs review before approval and validation.`,
-          targetType: "proposal",
-          targetId: String(proposal.id),
-          payload: {
-            itemType: "proposal",
-            itemId: proposal.id,
-          },
-          options: {
-            actions: [
-              { value: "reviewed", label: "Mark reviewed", tone: "primary" },
-              {
-                value: "rejected",
-                label: "Reject proposal",
-                tone: "secondary",
-              },
-            ],
-          },
-        },
-        dbPath,
-      );
-      if (created.created && created.action) {
-        appendThreadMessage(
-          threadId,
-          "assistant",
-          "action-request",
-          buildPendingActionMessage(created.action),
-          {
-            pendingActionId: created.action.id,
-            artifacts: [
-              artifactRef(
-                "proposal",
-                String(proposal.id),
-                toText(asObject(proposal.summary).title, String(proposal.id)),
-                String(proposal.status),
-              ),
-            ],
-          },
-          dbPath,
-        );
-      }
-      pendingActions = listPendingThreadActions(threadId, dbPath);
+      pendingActions = requestProposalReviewAction(threadId, proposal, dbPath);
     } else if (proposal && String(proposal.status) === "reviewed") {
-      const created = createPendingAction(
-        threadId,
-        {
-          actionKind: "proposal-approval",
-          title: "Approve proposal",
-          summary: `Proposal ${proposal.id} has been reviewed and now needs approval before validation and promotion checks.`,
-          targetType: "proposal",
-          targetId: String(proposal.id),
-          payload: {
-            itemType: "proposal",
-            itemId: proposal.id,
-          },
-          options: {
-            actions: [
-              { value: "approve", label: "Approve proposal", tone: "primary" },
-              { value: "reject", label: "Reject proposal", tone: "secondary" },
-            ],
-          },
-        },
-        dbPath,
-      );
-      if (created.created && created.action) {
-        appendThreadMessage(
-          threadId,
-          "assistant",
-          "action-request",
-          buildPendingActionMessage(created.action),
-          {
-            pendingActionId: created.action.id,
-            artifacts: [
-              artifactRef(
-                "proposal",
-                String(proposal.id),
-                toText(asObject(proposal.summary).title, String(proposal.id)),
-                String(proposal.status),
-              ),
-            ],
-          },
-          dbPath,
-        );
-      }
-      pendingActions = listPendingThreadActions(threadId, dbPath);
+      pendingActions = requestProposalApprovalAction(threadId, proposal, dbPath);
     } else if (
       proposal &&
       [
@@ -2055,49 +2165,7 @@ async function syncThreadState(threadId: string, dbPath: string) {
         "promotion_blocked",
       ].includes(String(proposal.status))
     ) {
-      const created = createPendingAction(
-        threadId,
-        {
-          actionKind: "proposal-rework",
-          title: "Rework or quarantine proposal",
-          summary: `Proposal ${proposal.id} is ${proposal.status}. Decide whether to create rework, quarantine the target, or hold the conversation here.`,
-          targetType: "proposal",
-          targetId: String(proposal.id),
-          payload: {
-            itemType: "proposal",
-            itemId: proposal.id,
-          },
-          options: {
-            actions: [
-              { value: "rework", label: "Create rework", tone: "primary" },
-              { value: "quarantine", label: "Quarantine", tone: "secondary" },
-              { value: "hold", label: "Hold", tone: "secondary" },
-            ],
-          },
-        },
-        dbPath,
-      );
-      if (created.created && created.action) {
-        appendThreadMessage(
-          threadId,
-          "assistant",
-          "action-request",
-          buildPendingActionMessage(created.action),
-          {
-            pendingActionId: created.action.id,
-            artifacts: [
-              artifactRef(
-                "proposal",
-                String(proposal.id),
-                toText(asObject(proposal.summary).title, String(proposal.id)),
-                String(proposal.status),
-              ),
-            ],
-          },
-          dbPath,
-        );
-      }
-      pendingActions = listPendingThreadActions(threadId, dbPath);
+      pendingActions = requestProposalReworkAction(threadId, proposal, dbPath);
     } else if (
       proposal &&
       String(proposal.status) === "validation_required" &&
@@ -2150,53 +2218,12 @@ async function syncThreadState(threadId: string, dbPath: string) {
         String(proposal.id),
         dbPath,
       );
-      const created = createPendingAction(
+      pendingActions = requestProposalPromotionAction(
         threadId,
-        {
-          actionKind: "proposal-promotion",
-          title: "Promote proposal",
-          summary: `Proposal ${proposal.id} is promotion-ready. Decide whether the orchestrator should promote it to the configured integration branch.`,
-          targetType: "proposal",
-          targetId: String(proposal.id),
-          payload: {
-            itemType: "proposal",
-            itemId: proposal.id,
-            reviewPackage,
-          },
-          options: {
-            actions: [
-              {
-                value: "promote",
-                label: "Promote to integration",
-                tone: "primary",
-              },
-              { value: "hold", label: "Hold here", tone: "secondary" },
-            ],
-          },
-        },
+        proposal,
+        reviewPackage,
         dbPath,
       );
-      if (created.created && created.action) {
-        appendThreadMessage(
-          threadId,
-          "assistant",
-          "action-request",
-          buildPendingActionMessage(created.action),
-          {
-            pendingActionId: created.action.id,
-            artifacts: [
-              artifactRef(
-                "proposal",
-                String(proposal.id),
-                toText(asObject(proposal.summary).title, String(proposal.id)),
-                String(proposal.status),
-              ),
-            ],
-          },
-          dbPath,
-        );
-      }
-      pendingActions = listPendingThreadActions(threadId, dbPath);
     }
   }
 
@@ -2469,14 +2496,14 @@ export async function createOperatorThread(
         objective: content,
       },
       execution,
-        linkage: {
-          goalPlanIds: [],
-          activeGoalPlanId: null,
-          activeGroupId: null,
-          activeProposalId: null,
-          activeWorkItemId: null,
-          activeRunId: null,
-        },
+      linkage: {
+        goalPlanIds: [],
+        activeGoalPlanId: null,
+        activeGroupId: null,
+        activeProposalId: null,
+        activeWorkItemId: null,
+        activeRunId: null,
+      },
       observed: {},
     },
     createdAt,
@@ -2656,6 +2683,517 @@ export async function listOperatorPendingActions(
     .slice(0, limit);
 }
 
+interface ResolveOperatorActionArgs {
+  action: LooseRecord;
+  choice: string;
+  payload: LooseRecord;
+  thread: LooseRecord;
+  dbPath: string;
+}
+
+function resolveHoldAndSync(
+  action: LooseRecord,
+  message: string,
+  dbPath: string,
+) {
+  closeAction(
+    action,
+    "resolved",
+    {
+      choice: "hold",
+      held: true,
+    },
+    dbPath,
+  );
+  appendThreadMessage(
+    String(action.threadId),
+    "assistant",
+    "action-result",
+    message,
+    {},
+    dbPath,
+  );
+  return syncThreadState(String(action.threadId), dbPath);
+}
+
+async function resolveGoalPlanReviewAction({
+  action,
+  choice,
+  payload,
+  dbPath,
+}: ResolveOperatorActionArgs) {
+  if (choice === "edit") {
+    appendThreadMessage(
+      String(action.threadId),
+      "assistant",
+      "summary",
+      `Tell me how to reshape goal plan ${action.targetId}. Try “keep only docs”, “drop 2”, “prioritize operator-ui-pass”, or “show plan”.`,
+      {},
+      dbPath,
+    );
+    return syncThreadState(String(action.threadId), dbPath);
+  }
+  const result = await reviewGoalPlan(
+    String(action.targetId),
+    {
+      status: choice === "reject" ? "rejected" : "reviewed",
+      comments: payload.comments ?? "",
+      reason: payload.reason ?? payload.comments ?? "",
+      by: payload.by ?? "operator",
+      source: payload.source ?? "operator-chat",
+    },
+    dbPath,
+  );
+  closeAction(
+    action,
+    "resolved",
+    {
+      choice,
+      resultStatus: result?.status ?? null,
+    },
+    dbPath,
+  );
+  appendThreadMessage(
+    String(action.threadId),
+    "assistant",
+    "action-result",
+    choice === "reject"
+      ? `Goal plan ${action.targetId} was rejected. Send a revised request when you want a new plan.`
+      : `Goal plan ${action.targetId} was approved. I will continue the managed self-build flow now.`,
+    {
+      artifacts: [
+        artifactRef(
+          "goal-plan",
+          String(action.targetId),
+          toText(result?.title, String(action.targetId)),
+          toText(result?.status, ""),
+        ),
+      ],
+    },
+    dbPath,
+  );
+  return null;
+}
+
+async function resolveProposalReviewAction({
+  action,
+  choice,
+  payload,
+  dbPath,
+}: ResolveOperatorActionArgs) {
+  const result = await reviewProposalArtifact(
+    String(action.targetId),
+    {
+      status:
+        choice === "rejected" || choice === "reject" ? "rejected" : "reviewed",
+      comments: payload.comments ?? "",
+      reason: payload.reason ?? payload.comments ?? "",
+      by: payload.by ?? "operator",
+      source: payload.source ?? "operator-chat",
+    },
+    dbPath,
+  );
+  closeAction(
+    action,
+    "resolved",
+    {
+      choice,
+      resultStatus: result?.status ?? null,
+    },
+    dbPath,
+  );
+  appendThreadMessage(
+    String(action.threadId),
+    "assistant",
+    "action-result",
+    choice === "rejected" || choice === "reject"
+      ? `Proposal ${action.targetId} was rejected during review.`
+      : `Proposal ${action.targetId} was marked as reviewed and can move to approval.`,
+    {
+      artifacts: [
+        artifactRef(
+          "proposal",
+          String(action.targetId),
+          toText(asObject(result?.summary).title, String(action.targetId)),
+          result?.status ? String(result.status) : null,
+        ),
+      ],
+    },
+    dbPath,
+  );
+  return null;
+}
+
+async function resolveProposalApprovalAction({
+  action,
+  choice,
+  payload,
+  dbPath,
+}: ResolveOperatorActionArgs) {
+  const result = await approveProposalArtifact(
+    String(action.targetId),
+    {
+      status: choice === "reject" ? "rejected" : "approved",
+      comments: payload.comments ?? "",
+      reason: payload.reason ?? payload.comments ?? "",
+      by: payload.by ?? "operator",
+      source: payload.source ?? "operator-chat",
+    },
+    dbPath,
+  );
+  closeAction(
+    action,
+    "resolved",
+    {
+      choice,
+      resultStatus: result?.status ?? null,
+    },
+    dbPath,
+  );
+  appendThreadMessage(
+    String(action.threadId),
+    "assistant",
+    "action-result",
+    choice === "reject"
+      ? `Proposal ${action.targetId} was rejected during approval.`
+      : `Proposal ${action.targetId} was approved. I will continue with validation and readiness checks.`,
+    {
+      artifacts: [
+        artifactRef(
+          "proposal",
+          String(action.targetId),
+          toText(asObject(result?.summary).title, String(action.targetId)),
+          result?.status ? String(result.status) : null,
+        ),
+      ],
+    },
+    dbPath,
+  );
+  return null;
+}
+
+async function resolveProposalReworkAction({
+  action,
+  choice,
+  payload,
+  thread,
+  dbPath,
+}: ResolveOperatorActionArgs) {
+  if (choice === "hold") {
+    return resolveHoldAndSync(
+      action,
+      `Proposal ${action.targetId} stays on hold. Reply with rework or quarantine when you want me to continue.`,
+      dbPath,
+    );
+  }
+  if (choice === "quarantine") {
+    const result = await quarantineSelfBuildTarget(
+      "proposal",
+      String(action.targetId),
+      {
+        reason:
+          payload.reason ??
+          payload.comments ??
+          "Operator requested quarantine from operator chat.",
+        rationale: payload.comments ?? payload.reason ?? "",
+        by: payload.by ?? "operator",
+        sourceType: payload.source ?? "operator-chat",
+        sourceId: action.id,
+      },
+      dbPath,
+    );
+    closeAction(
+      action,
+      "resolved",
+      {
+        choice,
+        quarantineId: result?.id ?? null,
+      },
+      dbPath,
+    );
+    appendThreadMessage(
+      String(action.threadId),
+      "assistant",
+      "action-result",
+      `Proposal ${action.targetId} has been quarantined. I will wait for an explicit release before continuing.`,
+      {},
+      dbPath,
+    );
+    return syncThreadState(String(action.threadId), dbPath);
+  }
+  const result = await reworkProposalArtifact(
+    String(action.targetId),
+    {
+      comments: payload.comments ?? "",
+      rationale: payload.reason ?? payload.comments ?? "",
+      by: payload.by ?? "operator",
+      source: payload.source ?? "operator-chat",
+    },
+    dbPath,
+  );
+  const reworkItem = asObject(result?.reworkItem);
+  closeAction(
+    action,
+    "resolved",
+    {
+      choice,
+      reworkItemId: reworkItem.id ?? null,
+    },
+    dbPath,
+  );
+  appendThreadMessage(
+    String(action.threadId),
+    "assistant",
+    "action-result",
+    reworkItem.id
+      ? `Created rework item ${reworkItem.id} for proposal ${action.targetId}.`
+      : `Created a proposal rework request for ${action.targetId}.`,
+    {
+      artifacts: [
+        artifactRef(
+          "work-item",
+          reworkItem.id ? String(reworkItem.id) : null,
+          toText(reworkItem.title, "Rework item"),
+          toText(reworkItem.status, "pending"),
+        ),
+      ],
+    },
+    dbPath,
+  );
+  if (reworkItem.id) {
+    updateThreadRecord(
+      thread,
+      {
+        metadata: mergeThreadMetadata(thread, {
+          linkage: {
+            activeWorkItemId: String(reworkItem.id),
+            activeRunId: null,
+          },
+        }),
+      },
+      dbPath,
+    );
+  }
+  if (reworkItem.id && extractExecutionSettings(thread).autoRun !== false) {
+    await runSelfBuildWorkItem(
+      String(reworkItem.id),
+      executionRunOptions(thread, {
+        source: payload.source ?? "operator-chat-rework-run",
+        by: payload.by ?? "operator",
+      }),
+      dbPath,
+    );
+    const refreshedItem = getSelfBuildWorkItem(String(reworkItem.id), dbPath);
+    appendThreadMessage(
+      String(action.threadId),
+      "assistant",
+      "event",
+      `I started the rework item ${reworkItem.id} so the managed flow can continue without another manual step.`,
+      {
+        artifacts: [
+          artifactRef(
+            "work-item",
+            refreshedItem?.id ? String(refreshedItem.id) : String(reworkItem.id),
+            toText(refreshedItem?.title, String(reworkItem.id)),
+            toText(refreshedItem?.status, "running"),
+          ),
+        ],
+      },
+      dbPath,
+    );
+  }
+  return null;
+}
+
+async function resolveManagedRunRecoveryAction({
+  action,
+  choice,
+  payload,
+  thread,
+  dbPath,
+}: ResolveOperatorActionArgs) {
+  if (choice === "hold") {
+    return resolveHoldAndSync(
+      action,
+      `Run ${action.targetId} stays on hold. Reply with rerun or quarantine when you want me to continue.`,
+      dbPath,
+    );
+  }
+  if (choice === "quarantine") {
+    const result = await quarantineSelfBuildTarget(
+      toText(asObject(action.payload).quarantineTargetType, "work-item-group"),
+      toText(asObject(action.payload).quarantineTargetId, ""),
+      {
+        reason:
+          payload.reason ??
+          payload.comments ??
+          "Operator requested quarantine from operator chat recovery flow.",
+        rationale: payload.comments ?? payload.reason ?? "",
+        by: payload.by ?? "operator",
+        sourceType: payload.source ?? "operator-chat",
+        sourceId: action.id,
+      },
+      dbPath,
+    );
+    closeAction(
+      action,
+      "resolved",
+      {
+        choice,
+        quarantineId: result?.id ?? null,
+      },
+      dbPath,
+    );
+    appendThreadMessage(
+      String(action.threadId),
+      "assistant",
+      "action-result",
+      `Quarantined the affected managed-work group after run ${action.targetId} failed. I will wait for an explicit release before continuing.`,
+      {},
+      dbPath,
+    );
+    return syncThreadState(String(action.threadId), dbPath);
+  }
+  const result = await rerunSelfBuildWorkItemRun(
+    String(action.targetId),
+    executionRunOptions(thread, {
+      source: payload.source ?? "operator-chat-run-recovery",
+      by: payload.by ?? "operator",
+    }),
+    dbPath,
+  );
+  closeAction(
+    action,
+    "resolved",
+    {
+      choice,
+      rerunOf: action.targetId,
+      nextRunId: asObject(result?.run).id ?? null,
+    },
+    dbPath,
+  );
+  appendThreadMessage(
+    String(action.threadId),
+    "assistant",
+    "action-result",
+    `I started a fresh rerun from failed run ${action.targetId} so the thread can recover from the latest managed-work failure.`,
+    {
+      artifacts: [
+        artifactRef(
+          "work-item-run",
+          toText(asObject(result?.run).id, "") || null,
+          toText(asObject(result?.run).itemTitle, "Recovery rerun"),
+          toText(asObject(result?.run).status, "running"),
+        ),
+      ],
+    },
+    dbPath,
+  );
+  return null;
+}
+
+async function resolveQuarantineReleaseAction({
+  action,
+  choice,
+  payload,
+  dbPath,
+}: ResolveOperatorActionArgs) {
+  if (choice === "hold") {
+    return resolveHoldAndSync(
+      action,
+      `Quarantine ${action.targetId} remains active. Reply with release when you want to continue.`,
+      dbPath,
+    );
+  }
+  const result = await releaseSelfBuildQuarantine(
+    String(action.targetId),
+    {
+      reason: payload.reason ?? payload.comments ?? "Released from operator chat.",
+      by: payload.by ?? "operator",
+      nextStatus: payload.nextStatus ?? null,
+    },
+    dbPath,
+  );
+  closeAction(
+    action,
+    "resolved",
+    {
+      choice,
+      releaseStatus: result?.status ?? null,
+    },
+    dbPath,
+  );
+  appendThreadMessage(
+    String(action.threadId),
+    "assistant",
+    "action-result",
+    `Released quarantine ${action.targetId}. I will resume the governed self-build flow from the underlying target state.`,
+    {},
+    dbPath,
+  );
+  return null;
+}
+
+async function resolveProposalPromotionAction({
+  action,
+  choice,
+  payload,
+  thread,
+  dbPath,
+}: ResolveOperatorActionArgs) {
+  if (choice === "hold") {
+    return resolveHoldAndSync(
+      action,
+      `Promotion for proposal ${action.targetId} is on hold. Send “promote” when you want me to continue.`,
+      dbPath,
+    );
+  }
+  const result = await invokeProposalPromotion(
+    String(action.targetId),
+    {
+      ...executionRunOptions(thread, {
+        source: payload.source ?? "operator-chat-promotion",
+        by: payload.by ?? "operator",
+      }),
+    },
+    dbPath,
+  );
+  closeAction(
+    action,
+    "resolved",
+    {
+      choice,
+      integrationBranch:
+        toText(asObject(result?.promotion).integrationBranch, "") ||
+        getProposalIntegrationBranch(asObject(result?.proposal)),
+    },
+    dbPath,
+  );
+  const integrationBranch =
+    toText(asObject(result?.promotion).integrationBranch, "") ||
+    getProposalIntegrationBranch(asObject(result?.proposal));
+  appendThreadMessage(
+    String(action.threadId),
+    "assistant",
+    "action-result",
+    integrationBranch
+      ? `Promotion launched for proposal ${action.targetId}. Current integration branch: ${integrationBranch}.`
+      : `Promotion launched for proposal ${action.targetId}.`,
+    {
+      artifacts: [
+        artifactRef(
+          "integration-branch",
+          integrationBranch || null,
+          integrationBranch || "Integration branch",
+          "promotion_candidate",
+        ),
+      ],
+    },
+    dbPath,
+  );
+  return null;
+}
+
 export async function resolveOperatorThreadAction(
   actionId: string,
   payload: LooseRecord = {},
@@ -2677,485 +3215,31 @@ export async function resolveOperatorThreadAction(
     return null;
   }
   const choice = toText(payload.choice, "approve");
-  let result: LooseRecord | null = null;
-  if (action.actionKind === "goal-plan-review") {
-    if (choice === "edit") {
-      appendThreadMessage(
-        String(action.threadId),
-        "assistant",
-        "summary",
-        `Tell me how to reshape goal plan ${action.targetId}. Try “keep only docs”, “drop 2”, “prioritize operator-ui-pass”, or “show plan”.`,
-        {},
-        dbPath,
-      );
-      return syncThreadState(String(action.threadId), dbPath);
-    }
-    result = await reviewGoalPlan(
-      String(action.targetId),
-      {
-        status: choice === "reject" ? "rejected" : "reviewed",
-        comments: payload.comments ?? "",
-        reason: payload.reason ?? payload.comments ?? "",
-        by: payload.by ?? "operator",
-        source: payload.source ?? "operator-chat",
-      },
-      dbPath,
-    );
-    closeAction(
-      action,
-      "resolved",
-      {
-        choice,
-        resultStatus: result?.status ?? null,
-      },
-      dbPath,
-    );
-    appendThreadMessage(
-      String(action.threadId),
-      "assistant",
-      "action-result",
-      choice === "reject"
-        ? `Goal plan ${action.targetId} was rejected. Send a revised request when you want a new plan.`
-        : `Goal plan ${action.targetId} was approved. I will continue the managed self-build flow now.`,
-      {
-        artifacts: [
-          artifactRef(
-            "goal-plan",
-            String(action.targetId),
-            toText(result?.title, String(action.targetId)),
-            toText(result?.status, ""),
-          ),
-        ],
-      },
-      dbPath,
-    );
-  } else if (action.actionKind === "proposal-review") {
-    result = await reviewProposalArtifact(
-      String(action.targetId),
-      {
-        status:
-          choice === "rejected" || choice === "reject"
-            ? "rejected"
-            : "reviewed",
-        comments: payload.comments ?? "",
-        reason: payload.reason ?? payload.comments ?? "",
-        by: payload.by ?? "operator",
-        source: payload.source ?? "operator-chat",
-      },
-      dbPath,
-    );
-    closeAction(
-      action,
-      "resolved",
-      {
-        choice,
-        resultStatus: result?.status ?? null,
-      },
-      dbPath,
-    );
-    appendThreadMessage(
-      String(action.threadId),
-      "assistant",
-      "action-result",
-      choice === "rejected" || choice === "reject"
-        ? `Proposal ${action.targetId} was rejected during review.`
-        : `Proposal ${action.targetId} was marked as reviewed and can move to approval.`,
-      {
-        artifacts: [
-          artifactRef(
-            "proposal",
-            String(action.targetId),
-            toText(asObject(result?.summary).title, String(action.targetId)),
-            result?.status ? String(result.status) : null,
-          ),
-        ],
-      },
-      dbPath,
-    );
-  } else if (action.actionKind === "proposal-approval") {
-    result = await approveProposalArtifact(
-      String(action.targetId),
-      {
-        status: choice === "reject" ? "rejected" : "approved",
-        comments: payload.comments ?? "",
-        reason: payload.reason ?? payload.comments ?? "",
-        by: payload.by ?? "operator",
-        source: payload.source ?? "operator-chat",
-      },
-      dbPath,
-    );
-    closeAction(
-      action,
-      "resolved",
-      {
-        choice,
-        resultStatus: result?.status ?? null,
-      },
-      dbPath,
-    );
-    appendThreadMessage(
-      String(action.threadId),
-      "assistant",
-      "action-result",
-      choice === "reject"
-        ? `Proposal ${action.targetId} was rejected during approval.`
-        : `Proposal ${action.targetId} was approved. I will continue with validation and readiness checks.`,
-      {
-        artifacts: [
-          artifactRef(
-            "proposal",
-            String(action.targetId),
-            toText(asObject(result?.summary).title, String(action.targetId)),
-            result?.status ? String(result.status) : null,
-          ),
-        ],
-      },
-      dbPath,
-    );
-  } else if (action.actionKind === "proposal-rework") {
-    if (choice === "hold") {
-      closeAction(
-        action,
-        "resolved",
-        {
-          choice,
-          held: true,
-        },
-        dbPath,
-      );
-      appendThreadMessage(
-        String(action.threadId),
-        "assistant",
-        "action-result",
-        `Proposal ${action.targetId} stays on hold. Reply with rework or quarantine when you want me to continue.`,
-        {},
-        dbPath,
-      );
-      return syncThreadState(String(action.threadId), dbPath);
-    }
-    if (choice === "quarantine") {
-      result = await quarantineSelfBuildTarget(
-        "proposal",
-        String(action.targetId),
-        {
-          reason:
-            payload.reason ??
-            payload.comments ??
-            "Operator requested quarantine from operator chat.",
-          rationale: payload.comments ?? payload.reason ?? "",
-          by: payload.by ?? "operator",
-          sourceType: payload.source ?? "operator-chat",
-          sourceId: action.id,
-        },
-        dbPath,
-      );
-      closeAction(
-        action,
-        "resolved",
-        {
-          choice,
-          quarantineId: result?.id ?? null,
-        },
-        dbPath,
-      );
-      appendThreadMessage(
-        String(action.threadId),
-        "assistant",
-        "action-result",
-        `Proposal ${action.targetId} has been quarantined. I will wait for an explicit release before continuing.`,
-        {},
-        dbPath,
-      );
-      return syncThreadState(String(action.threadId), dbPath);
-    }
-    result = await reworkProposalArtifact(
-      String(action.targetId),
-      {
-        comments: payload.comments ?? "",
-        rationale: payload.reason ?? payload.comments ?? "",
-        by: payload.by ?? "operator",
-        source: payload.source ?? "operator-chat",
-      },
-      dbPath,
-    );
-    const reworkItem = asObject(result?.reworkItem);
-    closeAction(
-      action,
-      "resolved",
-      {
-        choice,
-        reworkItemId: reworkItem.id ?? null,
-      },
-      dbPath,
-    );
-    appendThreadMessage(
-      String(action.threadId),
-      "assistant",
-      "action-result",
-      reworkItem.id
-        ? `Created rework item ${reworkItem.id} for proposal ${action.targetId}.`
-        : `Created a proposal rework request for ${action.targetId}.`,
-      {
-        artifacts: [
-          artifactRef(
-            "work-item",
-            reworkItem.id ? String(reworkItem.id) : null,
-            toText(reworkItem.title, "Rework item"),
-            toText(reworkItem.status, "pending"),
-          ),
-        ],
-      },
-      dbPath,
-    );
-    if (reworkItem.id) {
-      updateThreadRecord(
-        thread,
-        {
-          metadata: mergeThreadMetadata(thread, {
-            linkage: {
-              activeWorkItemId: String(reworkItem.id),
-              activeRunId: null,
-            },
-          }),
-        },
-        dbPath,
-      );
-    }
-    if (reworkItem.id && extractExecutionSettings(thread).autoRun !== false) {
-      await runSelfBuildWorkItem(
-        String(reworkItem.id),
-        executionRunOptions(thread, {
-          source: payload.source ?? "operator-chat-rework-run",
-          by: payload.by ?? "operator",
-        }),
-        dbPath,
-      );
-      const refreshedItem = getSelfBuildWorkItem(String(reworkItem.id), dbPath);
-      appendThreadMessage(
-        String(action.threadId),
-        "assistant",
-        "event",
-        `I started the rework item ${reworkItem.id} so the managed flow can continue without another manual step.`,
-        {
-          artifacts: [
-            artifactRef(
-              "work-item",
-              refreshedItem?.id
-                ? String(refreshedItem.id)
-                : String(reworkItem.id),
-              toText(refreshedItem?.title, String(reworkItem.id)),
-              toText(refreshedItem?.status, "running"),
-            ),
-          ],
-        },
-        dbPath,
-      );
-    }
-  } else if (action.actionKind === "managed-run-recovery") {
-    if (choice === "hold") {
-      closeAction(
-        action,
-        "resolved",
-        {
-          choice,
-          held: true,
-        },
-        dbPath,
-      );
-      appendThreadMessage(
-        String(action.threadId),
-        "assistant",
-        "action-result",
-        `Run ${action.targetId} stays on hold. Reply with rerun or quarantine when you want me to continue.`,
-        {},
-        dbPath,
-      );
-      return syncThreadState(String(action.threadId), dbPath);
-    }
-    if (choice === "quarantine") {
-      result = await quarantineSelfBuildTarget(
-        toText(asObject(action.payload).quarantineTargetType, "work-item-group"),
-        toText(asObject(action.payload).quarantineTargetId, ""),
-        {
-          reason:
-            payload.reason ??
-            payload.comments ??
-            "Operator requested quarantine from operator chat recovery flow.",
-          rationale: payload.comments ?? payload.reason ?? "",
-          by: payload.by ?? "operator",
-          sourceType: payload.source ?? "operator-chat",
-          sourceId: action.id,
-        },
-        dbPath,
-      );
-      closeAction(
-        action,
-        "resolved",
-        {
-          choice,
-          quarantineId: result?.id ?? null,
-        },
-        dbPath,
-      );
-      appendThreadMessage(
-        String(action.threadId),
-        "assistant",
-        "action-result",
-        `Quarantined the affected managed-work group after run ${action.targetId} failed. I will wait for an explicit release before continuing.`,
-        {},
-        dbPath,
-      );
-      return syncThreadState(String(action.threadId), dbPath);
-    }
-    result = await rerunSelfBuildWorkItemRun(
-      String(action.targetId),
-      executionRunOptions(thread, {
-        source: payload.source ?? "operator-chat-run-recovery",
-        by: payload.by ?? "operator",
-      }),
-      dbPath,
-    );
-    closeAction(
-      action,
-      "resolved",
-      {
-        choice,
-        rerunOf: action.targetId,
-        nextRunId: asObject(result?.run).id ?? null,
-      },
-      dbPath,
-    );
-    appendThreadMessage(
-      String(action.threadId),
-      "assistant",
-      "action-result",
-      `I started a fresh rerun from failed run ${action.targetId} so the thread can recover from the latest managed-work failure.`,
-      {
-        artifacts: [
-          artifactRef(
-            "work-item-run",
-            toText(asObject(result?.run).id, "") || null,
-            toText(asObject(result?.run).itemTitle, "Recovery rerun"),
-            toText(asObject(result?.run).status, "running"),
-          ),
-        ],
-      },
-      dbPath,
-    );
-  } else if (action.actionKind === "quarantine-release") {
-    if (choice === "hold") {
-      closeAction(
-        action,
-        "resolved",
-        {
-          choice,
-          held: true,
-        },
-        dbPath,
-      );
-      appendThreadMessage(
-        String(action.threadId),
-        "assistant",
-        "action-result",
-        `Quarantine ${action.targetId} remains active. Reply with release when you want to continue.`,
-        {},
-        dbPath,
-      );
-      return syncThreadState(String(action.threadId), dbPath);
-    }
-    result = await releaseSelfBuildQuarantine(
-      String(action.targetId),
-      {
-        reason:
-          payload.reason ?? payload.comments ?? "Released from operator chat.",
-        by: payload.by ?? "operator",
-        nextStatus: payload.nextStatus ?? null,
-      },
-      dbPath,
-    );
-    closeAction(
-      action,
-      "resolved",
-      {
-        choice,
-        releaseStatus: result?.status ?? null,
-      },
-      dbPath,
-    );
-    appendThreadMessage(
-      String(action.threadId),
-      "assistant",
-      "action-result",
-      `Released quarantine ${action.targetId}. I will resume the governed self-build flow from the underlying target state.`,
-      {},
-      dbPath,
-    );
-  } else if (action.actionKind === "proposal-promotion") {
-    if (choice === "hold") {
-      closeAction(
-        action,
-        "resolved",
-        {
-          choice,
-          held: true,
-        },
-        dbPath,
-      );
-      appendThreadMessage(
-        String(action.threadId),
-        "assistant",
-        "action-result",
-        `Promotion for proposal ${action.targetId} is on hold. Send “promote” when you want me to continue.`,
-        {},
-        dbPath,
-      );
-      return syncThreadState(String(action.threadId), dbPath);
-    }
-    result = await invokeProposalPromotion(
-      String(action.targetId),
-      {
-        ...executionRunOptions(thread, {
-          source: payload.source ?? "operator-chat-promotion",
-          by: payload.by ?? "operator",
-        }),
-      },
-      dbPath,
-    );
-    closeAction(
-      action,
-      "resolved",
-      {
-        choice,
-        integrationBranch:
-          toText(asObject(result?.promotion).integrationBranch, "") ||
-          getProposalIntegrationBranch(asObject(result?.proposal)),
-      },
-      dbPath,
-    );
-    const integrationBranch =
-      toText(asObject(result?.promotion).integrationBranch, "") ||
-      getProposalIntegrationBranch(asObject(result?.proposal));
-    appendThreadMessage(
-      String(action.threadId),
-      "assistant",
-      "action-result",
-      integrationBranch
-        ? `Promotion launched for proposal ${action.targetId}. Current integration branch: ${integrationBranch}.`
-        : `Promotion launched for proposal ${action.targetId}.`,
-      {
-        artifacts: [
-          artifactRef(
-            "integration-branch",
-            integrationBranch || null,
-            integrationBranch || "Integration branch",
-            "promotion_candidate",
-          ),
-        ],
-      },
-      dbPath,
-    );
-  } else {
+  const handlers: Record<
+    string,
+    (args: ResolveOperatorActionArgs) => Promise<LooseRecord | null>
+  > = {
+    "goal-plan-review": resolveGoalPlanReviewAction,
+    "proposal-review": resolveProposalReviewAction,
+    "proposal-approval": resolveProposalApprovalAction,
+    "proposal-rework": resolveProposalReworkAction,
+    "managed-run-recovery": resolveManagedRunRecoveryAction,
+    "quarantine-release": resolveQuarantineReleaseAction,
+    "proposal-promotion": resolveProposalPromotionAction,
+  };
+  const handler = handlers[String(action.actionKind)];
+  if (!handler) {
     throw new Error(`unsupported operator action kind: ${action.actionKind}`);
+  }
+  const earlyResult = await handler({
+    action,
+    choice,
+    payload,
+    thread,
+    dbPath,
+  });
+  if (earlyResult) {
+    return earlyResult;
   }
   return syncThreadState(String(action.threadId), dbPath);
 }
