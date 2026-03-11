@@ -476,7 +476,7 @@ const server = http.createServer(async (request, response) => {
     if (request.method === "GET" && url.pathname === "/operator/actions") {
       json(response, 200, {
         ok: true,
-        detail: listOperatorPendingActions({
+        detail: await listOperatorPendingActions({
           threadId: url.searchParams.get("threadId")?.trim() || null,
           status: url.searchParams.get("status")?.trim() || "pending",
           actionKind: url.searchParams.get("actionKind")?.trim() || null,

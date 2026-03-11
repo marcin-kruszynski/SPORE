@@ -66,6 +66,28 @@ interface OperatorThreadExecutionSettings extends LooseRecord {
   autoPromote?: boolean;
 }
 
+const OPERATOR_PROGRESS_STAGES = [
+  { id: "mission_received", title: "Mission received" },
+  { id: "plan_prepared", title: "Plan prepared" },
+  { id: "plan_approval", title: "Plan approval" },
+  { id: "managed_work", title: "Managed work" },
+  { id: "proposal_review", title: "Proposal review" },
+  { id: "proposal_approval", title: "Proposal approval" },
+  { id: "validation", title: "Validation" },
+  { id: "promotion", title: "Promotion" },
+] as const;
+
+const OPERATOR_PHASE_LABELS: Record<string, string> = {
+  mission_received: "Mission intake",
+  plan_prepared: "Plan preparation",
+  plan_approval: "Plan review",
+  managed_work: "Managed execution",
+  proposal_review: "Proposal review",
+  proposal_approval: "Proposal approval",
+  validation: "Validation",
+  promotion: "Promotion",
+};
+
 function withDatabase<T>(
   dbPath: string,
   fn: (db: ReturnType<typeof openOrchestratorDatabase>) => T,
@@ -582,6 +604,417 @@ function buildThreadSummary(
   };
 }
 
+function threadObjective(thread: LooseRecord) {
+  return (
+    toText(asObject(asObject(thread.metadata).mission).objective, "") ||
+    toText(asObject(thread.summary).objective, "") ||
+    toText(thread.title, "Mission")
+  );
+}
+
+function buildThreadEvidenceSummary(context: LooseRecord) {
+  const goalPlan = asObject(context.goalPlan);
+  const proposal = asObject(context.proposal);
+  const activeQuarantine = asObject(context.activeQuarantine);
+  const validation = asObject(proposal.validation);
+  const readiness = asObject(proposal.readiness);
+  const promotion = asObject(asObject(proposal.metadata).promotion);
+  return {
+    plan: goalPlan.id
+      ? {
+          id: goalPlan.id,
+          title: toText(goalPlan.title, String(goalPlan.id)),
+          status: toText(goalPlan.status, "planned"),
+          recommendationCount: asArray(goalPlan.recommendations).length,
+          nextAction: asObject(goalPlan.operatorFlow).nextAction ?? null,
+        }
+      : null,
+    proposal: proposal.id
+      ? {
+          id: proposal.id,
+          title:
+            toText(asObject(proposal.summary).title, "") ||
+            toText(proposal.title, String(proposal.id)),
+          status: toText(proposal.status, "unknown"),
+          blockerCount: asArray(readiness.blockers).length,
+          ready: readiness.ready === true,
+        }
+      : null,
+    validation: proposal.id
+      ? {
+          status:
+            toText(validation.status, "") ||
+            (toText(proposal.status, "") === "validation_required"
+              ? "pending"
+              : null),
+          summary:
+            toText(validation.summary, "") ||
+            toText(validation.message, "") ||
+            null,
+          blockerCount: asArray(validation.blockers).length,
+        }
+      : null,
+    promotion: proposal.id
+      ? {
+          status:
+            toText(promotion.status, "") ||
+            toText(proposal.promotionStatus, "") ||
+            null,
+          integrationBranch:
+            toText(promotion.integrationBranch, "") ||
+            getProposalIntegrationBranch(proposal) ||
+            null,
+          ready: ["promotion_ready", "promotion_candidate"].includes(
+            toText(proposal.status, ""),
+          ),
+        }
+      : null,
+    quarantine: activeQuarantine.id
+      ? {
+          id: activeQuarantine.id,
+          status: toText(activeQuarantine.status, "active"),
+          targetType: toText(activeQuarantine.targetType, ""),
+          targetId: toText(activeQuarantine.targetId, ""),
+          reason: toText(activeQuarantine.reason, "") || null,
+          createdAt: activeQuarantine.createdAt ?? null,
+        }
+      : null,
+  };
+}
+
+function buildThreadProgress(
+  thread: LooseRecord,
+  context: LooseRecord,
+  pendingActions: LooseRecord[],
+  actionHistory: LooseRecord[],
+) {
+  const goalPlan = asObject(context.goalPlan);
+  const group = asObject(context.group);
+  const proposal = asObject(context.proposal);
+  const activeQuarantine = asObject(context.activeQuarantine);
+  const pendingActionKind = toText(pendingActions[0]?.actionKind, "");
+  const proposalStatus = toText(proposal.status, "");
+  const goalPlanStatus = toText(goalPlan.status, "");
+
+  let currentStage = "mission_received";
+  if (pendingActionKind === "goal-plan-review") {
+    currentStage = "plan_approval";
+  } else if (pendingActionKind === "proposal-approval") {
+    currentStage = "proposal_approval";
+  } else if (
+    ["proposal-review", "proposal-rework", "quarantine-release"].includes(
+      pendingActionKind,
+    )
+  ) {
+    currentStage = "proposal_review";
+  } else if (pendingActionKind === "proposal-promotion") {
+    currentStage = "promotion";
+  } else if (
+    ["promotion_ready", "promotion_candidate"].includes(proposalStatus)
+  ) {
+    currentStage = "promotion";
+  } else if (proposalStatus === "validation_required") {
+    currentStage = "validation";
+  } else if (proposalStatus === "reviewed") {
+    currentStage = "proposal_approval";
+  } else if (proposal.id) {
+    currentStage = "proposal_review";
+  } else if (group.id || goalPlanStatus === "materialized") {
+    currentStage = "managed_work";
+  } else if (goalPlan.id && goalPlanStatus === "planned") {
+    currentStage = "plan_approval";
+  } else if (goalPlan.id) {
+    currentStage = "plan_prepared";
+  }
+
+  let exceptionState: string | null = null;
+  if (activeQuarantine.id) {
+    exceptionState = "quarantined";
+  } else if (proposalStatus === "validation_failed") {
+    exceptionState = "validation_failed";
+  } else if (proposalStatus === "promotion_blocked") {
+    exceptionState = "promotion_blocked";
+  } else if (
+    pendingActionKind === "proposal-rework" ||
+    ["rejected", "rework_required"].includes(proposalStatus)
+  ) {
+    exceptionState = "rework";
+  } else if (
+    String(thread.status) === "completed" ||
+    proposalStatus === "promotion_candidate" ||
+    goalPlanStatus === "completed"
+  ) {
+    exceptionState = "completed";
+  } else if (
+    pendingActions.length === 0 &&
+    actionHistory.some((action) => asObject(action.resolution).held === true)
+  ) {
+    exceptionState = "held";
+  }
+
+  const currentIndex = OPERATOR_PROGRESS_STAGES.findIndex(
+    (stage) => stage.id === currentStage,
+  );
+  return {
+    stages: OPERATOR_PROGRESS_STAGES.map((stage, index) => ({
+      ...stage,
+      status:
+        exceptionState === "completed"
+          ? "complete"
+          : index < currentIndex
+            ? "complete"
+            : index === currentIndex
+              ? "current"
+              : "upcoming",
+    })),
+    currentStage,
+    exceptionState,
+  };
+}
+
+function buildDecisionGuidance(
+  action: LooseRecord | null,
+  thread: LooseRecord,
+  progress: LooseRecord,
+) {
+  const objective = threadObjective(thread);
+  const choices = asArray<LooseRecord>(asObject(action?.options).actions)
+    .map((entry) => toText(entry.label, toText(entry.value, "")))
+    .filter(Boolean);
+  const actionKind = toText(action?.actionKind, "");
+  switch (actionKind) {
+    case "goal-plan-review":
+      return {
+        title: "Review the mission plan",
+        why: `I prepared a plan for ${objective} and I will not start managed work until you confirm it.`,
+        nextIfApproved:
+          "The orchestrator starts the managed run in the configured mode and returns with proposal evidence for review.",
+        riskNote:
+          "Approving starts the governed execution path for the scoped recommendations.",
+        primaryAction: "Approve the plan",
+        secondaryActions: choices.filter((label) => label !== "Approve plan"),
+        suggestedReplies: [
+          "Keep only docs",
+          "Keep only web",
+          "Drop 2",
+          "Prioritize UI first",
+          "Show plan options",
+        ],
+      };
+    case "proposal-review":
+      return {
+        title: "Review the proposal package",
+        why: "Managed work finished and produced a proposal that needs explicit review.",
+        nextIfApproved:
+          "The proposal moves into approval so validation readiness can continue.",
+        riskNote:
+          "Reject if the proposal misses scope, quality, or supporting evidence.",
+        primaryAction: "Mark the proposal reviewed",
+        secondaryActions: choices.filter((label) => label !== "Mark reviewed"),
+        suggestedReplies: [],
+      };
+    case "proposal-approval":
+      return {
+        title: "Approve the reviewed proposal",
+        why: "The proposal already passed review and now needs approval before validation and promotion checks continue.",
+        nextIfApproved:
+          "Validation runs next, then promotion becomes available if the evidence stays healthy.",
+        riskNote:
+          "Approval advances the change toward validation and possible promotion.",
+        primaryAction: "Approve the proposal",
+        secondaryActions: choices.filter(
+          (label) => label !== "Approve proposal",
+        ),
+        suggestedReplies: [],
+      };
+    case "proposal-rework":
+      return {
+        title: "Choose how to recover the proposal",
+        why: "The proposal is blocked and cannot continue without operator direction.",
+        nextIfApproved:
+          "Choosing rework creates the follow-up work item and lets the governed flow continue from there.",
+        riskNote:
+          "Quarantine pauses the mission entirely; hold keeps the thread waiting without changing artifact state.",
+        primaryAction: "Create rework",
+        secondaryActions: choices.filter((label) => label !== "Create rework"),
+        suggestedReplies: [],
+      };
+    case "quarantine-release":
+      return {
+        title: "Decide whether to release quarantine",
+        why: "A quarantine record is active, so the governed mission cannot continue yet.",
+        nextIfApproved:
+          "Releasing quarantine returns the underlying artifact to the normal governed flow.",
+        riskNote:
+          "Keeping quarantine in place preserves the safety stop until you are ready.",
+        primaryAction: "Release quarantine",
+        secondaryActions: choices.filter(
+          (label) => label !== "Release quarantine",
+        ),
+        suggestedReplies: [],
+      };
+    case "proposal-promotion":
+      return {
+        title: "Decide whether to promote the proposal",
+        why: "Validation is complete and the proposal is ready for the configured integration target.",
+        nextIfApproved:
+          "The orchestrator launches promotion to the integration branch and records the promotion result.",
+        riskNote:
+          "Promotion moves the change toward shared integration, so approve only when the evidence is sufficient.",
+        primaryAction: "Promote to integration",
+        secondaryActions: choices.filter(
+          (label) => label !== "Promote to integration",
+        ),
+        suggestedReplies: [],
+      };
+    default:
+      if (toText(progress.exceptionState, "") === "completed") {
+        return {
+          title: "Mission complete",
+          why: "The mission reached a completed promotion state and no further operator decision is pending.",
+          nextIfApproved: "No approval is waiting right now.",
+          riskNote: null,
+          primaryAction: "Start another mission when ready",
+          secondaryActions: [],
+          suggestedReplies: [],
+        };
+      }
+      return {
+        title: "No operator decision is pending",
+        why: "The orchestrator is either still working or waiting on the next governed state transition.",
+        nextIfApproved: "No approval is waiting right now.",
+        riskNote: null,
+        primaryAction: "Ask for status",
+        secondaryActions: [],
+        suggestedReplies: [],
+      };
+  }
+}
+
+function buildInboxSummary(action: LooseRecord, decisionGuidance: LooseRecord) {
+  const urgencyByKind: Record<string, string> = {
+    "goal-plan-review": "normal",
+    "proposal-review": "high",
+    "proposal-approval": "high",
+    "proposal-rework": "high",
+    "quarantine-release": "high",
+    "proposal-promotion": "normal",
+  };
+  return {
+    urgency: urgencyByKind[toText(action.actionKind, "")] ?? "normal",
+    reason: toText(
+      decisionGuidance.why,
+      toText(action.summary, "Operator review is waiting."),
+    ),
+    waitingLabel:
+      toText(action.title, "") ||
+      `Waiting for ${toText(action.actionKind, "operator decision")}`,
+  };
+}
+
+function buildThreadHero(
+  thread: LooseRecord,
+  progress: LooseRecord,
+  pendingActions: LooseRecord[],
+) {
+  const execution = extractExecutionSettings(thread);
+  const currentStage = toText(progress.currentStage, "mission_received");
+  const exceptionState = toText(progress.exceptionState, "") || null;
+  const pendingAction = pendingActions[0] ?? null;
+
+  let statusLine = "I captured your mission and I am preparing the first plan.";
+  if (exceptionState === "quarantined") {
+    statusLine = "This mission is quarantined until you release it.";
+  } else if (exceptionState === "rework") {
+    statusLine = "This mission needs rework before it can continue.";
+  } else if (exceptionState === "validation_failed") {
+    statusLine =
+      "This mission is blocked because the proposal failed validation.";
+  } else if (exceptionState === "promotion_blocked") {
+    statusLine =
+      "This mission is blocked because promotion cannot continue yet.";
+  } else if (exceptionState === "held") {
+    statusLine = "This mission is on hold until you tell me how to continue.";
+  } else if (exceptionState === "completed") {
+    statusLine =
+      "This mission completed and the promotion flow has already been launched.";
+  } else if (currentStage === "plan_approval") {
+    statusLine = "I prepared a plan and need your approval before I start.";
+  } else if (currentStage === "managed_work") {
+    statusLine = "I am running the managed work for this mission now.";
+  } else if (currentStage === "proposal_review") {
+    statusLine = "I finished the managed run and now need proposal review.";
+  } else if (currentStage === "proposal_approval") {
+    statusLine = "The proposal has been reviewed and now needs approval.";
+  } else if (currentStage === "validation") {
+    statusLine = "The proposal is approved and validation is running now.";
+  } else if (currentStage === "promotion") {
+    statusLine = pendingAction
+      ? "Validation passed and the proposal is ready for promotion approval."
+      : "Promotion is underway for this mission.";
+  }
+
+  return {
+    title: threadObjective(thread),
+    statusLine,
+    phase: OPERATOR_PHASE_LABELS[currentStage] ?? "Mission",
+    primaryCtaHint: toText(
+      asObject(asObject(pendingAction?.options).actions).label,
+      toText(
+        asArray<LooseRecord>(asObject(pendingAction?.options).actions)[0]
+          ?.label,
+        "",
+      ) || null,
+    ),
+    badges: {
+      runtime: execution.stub !== false ? "Stub runtime" : "Live runtime",
+      safeMode: execution.safeMode !== false ? "Safe mode on" : "Safe mode off",
+      autoValidate:
+        execution.autoValidate !== false
+          ? "Auto-validate on"
+          : "Auto-validate off",
+    },
+  };
+}
+
+function describePendingAction(
+  action: LooseRecord | null,
+  thread?: LooseRecord,
+  progress?: LooseRecord,
+) {
+  if (!action) {
+    return null;
+  }
+  const options = asObject(action.options);
+  const choices = asArray<LooseRecord>(options.actions).map((entry) => ({
+    value: entry.value,
+    label: entry.label,
+    tone: entry.tone ?? "secondary",
+  }));
+  const decisionGuidance =
+    thread && progress ? buildDecisionGuidance(action, thread, progress) : null;
+  return {
+    ...action,
+    choices,
+    decisionGuidance,
+    threadSummary:
+      thread && progress
+        ? {
+            title: threadObjective(thread),
+            objective: threadObjective(thread),
+          }
+        : null,
+    inboxSummary:
+      decisionGuidance && thread && progress
+        ? buildInboxSummary(action, decisionGuidance)
+        : null,
+    links: {
+      ...actionLinks(String(action.id)),
+      ...asObject(action.links),
+    },
+  };
+}
+
 function updateThreadRecord(
   thread: LooseRecord,
   updates: {
@@ -766,26 +1199,6 @@ function chooseActiveProposal(
     }
   }
   return proposals[0] ?? null;
-}
-
-function describePendingAction(action: LooseRecord | null) {
-  if (!action) {
-    return null;
-  }
-  const options = asObject(action.options);
-  const choices = asArray<LooseRecord>(options.actions).map((entry) => ({
-    value: entry.value,
-    label: entry.label,
-    tone: entry.tone ?? "secondary",
-  }));
-  return {
-    ...action,
-    choices,
-    links: {
-      ...actionLinks(String(action.id)),
-      ...asObject(action.links),
-    },
-  };
 }
 
 function summarizeThreadContext(
@@ -1529,6 +1942,26 @@ async function syncThreadState(threadId: string, dbPath: string) {
     ...summarizeThreadContext(thread, goalPlan, group, proposal),
     activeQuarantine,
   };
+  const actionHistory = withDatabase(dbPath, (db) =>
+    listOperatorThreadActions(db, {
+      threadId,
+      limit: 100,
+    }),
+  );
+  const progress = buildThreadProgress(
+    thread,
+    context,
+    pendingActions,
+    actionHistory,
+  );
+  const hero = buildThreadHero(thread, progress, pendingActions);
+  const evidenceSummary = buildThreadEvidenceSummary(context);
+  const projectedPendingActions = pendingActions
+    .map((action) => describePendingAction(action, thread, progress))
+    .filter(Boolean);
+  const projectedActionHistory = actionHistory
+    .map((action) => describePendingAction(action, thread, progress))
+    .filter(Boolean);
   const summary = buildThreadSummary(thread, messages, pendingActions, context);
   const status = inferThreadStatus(goalPlan, group, proposal, pendingActions);
   const updated = updateThreadRecord(
@@ -1547,13 +1980,14 @@ async function syncThreadState(threadId: string, dbPath: string) {
   return {
     ...updated,
     messages,
-    pendingActions: pendingActions.map(describePendingAction),
-    actionHistory: withDatabase(dbPath, (db) =>
-      listOperatorThreadActions(db, {
-        threadId,
-        limit: 100,
-      }),
-    ).map(describePendingAction),
+    hero,
+    progress,
+    evidenceSummary,
+    decisionGuidance:
+      asObject(projectedPendingActions[0]).decisionGuidance ??
+      buildDecisionGuidance(null, thread, progress),
+    pendingActions: projectedPendingActions,
+    actionHistory: projectedActionHistory,
     context,
     links: threadLinks(threadId),
   };
@@ -1829,13 +2263,36 @@ export async function postOperatorThreadMessage(
   return syncThreadState(threadId, dbPath);
 }
 
-export function listOperatorPendingActions(
+export async function listOperatorPendingActions(
   options: OperatorThreadActionListOptions = {},
   dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
 ) {
-  return withDatabase(dbPath, (db) =>
+  const actions = withDatabase(dbPath, (db) =>
     listOperatorThreadActions(db, options),
-  ).map(describePendingAction);
+  );
+  const projectedActions = [];
+  for (const action of actions) {
+    const detail = await syncThreadState(String(action.threadId), dbPath);
+    const projected = asArray<LooseRecord>(detail?.pendingActions).find(
+      (entry) => String(entry.id) === String(action.id),
+    );
+    if (projected) {
+      projectedActions.push(projected);
+      continue;
+    }
+
+    const thread = withDatabase(dbPath, (db) =>
+      getOperatorThread(db, String(action.threadId)),
+    );
+    if (!thread) {
+      projectedActions.push(describePendingAction(action));
+      continue;
+    }
+
+    const progress = buildThreadProgress(thread, {}, [], []);
+    projectedActions.push(describePendingAction(action, thread, progress));
+  }
+  return projectedActions;
 }
 
 export async function resolveOperatorThreadAction(
