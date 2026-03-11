@@ -19,7 +19,7 @@ runtimePolicy:
     reviewer: persistent
   workspace:
     enabled: true
-    enabledRoles: [lead, scout, builder, tester, reviewer]
+    enabledRoles: [builder, tester]
 docsKbPolicy:
   resultLimit: 7
   queryTerms: [ui, component, accessibility]

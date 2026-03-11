@@ -144,6 +144,11 @@ const GOVERNANCE_EXECUTION_STATES = new Set([
 ]);
 const ACTIVE_STEP_STATES = new Set(["active", "launching"]);
 const WAVE_SUCCESS_STEP_STATES = new Set(["completed"]);
+const SELF_BUILD_ISOLATED_WORKSPACE_ROLES = new Set([
+  "lead",
+  "scout",
+  "reviewer",
+]);
 
 function runCli(command, args) {
   return new Promise((resolve, reject) => {
@@ -255,27 +260,98 @@ function buildStepWorkspaceBranchName(
   });
 }
 
-function getWorkspacePolicy(step, execution) {
-  const workspacePolicy =
-    getStepPolicy(step)?.runtimePolicy?.workspace ??
-    getExecutionPolicy(execution)?.runtimePolicy?.workspace ??
-    null;
+function getStepWorkspacePolicy(step) {
+  return getStepPolicy(step)?.runtimePolicy?.workspace ?? null;
+}
+
+function resolveEnabledWorkspacePolicy(workspacePolicy, role) {
   if (!workspacePolicy?.enabled) {
     return null;
   }
   const enabledRoles = Array.isArray(workspacePolicy.enabledRoles)
     ? workspacePolicy.enabledRoles.filter(Boolean)
     : [];
-  if (enabledRoles.length > 0 && !enabledRoles.includes(step.role)) {
+  if (enabledRoles.length > 0 && !enabledRoles.includes(role)) {
     return null;
   }
   const disabledRoles = Array.isArray(workspacePolicy.disabledRoles)
     ? workspacePolicy.disabledRoles.filter(Boolean)
     : [];
-  if (disabledRoles.includes(step.role)) {
+  if (disabledRoles.includes(role)) {
     return null;
   }
   return workspacePolicy;
+}
+
+function buildWorkItemRoleIsolationWorkspacePolicy(db, execution, step) {
+  if (!SELF_BUILD_ISOLATED_WORKSPACE_ROLES.has(step.role)) {
+    return null;
+  }
+
+  const sourceWorkspacePolicy = listSteps(db, execution.id)
+    .map((candidate) => getStepWorkspacePolicy(candidate))
+    .find(
+      (candidate) =>
+        Boolean(candidate?.workItemRunId) ||
+        candidate?.source === "work-item-run",
+    );
+  if (!sourceWorkspacePolicy?.workItemRunId) {
+    return null;
+  }
+
+  const ownerWorkspace = getWorkspaceAllocationByRunId(
+    db,
+    sourceWorkspacePolicy.workItemRunId,
+  );
+  const executionWorkspacePolicy =
+    getExecutionPolicy(execution)?.runtimePolicy?.workspace ?? {};
+
+  return {
+    ...executionWorkspacePolicy,
+    enabled: true,
+    enabledRoles: [step.role],
+    disabledRoles: [],
+    workspaceId: null,
+    worktreePath: null,
+    branchName: null,
+    baseRef:
+      ownerWorkspace?.branchName ??
+      ownerWorkspace?.baseRef ??
+      sourceWorkspacePolicy.branchName ??
+      sourceWorkspacePolicy.baseRef ??
+      "HEAD",
+    safeMode:
+      ownerWorkspace?.safeMode !== false &&
+      sourceWorkspacePolicy.safeMode !== false,
+    mutationScope: Array.isArray(ownerWorkspace?.mutationScope)
+      ? ownerWorkspace.mutationScope
+      : Array.isArray(sourceWorkspacePolicy.mutationScope)
+        ? sourceWorkspacePolicy.mutationScope
+        : [],
+    workItemId:
+      ownerWorkspace?.workItemId ?? sourceWorkspacePolicy.workItemId ?? null,
+    workItemRunId: sourceWorkspacePolicy.workItemRunId,
+    proposalArtifactId:
+      ownerWorkspace?.proposalArtifactId ??
+      sourceWorkspacePolicy.proposalArtifactId ??
+      null,
+    source: sourceWorkspacePolicy.source ?? "work-item-run",
+  };
+}
+
+function getWorkspacePolicy(db, step, execution) {
+  const workspacePolicy =
+    getStepWorkspacePolicy(step) ??
+    getExecutionPolicy(execution)?.runtimePolicy?.workspace ??
+    null;
+  const enabledWorkspacePolicy = resolveEnabledWorkspacePolicy(
+    workspacePolicy,
+    step.role,
+  );
+  if (enabledWorkspacePolicy) {
+    return enabledWorkspacePolicy;
+  }
+  return buildWorkItemRoleIsolationWorkspacePolicy(db, execution, step);
 }
 
 function getWorkspaceRepoRoot() {
@@ -325,7 +401,8 @@ function canReuseProvidedWorkspace(existingWorkspace, workspacePolicy) {
 
   const requestedWorktreePath = path.resolve(workspacePolicy.worktreePath);
   return (
-    (!workspacePolicy.workspaceId || existingWorkspace.id === workspacePolicy.workspaceId) &&
+    (!workspacePolicy.workspaceId ||
+      existingWorkspace.id === workspacePolicy.workspaceId) &&
     path.resolve(existingWorkspace.worktreePath) === requestedWorktreePath
   );
 }
@@ -348,7 +425,7 @@ function canUseExistingVerificationWorkspace(
 }
 
 async function ensureStepWorkspace(db, execution, step) {
-  const workspacePolicy = getWorkspacePolicy(step, execution);
+  const workspacePolicy = getWorkspacePolicy(db, step, execution);
   if (!workspacePolicy?.enabled) {
     return null;
   }
@@ -565,7 +642,10 @@ async function ensureStepWorkspace(db, execution, step) {
         metadata: {
           ...providedWorkspace.metadata,
           repoRoot,
-          source: workspacePolicy.source ?? providedWorkspace.metadata?.source ?? "workflow-step",
+          source:
+            workspacePolicy.source ??
+            providedWorkspace.metadata?.source ??
+            "workflow-step",
           reusedWorkspace: true,
           reusedFromAllocationId:
             providedWorkspace.metadata?.reusedFromAllocationId ??
@@ -573,7 +653,7 @@ async function ensureStepWorkspace(db, execution, step) {
           workspacePurpose: getAuthoringWorkspacePurpose(step),
           handoffStatus:
             step.role === "builder"
-              ? providedWorkspace.metadata?.handoffStatus ?? "pending"
+              ? (providedWorkspace.metadata?.handoffStatus ?? "pending")
               : null,
         },
         updatedAt: now,

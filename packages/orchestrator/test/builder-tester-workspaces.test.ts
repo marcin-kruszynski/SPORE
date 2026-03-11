@@ -147,7 +147,9 @@ async function assertIsolatedSelfBuildRoles({
     const step = detail.steps.find((candidate) => candidate.role === role);
     assert.ok(step, `missing ${role} step`);
     assert.ok(step.sessionId, `missing ${role} session id`);
-    const workspace = workspaces.find((candidate) => candidate.stepId === step.id);
+    const workspace = workspaces.find(
+      (candidate) => candidate.stepId === step.id,
+    );
     assert.ok(workspace, `missing ${role} workspace`);
     assert.notEqual(workspace.worktreePath, repoRoot);
     assert.ok(
@@ -220,9 +222,17 @@ test("builder handoff snapshot provisions a separate tester verification workspa
     });
     db.close();
 
-    assert.equal(workspaces.length, 4);
-    const leadWorkspace = workspaces.find((workspace) => workspace.stepId === detail.steps.find((step) => step.role === "lead")?.id);
-    const reviewerWorkspace = workspaces.find((workspace) => workspace.stepId === detail.steps.find((step) => step.role === "reviewer")?.id);
+    assert.equal(workspaces.length, 2);
+    const leadWorkspace = workspaces.find(
+      (workspace) =>
+        workspace.stepId ===
+        detail.steps.find((step) => step.role === "lead")?.id,
+    );
+    const reviewerWorkspace = workspaces.find(
+      (workspace) =>
+        workspace.stepId ===
+        detail.steps.find((step) => step.role === "reviewer")?.id,
+    );
     const authoringWorkspace = workspaces.find(
       (workspace) => workspace.stepId === builderStep.id,
     );
@@ -230,10 +240,10 @@ test("builder handoff snapshot provisions a separate tester verification workspa
       (workspace) => workspace.stepId === testerStep.id,
     );
 
-    assert.ok(leadWorkspace);
+    assert.equal(leadWorkspace, undefined);
     assert.ok(authoringWorkspace);
     assert.ok(verificationWorkspace);
-    assert.ok(reviewerWorkspace);
+    assert.equal(reviewerWorkspace, undefined);
     assert.equal(authoringWorkspace.metadata.workspacePurpose, "authoring");
     assert.equal(
       verificationWorkspace.metadata.workspacePurpose,
@@ -275,6 +285,14 @@ test("builder handoff snapshot provisions a separate tester verification workspa
         process.cwd(),
         "tmp",
         "sessions",
+        `${detail.steps.find((step) => step.role === "lead")?.sessionId}.launch-context.json`,
+      ),
+    );
+    launchContexts.push(
+      path.join(
+        process.cwd(),
+        "tmp",
+        "sessions",
         `${builderStep.sessionId}.launch-context.json`,
       ),
     );
@@ -286,8 +304,19 @@ test("builder handoff snapshot provisions a separate tester verification workspa
         `${testerStep.sessionId}.launch-context.json`,
       ),
     );
-    const builderLaunch = await readJson(launchContexts[0]);
-    const testerLaunch = await readJson(launchContexts[1]);
+    launchContexts.push(
+      path.join(
+        process.cwd(),
+        "tmp",
+        "sessions",
+        `${detail.steps.find((step) => step.role === "reviewer")?.sessionId}.launch-context.json`,
+      ),
+    );
+    const leadLaunch = await readJson(launchContexts[0]);
+    const builderLaunch = await readJson(launchContexts[1]);
+    const testerLaunch = await readJson(launchContexts[2]);
+    const reviewerLaunch = await readJson(launchContexts[3]);
+    assert.equal(leadLaunch.cwd, process.cwd());
     assert.equal(builderLaunch.cwd, authoringWorkspace.worktreePath);
     assert.equal(testerLaunch.cwd, verificationWorkspace.worktreePath);
     assert.equal(testerLaunch.purpose, "verification");
@@ -296,6 +325,7 @@ test("builder handoff snapshot provisions a separate tester verification workspa
       testerLaunch.sourceCommit,
       authoringWorkspace.metadata.handoff.snapshotCommit,
     );
+    assert.equal(reviewerLaunch.cwd, process.cwd());
   } finally {
     for (const [key, value] of Object.entries(previousEnv)) {
       if (value === undefined) {
@@ -339,8 +369,11 @@ test("work-item-driven frontend execution isolates lead scout and reviewer cwd",
 
   const launchContexts = [];
   try {
-    const [{ getExecutionDetail }, { runSelfBuildWorkItem }, { createWorkItem }] =
-      await importFreshSelfBuildModules();
+    const [
+      { getExecutionDetail },
+      { runSelfBuildWorkItem },
+      { createWorkItem },
+    ] = await importFreshSelfBuildModules();
 
     await assertIsolatedSelfBuildRoles({
       createWorkItem,
@@ -417,8 +450,11 @@ test("work-item-driven cli executions isolate non-builder roles", async () => {
 
   const launchContexts = [];
   try {
-    const [{ getExecutionDetail }, { runSelfBuildWorkItem }, { createWorkItem }] =
-      await importFreshSelfBuildModules();
+    const [
+      { getExecutionDetail },
+      { runSelfBuildWorkItem },
+      { createWorkItem },
+    ] = await importFreshSelfBuildModules();
 
     await assertIsolatedSelfBuildRoles({
       createWorkItem,
@@ -495,8 +531,11 @@ test("work-item-driven backend executions isolate non-builder roles", async () =
 
   const launchContexts = [];
   try {
-    const [{ getExecutionDetail }, { runSelfBuildWorkItem }, { createWorkItem }] =
-      await importFreshSelfBuildModules();
+    const [
+      { getExecutionDetail },
+      { runSelfBuildWorkItem },
+      { createWorkItem },
+    ] = await importFreshSelfBuildModules();
 
     await assertIsolatedSelfBuildRoles({
       createWorkItem,
@@ -573,8 +612,11 @@ test("work-item-driven docs executions isolate non-builder roles", async () => {
 
   const launchContexts = [];
   try {
-    const [{ getExecutionDetail }, { runSelfBuildWorkItem }, { createWorkItem }] =
-      await importFreshSelfBuildModules();
+    const [
+      { getExecutionDetail },
+      { runSelfBuildWorkItem },
+      { createWorkItem },
+    ] = await importFreshSelfBuildModules();
 
     await assertIsolatedSelfBuildRoles({
       createWorkItem,
