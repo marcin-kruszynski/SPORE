@@ -299,10 +299,12 @@ function buildWorkItemRoleIsolationWorkspacePolicy(db, execution, step) {
     return null;
   }
 
-  const ownerWorkspace = getWorkspaceAllocationByRunId(
-    db,
-    sourceWorkspacePolicy.workItemRunId,
-  );
+  const ownerWorkspace =
+    listWorkspaceAllocations(db, {
+      workItemRunId: sourceWorkspacePolicy.workItemRunId,
+      ownerType: "work-item-run",
+      limit: 1,
+    })[0] ?? null;
   const executionWorkspacePolicy =
     getExecutionPolicy(execution)?.runtimePolicy?.workspace ?? {};
 

@@ -161,6 +161,8 @@ async function assertIsolatedSelfBuildRoles({
     const launchContext = await readJson(contextPath);
     assert.equal(launchContext.cwd, workspace.worktreePath);
   }
+
+  return { result, detail, workspaces };
 }
 
 test("builder handoff snapshot provisions a separate tester verification workspace", async () => {
@@ -407,6 +409,95 @@ test("work-item-driven frontend execution isolates lead scout and reviewer cwd",
       title: "Run reviewer in an isolated workspace",
       goal: "Keep reviewer inside a dedicated self-build workspace.",
     });
+  } finally {
+    for (const [key, value] of Object.entries(previousEnv)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+    await Promise.all(
+      launchContexts.map((filePath) =>
+        fs.rm(filePath, { force: true }).catch(() => {}),
+      ),
+    );
+    await fs.rm(tempRoot, { recursive: true, force: true });
+    await fs.rm(repoRoot, { recursive: true, force: true });
+  }
+});
+
+test("work-item-driven frontend execution anchors non-builder roles to the work-item workspace", async () => {
+  const tempRoot = await fs.mkdtemp(
+    path.join(os.tmpdir(), "spore-work-item-role-anchor-"),
+  );
+  const repoRoot = await makeTempRepo();
+  const dbPath = path.join(tempRoot, "orchestrator.sqlite");
+  const sessionDbPath = path.join(tempRoot, "sessions.sqlite");
+  const eventLogPath = path.join(tempRoot, "events.ndjson");
+  const worktreeRoot = path.join(tempRoot, "worktrees");
+  const previousEnv = {
+    SPORE_WORKSPACE_REPO_ROOT: process.env.SPORE_WORKSPACE_REPO_ROOT,
+    SPORE_WORKTREE_ROOT: process.env.SPORE_WORKTREE_ROOT,
+    SPORE_SESSION_DB_PATH: process.env.SPORE_SESSION_DB_PATH,
+    SPORE_EVENT_LOG_PATH: process.env.SPORE_EVENT_LOG_PATH,
+    SPORE_ORCHESTRATOR_DB_PATH: process.env.SPORE_ORCHESTRATOR_DB_PATH,
+  };
+
+  process.env.SPORE_WORKSPACE_REPO_ROOT = repoRoot;
+  process.env.SPORE_WORKTREE_ROOT = worktreeRoot;
+  process.env.SPORE_SESSION_DB_PATH = sessionDbPath;
+  process.env.SPORE_EVENT_LOG_PATH = eventLogPath;
+  process.env.SPORE_ORCHESTRATOR_DB_PATH = dbPath;
+
+  const launchContexts = [];
+  try {
+    const [
+      { getExecutionDetail },
+      { runSelfBuildWorkItem },
+      { createWorkItem },
+    ] = await importFreshSelfBuildModules();
+
+    const { result, detail, workspaces } = await assertIsolatedSelfBuildRoles({
+      createWorkItem,
+      getExecutionDetail,
+      runSelfBuildWorkItem,
+      dbPath,
+      sessionDbPath,
+      repoRoot,
+      worktreeRoot,
+      workflowPath: "config/workflows/frontend-ui-pass.yaml",
+      domainId: "frontend",
+      roles: ["lead", "scout", "reviewer"],
+      mutationScope: ["docs"],
+      launchContexts,
+      title: "Run lead scout and reviewer in isolated workspaces",
+      goal: "Keep every non-builder role anchored to the source work-item workspace.",
+    });
+
+    const sourceWorkspace = workspaces.find(
+      (workspace) =>
+        workspace.ownerType === "work-item-run" &&
+        workspace.workItemRunId === result.run.id,
+    );
+    assert.ok(sourceWorkspace);
+
+    const scoutStep = detail.steps.find((step) => step.role === "scout");
+    const reviewerStep = detail.steps.find((step) => step.role === "reviewer");
+    assert.ok(scoutStep);
+    assert.ok(reviewerStep);
+
+    const scoutWorkspace = workspaces.find(
+      (workspace) => workspace.stepId === scoutStep.id,
+    );
+    const reviewerWorkspace = workspaces.find(
+      (workspace) => workspace.stepId === reviewerStep.id,
+    );
+    assert.ok(scoutWorkspace);
+    assert.ok(reviewerWorkspace);
+    assert.equal(scoutWorkspace.baseRef, sourceWorkspace.branchName);
+    assert.equal(reviewerWorkspace.baseRef, sourceWorkspace.branchName);
+    assert.notEqual(reviewerWorkspace.baseRef, scoutWorkspace.branchName);
   } finally {
     for (const [key, value] of Object.entries(previousEnv)) {
       if (value === undefined) {
