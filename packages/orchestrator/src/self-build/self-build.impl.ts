@@ -3176,8 +3176,13 @@ function buildWorkspaceAllocationTrace(
   }
   const mutationScope = dedupe(allocation.mutationScope ?? []);
   const failureReason = toText(allocation.metadata?.error, "");
+  const reusedFromAllocationId =
+    toText(allocation.metadata?.reusedFromAllocationId, "") ||
+    toText(allocation.metadata?.linkedWorkspaceId, "") ||
+    toText(allocation.metadata?.sourceWorkspaceId, "") ||
+    null;
   const decision =
-    toText(allocation.metadata?.reusedFromAllocationId, "")
+    allocation.metadata?.reusedWorkspace === true || reusedFromAllocationId
       ? "reused"
       : allocation.status === "failed"
         ? "failed"
@@ -3195,6 +3200,17 @@ function buildWorkspaceAllocationTrace(
       ? `Mutation scope: ${mutationScope.join(", ")}.`
       : "Mutation scope was not recorded.",
     allocation.safeMode !== false ? "Safe mode is enabled." : "Safe mode is disabled.",
+    reusedFromAllocationId
+      ? `Workspace reuse source allocation: ${reusedFromAllocationId}.`
+      : allocation.metadata?.reusedWorkspace === true
+        ? "Workspace reuse was requested by the workflow handoff."
+        : "",
+    allocation.metadata?.workspacePurpose
+      ? `Workspace purpose: ${allocation.metadata.workspacePurpose}.`
+      : "",
+    allocation.metadata?.handoffStatus
+      ? `Handoff status: ${allocation.metadata.handoffStatus}.`
+      : "",
     inspection && inspection.exists === false
       ? "Workspace path is missing on disk, so reconciliation is likely required."
       : "",
@@ -3202,7 +3218,7 @@ function buildWorkspaceAllocationTrace(
   ]);
   const summary =
     decision === "reused"
-      ? `Reused an existing workspace allocation for run ${allocation.workItemRunId ?? allocation.ownerId ?? "unknown"}.`
+      ? `Reused workspace allocation ${reusedFromAllocationId ?? allocation.id ?? "unknown"} for run ${allocation.workItemRunId ?? allocation.ownerId ?? "unknown"}.`
       : decision === "failed"
         ? `Workspace allocation failed for run ${allocation.workItemRunId ?? allocation.ownerId ?? "unknown"}.`
         : decision === "cleaned"
@@ -3212,11 +3228,26 @@ function buildWorkspaceAllocationTrace(
     decision,
     summary,
     reasons,
-    reusedFromAllocationId: allocation.metadata?.reusedFromAllocationId ?? null,
+    reusedFromAllocationId,
     ownerRunId: allocation.workItemRunId ?? null,
     mutationScope,
     safeMode: allocation.safeMode !== false,
     failureReason: failureReason || null,
+  };
+}
+
+function summarizeWorkspaceCleanupResult(result) {
+  if (!result) {
+    return {
+      removed: false,
+      skipped: true,
+      reason: "cleanup-not-run",
+    };
+  }
+  return {
+    removed: result.removed === true,
+    skipped: result.removed !== true,
+    reason: result.removed === true ? "removed" : "cleanup-not-run",
   };
 }
 
@@ -7336,13 +7367,13 @@ export async function cleanupManagedWorkspace(
     reason: "already-missing",
   };
   if (inspection.exists && inspection.registered) {
-    cleanupResult = (await removeWorkspace({
+    cleanupResult = summarizeWorkspaceCleanupResult(await removeWorkspace({
       repoRoot,
       worktreePath: allocation.worktreePath,
       branchName: allocation.branchName ?? null,
       force: options.force === true || cleanupPolicy.requiresForce,
       keepBranch: options.keepBranch === true,
-    })) as unknown as WorkspaceCleanupResult;
+    }));
   }
 
   const updated = {

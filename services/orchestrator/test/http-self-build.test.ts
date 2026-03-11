@@ -2295,6 +2295,102 @@ test("self-build read surfaces expose concise trace summaries for workspace, val
   );
 });
 
+test("self-build workflow workspace reuse trace explains reused allocations over HTTP", async (t) => {
+  const ORCHESTRATOR_PORT = await findFreePort();
+  const { dbPath, sessionDbPath, eventLogPath } = withEventLogPath(
+    await makeTempPaths("spore-http-self-build-workspace-reuse-"),
+  ) as HarnessTempPathsWithEventLog;
+  const worktreeRoot = `${dbPath}.worktrees`;
+  const repoRoot = await makeTempRepo();
+
+  const orchestrator = startProcess(
+    "node",
+    ["services/orchestrator/server.js"],
+    {
+      SPORE_ORCHESTRATOR_PORT: String(ORCHESTRATOR_PORT),
+      SPORE_ORCHESTRATOR_DB_PATH: dbPath,
+      SPORE_SESSION_DB_PATH: sessionDbPath,
+      SPORE_EVENT_LOG_PATH: eventLogPath,
+      SPORE_WORKSPACE_REPO_ROOT: repoRoot,
+      SPORE_WORKTREE_ROOT: worktreeRoot,
+    },
+  );
+
+  t.after(async () => {
+    await stopProcess(orchestrator);
+  });
+  t.after(async () => {
+    await fs.rm(worktreeRoot, { recursive: true, force: true });
+    await fs.rm(repoRoot, { recursive: true, force: true });
+  });
+
+  await waitForHealth(`http://127.0.0.1:${ORCHESTRATOR_PORT}/health`);
+
+  const item = createWorkItem(
+    {
+      title: "Workspace reuse observability fixture",
+      kind: "workflow",
+      goal: "Expose reused workflow workspaces in self-build read traces.",
+      metadata: {
+        workflowPath: "config/workflows/cli-verification-pass.yaml",
+        projectPath: "config/projects/spore.yaml",
+        domainId: "cli",
+        roles: ["builder", "tester"],
+        mutationScope: ["docs"],
+        safeMode: true,
+      },
+    },
+    dbPath,
+  );
+
+  const runResult = await postJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/work-items/${encodeURIComponent(item.id)}/run`,
+    {
+      wait: true,
+      stub: true,
+      timeout: 30000,
+      interval: 500,
+      by: "test-runner",
+      source: "http-self-build-workspace-reuse-test",
+    },
+  );
+  assert.equal(runResult.status, 200);
+  assert.ok(runResult.json.ok);
+
+  const executionId = String(runResult.json.detail.run.result?.executionId ?? "");
+  assert.ok(executionId);
+
+  const executionWorkspaces = await getJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/executions/${encodeURIComponent(executionId)}/workspaces`,
+  );
+  assert.equal(executionWorkspaces.status, 200);
+  assert.ok(executionWorkspaces.json.ok);
+
+  const reusedWorkspace = asArray<JsonRecord>(
+    executionWorkspaces.json.detail.workspaces,
+  ).find(
+    (workspace) =>
+      String(asObject(asObject(workspace.trace).allocation).decision ?? "") ===
+      "reused",
+  );
+
+  assert.ok(reusedWorkspace);
+  assert.match(
+    String(asObject(asObject(reusedWorkspace.trace).allocation).summary ?? ""),
+    /reused|handoff|workspace/i,
+  );
+  assert.ok(
+    asArray(asObject(asObject(reusedWorkspace.trace).allocation).reasons).length >
+      0,
+  );
+  assert.ok(
+    String(
+      asObject(asObject(reusedWorkspace.trace).allocation)
+        .reusedFromAllocationId ?? "",
+    ),
+  );
+});
+
 test("operator chat routes create governed threads and accept chat-driven approvals", async (t) => {
   const ORCHESTRATOR_PORT = await findFreePort();
   const { dbPath, sessionDbPath, eventLogPath } = withEventLogPath(

@@ -567,6 +567,9 @@ async function ensureStepWorkspace(db, execution, step) {
           repoRoot,
           source: workspacePolicy.source ?? providedWorkspace.metadata?.source ?? "workflow-step",
           reusedWorkspace: true,
+          reusedFromAllocationId:
+            providedWorkspace.metadata?.reusedFromAllocationId ??
+            providedWorkspace.id,
           workspacePurpose: getAuthoringWorkspacePurpose(step),
           handoffStatus:
             step.role === "builder"
@@ -601,6 +604,7 @@ async function ensureStepWorkspace(db, execution, step) {
         repoRoot,
         source: workspacePolicy.source ?? "workflow-step",
         reusedWorkspace: true,
+        reusedFromAllocationId: workspacePolicy.workspaceId ?? null,
         linkedWorkspaceId: workspacePolicy.workspaceId ?? null,
         workspacePurpose: getAuthoringWorkspacePurpose(step),
         handoffStatus: step.role === "builder" ? "pending" : null,
