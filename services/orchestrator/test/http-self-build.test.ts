@@ -345,6 +345,282 @@ function assertInboxActionProjection(
   }
 }
 
+async function startOperatorChatServer(
+  t: test.TestContext,
+  prefix = "spore-http-operator-chat-",
+) {
+  const ORCHESTRATOR_PORT = await findFreePort();
+  const { dbPath, sessionDbPath, eventLogPath } = withEventLogPath(
+    await makeTempPaths(prefix),
+  ) as HarnessTempPathsWithEventLog;
+
+  const orchestrator = startProcess(
+    "node",
+    ["services/orchestrator/server.js"],
+    {
+      SPORE_ORCHESTRATOR_PORT: String(ORCHESTRATOR_PORT),
+      SPORE_ORCHESTRATOR_DB_PATH: dbPath,
+      SPORE_SESSION_DB_PATH: sessionDbPath,
+      SPORE_EVENT_LOG_PATH: eventLogPath,
+    },
+  );
+
+  t.after(async () => {
+    await stopProcess(orchestrator);
+  });
+
+  await waitForHealth(`http://127.0.0.1:${ORCHESTRATOR_PORT}/health`);
+
+  return {
+    ORCHESTRATOR_PORT,
+    dbPath,
+  };
+}
+
+async function createStubOperatorThread(
+  port: number,
+  message: string,
+  overrides: JsonRecord = {},
+) {
+  const payload = await postJson(`http://127.0.0.1:${port}/operator/threads`, {
+    message,
+    projectId: "spore",
+    safeMode: true,
+    stub: true,
+    by: "test-runner",
+    source: "http-operator-chat-test",
+    ...overrides,
+  });
+  assert.equal(payload.status, 200);
+  assert.ok(payload.json.ok);
+  return payload.json.detail;
+}
+
+async function getOperatorThreadDetail(port: number, threadId: string) {
+  const payload = await getJson(
+    `http://127.0.0.1:${port}/operator/threads/${encodeURIComponent(threadId)}`,
+  );
+  assert.equal(payload.status, 200);
+  assert.ok(payload.json.ok);
+  return payload.json.detail;
+}
+
+async function replyInOperatorThread(
+  port: number,
+  threadId: string,
+  message: string,
+) {
+  const payload = await postJson(
+    `http://127.0.0.1:${port}/operator/threads/${encodeURIComponent(threadId)}/messages`,
+    {
+      message,
+      by: "test-runner",
+      source: "http-operator-chat-test",
+    },
+  );
+  assert.equal(payload.status, 200);
+  assert.ok(payload.json.ok);
+  return payload.json.detail;
+}
+
+function insertReplacementProposalArtifact(
+  dbPath: string,
+  baseProposalId: string,
+  options: {
+    proposalStatus: string;
+    validationStatus?: string;
+    validationSummary?: string;
+  },
+) {
+  const db = openOrchestratorDatabase(dbPath);
+  try {
+    const baseProposal = getProposalArtifact(db, baseProposalId);
+    assert.ok(baseProposal);
+
+    const baseTimestamp = new Date(
+      String(baseProposal.updatedAt ?? baseProposal.createdAt ?? Date.now()),
+    ).getTime();
+    const suffix = `${baseTimestamp + 1000}`;
+    const runId = `work-item-run-rerun-${suffix}`;
+    const proposalId = `proposal-rerun-${suffix}`;
+    const timestamp = new Date(baseTimestamp + 1000).toISOString();
+    const summary = asObject(baseProposal.summary);
+    const metadata = asObject(baseProposal.metadata);
+    const validation = asObject(metadata.validation);
+    const promotion = asObject(metadata.promotion);
+
+    insertWorkItemRun(db, {
+      id: runId,
+      workItemId: baseProposal.workItemId,
+      status: "completed",
+      triggerSource: "test-rerun",
+      requestedBy: "test-runner",
+      result: {
+        executionId: `execution:${runId}`,
+      },
+      metadata: {
+        itemKind: baseProposal.kind,
+        itemStatusBeforeRun: "pending",
+        rerunOf: baseProposal.workItemRunId,
+      },
+      createdAt: timestamp,
+      startedAt: timestamp,
+      endedAt: timestamp,
+    });
+
+    insertProposalArtifact(db, {
+      ...baseProposal,
+      id: proposalId,
+      workItemRunId: runId,
+      status: options.proposalStatus,
+      summary: {
+        ...summary,
+        title: `${String(summary.title ?? baseProposalId)} rerun`,
+      },
+      metadata: {
+        ...metadata,
+        validation: {
+          ...validation,
+          status:
+            options.validationStatus ??
+            (options.proposalStatus === "validation_failed"
+              ? "failed"
+              : validation.status),
+          summary: options.validationSummary ?? validation.summary,
+          bundleResults:
+            options.proposalStatus === "validation_failed"
+              ? [
+                  {
+                    bundleId: "operator-chat-rerun",
+                    label: "Operator chat rerun coverage",
+                    status: "failed",
+                    requiredForProposalReadiness: true,
+                    requiredForPromotionReadiness: true,
+                  },
+                ]
+              : validation.bundleResults,
+        },
+        promotion: {
+          ...promotion,
+          updatedAt: timestamp,
+        },
+      },
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      reviewedAt: null,
+      approvedAt: null,
+    });
+
+    return {
+      proposalId,
+      runId,
+    };
+  } finally {
+    db.close();
+  }
+}
+
+function insertProposalArtifactForWorkItem({
+  dbPath,
+  itemId,
+  itemTitle,
+  itemGoal,
+  proposalStatus,
+}: {
+  dbPath: string;
+  itemId: string;
+  itemTitle: string;
+  itemGoal: string;
+  proposalStatus: string;
+}) {
+  const timestamp = new Date().toISOString();
+  const runId = `work-item-run-seed-${Date.now()}`;
+  const proposalId = `proposal-seed-${Date.now()}`;
+  const db = openOrchestratorDatabase(dbPath);
+  try {
+    insertWorkItemRun(db, {
+      id: runId,
+      workItemId: itemId,
+      status: "completed",
+      triggerSource: "test-seed",
+      requestedBy: "test-runner",
+      result: {
+        executionId: `execution:${runId}`,
+      },
+      metadata: {
+        itemKind: "workflow",
+        itemStatusBeforeRun: "pending",
+      },
+      createdAt: timestamp,
+      startedAt: timestamp,
+      endedAt: timestamp,
+    });
+    insertProposalArtifact(db, {
+      id: proposalId,
+      workItemRunId: runId,
+      workItemId: itemId,
+      status: proposalStatus,
+      kind: "workflow",
+      summary: {
+        title: `${itemTitle} proposal`,
+        goal: itemGoal,
+        runStatus: "completed",
+        safeMode: true,
+      },
+      artifacts: {
+        changeSummary: itemGoal,
+        proposedFiles: [],
+        diffSummary: {
+          fileCount: 0,
+          trackedFileCount: 0,
+          untrackedFileCount: 0,
+          addedCount: 0,
+          modifiedCount: 0,
+          deletedCount: 0,
+          renamedCount: 0,
+          conflictedCount: 0,
+          insertionCount: 0,
+          deletionCount: 0,
+        },
+        changedFilesByScope: [],
+        patchArtifact: {
+          path: `artifacts/proposals/${proposalId}.patch`,
+          byteLength: 0,
+          preview: "",
+        },
+        reviewNotes: {
+          requiredReview: true,
+          requiredApproval: true,
+          safeMode: true,
+        },
+        testSummary: {
+          validationStatus: "pending",
+          scenarioRunIds: [],
+          regressionRunIds: [],
+        },
+        docImpact: {
+          relatedDocs: [],
+          relatedScenarios: [],
+          relatedRegressions: [],
+        },
+      },
+      metadata: {
+        source: "test",
+        promotion: {
+          status: null,
+        },
+      },
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      reviewedAt: null,
+      approvedAt: null,
+    });
+  } finally {
+    db.close();
+  }
+  return { proposalId, runId };
+}
+
 test("self-build summary and lineage routes expose operator-first visibility", async (t) => {
   const ORCHESTRATOR_PORT = await findFreePort();
   const WEB_PORT = await findFreePort();
@@ -2220,4 +2496,148 @@ test("operator chat supports proposal rework and quarantine release flows", asyn
     suggestedReplies: "empty",
     expectDistinctTitle: true,
   });
+});
+
+test("operator chat prefers the latest reviewable proposal over stale linkage", async (t) => {
+  const { ORCHESTRATOR_PORT, dbPath } = await startOperatorChatServer(
+    t,
+    "spore-http-operator-chat-latest-review-",
+  );
+
+  const thread = await createStubOperatorThread(
+    ORCHESTRATOR_PORT,
+    "Improve the operator web dashboard for self-build review and keep the work in safe mode.",
+    { wait: false },
+  );
+
+  const approvedThread = await replyInOperatorThread(
+    ORCHESTRATOR_PORT,
+    thread.id,
+    "approve",
+  );
+  const group = asObject(asObject(approvedThread.context).group);
+  const seededItem = asArray<JsonRecord>(group.items)[0];
+  assert.ok(seededItem);
+
+  const initial = insertProposalArtifactForWorkItem({
+    dbPath,
+    itemId: String(seededItem.id ?? ""),
+    itemTitle: String(seededItem.title ?? "Work item"),
+    itemGoal: String(seededItem.goal ?? ""),
+    proposalStatus: "ready_for_review",
+  });
+
+  const initialReviewPending = await getOperatorThreadDetail(
+    ORCHESTRATOR_PORT,
+    thread.id,
+  );
+  const initialProposalId = String(
+    asObject(initialReviewPending.context).proposal
+      ? asObject(asObject(initialReviewPending.context).proposal).id
+      : "",
+  );
+  assert.equal(initialProposalId, initial.proposalId);
+  assert.ok(
+    asArray<JsonRecord>(initialReviewPending.pendingActions).some(
+      (action) =>
+        action.actionKind === "proposal-review" &&
+        action.targetId === initial.proposalId,
+    ),
+  );
+
+  const replacement = insertReplacementProposalArtifact(dbPath, initialProposalId, {
+    proposalStatus: "ready_for_review",
+  });
+
+  const refreshedThread = await getOperatorThreadDetail(
+    ORCHESTRATOR_PORT,
+    thread.id,
+  );
+  const refreshedProposal = asObject(asObject(refreshedThread.context).proposal);
+
+  assert.equal(refreshedProposal.id, replacement.proposalId);
+  assert.equal(refreshedProposal.workItemRunId, replacement.runId);
+  assert.ok(
+    asArray<JsonRecord>(refreshedThread.pendingActions).some(
+      (action) =>
+        action.actionKind === "proposal-review" &&
+        action.targetId === replacement.proposalId,
+    ),
+  );
+  assert.ok(
+    asArray<JsonRecord>(refreshedThread.pendingActions).every(
+      (action) => action.targetId !== initialProposalId,
+    ),
+  );
+});
+
+test("operator chat shows recovery guidance when the latest proposal failed", async (t) => {
+  const { ORCHESTRATOR_PORT, dbPath } = await startOperatorChatServer(
+    t,
+    "spore-http-operator-chat-recovery-",
+  );
+
+  const thread = await createStubOperatorThread(
+    ORCHESTRATOR_PORT,
+    "Improve the operator web dashboard for self-build review and keep the work in safe mode.",
+    { wait: false },
+  );
+
+  const approvedThread = await replyInOperatorThread(
+    ORCHESTRATOR_PORT,
+    thread.id,
+    "approve",
+  );
+  const group = asObject(asObject(approvedThread.context).group);
+  const seededItem = asArray<JsonRecord>(group.items)[0];
+  assert.ok(seededItem);
+
+  const initial = insertProposalArtifactForWorkItem({
+    dbPath,
+    itemId: String(seededItem.id ?? ""),
+    itemTitle: String(seededItem.title ?? "Work item"),
+    itemGoal: String(seededItem.goal ?? ""),
+    proposalStatus: "ready_for_review",
+  });
+
+  const initialReviewPending = await getOperatorThreadDetail(
+    ORCHESTRATOR_PORT,
+    thread.id,
+  );
+  const initialProposalId = String(
+    asObject(initialReviewPending.context).proposal
+      ? asObject(asObject(initialReviewPending.context).proposal).id
+      : "",
+  );
+  assert.equal(initialProposalId, initial.proposalId);
+
+  const replacement = insertReplacementProposalArtifact(dbPath, initialProposalId, {
+    proposalStatus: "validation_failed",
+    validationStatus: "failed",
+    validationSummary: "Latest rerun failed validation and needs operator recovery.",
+  });
+
+  const refreshedThread = await getOperatorThreadDetail(
+    ORCHESTRATOR_PORT,
+    thread.id,
+  );
+  const refreshedProposal = asObject(asObject(refreshedThread.context).proposal);
+  const refreshedGuidance = asObject(refreshedThread.decisionGuidance);
+
+  assert.equal(refreshedProposal.id, replacement.proposalId);
+  assert.equal(refreshedProposal.status, "validation_failed");
+  assert.ok(
+    asArray<JsonRecord>(refreshedThread.pendingActions).some(
+      (action) =>
+        action.actionKind === "proposal-rework" &&
+        action.targetId === replacement.proposalId,
+    ),
+  );
+  assert.ok(
+    asArray<JsonRecord>(refreshedThread.pendingActions).every(
+      (action) => action.actionKind !== "proposal-review",
+    ),
+  );
+  assert.match(String(refreshedGuidance.title ?? ""), /recover/i);
+  assert.match(String(refreshedGuidance.why ?? ""), /blocked|failed/i);
 });

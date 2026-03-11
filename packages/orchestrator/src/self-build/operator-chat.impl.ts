@@ -1181,37 +1181,37 @@ function createPendingAction(
 function chooseActiveProposal(
   group: LooseRecord | null,
   linkage: OperatorThreadLinkage,
+  currentProposal: LooseRecord | null = null,
 ) {
   const proposals = asArray<LooseRecord>(group?.proposals);
   if (proposals.length === 0) {
-    return null;
+    return currentProposal;
   }
-  if (linkage.activeProposalId) {
-    const exact = proposals.find(
-      (proposal) => String(proposal.id) === String(linkage.activeProposalId),
-    );
-    if (exact) {
-      return exact;
+  const sorted = [...proposals].sort((left, right) => {
+    const leftTime = new Date(
+      String(left.updatedAt ?? left.createdAt ?? 0),
+    ).getTime();
+    const rightTime = new Date(
+      String(right.updatedAt ?? right.createdAt ?? 0),
+    ).getTime();
+    if (rightTime !== leftTime) {
+      return rightTime - leftTime;
     }
-  }
-  const priority = [
-    "ready_for_review",
-    "reviewed",
-    "validation_required",
-    "validation_failed",
-    "promotion_ready",
-    "promotion_candidate",
-    "rework_required",
-  ];
-  for (const status of priority) {
-    const match = proposals.find(
-      (proposal) => String(proposal.status) === status,
-    );
-    if (match) {
-      return match;
+    if (
+      linkage.activeProposalId &&
+      String(right.id) === String(linkage.activeProposalId)
+    ) {
+      return 1;
     }
-  }
-  return proposals[0] ?? null;
+    if (
+      linkage.activeProposalId &&
+      String(left.id) === String(linkage.activeProposalId)
+    ) {
+      return -1;
+    }
+    return 0;
+  });
+  return sorted[0] ?? currentProposal;
 }
 
 function summarizeThreadContext(
@@ -1537,9 +1537,7 @@ async function syncThreadState(threadId: string, dbPath: string) {
   let proposal = linkage.activeProposalId
     ? getProposalSummary(linkage.activeProposalId, dbPath)
     : null;
-  if (!proposal) {
-    proposal = chooseActiveProposal(group, linkage);
-  }
+  proposal = chooseActiveProposal(group, linkage, proposal);
 
   let integrationBranch =
     getProposalIntegrationBranch(proposal) || linkage.integrationBranch || null;
