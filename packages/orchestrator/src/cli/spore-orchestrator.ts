@@ -107,6 +107,8 @@ import {
   materializePolicyRecommendation,
   materializeSelfBuildIntake,
   planProposalPromotion,
+  queueWorkItemGroupValidationBundle,
+  queueWorkItemRunValidation,
   quarantineSelfBuildTarget,
   reconcileManagedWorkspace,
   refreshSelfBuildIntake,
@@ -132,8 +134,8 @@ import {
   startSelfBuildLoop,
   stopSelfBuildLoop,
   unblockWorkItemGroup,
-  validateWorkItemGroupBundle,
-  validateWorkItemRun,
+  waitForWorkItemGroupValidationBundle,
+  waitForWorkItemRunValidation,
 } from "../self-build/self-build.js";
 
 type CliFlags = Record<string, any>;
@@ -1466,17 +1468,27 @@ async function main() {
         "use work-item-group-validate-bundle --group <id> [--bundles a,b]",
       );
     }
-    const detail = await validateWorkItemGroupBundle(flags.group, {
-      bundleIds: flags.bundles ? parseCsv(flags.bundles) : [],
-      wait: flags.wait === true,
-      by: flags.by ?? "operator",
-      source: flags.source ?? "cli",
-      stub: flags.stub !== false,
-      launcher: flags.launcher ?? null,
-      timeout: flags.timeout ?? "180000",
-      interval: flags.interval ?? "1500",
-      noMonitor: flags["no-monitor"] === true,
-    });
+    const detail = await (flags.wait === true
+      ? waitForWorkItemGroupValidationBundle(flags.group, {
+          bundleIds: flags.bundles ? parseCsv(flags.bundles) : [],
+          by: flags.by ?? "operator",
+          source: flags.source ?? "cli",
+          stub: flags.stub !== false,
+          launcher: flags.launcher ?? null,
+          timeout: flags.timeout ?? "180000",
+          interval: flags.interval ?? "1500",
+          noMonitor: flags["no-monitor"] === true,
+        })
+      : queueWorkItemGroupValidationBundle(flags.group, {
+          bundleIds: flags.bundles ? parseCsv(flags.bundles) : [],
+          by: flags.by ?? "operator",
+          source: flags.source ?? "cli",
+          stub: flags.stub !== false,
+          launcher: flags.launcher ?? null,
+          timeout: flags.timeout ?? "180000",
+          interval: flags.interval ?? "1500",
+          noMonitor: flags["no-monitor"] === true,
+        }));
     if (!detail) {
       throw new Error(`work item group not found: ${flags.group}`);
     }
@@ -1707,16 +1719,25 @@ async function main() {
     if (!flags.run) {
       throw new Error("use work-item-validate --run <id>");
     }
-    const detail = await validateWorkItemRun(flags.run, {
-      wait: flags.wait === true,
-      timeout: flags.timeout ?? "180000",
-      interval: flags.interval ?? "1500",
-      noMonitor: flags["no-monitor"] === true,
-      stub: flags.stub !== false,
-      launcher: flags.launcher ?? null,
-      by: flags.by ?? "operator",
-      source: flags.source ?? "cli",
-    });
+    const detail = await (flags.wait === true
+      ? waitForWorkItemRunValidation(flags.run, {
+          timeout: flags.timeout ?? "180000",
+          interval: flags.interval ?? "1500",
+          noMonitor: flags["no-monitor"] === true,
+          stub: flags.stub !== false,
+          launcher: flags.launcher ?? null,
+          by: flags.by ?? "operator",
+          source: flags.source ?? "cli",
+        })
+      : queueWorkItemRunValidation(flags.run, {
+          timeout: flags.timeout ?? "180000",
+          interval: flags.interval ?? "1500",
+          noMonitor: flags["no-monitor"] === true,
+          stub: flags.stub !== false,
+          launcher: flags.launcher ?? null,
+          by: flags.by ?? "operator",
+          source: flags.source ?? "cli",
+        }));
     if (!detail) {
       throw new Error(`work item run not found: ${flags.run}`);
     }
@@ -1730,17 +1751,27 @@ async function main() {
         "use work-item-validate-bundle --run <id> [--bundles a,b]",
       );
     }
-    const detail = await validateWorkItemRun(flags.run, {
-      bundleIds: flags.bundles ? parseCsv(flags.bundles) : [],
-      wait: flags.wait === true,
-      timeout: flags.timeout ?? "180000",
-      interval: flags.interval ?? "1500",
-      noMonitor: flags["no-monitor"] === true,
-      stub: flags.stub !== false,
-      launcher: flags.launcher ?? null,
-      by: flags.by ?? "operator",
-      source: flags.source ?? "cli",
-    });
+    const detail = await (flags.wait === true
+      ? waitForWorkItemRunValidation(flags.run, {
+          bundleIds: flags.bundles ? parseCsv(flags.bundles) : [],
+          timeout: flags.timeout ?? "180000",
+          interval: flags.interval ?? "1500",
+          noMonitor: flags["no-monitor"] === true,
+          stub: flags.stub !== false,
+          launcher: flags.launcher ?? null,
+          by: flags.by ?? "operator",
+          source: flags.source ?? "cli",
+        })
+      : queueWorkItemRunValidation(flags.run, {
+          bundleIds: flags.bundles ? parseCsv(flags.bundles) : [],
+          timeout: flags.timeout ?? "180000",
+          interval: flags.interval ?? "1500",
+          noMonitor: flags["no-monitor"] === true,
+          stub: flags.stub !== false,
+          launcher: flags.launcher ?? null,
+          by: flags.by ?? "operator",
+          source: flags.source ?? "cli",
+        }));
     if (!detail) {
       throw new Error(`work item run not found: ${flags.run}`);
     }

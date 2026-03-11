@@ -1147,6 +1147,86 @@ function persistValidationStateForRun(runId, state, dbPath) {
   });
 }
 
+function loadWorkItemRunValidationContext(
+  runId,
+  options: LooseRecord = {},
+  dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
+) {
+  const run = withDatabase(dbPath, (db) => getWorkItemRun(db, runId));
+  if (!run) {
+    return null;
+  }
+  const item = withDatabase(dbPath, (db) => getWorkItem(db, run.workItemId));
+  if (!item) {
+    return null;
+  }
+  const proposal = withDatabase(dbPath, (db) =>
+    getProposalArtifactByRunId(db, runId),
+  );
+  const bundleIds = resolveValidationBundleIdsForWorkItem(item, run, options);
+  const fallbackScenarioIds = dedupe(
+    item.metadata?.recommendedScenarios ?? item.relatedScenarios ?? [],
+  );
+  const fallbackRegressionIds = dedupe(
+    item.metadata?.recommendedRegressions ?? item.relatedRegressions ?? [],
+  );
+  return {
+    run,
+    item,
+    proposal,
+    bundleIds,
+    fallbackScenarioIds,
+    fallbackRegressionIds,
+    currentValidation:
+      proposal?.metadata?.validation ?? run.metadata?.validation ?? null,
+  };
+}
+
+function buildQueuedValidationState(context, options: LooseRecord = {}) {
+  return buildValidationState(context.run, context.proposal, {
+    bundleIds: context.bundleIds,
+    fallbackScenarioIds: context.fallbackScenarioIds,
+    fallbackRegressionIds: context.fallbackRegressionIds,
+    status: "queued",
+    scenarioRunIds: [],
+    regressionRunIds: [],
+    startedAt: null,
+    endedAt: null,
+    error: null,
+    errors: [],
+    bundleResults: [],
+    validatedAt: null,
+    validationFingerprint:
+      options.validationFingerprint ??
+      context.currentValidation?.validationFingerprint ??
+      null,
+    validationDrift: options.validationDrift ?? false,
+  });
+}
+
+function getActiveValidationTask(runId) {
+  return activeValidationTasks.get(runId) ?? null;
+}
+
+function ensureWorkItemRunValidationTask(
+  context,
+  options: LooseRecord = {},
+  dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
+) {
+  const existing = getActiveValidationTask(context.run.id);
+  if (existing) {
+    return existing;
+  }
+  return scheduleWorkItemRunValidation(
+    context.run.id,
+    context.bundleIds,
+    context.fallbackScenarioIds,
+    context.fallbackRegressionIds,
+    options,
+    dbPath,
+  );
+}
+
 async function executeWorkItemRunValidation(
   runId,
   bundleIds: string[],
@@ -6124,7 +6204,7 @@ export async function runWorkItemGroup(
         normalized?.run?.id &&
         workItemShouldAutoValidate(normalized.run)
       ) {
-        const validationResult = await validateWorkItemRun(
+        const validationResult = await queueWorkItemRunValidation(
           normalized.run.id,
           {
             ...options,
@@ -6270,7 +6350,7 @@ export async function runWorkItemGroup(
   };
 }
 
-export async function validateWorkItemGroupBundle(
+export async function queueWorkItemGroupValidationBundle(
   groupId,
   payload: LooseRecord = {},
   dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
@@ -6285,7 +6365,7 @@ export async function validateWorkItemGroupBundle(
     if (!latestRunId) {
       continue;
     }
-    const result = await validateWorkItemRun(
+    const result = await queueWorkItemRunValidation(
       latestRunId,
       {
         ...payload,
@@ -6345,6 +6425,38 @@ export async function validateWorkItemGroupBundle(
     group: getWorkItemGroupSummary(groupId, dbPath),
     validationResults,
   };
+}
+
+export async function waitForWorkItemGroupValidationBundle(
+  groupId,
+  payload: LooseRecord = {},
+  dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
+) {
+  const detail = await queueWorkItemGroupValidationBundle(groupId, payload, dbPath);
+  if (!detail) {
+    return null;
+  }
+  const waitTasks = asArray(detail.validationResults)
+    .map((entry) => toText(entry?.id, ""))
+    .map((runId) => getActiveValidationTask(runId))
+    .filter(Boolean);
+  if (waitTasks.length > 0) {
+    await Promise.all(waitTasks);
+  }
+  return {
+    group: getWorkItemGroupSummary(groupId, dbPath),
+    validationResults: asArray(detail.validationResults).map((entry) =>
+      entry?.id ? getSelfBuildWorkItemRun(entry.id, dbPath) : entry,
+    ),
+  };
+}
+
+export async function validateWorkItemGroupBundle(
+  groupId,
+  payload: LooseRecord = {},
+  dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
+) {
+  return queueWorkItemGroupValidationBundle(groupId, payload, dbPath);
 }
 
 function resolveProposalSourceExecutionId(
@@ -7257,65 +7369,54 @@ export async function approveProposalArtifact(
   return buildProposalSummary(updated, dbPath);
 }
 
+export async function queueWorkItemRunValidation(
+  runId,
+  options: LooseRecord = {},
+  dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
+) {
+  const context = loadWorkItemRunValidationContext(runId, options, dbPath);
+  if (!context) {
+    return null;
+  }
+  const currentValidation = context.currentValidation;
+  if (
+    currentValidation &&
+    ["queued", "running"].includes(String(currentValidation.status))
+  ) {
+    if (!getActiveValidationTask(runId)) {
+      persistValidationStateForRun(runId, buildQueuedValidationState(context), dbPath);
+      ensureWorkItemRunValidationTask(context, options, dbPath);
+    }
+    return getSelfBuildWorkItemRun(runId, dbPath);
+  }
+  const queuedState = buildQueuedValidationState(context);
+  persistValidationStateForRun(runId, queuedState, dbPath);
+  ensureWorkItemRunValidationTask(context, options, dbPath);
+  return getSelfBuildWorkItemRun(runId, dbPath);
+}
+
+export async function waitForWorkItemRunValidation(
+  runId,
+  options: LooseRecord = {},
+  dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
+) {
+  const queued = await queueWorkItemRunValidation(runId, options, dbPath);
+  if (!queued) {
+    return null;
+  }
+  const task = getActiveValidationTask(runId);
+  if (task) {
+    await task;
+  }
+  return getSelfBuildWorkItemRun(runId, dbPath);
+}
+
 export async function validateWorkItemRun(
   runId,
   options: LooseRecord = {},
   dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
 ) {
-  const run = withDatabase(dbPath, (db) => getWorkItemRun(db, runId));
-  if (!run) {
-    return null;
-  }
-  const item = withDatabase(dbPath, (db) => getWorkItem(db, run.workItemId));
-  if (!item) {
-    return null;
-  }
-  const proposal = withDatabase(dbPath, (db) => getProposalArtifactByRunId(db, runId));
-  const bundleIds = resolveValidationBundleIdsForWorkItem(item, run, options);
-  const fallbackScenarioIds = dedupe(
-    item.metadata?.recommendedScenarios ?? item.relatedScenarios ?? [],
-  );
-  const fallbackRegressionIds = dedupe(
-    item.metadata?.recommendedRegressions ?? item.relatedRegressions ?? [],
-  );
-  const shouldWait = options.wait === true;
-  const currentValidation = proposal?.metadata?.validation ?? run.metadata?.validation;
-  if (
-    currentValidation &&
-    ["queued", "running"].includes(String(currentValidation.status))
-  ) {
-    if (shouldWait) {
-      await (activeValidationTasks.get(runId) ?? Promise.resolve());
-    }
-    return getSelfBuildWorkItemRun(runId, dbPath);
-  }
-  const queuedState = buildValidationState(run, proposal, {
-    bundleIds,
-    fallbackScenarioIds,
-    fallbackRegressionIds,
-    status: "queued",
-    scenarioRunIds: [],
-    regressionRunIds: [],
-    startedAt: null,
-    endedAt: null,
-    error: null,
-    errors: [],
-    bundleResults: [],
-    validatedAt: null,
-  });
-  persistValidationStateForRun(runId, queuedState, dbPath);
-  const task = scheduleWorkItemRunValidation(
-    runId,
-    bundleIds,
-    fallbackScenarioIds,
-    fallbackRegressionIds,
-    options,
-    dbPath,
-  );
-  if (shouldWait) {
-    await task;
-  }
-  return getSelfBuildWorkItemRun(runId, dbPath);
+  return queueWorkItemRunValidation(runId, options, dbPath);
 }
 
 export function getDocSuggestionsForRun(
@@ -8962,7 +9063,7 @@ async function runSelfBuildLoopIteration(
     const bundleIds = policy.requiredValidationBundles?.length
       ? policy.requiredValidationBundles
       : undefined;
-    const result = await validateWorkItemGroupBundle(
+    const result = await queueWorkItemGroupValidationBundle(
       validationGroup.id,
       {
         ...options,

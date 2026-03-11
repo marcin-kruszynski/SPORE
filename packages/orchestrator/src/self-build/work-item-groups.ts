@@ -1,6 +1,7 @@
 export {
   getWorkItemGroupSummary,
   listWorkItemGroupsSummary,
+  queueWorkItemGroupValidationBundle,
   requeueWorkItemGroupItem,
   rerouteWorkItemGroup,
   retryDownstreamWorkItemGroup,
@@ -9,4 +10,5 @@ export {
   skipWorkItemGroupItem,
   unblockWorkItemGroup,
   validateWorkItemGroupBundle,
+  waitForWorkItemGroupValidationBundle,
 } from "./self-build.impl.js";

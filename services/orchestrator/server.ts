@@ -66,6 +66,8 @@ import {
   materializeSelfBuildIntake,
   planProposalPromotion,
   quarantineSelfBuildTarget,
+  queueWorkItemGroupValidationBundle,
+  queueWorkItemRunValidation,
   reconcileManagedWorkspace,
   refreshSelfBuildIntake,
   releaseSelfBuildOverride,
@@ -90,8 +92,8 @@ import {
   startSelfBuildLoop,
   stopSelfBuildLoop,
   unblockWorkItemGroup,
-  validateWorkItemGroupBundle,
-  validateWorkItemRun,
+  waitForWorkItemGroupValidationBundle,
+  waitForWorkItemRunValidation,
 } from "@spore/orchestrator";
 import {
   createOperatorThread,
@@ -1934,10 +1936,9 @@ const server = http.createServer(async (request, response) => {
       parts[2] === "validate-bundle"
     ) {
       const body = await readJsonBody(request);
-      const detail = await validateWorkItemGroupBundle(parts[1], {
-        ...body,
-        wait: body.wait ?? false,
-      });
+      const detail = body.wait === true
+        ? await waitForWorkItemGroupValidationBundle(parts[1], body)
+        : await queueWorkItemGroupValidationBundle(parts[1], body);
       if (!detail) {
         json(response, 404, {
           ok: false,
@@ -2122,10 +2123,9 @@ const server = http.createServer(async (request, response) => {
       parts[2] === "validate"
     ) {
       const body = await readJsonBody(request);
-      const detail = await validateWorkItemRun(parts[1], {
-        ...body,
-        wait: body.wait ?? false,
-      });
+      const detail = body.wait === true
+        ? await waitForWorkItemRunValidation(parts[1], body)
+        : await queueWorkItemRunValidation(parts[1], body);
       if (!detail) {
         json(response, 404, {
           ok: false,
@@ -2145,10 +2145,9 @@ const server = http.createServer(async (request, response) => {
       parts[2] === "validate-bundle"
     ) {
       const body = await readJsonBody(request);
-      const detail = await validateWorkItemRun(parts[1], {
-        ...body,
-        wait: body.wait ?? false,
-      });
+      const detail = body.wait === true
+        ? await waitForWorkItemRunValidation(parts[1], body)
+        : await queueWorkItemRunValidation(parts[1], body);
       if (!detail) {
         json(response, 404, {
           ok: false,

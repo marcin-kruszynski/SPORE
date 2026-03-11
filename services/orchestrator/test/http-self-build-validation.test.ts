@@ -20,6 +20,8 @@ import {
   insertProposalArtifact,
   insertWorkItemRun,
   openOrchestratorDatabase,
+  updateProposalArtifact,
+  updateWorkItemRun,
 } from "../../../packages/orchestrator/src/store/execution-store.js";
 import {
   createManagedWorkItem,
@@ -27,6 +29,10 @@ import {
   runSelfBuildWorkItem,
 } from "../../../packages/orchestrator/src/self-build/managed-work.js";
 import { validateWorkItemGroupBundle } from "../../../packages/orchestrator/src/self-build/work-item-groups.js";
+import {
+  queueWorkItemRunValidation,
+  waitForWorkItemRunValidation,
+} from "../../../packages/orchestrator/src/self-build/validation-followup.js";
 import type { HarnessTempPathsWithEventLog } from "./helpers/http-harness.js";
 
 type JsonRecord = Record<string, unknown>;
@@ -93,6 +99,43 @@ async function runCliJson(args: string[], env: NodeJS.ProcessEnv = {}) {
     });
     child.on("error", reject);
   });
+}
+
+async function withValidationEnv<T>(
+  env: {
+    dbPath: string;
+    sessionDbPath: string;
+    eventLogPath: string;
+  },
+  fn: () => Promise<T>,
+) {
+  const previous = {
+    SPORE_ORCHESTRATOR_DB_PATH: process.env.SPORE_ORCHESTRATOR_DB_PATH,
+    SPORE_SESSION_DB_PATH: process.env.SPORE_SESSION_DB_PATH,
+    SPORE_EVENT_LOG_PATH: process.env.SPORE_EVENT_LOG_PATH,
+  };
+  process.env.SPORE_ORCHESTRATOR_DB_PATH = env.dbPath;
+  process.env.SPORE_SESSION_DB_PATH = env.sessionDbPath;
+  process.env.SPORE_EVENT_LOG_PATH = env.eventLogPath;
+  try {
+    return await fn();
+  } finally {
+    if (previous.SPORE_ORCHESTRATOR_DB_PATH === undefined) {
+      delete process.env.SPORE_ORCHESTRATOR_DB_PATH;
+    } else {
+      process.env.SPORE_ORCHESTRATOR_DB_PATH = previous.SPORE_ORCHESTRATOR_DB_PATH;
+    }
+    if (previous.SPORE_SESSION_DB_PATH === undefined) {
+      delete process.env.SPORE_SESSION_DB_PATH;
+    } else {
+      process.env.SPORE_SESSION_DB_PATH = previous.SPORE_SESSION_DB_PATH;
+    }
+    if (previous.SPORE_EVENT_LOG_PATH === undefined) {
+      delete process.env.SPORE_EVENT_LOG_PATH;
+    } else {
+      process.env.SPORE_EVENT_LOG_PATH = previous.SPORE_EVENT_LOG_PATH;
+    }
+  }
 }
 
 async function waitForValidationState(
@@ -297,6 +340,84 @@ function seedProposalForWorkItem(
     db.close();
   }
   return { runId, proposalId };
+}
+
+function seedPersistedValidationState(
+  dbPath: string,
+  runId: string,
+  proposalId: string,
+  overrides: JsonRecord = {},
+) {
+  const timestamp = new Date().toISOString();
+  const db = openOrchestratorDatabase(dbPath);
+  try {
+    const runDetail = getSelfBuildWorkItemRun(runId, dbPath);
+    assert.ok(runDetail);
+    updateWorkItemRun(db, {
+      ...asObject(runDetail),
+      id: runId,
+      workItemId: runDetail.workItemId,
+      status: runDetail.status,
+      triggerSource: runDetail.triggerSource,
+      requestedBy: runDetail.requestedBy,
+      result: runDetail.result ?? {},
+      metadata: {
+        ...asObject(runDetail.metadata),
+        validation: {
+          id: `validation-${Date.now()}`,
+          targetType: "proposal",
+          targetId: proposalId,
+          bundleId: "frontend-ui-pass",
+          bundleIds: ["frontend-ui-pass"],
+          status: "queued",
+          scenarioRunIds: [],
+          regressionRunIds: [],
+          startedAt: null,
+          endedAt: null,
+          error: null,
+          errors: [],
+          bundleResults: [],
+          validatedAt: null,
+          validationFingerprint: null,
+          validationDrift: false,
+          ...overrides,
+        },
+      },
+      createdAt: runDetail.createdAt,
+      startedAt: runDetail.startedAt,
+      endedAt: runDetail.endedAt,
+    });
+    const proposal = getProposalArtifact(db, proposalId);
+    assert.ok(proposal);
+    updateProposalArtifact(db, {
+      ...proposal,
+      metadata: {
+        ...asObject(proposal.metadata),
+        validation: {
+          id: `validation-${Date.now()}`,
+          targetType: "proposal",
+          targetId: proposalId,
+          bundleId: "frontend-ui-pass",
+          bundleIds: ["frontend-ui-pass"],
+          status: "queued",
+          scenarioRunIds: [],
+          regressionRunIds: [],
+          startedAt: null,
+          endedAt: null,
+          error: null,
+          errors: [],
+          bundleResults: [],
+          validatedAt: null,
+          validationFingerprint: null,
+          validationDrift: false,
+          ...overrides,
+        },
+      },
+      updatedAt: timestamp,
+    });
+  } finally {
+    db.close();
+  }
 }
 
 test("work-item validation queues a narrow frontend bundle and persists state", async (t) => {
@@ -605,4 +726,83 @@ test("internal group validation bundle queues instead of waiting for completion"
   assert.ok(["queued", "running"].includes(String(persistedValidation.status)));
   assert.equal(persistedValidation.bundleId, "frontend-ui-pass");
   assert.equal(asObject(persisted.item).id, item.id);
+});
+
+test("queueWorkItemRunValidation re-schedules persisted queued validation without an in-memory task", async (t) => {
+  const { dbPath, sessionDbPath, eventLogPath, port } = await startServer(
+    t,
+    "spore-validation-requeue-",
+  );
+  const { runId, proposalId } = await createOperatorUiRun(port, dbPath);
+  seedPersistedValidationState(dbPath, runId, proposalId, {
+    status: "queued",
+  });
+
+  const queued = await withValidationEnv(
+    { dbPath, sessionDbPath, eventLogPath },
+    () =>
+      queueWorkItemRunValidation(
+        runId,
+        {
+          stub: true,
+          timeout: 12000,
+          interval: 250,
+          by: "test-runner",
+          source: "http-self-build-validation-test",
+        },
+        dbPath,
+      ),
+  );
+
+  assert.ok(queued);
+  assert.ok(
+    ["queued", "running"].includes(String(asObject(queued.validation).status)),
+  );
+  const resumed = await waitForValidationStateInDb(
+    dbPath,
+    runId,
+    (state) => String(state.status) !== "queued",
+  );
+  assert.ok(
+    ["running", "completed", "failed"].includes(String(resumed.state.status)),
+  );
+  assert.ok(
+    resumed.state.startedAt === null || typeof resumed.state.startedAt === "string",
+  );
+  assert.equal(resumed.state.bundleId, "frontend-ui-pass");
+});
+
+test("waitForWorkItemRunValidation resumes persisted queued validation and waits for a terminal state", async (t) => {
+  const { dbPath, sessionDbPath, eventLogPath, port } = await startServer(
+    t,
+    "spore-validation-resume-",
+  );
+  const { runId, proposalId } = await createOperatorUiRun(port, dbPath);
+  seedPersistedValidationState(dbPath, runId, proposalId, {
+    status: "running",
+    startedAt: new Date().toISOString(),
+  });
+
+  const completed = await withValidationEnv(
+    { dbPath, sessionDbPath, eventLogPath },
+    () =>
+      waitForWorkItemRunValidation(
+        runId,
+        {
+          stub: true,
+          timeout: 12000,
+          interval: 250,
+          by: "test-runner",
+          source: "http-self-build-validation-test",
+        },
+        dbPath,
+      ),
+  );
+
+  assert.ok(completed);
+  assert.ok(
+    ["completed", "failed"].includes(String(asObject(completed.validation).status)),
+  );
+  assert.equal(typeof asObject(completed.validation).endedAt, "string");
+  assert.equal(asObject(completed.validation).bundleId, "frontend-ui-pass");
 });

@@ -44,7 +44,7 @@ import {
 } from "./proposal-lifecycle.js";
 import {
   getWorkItemGroupSummary,
-  validateWorkItemGroupBundle,
+  queueWorkItemGroupValidationBundle,
 } from "./work-item-groups.js";
 
 type LooseRecord = Record<string, unknown>;
@@ -2198,7 +2198,7 @@ async function syncThreadState(threadId: string, dbPath: string) {
         dbPath,
       );
       if (group?.id) {
-        await validateWorkItemGroupBundle(
+        await queueWorkItemGroupValidationBundle(
           String(group.id),
           executionRunOptions(thread, {
             source: "operator-chat-validation",
