@@ -4,10 +4,9 @@ import test from "node:test";
 import {
   buildInboxActionSubmission,
   buildQuickReplySubmission,
-  deriveMissionFocusState,
+  deriveMissionSelectionState,
   focusCurrentDecisionCard,
   resolveInboxRowContent,
-  shouldRefreshInboxFromThreadEvent,
 } from "../src/operator-chat-controller.js";
 
 test("buildQuickReplySubmission shapes a chat reply request", () => {
@@ -40,23 +39,45 @@ test("buildInboxActionSubmission shapes a direct inbox resolution request", () =
   );
 });
 
-test("deriveMissionFocusState focuses the owning mission and highlights the decision", () => {
+test("deriveMissionSelectionState focuses the owning mission and highlights the decision from the inbox", () => {
   assert.deepEqual(
-    deriveMissionFocusState(
+    deriveMissionSelectionState(
       {
         selectedThreadId: "thread-1",
         highlightedActionId: null,
         missionFocusSource: "thread-list",
       },
       {
-        id: "action-2",
         threadId: "thread-3",
+        actionId: "action-2",
+        source: "inbox",
       },
     ),
     {
       selectedThreadId: "thread-3",
       highlightedActionId: "action-2",
       missionFocusSource: "inbox",
+    },
+  );
+});
+
+test("deriveMissionSelectionState clears stale highlight for direct thread selection", () => {
+  assert.deepEqual(
+    deriveMissionSelectionState(
+      {
+        selectedThreadId: "thread-1",
+        highlightedActionId: "action-9",
+        missionFocusSource: "inbox",
+      },
+      {
+        threadId: "thread-7",
+        source: "thread-list",
+      },
+    ),
+    {
+      selectedThreadId: "thread-7",
+      highlightedActionId: null,
+      missionFocusSource: "thread-list",
     },
   );
 });
@@ -117,61 +138,4 @@ test("resolveInboxRowContent prefers action projections over thread-list fallbac
       primaryAction: "Approve",
     },
   );
-});
-
-test("shouldRefreshInboxFromThreadEvent returns true when decision state changes", () => {
-  const previous = {
-    id: "thread-5",
-    status: "waiting_review",
-    progress: {
-      currentStage: "plan_approval",
-      currentState: "plan_approval",
-      exceptionState: null,
-    },
-    inboxSummary: {
-      reason: "Plan approval waiting",
-      waitingLabel: "Waiting for plan approval",
-    },
-    pendingActions: [{ id: "action-plan-review", status: "pending" }],
-  };
-
-  const next = {
-    ...previous,
-    progress: {
-      currentStage: "managed_work",
-      currentState: "managed_work",
-      exceptionState: null,
-    },
-    inboxSummary: {
-      reason: "Managed work is running now",
-      waitingLabel: "No pending operator action",
-    },
-    pendingActions: [],
-  };
-
-  assert.equal(shouldRefreshInboxFromThreadEvent(previous, next), true);
-});
-
-test("shouldRefreshInboxFromThreadEvent returns true even when the inbox projection is unchanged", () => {
-  const previous = {
-    id: "thread-5",
-    status: "waiting_review",
-    progress: {
-      currentStage: "plan_approval",
-      currentState: "plan_approval",
-      exceptionState: null,
-    },
-    inboxSummary: {
-      reason: "Plan approval waiting",
-      waitingLabel: "Waiting for plan approval",
-    },
-    pendingActions: [{ id: "action-plan-review", status: "pending" }],
-  };
-
-  const next = {
-    ...previous,
-    pendingActions: [{ id: "action-plan-review", status: "pending" }],
-  };
-
-  assert.equal(shouldRefreshInboxFromThreadEvent(previous, next), true);
 });

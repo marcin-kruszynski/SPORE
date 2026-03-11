@@ -4,11 +4,11 @@
 import {
   buildInboxActionSubmission,
   buildQuickReplySubmission,
-  deriveMissionFocusState,
+  deriveMissionSelectionState,
   focusCurrentDecisionCard,
-  shouldRefreshInboxFromThreadEvent,
 } from "./operator-chat-controller.js";
 import {
+  renderOperatorActionButtons,
   renderOperatorCurrentDecision,
   renderOperatorEvidenceSummary,
   renderOperatorInboxRow,
@@ -8263,21 +8263,11 @@ function connectOperatorThreadEventStream() {
     if (!payload?.ok) {
       return;
     }
-    const previousDetail = state.operatorThreadDetail;
     state.operatorThreadDetail = payload.detail ?? null;
     state.operatorThreadDetailState = "loaded";
     renderOperatorChat();
 
-    const shouldRefreshInbox = shouldRefreshInboxFromThreadEvent(
-      previousDetail,
-      state.operatorThreadDetail,
-    );
-    const refreshTasks = [loadOperatorThreads()];
-    if (shouldRefreshInbox) {
-      refreshTasks.push(loadOperatorPendingInbox());
-    }
-
-    Promise.all(refreshTasks)
+    Promise.all([loadOperatorThreads(), loadOperatorPendingInbox()])
       .then(() => {
         renderOperatorInbox();
         renderOperatorThreads();
@@ -8417,20 +8407,6 @@ function renderOperatorArtifactButton(artifact) {
   `;
 }
 
-function renderOperatorActionButton(actionId, action) {
-  const tone = action.tone === "primary" ? "primary" : "secondary";
-  return `
-    <button
-      type="button"
-      class="operator-action-button ${tone}"
-      data-operator-action-id="${escapeHtml(String(actionId))}"
-      data-operator-action-choice="${escapeHtml(String(action.value))}"
-    >
-      ${escapeHtml(String(action.label || action.value))}
-    </button>
-  `;
-}
-
 function renderOperatorMessages(detail) {
   if (!els.operatorMessageList) {
     return;
@@ -8450,13 +8426,10 @@ function renderOperatorMessages(detail) {
                   (entry) => entry.id === pendingActionId,
                 )
               : null;
-            const actionButtons = Array.isArray(pendingAction?.choices)
-              ? pendingAction.choices
-                  .map((entry) =>
-                    renderOperatorActionButton(pendingAction.id, entry),
-                  )
-                  .join("")
-              : "";
+            const actionButtons = renderOperatorActionButtons(
+              pendingAction?.id,
+              pendingAction?.choices,
+            );
             return `
               <article class="operator-message-card" data-role="${escapeHtml(String(message.role || "assistant"))}">
                 <div class="operator-message-header">
@@ -8496,7 +8469,6 @@ function renderOperatorPendingActions(detail) {
   els.operatorPendingActions.className = "operator-action-list";
   els.operatorPendingActions.innerHTML = actions
     .map((action) => {
-      const choices = Array.isArray(action.choices) ? action.choices : [];
       return `
         <article class="operator-action-card">
           <div class="operator-action-header">
@@ -8507,7 +8479,7 @@ function renderOperatorPendingActions(detail) {
             ${renderStatusBadge(action.status || "pending")}
           </div>
           <div class="operator-action-summary">${escapeHtml(String(action.summary || "Operator decision required."))}</div>
-          ${choices.length > 0 ? `<div class="operator-action-controls">${choices.map((entry) => renderOperatorActionButton(action.id, entry)).join("")}</div>` : ""}
+          ${renderOperatorActionButtons(action.id, action.choices)}
         </article>
       `;
     })
@@ -8819,15 +8791,16 @@ async function handleOperatorChatClick(event) {
     "[data-mission-focus][data-thread-id]",
   ) as HTMLElement | null;
   if (missionFocusTarget?.dataset.threadId) {
-    const nextFocus = deriveMissionFocusState(
+    const nextFocus = deriveMissionSelectionState(
       {
         selectedThreadId: state.selectedOperatorThreadId,
         highlightedActionId: state.operatorHighlightedActionId,
         missionFocusSource: state.operatorMissionFocusSource,
       },
       {
-        id: missionFocusTarget.dataset.actionId,
         threadId: missionFocusTarget.dataset.threadId,
+        actionId: missionFocusTarget.dataset.actionId,
+        source: "inbox",
       },
     );
     state.selectedOperatorThreadId = nextFocus.selectedThreadId;
@@ -8844,9 +8817,20 @@ async function handleOperatorChatClick(event) {
 
   const threadCard = target?.closest("[data-thread-id]") as HTMLElement | null;
   if (threadCard?.dataset.threadId) {
-    state.selectedOperatorThreadId = threadCard.dataset.threadId;
-    state.operatorHighlightedActionId = null;
-    state.operatorMissionFocusSource = "thread-list";
+    const nextSelection = deriveMissionSelectionState(
+      {
+        selectedThreadId: state.selectedOperatorThreadId,
+        highlightedActionId: state.operatorHighlightedActionId,
+        missionFocusSource: state.operatorMissionFocusSource,
+      },
+      {
+        threadId: threadCard.dataset.threadId,
+        source: "thread-list",
+      },
+    );
+    state.selectedOperatorThreadId = nextSelection.selectedThreadId;
+    state.operatorHighlightedActionId = nextSelection.highlightedActionId;
+    state.operatorMissionFocusSource = nextSelection.missionFocusSource;
     await loadOperatorThreadDetail();
     connectOperatorThreadEventStream();
     renderOperatorInbox();

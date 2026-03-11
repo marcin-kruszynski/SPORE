@@ -145,38 +145,26 @@ h1 {
   gap: 18px;
 }
 
-.operator-chat-layout {
+.operator-mission-console {
   display: grid;
-  grid-template-columns: minmax(280px, 0.85fr) minmax(0, 1.35fr) minmax(
-      280px,
-      0.9fr
-    );
   gap: 18px;
+  align-items: start;
 }
 
 .operator-chat-sidebar,
 .operator-chat-main,
 .operator-chat-context {
-  min-height: 720px;
-}
-
-.operator-chat-sidebar,
-.operator-chat-context {
   display: grid;
+  gap: 18px;
   align-content: start;
-  gap: 16px;
-}
-
-.operator-chat-main {
-  display: grid;
-  grid-template-rows: auto auto 1fr;
-  gap: 16px;
+  min-width: 0;
+  min-height: 720px;
 }
 
 .operator-chat-shell {
   display: grid;
-  grid-template-rows: minmax(0, 1fr) auto;
-  gap: 16px;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 18px;
   min-height: 0;
 }
 
@@ -1478,10 +1466,6 @@ button:disabled {
   .layout {
     grid-template-columns: 1fr;
   }
-
-  .operator-chat-layout {
-    grid-template-columns: 1fr;
-  }
 }
 
 @media (max-width: 980px) {
@@ -1506,8 +1490,7 @@ button:disabled {
   .policy-grid,
   .policy-diff-context,
   .wave-summary-grid,
-  .trend-grid,
-  .operator-chat-layout {
+  .trend-grid {
     grid-template-columns: 1fr;
   }
 
@@ -2100,29 +2083,6 @@ button:disabled {
   border: 0;
 }
 
-.operator-mission-console {
-  display: grid;
-  gap: 18px;
-  align-items: start;
-}
-
-.operator-chat-main,
-.operator-chat-context {
-  min-width: 0;
-}
-
-.operator-chat-main {
-  display: grid;
-  gap: 18px;
-  align-content: start;
-}
-
-.operator-chat-context {
-  display: grid;
-  gap: 18px;
-  align-content: start;
-}
-
 .operator-chat-overview-bar {
   background:
     linear-gradient(135deg, rgba(31, 48, 62, 0.92), rgba(63, 89, 110, 0.84)),
@@ -2133,13 +2093,6 @@ button:disabled {
 .operator-chat-overview-bar .section-note,
 .operator-chat-overview-bar .muted {
   color: rgba(248, 239, 228, 0.74);
-}
-
-.operator-chat-shell {
-  display: grid;
-  grid-template-columns: repeat(12, minmax(0, 1fr));
-  gap: 18px;
-  min-height: 0;
 }
 
 .operator-mission-hero,
@@ -2257,18 +2210,28 @@ button:disabled {
 .operator-current-decision-card {
   display: grid;
   gap: 14px;
-  position: sticky;
-  top: 20px;
   border-radius: 24px;
   padding: 22px;
   background: linear-gradient(180deg, rgba(255, 248, 240, 0.98), rgba(255, 255, 255, 0.88));
   border-color: rgba(180, 69, 45, 0.18);
 }
 
+.operator-sticky-panel {
+  position: sticky;
+  top: 20px;
+}
+
 .operator-current-decision-card.emphasized {
   box-shadow:
     0 18px 36px rgba(136, 54, 29, 0.14),
     inset 0 0 0 1px rgba(180, 69, 45, 0.12);
+}
+
+.operator-current-decision-card.highlighted {
+  border-color: rgba(180, 69, 45, 0.3);
+  box-shadow:
+    0 20px 42px rgba(136, 54, 29, 0.16),
+    inset 0 0 0 1px rgba(180, 69, 45, 0.16);
 }
 
 .operator-current-decision-header {

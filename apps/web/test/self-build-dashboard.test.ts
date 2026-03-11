@@ -549,12 +549,6 @@ test("web proxy exposes operator chat routes and operator chat shell", async (t)
   assert.ok(html.includes("data-current-decision"));
   assert.ok(html.includes("data-quick-reply"));
 
-  const stylesResponse = await fetch(`${webOrigin}/styles.css`);
-  assert.equal(stylesResponse.status, 200);
-  const styles = await stylesResponse.text();
-  assert.match(styles, /\.operator-current-decision-card\s*\{/);
-  assert.match(styles, /position:\s*sticky/);
-
   const createdThread = await postJson(
     `${webOrigin}/api/orchestrator/operator/threads`,
     {

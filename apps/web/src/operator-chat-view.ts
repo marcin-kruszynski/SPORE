@@ -53,6 +53,12 @@ interface RenderInboxRowOptions {
   threadFallback?: OperatorThreadFallback | null;
 }
 
+interface OperatorChoice {
+  value?: string;
+  label?: string;
+  tone?: string;
+}
+
 function escapeHtml(value: unknown): string {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -79,23 +85,40 @@ function renderStatusBadge(value: unknown, extraClass = ""): string {
   return `<span class="${classes.join(" ")}">${escapeHtml(toText(value, "pending"))}</span>`;
 }
 
-function renderActionButtons(detail: OperatorThreadDetail): string {
-  const action = Array.isArray(detail.pendingActions) ? detail.pendingActions[0] : null;
-  const choices = Array.isArray(action?.choices) ? action.choices : [];
-  if (!action?.id || choices.length === 0) {
+function renderDetailPill(value: unknown, emphasized = false): string {
+  const classes = emphasized ? "detail-pill emphasized" : "detail-pill";
+  return `<span class="${classes}">${escapeHtml(toText(value))}</span>`;
+}
+
+function renderEmptyArticle(className: string, message: string): string {
+  return `<article class="${className} empty-state">${escapeHtml(message)}</article>`;
+}
+
+export function renderOperatorActionButtons(
+  actionId: string | null | undefined,
+  choices: OperatorChoice[] | null | undefined,
+  extraClass = "",
+): string {
+  const safeActionId = toText(actionId, "");
+  const safeChoices = Array.isArray(choices) ? choices : [];
+  if (!safeActionId || safeChoices.length === 0) {
     return "";
   }
 
+  const className = extraClass
+    ? `operator-action-controls ${extraClass}`
+    : "operator-action-controls";
+
   return `
-    <div class="operator-action-controls operator-current-decision-actions">
-      ${choices
+    <div class="${className}">
+      ${safeChoices
         .map((choice) => {
           const tone = choice.tone === "primary" ? "primary" : "secondary";
           return `
             <button
               type="button"
               class="operator-action-button ${tone}"
-              data-operator-action-id="${escapeHtml(String(action.id))}"
+              data-operator-action-id="${escapeHtml(safeActionId)}"
               data-operator-action-choice="${escapeHtml(toText(choice.value, "approve"))}"
             >
               ${escapeHtml(toText(choice.label, toText(choice.value, "Action")))}
@@ -110,7 +133,10 @@ function renderActionButtons(detail: OperatorThreadDetail): string {
 export function renderOperatorMissionHero(detail: OperatorThreadDetail | null): string {
   const hero = detail?.hero ?? null;
   if (!hero) {
-    return '<article class="operator-mission-hero-card empty-state">Select a mission to load the operator-authored mission brief.</article>';
+    return renderEmptyArticle(
+      "operator-mission-hero-card",
+      "Select a mission to load the operator-authored mission brief.",
+    );
   }
 
   const badges = Object.values(hero.badges ?? {}).filter(Boolean);
@@ -123,10 +149,10 @@ export function renderOperatorMissionHero(detail: OperatorThreadDetail | null): 
       </div>
       <div class="operator-mission-hero-meta">
         ${renderStatusBadge(hero.phase ?? "Mission", "phase")}
-        ${hero.primaryCtaHint ? `<span class="detail-pill emphasized">${escapeHtml(hero.primaryCtaHint)}</span>` : ""}
+        ${hero.primaryCtaHint ? renderDetailPill(hero.primaryCtaHint, true) : ""}
         <div class="operator-mission-badges">
           ${badges
-            .map((badge) => `<span class="detail-pill">${escapeHtml(String(badge))}</span>`)
+            .map((badge) => renderDetailPill(String(badge)))
             .join("")}
         </div>
       </div>
@@ -137,7 +163,10 @@ export function renderOperatorMissionHero(detail: OperatorThreadDetail | null): 
 export function renderOperatorProgress(detail: OperatorThreadDetail | null): string {
   const stages = Array.isArray(detail?.progress?.stages) ? detail?.progress?.stages : [];
   if (stages.length === 0) {
-    return '<article class="panel operator-progress-strip-track empty-state">Mission progress will appear here.</article>';
+    return renderEmptyArticle(
+      "panel operator-progress-strip-track",
+      "Mission progress will appear here.",
+    );
   }
 
   return `
@@ -160,12 +189,26 @@ export function renderOperatorCurrentDecision(
 ): string {
   const guidance = detail?.decisionGuidance ?? null;
   if (!guidance) {
-    return '<article class="panel operator-current-decision-card empty-state" data-current-decision="true">No current decision is waiting.</article>';
+    return '<article class="panel operator-current-decision-card operator-sticky-panel empty-state" data-current-decision="true">No current decision is waiting.</article>';
   }
 
-  const classes = ["panel", "operator-current-decision-card"];
+  const currentAction = Array.isArray(detail?.pendingActions)
+    ? detail?.pendingActions[0]
+    : null;
+  const classes = [
+    "panel",
+    "operator-current-decision-card",
+    "operator-sticky-panel",
+  ];
   if (options.emphasized) {
     classes.push("emphasized");
+  }
+  if (
+    currentAction?.id &&
+    options.highlightedActionId &&
+    currentAction.id === options.highlightedActionId
+  ) {
+    classes.push("highlighted");
   }
 
   const secondaryActions = Array.isArray(guidance.secondaryActions)
@@ -184,7 +227,7 @@ export function renderOperatorCurrentDecision(
           <p class="eyebrow">Current decision</p>
           <h3>${escapeHtml(toText(guidance.title, "Operator decision"))}</h3>
         </div>
-        ${guidance.primaryAction ? `<span class="detail-pill emphasized">${escapeHtml(guidance.primaryAction)}</span>` : ""}
+        ${guidance.primaryAction ? renderDetailPill(guidance.primaryAction, true) : ""}
       </div>
       <p class="operator-current-decision-why">${escapeHtml(toText(guidance.why, "Operator guidance is waiting."))}</p>
       <div class="operator-current-decision-grid">
@@ -197,8 +240,8 @@ export function renderOperatorCurrentDecision(
           <strong>${escapeHtml(toText(guidance.riskNote, "No extra risk note."))}</strong>
         </div>
       </div>
-      ${secondaryActions.length > 0 ? `<div class="operator-current-decision-secondary">${secondaryActions.map((label) => `<span class="detail-pill">${escapeHtml(label)}</span>`).join("")}</div>` : ""}
-      ${renderActionButtons(detail)}
+      ${secondaryActions.length > 0 ? `<div class="operator-current-decision-secondary">${secondaryActions.map((label) => renderDetailPill(label)).join("")}</div>` : ""}
+      ${renderOperatorActionButtons(currentAction?.id, currentAction?.choices, "operator-current-decision-actions")}
     </article>
   `;
 }
@@ -304,26 +347,8 @@ export function renderOperatorInboxRow(
       <div class="operator-inbox-decision-title">${escapeHtml(content.decisionTitle)}</div>
       <div class="operator-action-summary">${escapeHtml(content.reason)}</div>
       <div class="operator-inbox-thread">${escapeHtml(content.objective)}</div>
-      ${content.primaryAction ? `<div class="operator-inbox-primary-action detail-pill emphasized">${escapeHtml(content.primaryAction)}</div>` : ""}
-      ${
-        choices.length > 0
-          ? `<div class="operator-action-controls">${choices
-              .map((choice) => {
-                const tone = choice.tone === "primary" ? "primary" : "secondary";
-                return `
-                  <button
-                    type="button"
-                    class="operator-action-button ${tone}"
-                    data-operator-action-id="${escapeHtml(toText(action.id, ""))}"
-                    data-operator-action-choice="${escapeHtml(toText(choice.value, "approve"))}"
-                  >
-                    ${escapeHtml(toText(choice.label, toText(choice.value, "Action")))}
-                  </button>
-                `;
-              })
-              .join("")}</div>`
-          : ""
-      }
+      ${content.primaryAction ? `<div class="operator-inbox-primary-action">${renderDetailPill(content.primaryAction, true)}</div>` : ""}
+      ${renderOperatorActionButtons(action.id, choices)}
     </article>
   `;
 }

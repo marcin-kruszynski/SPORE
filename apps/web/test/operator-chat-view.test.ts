@@ -42,6 +42,12 @@ const detail = {
     secondaryActions: ["Ask for another option", "Keep only web"],
     suggestedReplies: ["Keep only docs", "Prioritize UI first"],
   },
+  pendingActions: [
+    {
+      id: "action-plan-review",
+      choices: [{ value: "approve", label: "Approve plan", tone: "primary" }],
+    },
+  ],
 };
 
 test("renderOperatorMissionHero uses server-authored hero content", () => {
@@ -72,11 +78,14 @@ test("renderOperatorCurrentDecision renders decision guidance as the lead card",
   });
 
   assert.match(html, /operator-current-decision-card/);
+  assert.match(html, /operator-sticky-panel/);
+  assert.match(html, /highlighted/);
   assert.match(html, /data-current-decision="true"/);
   assert.match(html, /Review the mission plan/);
   assert.match(html, /The orchestrator starts managed work/);
   assert.match(html, /Approving starts the governed execution path/);
   assert.match(html, /Approve the plan/);
+  assert.match(html, /Approve plan/);
   assert.match(html, /Ask for another option/);
 });
 

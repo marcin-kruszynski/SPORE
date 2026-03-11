@@ -10,6 +10,12 @@ export interface MissionFocusState {
   missionFocusSource: string | null;
 }
 
+export interface MissionSelectionTarget {
+  threadId?: string | null;
+  actionId?: string | null;
+  source: string;
+}
+
 export interface OperatorActionProjection {
   id?: string;
   threadId?: string;
@@ -54,33 +60,6 @@ export interface InboxRowContent {
   primaryAction: string;
 }
 
-interface ThreadEventProjection {
-  id?: string;
-  status?: string;
-  progress?: {
-    currentStage?: string;
-    currentState?: string;
-    exceptionState?: string | null;
-  } | null;
-  inboxSummary?: {
-    urgency?: string;
-    reason?: string;
-    waitingLabel?: string;
-  } | null;
-  decisionGuidance?: {
-    title?: string;
-    primaryAction?: string;
-  } | null;
-  hero?: {
-    phase?: string;
-    statusLine?: string;
-  } | null;
-  pendingActions?: Array<{
-    id?: string;
-    status?: string;
-  }>;
-}
-
 function toText(value: unknown, fallback = ""): string {
   const text = String(value ?? "").trim();
   return text || fallback;
@@ -121,14 +100,19 @@ export function buildInboxActionSubmission(
   };
 }
 
-export function deriveMissionFocusState(
+export function deriveMissionSelectionState(
   currentState: MissionFocusState,
-  action: Pick<OperatorActionProjection, "id" | "threadId">,
+  target: MissionSelectionTarget,
 ): MissionFocusState {
+  const source = toText(target.source, currentState.missionFocusSource ?? "") || null;
+  const isInboxSelection = source === "inbox";
   return {
-    selectedThreadId: toText(action.threadId, currentState.selectedThreadId ?? "") || null,
-    highlightedActionId: toText(action.id, "") || null,
-    missionFocusSource: "inbox",
+    selectedThreadId:
+      toText(target.threadId, currentState.selectedThreadId ?? "") || null,
+    highlightedActionId: isInboxSelection
+      ? toText(target.actionId, currentState.highlightedActionId ?? "") || null
+      : null,
+    missionFocusSource: source,
   };
 }
 
@@ -181,12 +165,4 @@ export function resolveInboxRowContent(
       toText(firstChoice?.label, "") ||
       toText(firstChoice?.value, ""),
   };
-}
-
-export function shouldRefreshInboxFromThreadEvent(
-  previous: ThreadEventProjection | null | undefined,
-  next: ThreadEventProjection | null | undefined,
-): boolean {
-  void previous;
-  return Boolean(next);
 }
