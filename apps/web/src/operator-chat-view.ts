@@ -107,6 +107,25 @@ function renderEmptyArticle(className: string, message: string): string {
   return `<article class="${className} empty-state">${escapeHtml(message)}</article>`;
 }
 
+function renderProgressStageTitle(stage: {
+  id?: string;
+  label?: string;
+  title?: string;
+}): string {
+  const authoredTitle = toText(stage.title, toText(stage.label, ""));
+  if (authoredTitle) {
+    return `<strong>${escapeHtml(authoredTitle)}</strong>`;
+  }
+
+  const rawId = toText(stage.id, "stage");
+  return `
+    <div class="operator-progress-stage-fallback">
+      <strong>Stage title unavailable</strong>
+      <span class="muted">${escapeHtml(rawId)}</span>
+    </div>
+  `;
+}
+
 export function renderOperatorActionButtons(
   actionId: string | null | undefined,
   choices: OperatorChoice[] | null | undefined,
@@ -209,7 +228,7 @@ export function renderOperatorProgress(
           (stage) => `
           <div class="operator-progress-stage ${escapeHtml(stateClass(stage.status))}" data-stage-id="${escapeHtml(toText(stage.id, "stage"))}">
             <span class="operator-progress-stage-status">${escapeHtml(toText(stage.status, "upcoming"))}</span>
-            <strong>${escapeHtml(toText(stage.title, toText(stage.label, toText(stage.id, "Stage"))))}</strong>
+            ${renderProgressStageTitle(stage)}
           </div>
         `,
         )

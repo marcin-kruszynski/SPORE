@@ -111,8 +111,11 @@ test("renderOperatorProgress falls back to the raw stage id when title is absent
 
   assert.match(
     html,
-    /data-stage-id="managed_work">\s*<span class="operator-progress-stage-status">current<\/span>\s*<strong>managed_work<\/strong>/,
+    /data-stage-id="managed_work"/,
   );
+  assert.match(html, /Stage title unavailable/);
+  assert.match(html, /managed_work/);
+  assert.doesNotMatch(html, /<strong>managed_work<\/strong>/);
 });
 
 test("renderOperatorCurrentDecision renders decision guidance as the lead card", () => {
