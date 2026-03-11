@@ -7,13 +7,13 @@ import test from "node:test";
 
 import { buildTsxEntrypointArgs } from "@spore/core";
 import { commandExists, PROJECT_ROOT } from "@spore/runtime-pi";
-import { buildSessionPlan } from "../src/planner/build-session-plan.js";
 import {
   type CreateWorkspaceOptions,
   createWorkspace,
   type RemoveWorkspaceOptions,
   removeWorkspace,
 } from "@spore/workspace-manager";
+import { buildSessionPlan } from "../src/planner/build-session-plan.js";
 
 function runNode(
   args: string[],

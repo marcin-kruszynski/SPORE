@@ -12,7 +12,6 @@ import {
   getProposalReviewPackage,
   getProposalSummary,
   getSelfBuildWorkItemRun,
-  getWorkspaceByRun,
   insertProposalArtifact,
   insertWorkItemRun,
   insertWorkspaceAllocation,
@@ -21,7 +20,11 @@ import {
   runSelfBuildWorkItem,
 } from "../src/index.js";
 
-function run(command: string, args: string[], options: SpawnOptionsWithoutStdio = {}) {
+function run(
+  command: string,
+  args: string[],
+  options: SpawnOptionsWithoutStdio = {},
+) {
   return new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
     const child = spawn(command, args, {
       cwd: options.cwd,
@@ -59,7 +62,11 @@ async function makeTempRepo() {
   });
   await fs.writeFile(path.join(repoRoot, "README.md"), "# temp repo\n", "utf8");
   await fs.mkdir(path.join(repoRoot, "docs"), { recursive: true });
-  await fs.writeFile(path.join(repoRoot, "docs", "guide.md"), "# guide\n", "utf8");
+  await fs.writeFile(
+    path.join(repoRoot, "docs", "guide.md"),
+    "# guide\n",
+    "utf8",
+  );
   await run("git", ["add", "README.md", "docs/guide.md"], { cwd: repoRoot });
   await run("git", ["commit", "-m", "init"], { cwd: repoRoot });
   return repoRoot;

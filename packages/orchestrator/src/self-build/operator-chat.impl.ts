@@ -365,7 +365,8 @@ function proposalMatchesThreadLineage(
     toText(currentProposal?.workItemId, "") ||
     toText(linkage.activeWorkItemId, "");
   const anchorRunId =
-    toText(currentProposal?.workItemRunId, "") || toText(linkage.activeRunId, "");
+    toText(currentProposal?.workItemRunId, "") ||
+    toText(linkage.activeRunId, "");
 
   if (!anchorProposalId && !anchorWorkItemId && !anchorRunId) {
     return true;
@@ -373,13 +374,19 @@ function proposalMatchesThreadLineage(
   if (anchorProposalId && String(proposal.id) === anchorProposalId) {
     return true;
   }
-  if (anchorWorkItemId && toText(proposal.workItemId, "") === anchorWorkItemId) {
+  if (
+    anchorWorkItemId &&
+    toText(proposal.workItemId, "") === anchorWorkItemId
+  ) {
     return true;
   }
   if (anchorRunId && toText(proposal.workItemRunId, "") === anchorRunId) {
     return true;
   }
-  if (anchorRunId && toText(asObject(proposal.metadata).rerunOf, "") === anchorRunId) {
+  if (
+    anchorRunId &&
+    toText(asObject(proposal.metadata).rerunOf, "") === anchorRunId
+  ) {
     return true;
   }
 
@@ -747,8 +754,7 @@ function buildThreadEvidenceSummary(context: LooseRecord) {
           workItemId: toText(latestRun.workItemId, "") || null,
           status: toText(latestRun.status, "unknown"),
           terminalKind: toText(latestRun.terminalKind, "") || null,
-          failureReason:
-            toText(asObject(latestRun.failure).reason, "") || null,
+          failureReason: toText(asObject(latestRun.failure).reason, "") || null,
         }
       : null,
     proposal: proposal.id
@@ -867,7 +873,8 @@ function buildThreadProgress(
     stateOverride = "quarantined";
   } else if (
     pendingActionKind === "managed-run-recovery" ||
-    (needsRunRecovery && ["failed", "blocked"].includes(toText(latestRun.status, "")))
+    (needsRunRecovery &&
+      ["failed", "blocked"].includes(toText(latestRun.status, "")))
   ) {
     stateOverride = "run_failed";
   } else if (proposalStatus === "validation_failed") {
@@ -964,7 +971,9 @@ function buildDecisionGuidance(
         riskNote:
           "Quarantine pauses the mission at the group boundary; hold keeps the thread waiting without starting new work.",
         primaryAction: "Rerun the work item",
-        secondaryActions: choices.filter((label) => label !== "Rerun work item"),
+        secondaryActions: choices.filter(
+          (label) => label !== "Rerun work item",
+        ),
         suggestedReplies: [],
       };
     case "proposal-approval":
@@ -1170,7 +1179,9 @@ function buildPendingActionTrace(
         actionKind: action.actionKind,
         summary: `Pending proposal review because proposal ${toText(proposal.id, toText(action.targetId, "unknown"))} is ${toText(proposal.status, "ready_for_review")}.`,
         reasons: dedupe([
-          proposal.id ? `Selected proposal ${proposal.id} is the current thread proposal.` : "",
+          proposal.id
+            ? `Selected proposal ${proposal.id} is the current thread proposal.`
+            : "",
           proposal.status ? `Proposal status is ${proposal.status}.` : "",
         ]),
       };
@@ -1212,13 +1223,18 @@ function buildPendingActionTrace(
         actionKind: action.actionKind,
         summary: `Pending quarantine release because quarantine ${toText(activeQuarantine.id, toText(action.targetId, "unknown"))} is active.`,
         reasons: dedupe([
-          activeQuarantine.reason ? `Quarantine reason: ${activeQuarantine.reason}` : "",
+          activeQuarantine.reason
+            ? `Quarantine reason: ${activeQuarantine.reason}`
+            : "",
         ]),
       };
     default:
       return {
         actionKind: action.actionKind,
-        summary: toText(action.summary, action.title ? String(action.title) : "Operator action pending."),
+        summary: toText(
+          action.summary,
+          action.title ? String(action.title) : "Operator action pending.",
+        ),
         reasons: [],
       };
   }
@@ -1500,9 +1516,9 @@ function selectActiveProposal(
       String(left.id) === String(linkage.activeProposalId)
     ) {
       return -1;
-      }
-      return 0;
-    });
+    }
+    return 0;
+  });
   const proposal = sorted[0] ?? currentProposal;
   const ignoredProposalIds = dedupe(
     proposals
@@ -1522,7 +1538,8 @@ function selectActiveProposal(
         hasLineageAnchor
           ? "Applied thread lineage filters before considering proposal recency."
           : "No lineage anchor was present, so group proposals were ranked by recency.",
-        lineageAnchored.length > 0 && proposals.length !== lineageAnchored.length
+        lineageAnchored.length > 0 &&
+        proposals.length !== lineageAnchored.length
           ? `Ignored ${proposals.length - lineageAnchored.length} unrelated proposal${proposals.length - lineageAnchored.length === 1 ? "" : "s"}.`
           : "",
         proposal ? "Picked the newest remaining proposal candidate." : "",
@@ -1531,7 +1548,7 @@ function selectActiveProposal(
   };
 }
 
-function chooseActiveProposal(
+function _chooseActiveProposal(
   group: LooseRecord | null,
   linkage: OperatorThreadLinkage,
   currentProposal: LooseRecord | null = null,
@@ -1565,7 +1582,9 @@ function resolveLatestThreadRun(
     }
   }
 
-  const sorted = runs.sort((left, right) => runTimestamp(right) - runTimestamp(left));
+  const sorted = runs.sort(
+    (left, right) => runTimestamp(right) - runTimestamp(left),
+  );
   return sorted[0] ?? null;
 }
 
@@ -2241,7 +2260,12 @@ async function syncThreadState(threadId: string, dbPath: string) {
   let proposal = linkage.activeProposalId
     ? getProposalSummary(linkage.activeProposalId, dbPath)
     : null;
-  let proposalSelection = selectActiveProposal(group, linkage, proposal, dbPath);
+  let proposalSelection = selectActiveProposal(
+    group,
+    linkage,
+    proposal,
+    dbPath,
+  );
   proposal = proposalSelection.proposal;
   let latestRun = resolveLatestThreadRun(group, linkage, proposal, dbPath);
 
@@ -2315,10 +2339,13 @@ async function syncThreadState(threadId: string, dbPath: string) {
         dbPath,
       );
       proposal = proposalSelection.proposal;
-      latestRun = resolveLatestThreadRun(group, extractLinkage(thread), proposal, dbPath);
-    } else if (
-      latestRunNeedsRecovery(latestRun, proposal)
-    ) {
+      latestRun = resolveLatestThreadRun(
+        group,
+        extractLinkage(thread),
+        proposal,
+        dbPath,
+      );
+    } else if (latestRunNeedsRecovery(latestRun, proposal)) {
       pendingActions = requestManagedRunRecoveryAction(
         threadId,
         latestRun,
@@ -2331,7 +2358,11 @@ async function syncThreadState(threadId: string, dbPath: string) {
     ) {
       pendingActions = requestProposalReviewAction(threadId, proposal, dbPath);
     } else if (proposal && String(proposal.status) === "reviewed") {
-      pendingActions = requestProposalApprovalAction(threadId, proposal, dbPath);
+      pendingActions = requestProposalApprovalAction(
+        threadId,
+        proposal,
+        dbPath,
+      );
     } else if (
       proposal &&
       [
@@ -2384,7 +2415,12 @@ async function syncThreadState(threadId: string, dbPath: string) {
         dbPath,
       );
       proposal = proposalSelection.proposal;
-      latestRun = resolveLatestThreadRun(group, extractLinkage(thread), proposal, dbPath);
+      latestRun = resolveLatestThreadRun(
+        group,
+        extractLinkage(thread),
+        proposal,
+        dbPath,
+      );
       integrationBranch =
         getProposalIntegrationBranch(proposal) ||
         linkage.integrationBranch ||
@@ -2468,14 +2504,14 @@ async function syncThreadState(threadId: string, dbPath: string) {
     .map((action) =>
       describePendingAction(action, thread, progress, context, {
         allowStoredTrace: false,
-      })
+      }),
     )
     .filter(Boolean);
   const projectedActionHistory = actionHistory
     .map((action) =>
       describePendingAction(action, thread, progress, context, {
         allowStoredTrace: true,
-      })
+      }),
     )
     .filter(Boolean);
   const summary = buildThreadSummary(thread, messages, pendingActions, context);
@@ -3190,7 +3226,9 @@ async function resolveProposalReworkAction({
         artifacts: [
           artifactRef(
             "work-item",
-            refreshedItem?.id ? String(refreshedItem.id) : String(reworkItem.id),
+            refreshedItem?.id
+              ? String(refreshedItem.id)
+              : String(reworkItem.id),
             toText(refreshedItem?.title, String(reworkItem.id)),
             toText(refreshedItem?.status, "running"),
           ),
@@ -3305,7 +3343,8 @@ async function resolveQuarantineReleaseAction({
   const result = await releaseSelfBuildQuarantine(
     String(action.targetId),
     {
-      reason: payload.reason ?? payload.comments ?? "Released from operator chat.",
+      reason:
+        payload.reason ?? payload.comments ?? "Released from operator chat.",
       by: payload.by ?? "operator",
       nextStatus: payload.nextStatus ?? null,
     },

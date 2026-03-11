@@ -13,26 +13,25 @@ import {
   waitForHealth,
   withEventLogPath,
 } from "@spore/test-support";
-
-import {
-  insertWorkItemGroup,
-  getProposalArtifact,
-  insertProposalArtifact,
-  insertWorkItemRun,
-  openOrchestratorDatabase,
-  updateProposalArtifact,
-  updateWorkItemRun,
-} from "../../../packages/orchestrator/src/store/execution-store.js";
 import {
   createManagedWorkItem,
   getSelfBuildWorkItemRun,
   runSelfBuildWorkItem,
 } from "../../../packages/orchestrator/src/self-build/managed-work.js";
-import { validateWorkItemGroupBundle } from "../../../packages/orchestrator/src/self-build/work-item-groups.js";
 import {
   queueWorkItemRunValidation,
   waitForWorkItemRunValidation,
 } from "../../../packages/orchestrator/src/self-build/validation-followup.js";
+import { validateWorkItemGroupBundle } from "../../../packages/orchestrator/src/self-build/work-item-groups.js";
+import {
+  getProposalArtifact,
+  insertProposalArtifact,
+  insertWorkItemGroup,
+  insertWorkItemRun,
+  openOrchestratorDatabase,
+  updateProposalArtifact,
+  updateWorkItemRun,
+} from "../../../packages/orchestrator/src/store/execution-store.js";
 import type { HarnessTempPathsWithEventLog } from "./helpers/http-harness.js";
 
 type JsonRecord = Record<string, unknown>;
@@ -72,7 +71,10 @@ async function runCliJson(args: string[], env: NodeJS.ProcessEnv = {}) {
   return await new Promise<JsonRecord>((resolve, reject) => {
     const child = spawn(
       process.execPath,
-      buildTsxEntrypointArgs("packages/orchestrator/src/cli/spore-orchestrator.js", args),
+      buildTsxEntrypointArgs(
+        "packages/orchestrator/src/cli/spore-orchestrator.js",
+        args,
+      ),
       {
         cwd: process.cwd(),
         env: {
@@ -95,7 +97,9 @@ async function runCliJson(args: string[], env: NodeJS.ProcessEnv = {}) {
         resolve(JSON.parse(stdout));
         return;
       }
-      reject(new Error(stderr || stdout || `cli failed with code ${code ?? 1}`));
+      reject(
+        new Error(stderr || stdout || `cli failed with code ${code ?? 1}`),
+      );
     });
     child.on("error", reject);
   });
@@ -123,7 +127,8 @@ async function withValidationEnv<T>(
     if (previous.SPORE_ORCHESTRATOR_DB_PATH === undefined) {
       delete process.env.SPORE_ORCHESTRATOR_DB_PATH;
     } else {
-      process.env.SPORE_ORCHESTRATOR_DB_PATH = previous.SPORE_ORCHESTRATOR_DB_PATH;
+      process.env.SPORE_ORCHESTRATOR_DB_PATH =
+        previous.SPORE_ORCHESTRATOR_DB_PATH;
     }
     if (previous.SPORE_SESSION_DB_PATH === undefined) {
       delete process.env.SPORE_SESSION_DB_PATH;
@@ -180,7 +185,9 @@ async function waitForValidationStateInDb(
     }
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
-  throw new Error(`timed out waiting for persisted validation state on run ${runId}`);
+  throw new Error(
+    `timed out waiting for persisted validation state on run ${runId}`,
+  );
 }
 
 async function waitForThreadDetail(
@@ -500,16 +507,19 @@ test("operator chat reads persisted validation state while auto-validation runs"
     "spore-http-self-build-validation-operator-chat-",
   );
 
-  const createdThread = await postJson(`http://127.0.0.1:${port}/operator/threads`, {
-    message:
-      "Improve the operator web dashboard for self-build review and keep the work in safe mode.",
-    projectId: "spore",
-    safeMode: true,
-    stub: true,
-    wait: false,
-    by: "test-runner",
-    source: "http-self-build-validation-test",
-  });
+  const createdThread = await postJson(
+    `http://127.0.0.1:${port}/operator/threads`,
+    {
+      message:
+        "Improve the operator web dashboard for self-build review and keep the work in safe mode.",
+      projectId: "spore",
+      safeMode: true,
+      stub: true,
+      wait: false,
+      by: "test-runner",
+      source: "http-self-build-validation-test",
+    },
+  );
   assert.equal(createdThread.status, 200);
   assert.ok(createdThread.json.ok);
 
@@ -520,8 +530,8 @@ test("operator chat reads persisted validation state while auto-validation runs"
     port,
     threadId,
     (detail) =>
-      asArray<JsonRecord>(asObject(asObject(detail.context).group).items).length >
-      0,
+      asArray<JsonRecord>(asObject(asObject(detail.context).group).items)
+        .length > 0,
   );
 
   const group = asObject(asObject(materialized.context).group);
@@ -538,24 +548,18 @@ test("operator chat reads persisted validation state while auto-validation runs"
   assert.ok(runId);
   assert.ok(proposalId);
 
-  await waitForThreadDetail(
-    port,
-    threadId,
-    (detail) =>
-      asArray<JsonRecord>(detail.pendingActions).some(
-        (action) => action.actionKind === "proposal-review",
-      ),
+  await waitForThreadDetail(port, threadId, (detail) =>
+    asArray<JsonRecord>(detail.pendingActions).some(
+      (action) => action.actionKind === "proposal-review",
+    ),
   );
 
   await replyInThread(port, threadId, "reviewed");
 
-  await waitForThreadDetail(
-    port,
-    threadId,
-    (detail) =>
-      asArray<JsonRecord>(detail.pendingActions).some(
-        (action) => action.actionKind === "proposal-approval",
-      ),
+  await waitForThreadDetail(port, threadId, (detail) =>
+    asArray<JsonRecord>(detail.pendingActions).some(
+      (action) => action.actionKind === "proposal-approval",
+    ),
   );
 
   const triggered = await replyInThread(port, threadId, "approve");
@@ -570,7 +574,11 @@ test("operator chat reads persisted validation state while auto-validation runs"
     asObject(asObject(triggered.context).proposal).validation,
   );
 
-  assert.ok(["queued", "running", "completed"].includes(String(evidenceValidation.status)));
+  assert.ok(
+    ["queued", "running", "completed"].includes(
+      String(evidenceValidation.status),
+    ),
+  );
   assert.equal(evidenceValidation.id, proposalValidation.id);
   assert.equal(evidenceValidation.targetType, "proposal");
   assert.equal(evidenceValidation.targetId, proposalId);
@@ -767,7 +775,8 @@ test("queueWorkItemRunValidation re-schedules persisted queued validation withou
     ["running", "completed", "failed"].includes(String(resumed.state.status)),
   );
   assert.ok(
-    resumed.state.startedAt === null || typeof resumed.state.startedAt === "string",
+    resumed.state.startedAt === null ||
+      typeof resumed.state.startedAt === "string",
   );
   assert.equal(resumed.state.bundleId, "frontend-ui-pass");
 });
@@ -801,7 +810,9 @@ test("waitForWorkItemRunValidation resumes persisted queued validation and waits
 
   assert.ok(completed);
   assert.ok(
-    ["completed", "failed"].includes(String(asObject(completed.validation).status)),
+    ["completed", "failed"].includes(
+      String(asObject(completed.validation).status),
+    ),
   );
   assert.equal(typeof asObject(completed.validation).endedAt, "string");
   assert.equal(asObject(completed.validation).bundleId, "frontend-ui-pass");

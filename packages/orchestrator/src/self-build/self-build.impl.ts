@@ -1086,11 +1086,7 @@ function primaryValidationBundleId(
   return "__fallback__";
 }
 
-function buildValidationState(
-  run,
-  proposal,
-  options: LooseRecord = {},
-) {
+function buildValidationState(run, proposal, options: LooseRecord = {}) {
   const previous =
     proposal?.metadata?.validation ?? run?.metadata?.validation ?? {};
   const bundleIds = dedupe(options.bundleIds ?? previous.bundleIds ?? []);
@@ -1110,7 +1106,9 @@ function buildValidationState(
     bundleId,
     bundleIds,
     status: options.status ?? previous.status ?? "queued",
-    scenarioRunIds: dedupe(options.scenarioRunIds ?? previous.scenarioRunIds ?? []),
+    scenarioRunIds: dedupe(
+      options.scenarioRunIds ?? previous.scenarioRunIds ?? [],
+    ),
     regressionRunIds: dedupe(
       options.regressionRunIds ?? previous.regressionRunIds ?? [],
     ),
@@ -1119,10 +1117,14 @@ function buildValidationState(
         ? options.startedAt
         : (previous.startedAt ?? null),
     endedAt:
-      options.endedAt !== undefined ? options.endedAt : (previous.endedAt ?? null),
+      options.endedAt !== undefined
+        ? options.endedAt
+        : (previous.endedAt ?? null),
     error: options.error ?? previous.error ?? null,
     errors: asArray(options.errors ?? previous.errors ?? []),
-    bundleResults: asArray(options.bundleResults ?? previous.bundleResults ?? []),
+    bundleResults: asArray(
+      options.bundleResults ?? previous.bundleResults ?? [],
+    ),
     validatedAt:
       options.validatedAt !== undefined
         ? options.validatedAt
@@ -1272,7 +1274,9 @@ async function executeWorkItemRunValidation(
   if (!item) {
     return null;
   }
-  const proposal = withDatabase(dbPath, (db) => getProposalArtifactByRunId(db, runId));
+  const proposal = withDatabase(dbPath, (db) =>
+    getProposalArtifactByRunId(db, runId),
+  );
   const startedAt = nowIso();
   const runningState = buildValidationState(run, proposal, {
     bundleIds,
@@ -1295,7 +1299,15 @@ async function executeWorkItemRunValidation(
   let regressionRuns = [];
   let validationErrors = [];
   const effectiveBundleIds =
-    bundleIds.length > 0 ? bundleIds : [primaryValidationBundleId([], fallbackScenarioIds, fallbackRegressionIds)];
+    bundleIds.length > 0
+      ? bundleIds
+      : [
+          primaryValidationBundleId(
+            [],
+            fallbackScenarioIds,
+            fallbackRegressionIds,
+          ),
+        ];
 
   for (const bundleId of effectiveBundleIds) {
     const definition =
@@ -1441,7 +1453,11 @@ async function executeWorkItemRunValidation(
       ...updatedRun,
       metadata: {
         ...updatedRun.metadata,
-        docSuggestions: buildDocSuggestionsHelper(item, updatedRun, refreshedProposal),
+        docSuggestions: buildDocSuggestionsHelper(
+          item,
+          updatedRun,
+          refreshedProposal,
+        ),
       },
     };
     withDatabase(dbPath, (db) => updateWorkItemRun(db, nextRun));
@@ -1491,7 +1507,9 @@ async function executeWorkItemRunValidation(
     );
   }
   const finalRun = withDatabase(dbPath, (db) => getWorkItemRun(db, runId));
-  const finalProposal = withDatabase(dbPath, (db) => getProposalArtifactByRunId(db, runId));
+  const finalProposal = withDatabase(dbPath, (db) =>
+    getProposalArtifactByRunId(db, runId),
+  );
   if (finalRun) {
     await syncDocSuggestionRecordsForRun(item, finalRun, finalProposal, dbPath);
   }
@@ -1592,11 +1610,14 @@ function summarizeValidationBundleRecord(
 function buildValidationTrace(item, validation: LooseRecord = {}) {
   const bundleIds = dedupe(validation.bundleIds ?? []);
   const bundleResults = asArray(validation.bundleResults);
-  const source = bundleIds.length > 0 ? toText(validation.source, "run-state") : "fallback";
+  const source =
+    bundleIds.length > 0 ? toText(validation.source, "run-state") : "fallback";
   const scenarioIds = dedupe([
     ...bundleResults.flatMap((record) => asArray(record?.scenarioIds)),
     ...(bundleIds.length === 0
-      ? dedupe(item?.metadata?.recommendedScenarios ?? item?.relatedScenarios ?? [])
+      ? dedupe(
+          item?.metadata?.recommendedScenarios ?? item?.relatedScenarios ?? [],
+        )
       : []),
     ...dedupe(validation.fallbackScenarioIds ?? []),
   ]);
@@ -1604,7 +1625,9 @@ function buildValidationTrace(item, validation: LooseRecord = {}) {
     ...bundleResults.flatMap((record) => asArray(record?.regressionIds)),
     ...(bundleIds.length === 0
       ? dedupe(
-          item?.metadata?.recommendedRegressions ?? item?.relatedRegressions ?? [],
+          item?.metadata?.recommendedRegressions ??
+            item?.relatedRegressions ??
+            [],
         )
       : []),
     ...dedupe(validation.fallbackRegressionIds ?? []),
@@ -1627,14 +1650,17 @@ function buildValidationTrace(item, validation: LooseRecord = {}) {
     .map((record) => toText(record?.label, toText(record?.bundleId, "")))
     .filter(Boolean)
     .join(", ");
-  const summary = bundleIds.length > 0
-    ? `Validation uses ${bundleIds.length} ${source === "explicit-request" ? "operator-selected" : "configured"} bundle${bundleIds.length === 1 ? "" : "s"}: ${bundleIds.join(", ")}${bundleLabelText ? ` (${bundleLabelText})` : ""}.`
-    : "Validation falls back to the work item's recommended scenario and regression coverage.";
+  const summary =
+    bundleIds.length > 0
+      ? `Validation uses ${bundleIds.length} ${source === "explicit-request" ? "operator-selected" : "configured"} bundle${bundleIds.length === 1 ? "" : "s"}: ${bundleIds.join(", ")}${bundleLabelText ? ` (${bundleLabelText})` : ""}.`
+      : "Validation falls back to the work item's recommended scenario and regression coverage.";
   return {
     source,
     selectedBundleIds: bundleIds,
     selectedBundleLabels: dedupe(
-      bundleResults.map((record) => toText(record?.label, toText(record?.bundleId, ""))),
+      bundleResults.map((record) =>
+        toText(record?.label, toText(record?.bundleId, "")),
+      ),
     ),
     scenarioIds,
     regressionIds,
@@ -1648,7 +1674,9 @@ function withValidationTrace(detail, selection = null) {
     return detail;
   }
   const existingTrace =
-    detail.trace && typeof detail.trace === "object" && !Array.isArray(detail.trace)
+    detail.trace &&
+    typeof detail.trace === "object" &&
+    !Array.isArray(detail.trace)
       ? detail.trace
       : {};
   const validation =
@@ -1672,12 +1700,14 @@ function withValidationTrace(detail, selection = null) {
 
 function readValidationTraceSelection(detail) {
   const trace =
-    detail?.trace && typeof detail.trace === "object" && !Array.isArray(detail.trace)
+    detail?.trace &&
+    typeof detail.trace === "object" &&
+    !Array.isArray(detail.trace)
       ? detail.trace
       : {};
   return trace.validation &&
-      typeof trace.validation === "object" &&
-      !Array.isArray(trace.validation)
+    typeof trace.validation === "object" &&
+    !Array.isArray(trace.validation)
     ? trace.validation
     : null;
 }
@@ -2891,7 +2921,9 @@ function buildGroupSummary(
       transitionLog,
     },
     readiness: evaluated.readiness,
-    proposals: proposals.map((proposal) => buildProposalSummary(proposal, dbPath)),
+    proposals: proposals.map((proposal) =>
+      buildProposalSummary(proposal, dbPath),
+    ),
     validationSummary: runs.reduce((accumulator, run) => {
       const status = summarizeValidationState(run.metadata?.validation);
       accumulator[status] = (accumulator[status] ?? 0) + 1;
@@ -3000,10 +3032,7 @@ function ensureSafeMode(item, projectId = null) {
   return { safeMode, mutationScope };
 }
 
-function buildProposalSummary(
-  artifact,
-  dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
-) {
+function buildProposalSummary(artifact, dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
   const summary = buildProposalSummaryHelper(artifact);
   if (!summary) {
     return null;
@@ -3199,7 +3228,9 @@ function buildWorkspaceAllocationTrace(
     mutationScope.length > 0
       ? `Mutation scope: ${mutationScope.join(", ")}.`
       : "Mutation scope was not recorded.",
-    allocation.safeMode !== false ? "Safe mode is enabled." : "Safe mode is disabled.",
+    allocation.safeMode !== false
+      ? "Safe mode is enabled."
+      : "Safe mode is disabled.",
     reusedFromAllocationId
       ? `Workspace reuse source allocation: ${reusedFromAllocationId}.`
       : allocation.metadata?.reusedWorkspace === true
@@ -3226,9 +3257,9 @@ function buildWorkspaceAllocationTrace(
         ? `Workspace allocation failed for run ${allocation.workItemRunId ?? allocation.ownerId ?? "unknown"}.`
         : sourceWorkspaceId
           ? `Created a derived workspace from source allocation ${sourceWorkspaceId} for run ${allocation.workItemRunId ?? allocation.ownerId ?? "unknown"}.`
-        : decision === "cleaned"
-          ? `Workspace allocation was cleaned after run ${allocation.workItemRunId ?? allocation.ownerId ?? "unknown"}.`
-          : `Created a dedicated workspace for run ${allocation.workItemRunId ?? allocation.ownerId ?? "unknown"}.`;
+          : decision === "cleaned"
+            ? `Workspace allocation was cleaned after run ${allocation.workItemRunId ?? allocation.ownerId ?? "unknown"}.`
+            : `Created a dedicated workspace for run ${allocation.workItemRunId ?? allocation.ownerId ?? "unknown"}.`;
   return {
     decision,
     summary,
@@ -3365,7 +3396,8 @@ function syncWorkspaceAllocationForRunOutcome(
   const terminalKind = workItemRunTerminalKind(run);
   const updatedWorkspace = {
     ...currentWorkspace,
-    executionId: run.result?.executionId ?? currentWorkspace.executionId ?? null,
+    executionId:
+      run.result?.executionId ?? currentWorkspace.executionId ?? null,
     proposalArtifactId: proposal?.id ?? null,
     status:
       terminalKind === "failed"
@@ -6665,7 +6697,11 @@ export async function waitForWorkItemGroupValidationBundle(
   payload: LooseRecord = {},
   dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
 ) {
-  const detail = await queueWorkItemGroupValidationBundle(groupId, payload, dbPath);
+  const detail = await queueWorkItemGroupValidationBundle(
+    groupId,
+    payload,
+    dbPath,
+  );
   if (!detail) {
     return null;
   }
@@ -6817,10 +6853,17 @@ function buildPromotionTrace(governance, readiness) {
   const blockers = dedupe([
     ...asArray(governance?.blockers).map((blocker) => hashPayload(blocker)),
     ...asArray(readiness?.blockers).map((blocker) => hashPayload(blocker)),
-  ]).map((fingerprint) => {
-    const combined = [...asArray(governance?.blockers), ...asArray(readiness?.blockers)];
-    return combined.find((blocker) => hashPayload(blocker) === fingerprint) ?? null;
-  }).filter(Boolean);
+  ])
+    .map((fingerprint) => {
+      const combined = [
+        ...asArray(governance?.blockers),
+        ...asArray(readiness?.blockers),
+      ];
+      return (
+        combined.find((blocker) => hashPayload(blocker) === fingerprint) ?? null
+      );
+    })
+    .filter(Boolean);
   const reasons = dedupe(
     blockers.map((blocker) => toText(blocker?.reason, "")).filter(Boolean),
   );
@@ -7172,7 +7215,9 @@ export async function invokeProposalPromotion(
     );
   }
   return {
-    proposal: proposal ? buildProposalSummary(proposal, dbPath) : planned.proposal,
+    proposal: proposal
+      ? buildProposalSummary(proposal, dbPath)
+      : planned.proposal,
     reviewPackage: planned.reviewPackage,
     promotion: planned.promotion,
     detail,
@@ -7373,13 +7418,15 @@ export async function cleanupManagedWorkspace(
     reason: "already-missing",
   };
   if (inspection.exists && inspection.registered) {
-    cleanupResult = summarizeWorkspaceCleanupResult(await removeWorkspace({
-      repoRoot,
-      worktreePath: allocation.worktreePath,
-      branchName: allocation.branchName ?? null,
-      force: options.force === true || cleanupPolicy.requiresForce,
-      keepBranch: options.keepBranch === true,
-    }));
+    cleanupResult = summarizeWorkspaceCleanupResult(
+      await removeWorkspace({
+        repoRoot,
+        worktreePath: allocation.worktreePath,
+        branchName: allocation.branchName ?? null,
+        force: options.force === true || cleanupPolicy.requiresForce,
+        keepBranch: options.keepBranch === true,
+      }),
+    );
   }
 
   const updated = {
@@ -7642,16 +7689,26 @@ export async function queueWorkItemRunValidation(
     ["queued", "running"].includes(String(currentValidation.status))
   ) {
     if (!getActiveValidationTask(runId)) {
-      persistValidationStateForRun(runId, buildQueuedValidationState(context), dbPath);
+      persistValidationStateForRun(
+        runId,
+        buildQueuedValidationState(context),
+        dbPath,
+      );
       ensureWorkItemRunValidationTask(context, options, dbPath);
-      return withValidationTrace(getSelfBuildWorkItemRun(runId, dbPath), context.selection);
+      return withValidationTrace(
+        getSelfBuildWorkItemRun(runId, dbPath),
+        context.selection,
+      );
     }
     return withValidationTrace(getSelfBuildWorkItemRun(runId, dbPath));
   }
   const queuedState = buildQueuedValidationState(context);
   persistValidationStateForRun(runId, queuedState, dbPath);
   ensureWorkItemRunValidationTask(context, options, dbPath);
-  return withValidationTrace(getSelfBuildWorkItemRun(runId, dbPath), context.selection);
+  return withValidationTrace(
+    getSelfBuildWorkItemRun(runId, dbPath),
+    context.selection,
+  );
 }
 
 export async function waitForWorkItemRunValidation(
@@ -9766,9 +9823,10 @@ export function getSelfBuildSummary(dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
       proposal.status === "ready_for_review" &&
       isProposalGovernanceReady(proposal, dbPath),
   );
-  const waitingApprovalProposals = proposals.filter((proposal) =>
-    ["reviewed", "waiting_approval"].includes(proposal.status) &&
-    isProposalGovernanceReady(proposal, dbPath),
+  const waitingApprovalProposals = proposals.filter(
+    (proposal) =>
+      ["reviewed", "waiting_approval"].includes(proposal.status) &&
+      isProposalGovernanceReady(proposal, dbPath),
   );
   const promotionPendingProposals = proposals.filter((proposal) =>
     isProposalPromotionPending(proposal),

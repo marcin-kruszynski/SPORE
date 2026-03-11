@@ -73,6 +73,8 @@ declare module "@spore/orchestrator" {
     materializeSelfBuildIntake,
     planProposalPromotion,
     quarantineSelfBuildTarget,
+    queueWorkItemGroupValidationBundle,
+    queueWorkItemRunValidation,
     requeueWorkItemGroupItem,
     reconcileManagedWorkspace,
     refreshSelfBuildIntake,
@@ -100,14 +102,23 @@ declare module "@spore/orchestrator" {
     invokeProposalPromotion,
     validateWorkItemGroupBundle,
     validateWorkItemRun,
+    waitForWorkItemGroupValidationBundle,
+    waitForWorkItemRunValidation,
   } from "./self-build/self-build.js";
 
   export {
+    getWorkspaceAllocation,
     getProposalArtifact,
     getWorkItem,
+    insertProposalArtifact,
+    insertWorkItemRun,
+    insertWorkspaceAllocation,
     openOrchestratorDatabase,
     updateStep,
     updateProposalArtifact,
     updateWorkItem,
+    updateWorkspaceAllocation,
   } from "./store/execution-store.js";
+
+  export { createWorkItem } from "./work-items/work-items.js";
 }

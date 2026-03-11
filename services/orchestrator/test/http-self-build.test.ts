@@ -8,8 +8,8 @@ import test from "node:test";
 
 import {
   createWorkItem,
-  getWorkspaceAllocation,
   getProposalArtifact,
+  getWorkspaceAllocation,
   insertProposalArtifact,
   insertWorkItemRun,
   insertWorkspaceAllocation,
@@ -33,7 +33,11 @@ import type { HarnessTempPathsWithEventLog } from "./helpers/http-harness.js";
 
 type JsonRecord = Record<string, unknown>;
 
-function run(command: string, args: string[], options: SpawnOptionsWithoutStdio = {}) {
+function run(
+  command: string,
+  args: string[],
+  options: SpawnOptionsWithoutStdio = {},
+) {
   return new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
     const child = spawn(command, args, {
       cwd: options.cwd,
@@ -71,7 +75,11 @@ async function makeTempRepo() {
   });
   await fs.writeFile(path.join(repoRoot, "README.md"), "# temp repo\n", "utf8");
   await fs.mkdir(path.join(repoRoot, "docs"), { recursive: true });
-  await fs.writeFile(path.join(repoRoot, "docs", "guide.md"), "# guide\n", "utf8");
+  await fs.writeFile(
+    path.join(repoRoot, "docs", "guide.md"),
+    "# guide\n",
+    "utf8",
+  );
   await run("git", ["add", "README.md", "docs/guide.md"], { cwd: repoRoot });
   await run("git", ["commit", "-m", "init"], { cwd: repoRoot });
   return repoRoot;
@@ -733,7 +741,9 @@ function setProposalProjectionState(
         ...asObject(proposal.metadata),
         validation: {
           ...validation,
-          ...(options.validationStatus ? { status: options.validationStatus } : {}),
+          ...(options.validationStatus
+            ? { status: options.validationStatus }
+            : {}),
           ...(options.validationSummary
             ? { summary: options.validationSummary }
             : {}),
@@ -2207,21 +2217,22 @@ test("self-build read surfaces expose concise trace summaries for workspace, val
   assert.ok(workspaceDetail.json.ok);
   assert.equal(
     String(
-      asObject(asObject(workspaceDetail.json.detail.trace).allocation).decision ??
-        "",
+      asObject(asObject(workspaceDetail.json.detail.trace).allocation)
+        .decision ?? "",
     ),
     "created",
   );
   assert.match(
     String(
-      asObject(asObject(workspaceDetail.json.detail.trace).allocation).summary ??
-        "",
+      asObject(asObject(workspaceDetail.json.detail.trace).allocation)
+        .summary ?? "",
     ),
     /workspace|worktree|safe mode/i,
   );
   assert.ok(
-    asArray(asObject(asObject(workspaceDetail.json.detail.trace).allocation).reasons)
-      .length > 0,
+    asArray(
+      asObject(asObject(workspaceDetail.json.detail.trace).allocation).reasons,
+    ).length > 0,
   );
 
   const reviewedProposal = await postJson(
@@ -2262,7 +2273,10 @@ test("self-build read surfaces expose concise trace summaries for workspace, val
     ).length > 0,
   );
   assert.match(
-    String(asObject(asObject(reviewPackage.json.detail.trace).promotion).summary ?? ""),
+    String(
+      asObject(asObject(reviewPackage.json.detail.trace).promotion).summary ??
+        "",
+    ),
     /blocked|validation|promotion/i,
   );
 
@@ -2280,23 +2294,34 @@ test("self-build read surfaces expose concise trace summaries for workspace, val
   assert.equal(validatedRun.status, 200);
   assert.ok(validatedRun.json.ok);
   assert.equal(
-    String(asObject(asObject(validatedRun.json.detail.trace).validation).source ?? ""),
+    String(
+      asObject(asObject(validatedRun.json.detail.trace).validation).source ??
+        "",
+    ),
     "explicit-request",
   );
   assert.deepEqual(
-    asArray(asObject(asObject(validatedRun.json.detail.trace).validation).selectedBundleIds),
+    asArray(
+      asObject(asObject(validatedRun.json.detail.trace).validation)
+        .selectedBundleIds,
+    ),
     ["proposal-ready-fast", "integration-ready-core"],
   );
   assert.match(
-    String(asObject(asObject(validatedRun.json.detail.trace).validation).summary ?? ""),
+    String(
+      asObject(asObject(validatedRun.json.detail.trace).validation).summary ??
+        "",
+    ),
     /proposal-ready-fast|integration-ready-core|scenario|regression/i,
   );
   assert.ok(
-    asArray(asObject(asObject(validatedRun.json.detail.trace).validation).reasons)
-      .length > 0,
+    asArray(
+      asObject(asObject(validatedRun.json.detail.trace).validation).reasons,
+    ).length > 0,
   );
   assert.equal(
-    asObject(asObject(validatedRun.json.detail.validation).trace).summary ?? null,
+    asObject(asObject(validatedRun.json.detail.validation).trace).summary ??
+      null,
     null,
   );
 });
@@ -2399,20 +2424,29 @@ test("queued validation trace stays aligned with the scheduled bundle while vali
   assert.equal(secondQueue.status, 200);
   assert.ok(secondQueue.json.ok);
   assert.equal(
-    String(asObject(asObject(secondQueue.json.detail.trace).validation).source ?? ""),
+    String(
+      asObject(asObject(secondQueue.json.detail.trace).validation).source ?? "",
+    ),
     "run-state",
   );
   assert.deepEqual(
-    asArray(asObject(asObject(secondQueue.json.detail.trace).validation).selectedBundleIds),
+    asArray(
+      asObject(asObject(secondQueue.json.detail.trace).validation)
+        .selectedBundleIds,
+    ),
     ["proposal-ready-fast"],
   );
   assert.doesNotMatch(
-    String(asObject(asObject(secondQueue.json.detail.trace).validation).summary ?? ""),
+    String(
+      asObject(asObject(secondQueue.json.detail.trace).validation).summary ??
+        "",
+    ),
     /integration-ready-core/i,
   );
   assert.ok(
-    asArray(asObject(asObject(secondQueue.json.detail.trace).validation).reasons)
-      .every((reason) => !/integration-ready-core/i.test(String(reason))),
+    asArray(
+      asObject(asObject(secondQueue.json.detail.trace).validation).reasons,
+    ).every((reason) => !/integration-ready-core/i.test(String(reason))),
   );
 });
 
@@ -2478,7 +2512,9 @@ test("self-build workflow workspace reuse trace explains reused allocations over
   assert.equal(runResult.status, 200);
   assert.ok(runResult.json.ok);
 
-  const executionId = String(runResult.json.detail.run.result?.executionId ?? "");
+  const executionId = String(
+    runResult.json.detail.run.result?.executionId ?? "",
+  );
   assert.ok(executionId);
 
   const executionWorkspaces = await getJson(
@@ -2501,8 +2537,8 @@ test("self-build workflow workspace reuse trace explains reused allocations over
     /reused|handoff|workspace/i,
   );
   assert.ok(
-    asArray(asObject(asObject(reusedWorkspace.trace).allocation).reasons).length >
-      0,
+    asArray(asObject(asObject(reusedWorkspace.trace).allocation).reasons)
+      .length > 0,
   );
   assert.ok(
     String(
@@ -2527,7 +2563,9 @@ test("self-build workflow workspace reuse trace explains reused allocations over
     "created",
   );
   assert.match(
-    String(asObject(asObject(verificationWorkspace.trace).allocation).summary ?? ""),
+    String(
+      asObject(asObject(verificationWorkspace.trace).allocation).summary ?? "",
+    ),
     /created|workspace/i,
   );
 
@@ -2558,15 +2596,17 @@ test("self-build workflow workspace reuse trace explains reused allocations over
   assert.ok(failedVerificationWorkspace.json.ok);
   assert.equal(
     String(
-      asObject(asObject(failedVerificationWorkspace.json.detail.trace).allocation)
-        .decision ?? "",
+      asObject(
+        asObject(failedVerificationWorkspace.json.detail.trace).allocation,
+      ).decision ?? "",
     ),
     "failed",
   );
   assert.match(
     String(
-      asObject(asObject(failedVerificationWorkspace.json.detail.trace).allocation)
-        .summary ?? "",
+      asObject(
+        asObject(failedVerificationWorkspace.json.detail.trace).allocation,
+      ).summary ?? "",
     ),
     /failed|provision/i,
   );
@@ -2929,7 +2969,9 @@ test("operator chat supports proposal rework and quarantine release flows", asyn
     quarantineThreadId,
     "approve",
   );
-  const quarantineGroup = asObject(asObject(approvedQuarantineThread.context).group);
+  const quarantineGroup = asObject(
+    asObject(approvedQuarantineThread.context).group,
+  );
   const quarantineSeedItem = asArray<JsonRecord>(quarantineGroup.items)[0];
   assert.ok(quarantineSeedItem);
   insertProposalArtifactForWorkItem({
@@ -2983,7 +3025,9 @@ test("operator chat supports proposal rework and quarantine release flows", asyn
     promotionThreadId,
     "approve",
   );
-  const promotionGroup = asObject(asObject(approvedPromotionThread.context).group);
+  const promotionGroup = asObject(
+    asObject(approvedPromotionThread.context).group,
+  );
   const promotionSeedItem = asArray<JsonRecord>(promotionGroup.items)[0];
   assert.ok(promotionSeedItem);
   insertProposalArtifactForWorkItem({
@@ -3152,7 +3196,7 @@ test("operator chat follows proposal lineage without letting unrelated group pro
       (action) =>
         action.actionKind === "proposal-review" &&
         action.targetId === initial.proposalId,
-      ),
+    ),
   );
 
   const unrelatedItem = createWorkItem(
@@ -3222,15 +3266,21 @@ test("operator chat follows proposal lineage without letting unrelated group pro
     ),
   );
 
-  const replacement = insertReplacementProposalArtifact(dbPath, initialProposalId, {
-    proposalStatus: "ready_for_review",
-  });
+  const replacement = insertReplacementProposalArtifact(
+    dbPath,
+    initialProposalId,
+    {
+      proposalStatus: "ready_for_review",
+    },
+  );
 
   const refreshedThread = await getOperatorThreadDetail(
     ORCHESTRATOR_PORT,
     thread.id,
   );
-  const refreshedProposal = asObject(asObject(refreshedThread.context).proposal);
+  const refreshedProposal = asObject(
+    asObject(refreshedThread.context).proposal,
+  );
   const initialReviewHistoryAction = asArray<JsonRecord>(
     refreshedThread.actionHistory,
   ).find(
@@ -3331,7 +3381,9 @@ test("operator chat shows run recovery guidance when the latest rerun failed wit
     ORCHESTRATOR_PORT,
     thread.id,
   );
-  const refreshedProposal = asObject(asObject(refreshedThread.context).proposal);
+  const refreshedProposal = asObject(
+    asObject(refreshedThread.context).proposal,
+  );
   const refreshedRun = asObject(asObject(refreshedThread.context).latestRun);
   const refreshedGuidance = asObject(refreshedThread.decisionGuidance);
 
