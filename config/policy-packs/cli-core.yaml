@@ -17,7 +17,7 @@ runtimePolicy:
     reviewer: persistent
   workspace:
     enabled: true
-    enabledRoles: [builder, tester]
+    enabledRoles: [lead, scout, builder, tester, reviewer]
 docsKbPolicy:
   resultLimit: 5
   queryTerms: [cli, shell, terminal, command]

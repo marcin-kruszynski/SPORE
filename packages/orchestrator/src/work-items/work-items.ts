@@ -331,6 +331,7 @@ async function runWorkflowWorkItem(item, options, run, dbPath) {
     stepHardTimeoutMs:
       options.stepHardTimeoutMs ?? metadata.stepHardTimeoutMs ?? null,
     dbPath,
+    sessionDbPath: options.sessionDbPath ?? null,
   });
 }
 

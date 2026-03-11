@@ -14,6 +14,9 @@ runtimePolicy:
     lead: persistent
     scout: ephemeral
     reviewer: persistent
+  workspace:
+    enabled: true
+    enabledRoles: [lead, scout, reviewer]
 docsKbPolicy:
   resultLimit: 8
   queryTerms: [documentation, adr, runbook, knowledge]

@@ -76,6 +76,91 @@ function launchContextPath(sessionId) {
   );
 }
 
+async function importFreshSelfBuildModules() {
+  const cacheKey = Date.now();
+  return Promise.all([
+    import(`../src/execution/history.js?test=${cacheKey}`),
+    import(`../src/self-build/self-build.js?test=${cacheKey}`),
+    import(`../src/work-items/work-items.js?test=${cacheKey}`),
+  ]);
+}
+
+async function assertIsolatedSelfBuildRoles({
+  createWorkItem,
+  getExecutionDetail,
+  runSelfBuildWorkItem,
+  dbPath,
+  sessionDbPath,
+  repoRoot,
+  worktreeRoot,
+  workflowPath,
+  domainId,
+  roles,
+  mutationScope,
+  launchContexts,
+  title,
+  goal,
+}) {
+  const item = createWorkItem(
+    {
+      title,
+      kind: "workflow",
+      goal,
+      metadata: {
+        workflowPath,
+        projectPath: "config/projects/spore.yaml",
+        domainId,
+        roles,
+        mutationScope,
+        safeMode: true,
+      },
+    },
+    dbPath,
+  );
+
+  const result = await runSelfBuildWorkItem(
+    item.id,
+    {
+      wait: true,
+      timeout: 30000,
+      interval: 500,
+      stub: true,
+      sessionDbPath,
+    },
+    dbPath,
+  );
+
+  assert.ok(result);
+  assert.equal(result.error ?? null, null);
+  assert.ok(result.run?.result?.executionId);
+
+  const detail = getExecutionDetail(
+    result.run.result.executionId,
+    dbPath,
+    sessionDbPath,
+  );
+  const db = openOrchestratorDatabase(dbPath);
+  const workspaces = listWorkspaceAllocations(db, { limit: 50 });
+  db.close();
+
+  for (const role of roles) {
+    const step = detail.steps.find((candidate) => candidate.role === role);
+    assert.ok(step, `missing ${role} step`);
+    assert.ok(step.sessionId, `missing ${role} session id`);
+    const workspace = workspaces.find((candidate) => candidate.stepId === step.id);
+    assert.ok(workspace, `missing ${role} workspace`);
+    assert.notEqual(workspace.worktreePath, repoRoot);
+    assert.ok(
+      workspace.worktreePath.startsWith(worktreeRoot),
+      `${role} workspace should be provisioned under the isolated worktree root`,
+    );
+    const contextPath = launchContextPath(step.sessionId);
+    launchContexts.push(contextPath);
+    const launchContext = await readJson(contextPath);
+    assert.equal(launchContext.cwd, workspace.worktreePath);
+  }
+}
+
 test("builder handoff snapshot provisions a separate tester verification workspace", async () => {
   const tempRoot = await fs.mkdtemp(
     path.join(os.tmpdir(), "spore-builder-tester-flow-"),
@@ -135,7 +220,9 @@ test("builder handoff snapshot provisions a separate tester verification workspa
     });
     db.close();
 
-    assert.equal(workspaces.length, 2);
+    assert.equal(workspaces.length, 4);
+    const leadWorkspace = workspaces.find((workspace) => workspace.stepId === detail.steps.find((step) => step.role === "lead")?.id);
+    const reviewerWorkspace = workspaces.find((workspace) => workspace.stepId === detail.steps.find((step) => step.role === "reviewer")?.id);
     const authoringWorkspace = workspaces.find(
       (workspace) => workspace.stepId === builderStep.id,
     );
@@ -143,8 +230,10 @@ test("builder handoff snapshot provisions a separate tester verification workspa
       (workspace) => workspace.stepId === testerStep.id,
     );
 
+    assert.ok(leadWorkspace);
     assert.ok(authoringWorkspace);
     assert.ok(verificationWorkspace);
+    assert.ok(reviewerWorkspace);
     assert.equal(authoringWorkspace.metadata.workspacePurpose, "authoring");
     assert.equal(
       verificationWorkspace.metadata.workspacePurpose,
@@ -251,138 +340,274 @@ test("work-item-driven frontend execution isolates lead scout and reviewer cwd",
   const launchContexts = [];
   try {
     const [{ getExecutionDetail }, { runSelfBuildWorkItem }, { createWorkItem }] =
-      await Promise.all([
-        import("../src/execution/history.js"),
-        import("../src/self-build/self-build.js"),
-        import("../src/work-items/work-items.js"),
-      ]);
+      await importFreshSelfBuildModules();
 
-    const leadScoutItem = createWorkItem(
-      {
-        title: "Run lead and scout in isolated workspaces",
-        kind: "workflow",
-        goal: "Keep lead and scout inside dedicated self-build workspaces.",
-        metadata: {
-          workflowPath: "config/workflows/frontend-ui-pass.yaml",
-          projectPath: "config/projects/spore.yaml",
-          domainId: "frontend",
-          roles: ["lead", "scout"],
-          mutationScope: ["docs"],
-          safeMode: true,
-        },
-      },
+    await assertIsolatedSelfBuildRoles({
+      createWorkItem,
+      getExecutionDetail,
+      runSelfBuildWorkItem,
       dbPath,
-    );
-
-    const leadScoutResult = await runSelfBuildWorkItem(
-      leadScoutItem.id,
-      {
-        wait: true,
-        timeout: 30000,
-        interval: 500,
-        stub: true,
-      },
-      dbPath,
-    );
-
-    assert.ok(leadScoutResult);
-    assert.equal(leadScoutResult.error ?? null, null);
-    assert.ok(leadScoutResult.run?.result?.executionId);
-
-    const leadScoutDetail = getExecutionDetail(
-      leadScoutResult.run.result.executionId,
-      dbPath,
-    );
-
-    const db = openOrchestratorDatabase(dbPath);
-    const leadScoutWorkspaces = listWorkspaceAllocations(db, {
-      executionId: leadScoutDetail.execution.id,
-      limit: 10,
+      sessionDbPath,
+      repoRoot,
+      worktreeRoot,
+      workflowPath: "config/workflows/frontend-ui-pass.yaml",
+      domainId: "frontend",
+      roles: ["lead", "scout"],
+      mutationScope: ["docs"],
+      launchContexts,
+      title: "Run lead and scout in isolated workspaces",
+      goal: "Keep lead and scout inside dedicated self-build workspaces.",
     });
-    db.close();
-
-    assert.equal(leadScoutWorkspaces.length, 2);
-
-    for (const role of ["lead", "scout"]) {
-      const step = leadScoutDetail.steps.find((candidate) => candidate.role === role);
-      assert.ok(step, `missing ${role} step`);
-      assert.ok(step.sessionId, `missing ${role} session id`);
-      const workspace = leadScoutWorkspaces.find(
-        (candidate) => candidate.stepId === step.id,
-      );
-      assert.ok(workspace, `missing ${role} workspace`);
-      assert.notEqual(workspace.worktreePath, repoRoot);
-      assert.ok(
-        workspace.worktreePath.startsWith(worktreeRoot),
-        `${role} workspace should be provisioned under the isolated worktree root`,
-      );
-      const contextPath = launchContextPath(step.sessionId);
-      launchContexts.push(contextPath);
-      const launchContext = await readJson(contextPath);
-      assert.equal(launchContext.cwd, workspace.worktreePath);
+    await assertIsolatedSelfBuildRoles({
+      createWorkItem,
+      getExecutionDetail,
+      runSelfBuildWorkItem,
+      dbPath,
+      sessionDbPath,
+      repoRoot,
+      worktreeRoot,
+      workflowPath: "config/workflows/frontend-ui-pass.yaml",
+      domainId: "frontend",
+      roles: ["reviewer"],
+      mutationScope: ["docs"],
+      launchContexts,
+      title: "Run reviewer in an isolated workspace",
+      goal: "Keep reviewer inside a dedicated self-build workspace.",
+    });
+  } finally {
+    for (const [key, value] of Object.entries(previousEnv)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
     }
+    await Promise.all(
+      launchContexts.map((filePath) =>
+        fs.rm(filePath, { force: true }).catch(() => {}),
+      ),
+    );
+    await fs.rm(tempRoot, { recursive: true, force: true });
+    await fs.rm(repoRoot, { recursive: true, force: true });
+  }
+});
 
-    const reviewerItem = createWorkItem(
-      {
-        title: "Run reviewer in an isolated workspace",
-        kind: "workflow",
-        goal: "Keep reviewer inside a dedicated self-build workspace.",
-        metadata: {
-          workflowPath: "config/workflows/frontend-ui-pass.yaml",
-          projectPath: "config/projects/spore.yaml",
-          domainId: "frontend",
-          roles: ["reviewer"],
-          mutationScope: ["docs"],
-          safeMode: true,
-        },
-      },
+test("work-item-driven cli executions isolate non-builder roles", async () => {
+  const tempRoot = await fs.mkdtemp(
+    path.join(os.tmpdir(), "spore-work-item-cli-workspaces-"),
+  );
+  const repoRoot = await makeTempRepo();
+  const dbPath = path.join(tempRoot, "orchestrator.sqlite");
+  const sessionDbPath = path.join(tempRoot, "sessions.sqlite");
+  const eventLogPath = path.join(tempRoot, "events.ndjson");
+  const worktreeRoot = path.join(tempRoot, "worktrees");
+  const previousEnv = {
+    SPORE_WORKSPACE_REPO_ROOT: process.env.SPORE_WORKSPACE_REPO_ROOT,
+    SPORE_WORKTREE_ROOT: process.env.SPORE_WORKTREE_ROOT,
+    SPORE_SESSION_DB_PATH: process.env.SPORE_SESSION_DB_PATH,
+    SPORE_EVENT_LOG_PATH: process.env.SPORE_EVENT_LOG_PATH,
+    SPORE_ORCHESTRATOR_DB_PATH: process.env.SPORE_ORCHESTRATOR_DB_PATH,
+  };
+
+  process.env.SPORE_WORKSPACE_REPO_ROOT = repoRoot;
+  process.env.SPORE_WORKTREE_ROOT = worktreeRoot;
+  process.env.SPORE_SESSION_DB_PATH = sessionDbPath;
+  process.env.SPORE_EVENT_LOG_PATH = eventLogPath;
+  process.env.SPORE_ORCHESTRATOR_DB_PATH = dbPath;
+
+  const launchContexts = [];
+  try {
+    const [{ getExecutionDetail }, { runSelfBuildWorkItem }, { createWorkItem }] =
+      await importFreshSelfBuildModules();
+
+    await assertIsolatedSelfBuildRoles({
+      createWorkItem,
+      getExecutionDetail,
+      runSelfBuildWorkItem,
       dbPath,
-    );
-
-    const reviewerResult = await runSelfBuildWorkItem(
-      reviewerItem.id,
-      {
-        wait: true,
-        timeout: 30000,
-        interval: 500,
-        stub: true,
-      },
-      dbPath,
-    );
-
-    assert.ok(reviewerResult);
-    assert.equal(reviewerResult.error ?? null, null);
-    assert.ok(reviewerResult.run?.result?.executionId);
-
-    const reviewerDetail = getExecutionDetail(
-      reviewerResult.run.result.executionId,
-      dbPath,
-    );
-    const reviewerStep = reviewerDetail.steps.find(
-      (candidate) => candidate.role === "reviewer",
-    );
-    assert.ok(reviewerStep);
-    assert.ok(reviewerStep.sessionId);
-
-    const reviewerDb = openOrchestratorDatabase(dbPath);
-    const reviewerWorkspaces = listWorkspaceAllocations(reviewerDb, {
-      executionId: reviewerDetail.execution.id,
-      limit: 10,
+      sessionDbPath,
+      repoRoot,
+      worktreeRoot,
+      workflowPath: "config/workflows/cli-verification-pass.yaml",
+      domainId: "cli",
+      roles: ["lead"],
+      mutationScope: ["docs"],
+      launchContexts,
+      title: "Run CLI lead in an isolated workspace",
+      goal: "Keep the CLI lead inside a dedicated self-build workspace.",
     });
-    reviewerDb.close();
-
-    assert.equal(reviewerWorkspaces.length, 1);
-    const reviewerWorkspace = reviewerWorkspaces.find(
-      (candidate) => candidate.stepId === reviewerStep.id,
+    await assertIsolatedSelfBuildRoles({
+      createWorkItem,
+      getExecutionDetail,
+      runSelfBuildWorkItem,
+      dbPath,
+      sessionDbPath,
+      repoRoot,
+      worktreeRoot,
+      workflowPath: "config/workflows/cli-verification-pass.yaml",
+      domainId: "cli",
+      roles: ["reviewer"],
+      mutationScope: ["docs"],
+      launchContexts,
+      title: "Run CLI reviewer in an isolated workspace",
+      goal: "Keep the CLI reviewer inside a dedicated self-build workspace.",
+    });
+  } finally {
+    for (const [key, value] of Object.entries(previousEnv)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+    await Promise.all(
+      launchContexts.map((filePath) =>
+        fs.rm(filePath, { force: true }).catch(() => {}),
+      ),
     );
-    assert.ok(reviewerWorkspace);
-    assert.notEqual(reviewerWorkspace.worktreePath, repoRoot);
-    assert.ok(reviewerWorkspace.worktreePath.startsWith(worktreeRoot));
+    await fs.rm(tempRoot, { recursive: true, force: true });
+    await fs.rm(repoRoot, { recursive: true, force: true });
+  }
+});
 
-    const reviewerContextPath = launchContextPath(reviewerStep.sessionId);
-    launchContexts.push(reviewerContextPath);
-    const reviewerLaunchContext = await readJson(reviewerContextPath);
-    assert.equal(reviewerLaunchContext.cwd, reviewerWorkspace.worktreePath);
+test("work-item-driven backend executions isolate non-builder roles", async () => {
+  const tempRoot = await fs.mkdtemp(
+    path.join(os.tmpdir(), "spore-work-item-backend-workspaces-"),
+  );
+  const repoRoot = await makeTempRepo();
+  const dbPath = path.join(tempRoot, "orchestrator.sqlite");
+  const sessionDbPath = path.join(tempRoot, "sessions.sqlite");
+  const eventLogPath = path.join(tempRoot, "events.ndjson");
+  const worktreeRoot = path.join(tempRoot, "worktrees");
+  const previousEnv = {
+    SPORE_WORKSPACE_REPO_ROOT: process.env.SPORE_WORKSPACE_REPO_ROOT,
+    SPORE_WORKTREE_ROOT: process.env.SPORE_WORKTREE_ROOT,
+    SPORE_SESSION_DB_PATH: process.env.SPORE_SESSION_DB_PATH,
+    SPORE_EVENT_LOG_PATH: process.env.SPORE_EVENT_LOG_PATH,
+    SPORE_ORCHESTRATOR_DB_PATH: process.env.SPORE_ORCHESTRATOR_DB_PATH,
+  };
+
+  process.env.SPORE_WORKSPACE_REPO_ROOT = repoRoot;
+  process.env.SPORE_WORKTREE_ROOT = worktreeRoot;
+  process.env.SPORE_SESSION_DB_PATH = sessionDbPath;
+  process.env.SPORE_EVENT_LOG_PATH = eventLogPath;
+  process.env.SPORE_ORCHESTRATOR_DB_PATH = dbPath;
+
+  const launchContexts = [];
+  try {
+    const [{ getExecutionDetail }, { runSelfBuildWorkItem }, { createWorkItem }] =
+      await importFreshSelfBuildModules();
+
+    await assertIsolatedSelfBuildRoles({
+      createWorkItem,
+      getExecutionDetail,
+      runSelfBuildWorkItem,
+      dbPath,
+      sessionDbPath,
+      repoRoot,
+      worktreeRoot,
+      workflowPath: "config/workflows/backend-service-delivery.yaml",
+      domainId: "backend",
+      roles: ["lead"],
+      mutationScope: ["docs"],
+      launchContexts,
+      title: "Run backend lead in an isolated workspace",
+      goal: "Keep the backend lead inside a dedicated self-build workspace.",
+    });
+    await assertIsolatedSelfBuildRoles({
+      createWorkItem,
+      getExecutionDetail,
+      runSelfBuildWorkItem,
+      dbPath,
+      sessionDbPath,
+      repoRoot,
+      worktreeRoot,
+      workflowPath: "config/workflows/backend-service-delivery.yaml",
+      domainId: "backend",
+      roles: ["reviewer"],
+      mutationScope: ["docs"],
+      launchContexts,
+      title: "Run backend reviewer in an isolated workspace",
+      goal: "Keep the backend reviewer inside a dedicated self-build workspace.",
+    });
+  } finally {
+    for (const [key, value] of Object.entries(previousEnv)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+    await Promise.all(
+      launchContexts.map((filePath) =>
+        fs.rm(filePath, { force: true }).catch(() => {}),
+      ),
+    );
+    await fs.rm(tempRoot, { recursive: true, force: true });
+    await fs.rm(repoRoot, { recursive: true, force: true });
+  }
+});
+
+test("work-item-driven docs executions isolate non-builder roles", async () => {
+  const tempRoot = await fs.mkdtemp(
+    path.join(os.tmpdir(), "spore-work-item-docs-workspaces-"),
+  );
+  const repoRoot = await makeTempRepo();
+  const dbPath = path.join(tempRoot, "orchestrator.sqlite");
+  const sessionDbPath = path.join(tempRoot, "sessions.sqlite");
+  const eventLogPath = path.join(tempRoot, "events.ndjson");
+  const worktreeRoot = path.join(tempRoot, "worktrees");
+  const previousEnv = {
+    SPORE_WORKSPACE_REPO_ROOT: process.env.SPORE_WORKSPACE_REPO_ROOT,
+    SPORE_WORKTREE_ROOT: process.env.SPORE_WORKTREE_ROOT,
+    SPORE_SESSION_DB_PATH: process.env.SPORE_SESSION_DB_PATH,
+    SPORE_EVENT_LOG_PATH: process.env.SPORE_EVENT_LOG_PATH,
+    SPORE_ORCHESTRATOR_DB_PATH: process.env.SPORE_ORCHESTRATOR_DB_PATH,
+  };
+
+  process.env.SPORE_WORKSPACE_REPO_ROOT = repoRoot;
+  process.env.SPORE_WORKTREE_ROOT = worktreeRoot;
+  process.env.SPORE_SESSION_DB_PATH = sessionDbPath;
+  process.env.SPORE_EVENT_LOG_PATH = eventLogPath;
+  process.env.SPORE_ORCHESTRATOR_DB_PATH = dbPath;
+
+  const launchContexts = [];
+  try {
+    const [{ getExecutionDetail }, { runSelfBuildWorkItem }, { createWorkItem }] =
+      await importFreshSelfBuildModules();
+
+    await assertIsolatedSelfBuildRoles({
+      createWorkItem,
+      getExecutionDetail,
+      runSelfBuildWorkItem,
+      dbPath,
+      sessionDbPath,
+      repoRoot,
+      worktreeRoot,
+      workflowPath: "config/workflows/docs-adr-pass.yaml",
+      domainId: "docs",
+      roles: ["lead", "scout"],
+      mutationScope: ["docs"],
+      launchContexts,
+      title: "Run docs lead and scout in isolated workspaces",
+      goal: "Keep the docs lead and scout inside dedicated self-build workspaces.",
+    });
+    await assertIsolatedSelfBuildRoles({
+      createWorkItem,
+      getExecutionDetail,
+      runSelfBuildWorkItem,
+      dbPath,
+      sessionDbPath,
+      repoRoot,
+      worktreeRoot,
+      workflowPath: "config/workflows/docs-adr-pass.yaml",
+      domainId: "docs",
+      roles: ["reviewer"],
+      mutationScope: ["docs"],
+      launchContexts,
+      title: "Run docs reviewer in an isolated workspace",
+      goal: "Keep the docs reviewer inside a dedicated self-build workspace.",
+    });
   } finally {
     for (const [key, value] of Object.entries(previousEnv)) {
       if (value === undefined) {
