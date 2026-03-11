@@ -9,6 +9,9 @@ import test from "node:test";
 import {
   createWorkItem,
   getProposalArtifact,
+  insertProposalArtifact,
+  insertWorkItemRun,
+  insertWorkspaceAllocation,
   openOrchestratorDatabase,
   updateProposalArtifact,
 } from "@spore/orchestrator";
@@ -70,6 +73,139 @@ async function makeTempRepo() {
   await run("git", ["add", "README.md", "docs/guide.md"], { cwd: repoRoot });
   await run("git", ["commit", "-m", "init"], { cwd: repoRoot });
   return repoRoot;
+}
+
+function insertLegacyInvalidProposalFixture({
+  dbPath,
+  itemId,
+  itemTitle,
+  itemGoal,
+}: {
+  dbPath: string;
+  itemId: string;
+  itemTitle: string;
+  itemGoal: string;
+}) {
+  const runId = `work-item-run-${Date.now()}`;
+  const workspaceId = `workspace-${Date.now()}`;
+  const proposalId = `proposal-${Date.now()}`;
+  const now = new Date().toISOString();
+  const db = openOrchestratorDatabase(dbPath);
+  try {
+    insertWorkItemRun(db, {
+      id: runId,
+      workItemId: itemId,
+      status: "blocked",
+      triggerSource: "test",
+      requestedBy: "test-runner",
+      result: {},
+      metadata: {
+        itemKind: "workflow",
+        itemStatusBeforeRun: "pending",
+      },
+      createdAt: now,
+      startedAt: now,
+      endedAt: now,
+    });
+    insertWorkspaceAllocation(db, {
+      id: workspaceId,
+      projectId: "spore",
+      ownerType: "work-item-run",
+      ownerId: runId,
+      executionId: null,
+      stepId: null,
+      workItemId: itemId,
+      workItemRunId: runId,
+      proposalArtifactId: proposalId,
+      worktreePath: path.join(dbPath, workspaceId),
+      branchName: `spore/test/${workspaceId}`,
+      baseRef: "HEAD",
+      integrationBranch: null,
+      mode: "git-worktree",
+      safeMode: true,
+      mutationScope: ["docs"],
+      status: "active",
+      metadata: {
+        source: "test",
+      },
+      createdAt: now,
+      updatedAt: now,
+      cleanedAt: null,
+    });
+    insertProposalArtifact(db, {
+      id: proposalId,
+      workItemRunId: runId,
+      workItemId: itemId,
+      status: "ready_for_review",
+      kind: "workflow",
+      summary: {
+        title: `${itemTitle} proposal`,
+        goal: itemGoal,
+        runStatus: "blocked",
+        safeMode: true,
+      },
+      artifacts: {
+        changeSummary: itemGoal,
+        proposedFiles: [],
+        diffSummary: {
+          fileCount: 0,
+          trackedFileCount: 0,
+          untrackedFileCount: 0,
+          addedCount: 0,
+          modifiedCount: 0,
+          deletedCount: 0,
+          renamedCount: 0,
+          conflictedCount: 0,
+          insertionCount: 0,
+          deletionCount: 0,
+        },
+        changedFilesByScope: [],
+        patchArtifact: {
+          path: `artifacts/proposals/${proposalId}.patch`,
+          byteLength: 0,
+          preview: "",
+        },
+        workspace: {
+          id: workspaceId,
+          workspaceId,
+          worktreePath: path.join(dbPath, workspaceId),
+          branchName: `spore/test/${workspaceId}`,
+          baseRef: "HEAD",
+          status: "active",
+          mutationScope: ["docs"],
+        },
+        reviewNotes: {
+          requiredReview: true,
+          requiredApproval: true,
+          safeMode: true,
+        },
+        testSummary: {
+          validationStatus: "pending",
+          scenarioRunIds: [],
+          regressionRunIds: [],
+        },
+        docImpact: {
+          relatedDocs: [],
+          relatedScenarios: [],
+          relatedRegressions: [],
+        },
+      },
+      metadata: {
+        source: "test",
+        workspaceId,
+        promotion: {
+          sourceExecutionId: "execution-stale-metadata",
+        },
+      },
+      createdAt: now,
+      updatedAt: now,
+      reviewedAt: null,
+      approvedAt: null,
+    });
+  } finally {
+    db.close();
+  }
+  return { proposalId, runId };
 }
 
 const OPERATOR_PROGRESS_STAGE_IDS = [
@@ -1437,6 +1573,95 @@ test("blocked self-build runs do not expose reviewable proposals over HTTP", asy
   assert.equal(summary.status, 200);
   assert.ok(summary.json.ok);
   assert.equal(summary.json.detail.counts.waitingReviewProposals, 0);
+});
+
+test("legacy invalid proposals stay in recovery handling over HTTP", async (t) => {
+  const ORCHESTRATOR_PORT = await findFreePort();
+  const { dbPath, sessionDbPath, eventLogPath } = withEventLogPath(
+    await makeTempPaths("spore-http-invalid-proposal-"),
+  ) as HarnessTempPathsWithEventLog;
+
+  const orchestrator = startProcess(
+    "node",
+    ["services/orchestrator/server.js"],
+    {
+      SPORE_ORCHESTRATOR_PORT: String(ORCHESTRATOR_PORT),
+      SPORE_ORCHESTRATOR_DB_PATH: dbPath,
+      SPORE_SESSION_DB_PATH: sessionDbPath,
+      SPORE_EVENT_LOG_PATH: eventLogPath,
+    },
+  );
+
+  t.after(async () => {
+    await stopProcess(orchestrator);
+  });
+
+  await waitForHealth(`http://127.0.0.1:${ORCHESTRATOR_PORT}/health`);
+
+  const item = createWorkItem(
+    {
+      title: "Legacy invalid HTTP proposal",
+      kind: "workflow",
+      goal: "Reject review governance for blocked-source proposals.",
+      metadata: {
+        projectPath: "config/projects/spore.yaml",
+        domainId: "docs",
+        mutationScope: ["docs"],
+        safeMode: true,
+      },
+    },
+    dbPath,
+  );
+  const { proposalId } = insertLegacyInvalidProposalFixture({
+    dbPath,
+    itemId: item.id,
+    itemTitle: item.title,
+    itemGoal: item.goal,
+  });
+
+  const reviewPackage = await getJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/proposal-artifacts/${encodeURIComponent(proposalId)}/review-package`,
+  );
+  assert.equal(reviewPackage.status, 200);
+  assert.ok(reviewPackage.json.ok);
+  assert.equal(reviewPackage.json.detail.promotion.sourceExecutionId, null);
+  assert.ok(
+    asArray<JsonRecord>(reviewPackage.json.detail.suggestedActions).every(
+      (action) => action.action !== "review-proposal",
+    ),
+  );
+
+  const summary = await getJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/self-build/summary`,
+  );
+  assert.equal(summary.status, 200);
+  assert.ok(summary.json.ok);
+  assert.equal(summary.json.detail.counts.waitingReviewProposals, 0);
+
+  const reviewedProposal = await postJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/proposal-artifacts/${encodeURIComponent(proposalId)}/review`,
+    {
+      status: "reviewed",
+      comments: "Attempt to review an invalid legacy proposal.",
+      by: "test-runner",
+    },
+  );
+  assert.equal(reviewedProposal.status, 200);
+  assert.ok(reviewedProposal.json.ok);
+  assert.equal(reviewedProposal.json.detail.status, "rework_required");
+
+  const approvedProposal = await postJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/proposal-artifacts/${encodeURIComponent(proposalId)}/approval`,
+    {
+      status: "approved",
+      comments: "Attempt to approve an invalid legacy proposal.",
+      by: "test-runner",
+      targetBranch: "main",
+    },
+  );
+  assert.equal(approvedProposal.status, 200);
+  assert.ok(approvedProposal.json.ok);
+  assert.equal(approvedProposal.json.detail.status, "rework_required");
 });
 
 test("operator chat routes create governed threads and accept chat-driven approvals", async (t) => {

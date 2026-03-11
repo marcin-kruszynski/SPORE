@@ -16,6 +16,7 @@ import {
   insertWorkItemRun,
   insertWorkspaceAllocation,
   openOrchestratorDatabase,
+  reviewProposalArtifact,
   runSelfBuildWorkItem,
 } from "../src/index.js";
 
@@ -61,6 +62,142 @@ async function makeTempRepo() {
   await run("git", ["add", "README.md", "docs/guide.md"], { cwd: repoRoot });
   await run("git", ["commit", "-m", "init"], { cwd: repoRoot });
   return repoRoot;
+}
+
+function insertProposalFixture({
+  dbPath,
+  item,
+  runId,
+  runStatus,
+  sourceExecutionId,
+  proposalStatus,
+  promotion,
+}: {
+  dbPath: string;
+  item: { id: string; kind: string; title: string; goal: string };
+  runId: string;
+  runStatus: string;
+  sourceExecutionId: string | null;
+  proposalStatus: string;
+  promotion?: Record<string, unknown>;
+}) {
+  const workspaceId = `workspace-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+  const proposalId = `proposal-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+  const now = new Date().toISOString();
+  const db = openOrchestratorDatabase(dbPath);
+  try {
+    insertWorkItemRun(db, {
+      id: runId,
+      workItemId: item.id,
+      status: runStatus,
+      triggerSource: "test",
+      requestedBy: "test-runner",
+      result: sourceExecutionId ? { executionId: sourceExecutionId } : {},
+      metadata: {
+        itemKind: item.kind,
+        itemStatusBeforeRun: item.kind,
+      },
+      createdAt: now,
+      startedAt: now,
+      endedAt: now,
+    });
+    insertWorkspaceAllocation(db, {
+      id: workspaceId,
+      projectId: "spore",
+      ownerType: "work-item-run",
+      ownerId: runId,
+      executionId: sourceExecutionId,
+      stepId: null,
+      workItemId: item.id,
+      workItemRunId: runId,
+      proposalArtifactId: proposalId,
+      worktreePath: path.join(dbPath, workspaceId),
+      branchName: `spore/test/${workspaceId}`,
+      baseRef: "HEAD",
+      integrationBranch: null,
+      mode: "git-worktree",
+      safeMode: true,
+      mutationScope: ["docs"],
+      status: runStatus === "completed" ? "settled" : "active",
+      metadata: {
+        source: "test",
+      },
+      createdAt: now,
+      updatedAt: now,
+      cleanedAt: null,
+    });
+    insertProposalArtifact(db, {
+      id: proposalId,
+      workItemRunId: runId,
+      workItemId: item.id,
+      status: proposalStatus,
+      kind: item.kind,
+      summary: {
+        title: `${item.title} proposal`,
+        goal: item.goal,
+        runStatus,
+        safeMode: true,
+      },
+      artifacts: {
+        changeSummary: item.goal,
+        proposedFiles: [],
+        diffSummary: {
+          fileCount: 0,
+          trackedFileCount: 0,
+          untrackedFileCount: 0,
+          addedCount: 0,
+          modifiedCount: 0,
+          deletedCount: 0,
+          renamedCount: 0,
+          conflictedCount: 0,
+          insertionCount: 0,
+          deletionCount: 0,
+        },
+        changedFilesByScope: [],
+        patchArtifact: {
+          path: `artifacts/proposals/${proposalId}.patch`,
+          byteLength: 0,
+          preview: "",
+        },
+        workspace: {
+          id: workspaceId,
+          workspaceId,
+          worktreePath: path.join(dbPath, workspaceId),
+          branchName: `spore/test/${workspaceId}`,
+          baseRef: "HEAD",
+          status: runStatus === "completed" ? "settled" : "active",
+          mutationScope: ["docs"],
+        },
+        reviewNotes: {
+          requiredReview: true,
+          requiredApproval: true,
+          safeMode: true,
+        },
+        testSummary: {
+          validationStatus: "pending",
+          scenarioRunIds: [],
+          regressionRunIds: [],
+        },
+        docImpact: {
+          relatedDocs: [],
+          relatedScenarios: [],
+          relatedRegressions: [],
+        },
+      },
+      metadata: {
+        source: "test",
+        workspaceId,
+        ...(promotion ? { promotion } : {}),
+      },
+      createdAt: now,
+      updatedAt: now,
+      reviewedAt: null,
+      approvedAt: null,
+    });
+  } finally {
+    db.close();
+  }
+  return { proposalId, workspaceId };
 }
 
 test("held workflow runs do not emit ready-for-review proposals", async () => {
@@ -165,135 +302,19 @@ test("proposal promotion context uses durable source execution without reusing w
     );
 
     const runId = `work-item-run-${Date.now()}`;
-    const workspaceId = `workspace-${Date.now()}`;
-    const now = new Date().toISOString();
     const sourceExecutionId = `execution-${Date.now()}`;
 
-    const db = openOrchestratorDatabase(dbPath);
-    try {
-      insertWorkItemRun(db, {
-        id: runId,
-        workItemId: item.id,
-        status: "completed",
-        triggerSource: "test",
-        requestedBy: "test-runner",
-        result: {
-          executionId: sourceExecutionId,
-        },
-        metadata: {
-          itemKind: item.kind,
-          itemStatusBeforeRun: item.status,
-        },
-        createdAt: now,
-        startedAt: now,
-        endedAt: now,
-      });
-      insertWorkspaceAllocation(db, {
-        id: workspaceId,
-        projectId: "spore",
-        ownerType: "work-item-run",
-        ownerId: runId,
-        executionId: sourceExecutionId,
-        stepId: null,
-        workItemId: item.id,
-        workItemRunId: runId,
-        proposalArtifactId: null,
-        worktreePath: path.join(tempRoot, "workspace"),
-        branchName: "spore/test/source-workspace",
-        baseRef: "HEAD",
-        integrationBranch: null,
-        mode: "git-worktree",
-        safeMode: true,
-        mutationScope: ["docs"],
-        status: "settled",
-        metadata: {
-          source: "test",
-        },
-        createdAt: now,
-        updatedAt: now,
-        cleanedAt: null,
-      });
-    } finally {
-      db.close();
-    }
-
-    const workspace = getWorkspaceByRun(runId, dbPath);
-    assert.ok(workspace);
-    assert.ok(workspace.branchName);
-
-    const proposalId = `proposal-${Date.now()}`;
-    const insertDb = openOrchestratorDatabase(dbPath);
-    try {
-      insertProposalArtifact(insertDb, {
-        id: proposalId,
-        workItemRunId: runId,
-        workItemId: item.id,
-        status: "ready_for_review",
-        kind: item.kind,
-        summary: {
-          title: `${item.title} proposal`,
-          goal: item.goal,
-          runStatus: "completed",
-          safeMode: true,
-        },
-        artifacts: {
-          changeSummary: item.goal,
-          proposedFiles: [],
-          diffSummary: {
-            fileCount: 0,
-            trackedFileCount: 0,
-            untrackedFileCount: 0,
-            addedCount: 0,
-            modifiedCount: 0,
-            deletedCount: 0,
-            renamedCount: 0,
-            conflictedCount: 0,
-            insertionCount: 0,
-            deletionCount: 0,
-          },
-          changedFilesByScope: [],
-          patchArtifact: {
-            path: `artifacts/proposals/${proposalId}.patch`,
-            byteLength: 0,
-            preview: "",
-          },
-          workspace: {
-            id: workspace.id,
-            workspaceId: workspace.id,
-            worktreePath: workspace.worktreePath,
-            branchName: workspace.branchName,
-            baseRef: workspace.baseRef,
-            status: workspace.status,
-            mutationScope: workspace.mutationScope ?? [],
-          },
-          reviewNotes: {
-            requiredReview: true,
-            requiredApproval: true,
-            safeMode: true,
-          },
-          testSummary: {
-            validationStatus: "pending",
-            scenarioRunIds: [],
-            regressionRunIds: [],
-          },
-          docImpact: {
-            relatedDocs: [],
-            relatedScenarios: [],
-            relatedRegressions: [],
-          },
-        },
-        metadata: {
-          source: "test",
-          workspaceId: workspace.id,
-        },
-        createdAt: now,
-        updatedAt: now,
-        reviewedAt: null,
-        approvedAt: null,
-      });
-    } finally {
-      insertDb.close();
-    }
+    const { proposalId } = insertProposalFixture({
+      dbPath,
+      item,
+      runId,
+      runStatus: "completed",
+      sourceExecutionId,
+      proposalStatus: "ready_for_review",
+      promotion: {
+        sourceExecutionId: "execution-stale-metadata",
+      },
+    });
 
     const reviewPackage = getProposalReviewPackage(proposalId, dbPath);
     assert.ok(reviewPackage);
@@ -318,6 +339,82 @@ test("proposal promotion context uses durable source execution without reusing w
         (blocker) => blocker.code !== "missing_promotion_source_execution",
       ),
     );
+  } finally {
+    await fs.rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("legacy blocked-run proposals are forced into recovery instead of review or approval", async () => {
+  const tempRoot = await fs.mkdtemp(
+    path.join(os.tmpdir(), "spore-invalid-governance-proposal-"),
+  );
+  const dbPath = path.join(tempRoot, "orchestrator.sqlite");
+
+  try {
+    const item = createWorkItem(
+      {
+        title: "Legacy blocked proposal",
+        kind: "workflow",
+        goal: "Keep invalid proposals out of governance.",
+        metadata: {
+          projectPath: "config/projects/spore.yaml",
+          domainId: "docs",
+          mutationScope: ["docs"],
+          safeMode: true,
+        },
+      },
+      dbPath,
+    );
+
+    const runId = `work-item-run-${Date.now()}`;
+    const { proposalId } = insertProposalFixture({
+      dbPath,
+      item,
+      runId,
+      runStatus: "blocked",
+      sourceExecutionId: null,
+      proposalStatus: "ready_for_review",
+      promotion: {
+        sourceExecutionId: "execution-stale-metadata",
+      },
+    });
+
+    const reviewPackage = getProposalReviewPackage(proposalId, dbPath);
+    assert.ok(reviewPackage);
+    assert.equal(reviewPackage.promotion.sourceExecutionId, null);
+    assert.ok(
+      reviewPackage.promotion.blockers.some(
+        (blocker) => blocker.code === "missing_promotion_source_execution",
+      ),
+    );
+    assert.ok(
+      reviewPackage.suggestedActions.every(
+        (action) => action.action !== "review-proposal",
+      ),
+    );
+
+    const reviewed = await reviewProposalArtifact(
+      proposalId,
+      {
+        status: "reviewed",
+        by: "test-runner",
+      },
+      dbPath,
+    );
+    assert.ok(reviewed);
+    assert.equal(reviewed.status, "rework_required");
+
+    const approved = await approveProposalArtifact(
+      proposalId,
+      {
+        status: "approved",
+        by: "test-runner",
+        targetBranch: "main",
+      },
+      dbPath,
+    );
+    assert.ok(approved);
+    assert.equal(approved.status, "rework_required");
   } finally {
     await fs.rm(tempRoot, { recursive: true, force: true });
   }

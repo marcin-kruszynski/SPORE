@@ -4215,7 +4215,8 @@ export function getSelfBuildWorkItemRun(
   }
   if (
     (run.metadata?.proposalArtifactId ?? proposal?.id) &&
-    proposal?.status === "ready_for_review"
+    proposal?.status === "ready_for_review" &&
+    isProposalGovernanceReady(proposal, dbPath)
   ) {
     suggestedActions.push({
       action: "review-proposal",
@@ -4231,7 +4232,8 @@ export function getSelfBuildWorkItemRun(
   }
   if (
     (run.metadata?.proposalArtifactId ?? proposal?.id) &&
-    proposal?.status === "approved"
+    proposal?.status === "approved" &&
+    isProposalGovernanceReady(proposal, dbPath)
   ) {
     const promotion = resolveProposalPromotionContext(proposal, {}, dbPath);
     suggestedActions.push({
@@ -5879,7 +5881,72 @@ function resolveProposalSourceExecutionId(
   if (workItemRunTerminalKind(run) !== "completed") {
     return null;
   }
-  return toText(run?.result?.executionId, "") || null;
+  const workspace = withDatabase(dbPath, (db) =>
+    getWorkspaceAllocationByRunId(db, proposal.workItemRunId),
+  );
+  return (
+    toText(run?.result?.executionId, "") ||
+    toText(workspace?.executionId, "") ||
+    null
+  );
+}
+
+function buildProposalGovernanceContext(
+  proposal,
+  dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
+) {
+  if (!proposal) {
+    return {
+      run: null,
+      sourceExecutionId: null,
+      blockers: [
+        {
+          code: "proposal_not_found",
+          reason: "Proposal artifact not found.",
+        },
+      ],
+      ready: false,
+    };
+  }
+  const run = proposal.workItemRunId
+    ? withDatabase(dbPath, (db) => getWorkItemRun(db, proposal.workItemRunId))
+    : null;
+  const sourceExecutionId = resolveProposalSourceExecutionId(proposal, dbPath);
+  const blockers = [];
+  if (!run) {
+    blockers.push({
+      code: "missing_proposal_source_run",
+      reason:
+        "Proposal cannot enter review or approval because the originating work-item run is missing.",
+    });
+  } else if (workItemRunTerminalKind(run) !== "completed") {
+    blockers.push({
+      code: "invalid_proposal_source_run",
+      reason: `Proposal cannot enter review or approval because the originating work-item run is ${run.status}.`,
+      runStatus: run.status ?? null,
+      workItemRunId: run.id,
+    });
+  }
+  if (proposal.kind === "workflow" && !sourceExecutionId) {
+    blockers.push({
+      code: "missing_promotion_source_execution",
+      reason:
+        "Proposal cannot be promoted because the originating work-item run has no durable executionId.",
+    });
+  }
+  return {
+    run,
+    sourceExecutionId,
+    blockers,
+    ready: blockers.length === 0,
+  };
+}
+
+function isProposalGovernanceReady(
+  proposal,
+  dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
+) {
+  return buildProposalGovernanceContext(proposal, dbPath).ready;
 }
 
 function resolveProposalPromotionContext(
@@ -5887,10 +5954,8 @@ function resolveProposalPromotionContext(
   options: LooseRecord = {},
   dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
 ) {
-  const sourceExecutionId =
-    options.executionId ??
-    proposal?.metadata?.promotion?.sourceExecutionId ??
-    resolveProposalSourceExecutionId(proposal, dbPath);
+  const governance = buildProposalGovernanceContext(proposal, dbPath);
+  const sourceExecutionId = governance.sourceExecutionId;
   const targetBranch =
     options.targetBranch ??
     proposal?.metadata?.promotion?.targetBranch ??
@@ -5899,20 +5964,7 @@ function resolveProposalPromotionContext(
     options.integrationBranch ??
     proposal?.metadata?.promotion?.integrationBranch ??
     null;
-  const blockers = [];
-  if (!proposal) {
-    blockers.push({
-      code: "proposal_not_found",
-      reason: "Proposal artifact not found.",
-    });
-  }
-  if (!sourceExecutionId) {
-    blockers.push({
-      code: "missing_promotion_source_execution",
-      reason:
-        "Proposal cannot be promoted because the originating work-item run has no durable executionId.",
-    });
-  }
+  const blockers = [...governance.blockers];
   if (!proposal?.artifacts?.workspace?.branchName && !integrationBranch) {
     blockers.push({
       code: "missing_workspace_branch",
@@ -5953,13 +6005,20 @@ function buildProposalReviewPackage(
   const workspace = proposal.workItemRunId
     ? getWorkspaceByRun(proposal.workItemRunId, dbPath)
     : null;
+  const governance = buildProposalGovernanceContext(proposal, dbPath);
   const promotion = resolveProposalPromotionContext(proposal, {}, dbPath);
   const readiness = buildProposalValidationStatus(proposal);
   const executionDetail = promotion.sourceExecutionId
     ? getExecutionDetail(promotion.sourceExecutionId, dbPath)
     : null;
+  const effectiveProposalStatus = governance.ready
+    ? String(proposal.status)
+    : "rework_required";
   return {
-    proposal: buildProposalSummary(proposal),
+    proposal: buildProposalSummary({
+      ...proposal,
+      status: effectiveProposalStatus,
+    }),
     workItemRun: run,
     workItem,
     workspace,
@@ -5994,11 +6053,17 @@ function buildProposalReviewPackage(
       blockers: readiness.blockers,
       requiredBundles: readiness.requiredBundles,
     },
+    governance: {
+      ready: governance.ready,
+      blockers: governance.blockers,
+      sourceExecutionId: governance.sourceExecutionId,
+      sourceRunStatus: governance.run?.status ?? null,
+    },
     reviewHistory: asArray(proposal.metadata?.reviewHistory),
     approvalHistory: asArray(proposal.metadata?.approvalHistory),
     reworkHistory: asArray(proposal.metadata?.reworkHistory),
     suggestedActions: [
-      proposal.status === "ready_for_review"
+      governance.ready && effectiveProposalStatus === "ready_for_review"
         ? {
             action: "review-proposal",
             targetType: "proposal",
@@ -6009,7 +6074,8 @@ function buildProposalReviewPackage(
             priority: "high",
           }
         : null,
-      ["reviewed", "waiting_approval"].includes(String(proposal.status))
+      governance.ready &&
+      ["reviewed", "waiting_approval"].includes(effectiveProposalStatus)
         ? {
             action: "approve-proposal",
             targetType: "proposal",
@@ -6020,12 +6086,13 @@ function buildProposalReviewPackage(
             priority: "high",
           }
         : null,
+      governance.ready &&
       [
         "approved",
         "promotion_ready",
         "validation_required",
         "promotion_blocked",
-      ].includes(String(proposal.status))
+      ].includes(effectiveProposalStatus)
         ? {
             action: promotion.ready
               ? readiness.ready
@@ -6050,8 +6117,21 @@ function buildProposalReviewPackage(
             priority: promotion.ready && readiness.ready ? "medium" : "high",
           }
         : null,
+      !governance.ready
+        ? {
+            action: "rework-proposal",
+            targetType: "proposal",
+            targetId: proposal.id,
+            reason:
+              governance.blockers[0]?.reason ??
+              "Proposal needs recovery before governance can continue.",
+            commandHint: `npm run orchestrator:proposal-review-package -- --proposal ${proposal.id}`,
+            httpHint: `/proposal-artifacts/${encodeURIComponent(proposal.id)}/review-package`,
+            priority: "high",
+          }
+        : null,
       ["rework_required", "validation_failed", "promotion_blocked"].includes(
-        String(proposal.status),
+        effectiveProposalStatus,
       )
         ? {
             action: "rework-proposal",
@@ -6486,6 +6566,29 @@ export async function reviewProposalArtifact(
   if (!artifact) {
     return null;
   }
+  const governance = buildProposalGovernanceContext(artifact, dbPath);
+  if (!governance.ready) {
+    const blockedAt = nowIso();
+    const updated = {
+      ...artifact,
+      status: "rework_required",
+      updatedAt: blockedAt,
+      metadata: {
+        ...artifact.metadata,
+        governance: {
+          ...(artifact.metadata?.governance ?? {}),
+          sourceExecutionId: governance.sourceExecutionId,
+          blockers: governance.blockers,
+          sourceRunStatus: governance.run?.status ?? null,
+          lastBlockedAction: "review",
+          updatedAt: blockedAt,
+        },
+        nextAction: "inspect-source-run",
+      },
+    };
+    withDatabase(dbPath, (db) => updateProposalArtifact(db, updated));
+    return buildProposalSummary(updated);
+  }
   const status =
     String(decision.status ?? "reviewed").trim() === "rejected"
       ? "rejected"
@@ -6534,7 +6637,39 @@ export async function approveProposalArtifact(
   }
   const approved = decision.status ?? "approved";
   const approvedAt = nowIso();
+  const governance = buildProposalGovernanceContext(artifact, dbPath);
   const sourceExecutionId = resolveProposalSourceExecutionId(artifact, dbPath);
+  if (approved === "approved" && !governance.ready) {
+    const updated = {
+      ...artifact,
+      status: "rework_required",
+      updatedAt: approvedAt,
+      metadata: {
+        ...artifact.metadata,
+        governance: {
+          ...(artifact.metadata?.governance ?? {}),
+          sourceExecutionId: governance.sourceExecutionId,
+          blockers: governance.blockers,
+          sourceRunStatus: governance.run?.status ?? null,
+          lastBlockedAction: "approval",
+          updatedAt: approvedAt,
+        },
+        promotion: compactObject({
+          ...(artifact.metadata?.promotion ?? {}),
+          status: "blocked",
+          targetBranch:
+            decision.targetBranch ?? artifact.metadata?.promotion?.targetBranch,
+          integrationBranch: artifact.metadata?.promotion?.integrationBranch,
+          sourceExecutionId: governance.sourceExecutionId,
+          blockers: governance.blockers,
+          updatedAt: approvedAt,
+        }),
+        nextAction: "inspect-source-run",
+      },
+    };
+    withDatabase(dbPath, (db) => updateProposalArtifact(db, updated));
+    return buildProposalSummary(updated);
+  }
   const blockers =
     approved === "approved" && !sourceExecutionId
       ? [
@@ -8954,10 +9089,13 @@ export function getSelfBuildSummary(dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
   );
   const failedItems = workItems.filter((item) => item.status === "failed");
   const waitingReviewProposals = proposals.filter(
-    (proposal) => proposal.status === "ready_for_review",
+    (proposal) =>
+      proposal.status === "ready_for_review" &&
+      isProposalGovernanceReady(proposal, dbPath),
   );
   const waitingApprovalProposals = proposals.filter((proposal) =>
-    ["reviewed", "waiting_approval"].includes(proposal.status),
+    ["reviewed", "waiting_approval"].includes(proposal.status) &&
+    isProposalGovernanceReady(proposal, dbPath),
   );
   const promotionPendingProposals = proposals.filter((proposal) =>
     isProposalPromotionPending(proposal),
