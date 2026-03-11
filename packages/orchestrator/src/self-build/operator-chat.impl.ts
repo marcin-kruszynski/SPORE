@@ -612,6 +612,18 @@ function threadObjective(thread: LooseRecord) {
   );
 }
 
+function threadDisplayTitle(thread: LooseRecord) {
+  const storedTitle = toText(thread.title, "");
+  const objective = threadObjective(thread);
+  if (storedTitle && storedTitle !== objective) {
+    return storedTitle;
+  }
+  const shortenedObjective = safeExcerpt(objective, 56);
+  return shortenedObjective === objective
+    ? `Mission: ${objective}`
+    : shortenedObjective;
+}
+
 function buildThreadEvidenceSummary(context: LooseRecord) {
   const goalPlan = asObject(context.goalPlan);
   const proposal = asObject(context.proposal);
@@ -768,6 +780,7 @@ function buildThreadProgress(
               : "upcoming",
     })),
     currentStage,
+    currentState: exceptionState ?? currentStage,
     exceptionState,
   };
 }
@@ -955,7 +968,7 @@ function buildThreadHero(
   }
 
   return {
-    title: threadObjective(thread),
+    title: threadDisplayTitle(thread),
     statusLine,
     phase: OPERATOR_PHASE_LABELS[currentStage] ?? "Mission",
     primaryCtaHint: toText(
@@ -1000,7 +1013,7 @@ function describePendingAction(
     threadSummary:
       thread && progress
         ? {
-            title: threadObjective(thread),
+            title: threadDisplayTitle(thread),
             objective: threadObjective(thread),
           }
         : null,
@@ -1986,6 +1999,18 @@ async function syncThreadState(threadId: string, dbPath: string) {
     decisionGuidance:
       asObject(projectedPendingActions[0]).decisionGuidance ??
       buildDecisionGuidance(null, thread, progress),
+    inboxSummary: asObject(projectedPendingActions[0]).inboxSummary ?? {
+      urgency: progress.currentState === "completed" ? "normal" : "low",
+      reason: toText(
+        asObject(asObject(projectedPendingActions[0]).decisionGuidance ?? {})
+          .why,
+        "No operator decision is pending.",
+      ),
+      waitingLabel:
+        progress.currentState === "completed"
+          ? "Mission completed"
+          : "No pending operator action",
+    },
     pendingActions: projectedPendingActions,
     actionHistory: projectedActionHistory,
     context,
@@ -2137,7 +2162,14 @@ export async function createOperatorThread(
   const execution = normalizeExecutionSettings(payload);
   const thread = {
     id: createId("operator-thread"),
-    title: toText(payload.title, safeExcerpt(content, 72)),
+    title: toText(
+      payload.title,
+      threadDisplayTitle({
+        title: "",
+        summary: {},
+        metadata: { mission: { objective: content } },
+      }),
+    ),
     projectId: execution.projectId ?? "spore",
     status: "active",
     summary: {

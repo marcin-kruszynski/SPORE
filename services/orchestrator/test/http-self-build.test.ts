@@ -48,9 +48,11 @@ function assertThreadUxProjection(
   detail: JsonRecord,
   expectations: {
     currentStage?: string;
+    currentState?: string;
     exceptionState?: string | null;
     statusLineIncludes?: RegExp;
     suggestedReplies?: "empty" | "non-empty";
+    expectDistinctTitle?: boolean;
   } = {},
 ) {
   const hero = asObject(detail.hero);
@@ -58,6 +60,11 @@ function assertThreadUxProjection(
   assert.equal(typeof hero.statusLine, "string");
   assert.equal(typeof hero.phase, "string");
   assert.ok(asObject(hero.badges));
+  const summary = asObject(detail.summary);
+  assert.equal(hero.title, detail.title);
+  if (expectations.expectDistinctTitle) {
+    assert.notEqual(hero.title, summary.objective);
+  }
 
   const progress = asObject(detail.progress);
   const stages = asArray<JsonRecord>(progress.stages);
@@ -66,8 +73,12 @@ function assertThreadUxProjection(
     OPERATOR_PROGRESS_STAGE_IDS,
   );
   assert.equal(typeof progress.currentStage, "string");
+  assert.equal(typeof progress.currentState, "string");
   if (expectations.currentStage) {
     assert.equal(progress.currentStage, expectations.currentStage);
+  }
+  if (expectations.currentState) {
+    assert.equal(progress.currentState, expectations.currentState);
   }
   if (Object.hasOwn(expectations, "exceptionState")) {
     assert.equal(progress.exceptionState ?? null, expectations.exceptionState);
@@ -75,6 +86,11 @@ function assertThreadUxProjection(
 
   const evidenceSummary = asObject(detail.evidenceSummary);
   assert.ok(evidenceSummary);
+
+  const inboxSummary = asObject(detail.inboxSummary);
+  assert.equal(typeof inboxSummary.urgency, "string");
+  assert.equal(typeof inboxSummary.reason, "string");
+  assert.equal(typeof inboxSummary.waitingLabel, "string");
 
   const decisionGuidance = asObject(detail.decisionGuidance);
   assert.equal(typeof decisionGuidance.title, "string");
@@ -98,6 +114,8 @@ function assertInboxActionProjection(
   actionKind: string,
   expectations: {
     suggestedReplies?: "empty" | "non-empty";
+    threadTitle?: string;
+    objective?: string;
   } = {},
 ) {
   assert.equal(action.actionKind, actionKind);
@@ -105,6 +123,13 @@ function assertInboxActionProjection(
   const threadSummary = asObject(action.threadSummary);
   assert.equal(typeof threadSummary.title, "string");
   assert.equal(typeof threadSummary.objective, "string");
+  if (expectations.threadTitle) {
+    assert.equal(threadSummary.title, expectations.threadTitle);
+  }
+  if (expectations.objective) {
+    assert.equal(threadSummary.objective, expectations.objective);
+    assert.notEqual(threadSummary.title, threadSummary.objective);
+  }
 
   const inboxSummary = asObject(action.inboxSummary);
   assert.equal(typeof inboxSummary.urgency, "string");
@@ -1320,9 +1345,11 @@ test("operator chat routes create governed threads and accept chat-driven approv
   );
   assertThreadUxProjection(asObject(createdThread.json.detail), {
     currentStage: "plan_approval",
+    currentState: "plan_approval",
     exceptionState: null,
     statusLineIncludes: /approval before i start/i,
     suggestedReplies: "non-empty",
+    expectDistinctTitle: true,
   });
 
   const threadId = createdThread.json.detail.id;
@@ -1375,6 +1402,8 @@ test("operator chat routes create governed threads and accept chat-driven approv
   assert.ok(goalPlanReviewAction);
   assertInboxActionProjection(goalPlanReviewAction, "goal-plan-review", {
     suggestedReplies: "non-empty",
+    threadTitle: createdThread.json.detail.title,
+    objective: createdThread.json.detail.summary.objective,
   });
 
   const editedThread = await postJson(
@@ -1592,9 +1621,11 @@ test("operator chat supports proposal rework and quarantine release flows", asyn
   );
   assertThreadUxProjection(asObject(reviewPending), {
     currentStage: "proposal_review",
+    currentState: "proposal_review",
     exceptionState: null,
     statusLineIncludes: /proposal review/i,
     suggestedReplies: "empty",
+    expectDistinctTitle: true,
   });
   const reviewPendingInbox = await getJson(
     `http://127.0.0.1:${ORCHESTRATOR_PORT}/operator/actions?threadId=${encodeURIComponent(reworkThreadId)}`,
@@ -1606,6 +1637,8 @@ test("operator chat supports proposal rework and quarantine release flows", asyn
   assert.ok(proposalReviewAction);
   assertInboxActionProjection(proposalReviewAction, "proposal-review", {
     suggestedReplies: "empty",
+    threadTitle: reviewPending.title,
+    objective: asObject(reviewPending.summary).objective as string,
   });
 
   await postJson(
@@ -1632,9 +1665,11 @@ test("operator chat supports proposal rework and quarantine release flows", asyn
   );
   assertThreadUxProjection(asObject(reworkPending), {
     currentStage: "proposal_review",
+    currentState: "rework",
     exceptionState: "rework",
     statusLineIncludes: /rework/i,
     suggestedReplies: "empty",
+    expectDistinctTitle: true,
   });
   const reworkPendingInbox = await getJson(
     `http://127.0.0.1:${ORCHESTRATOR_PORT}/operator/actions?threadId=${encodeURIComponent(reworkThreadId)}`,
@@ -1646,6 +1681,8 @@ test("operator chat supports proposal rework and quarantine release flows", asyn
   assert.ok(proposalReworkAction);
   assertInboxActionProjection(proposalReworkAction, "proposal-rework", {
     suggestedReplies: "empty",
+    threadTitle: reworkPending.title,
+    objective: asObject(reworkPending.summary).objective as string,
   });
 
   const reworked = await postJson(
@@ -1735,9 +1772,11 @@ test("operator chat supports proposal rework and quarantine release flows", asyn
   assert.ok(releasePending.context.activeQuarantine);
   assertThreadUxProjection(asObject(releasePending), {
     currentStage: "proposal_review",
+    currentState: "quarantined",
     exceptionState: "quarantined",
     statusLineIncludes: /quarantined/i,
     suggestedReplies: "empty",
+    expectDistinctTitle: true,
   });
   const quarantinePendingInbox = await getJson(
     `http://127.0.0.1:${ORCHESTRATOR_PORT}/operator/actions?threadId=${encodeURIComponent(quarantineThreadId)}`,
@@ -1749,6 +1788,8 @@ test("operator chat supports proposal rework and quarantine release flows", asyn
   assert.ok(quarantineReleaseAction);
   assertInboxActionProjection(quarantineReleaseAction, "quarantine-release", {
     suggestedReplies: "empty",
+    threadTitle: releasePending.title,
+    objective: asObject(releasePending.summary).objective as string,
   });
 
   const released = await postJson(
@@ -1815,9 +1856,11 @@ test("operator chat supports proposal rework and quarantine release flows", asyn
   );
   assertThreadUxProjection(asObject(approvalPending), {
     currentStage: "proposal_approval",
+    currentState: "proposal_approval",
     exceptionState: null,
     statusLineIncludes: /needs approval/i,
     suggestedReplies: "empty",
+    expectDistinctTitle: true,
   });
   const approvalPendingInbox = await getJson(
     `http://127.0.0.1:${ORCHESTRATOR_PORT}/operator/actions?threadId=${encodeURIComponent(promotionThreadId)}`,
@@ -1829,6 +1872,8 @@ test("operator chat supports proposal rework and quarantine release flows", asyn
   assert.ok(proposalApprovalAction);
   assertInboxActionProjection(proposalApprovalAction, "proposal-approval", {
     suggestedReplies: "empty",
+    threadTitle: approvalPending.title,
+    objective: asObject(approvalPending.summary).objective as string,
   });
 
   const promotionProposalId = String(
@@ -1849,9 +1894,11 @@ test("operator chat supports proposal rework and quarantine release flows", asyn
   );
   assertThreadUxProjection(asObject(promotionPending), {
     currentStage: "promotion",
+    currentState: "promotion",
     exceptionState: null,
     statusLineIncludes: /promot/i,
     suggestedReplies: "empty",
+    expectDistinctTitle: true,
   });
   const promotionPendingInbox = await getJson(
     `http://127.0.0.1:${ORCHESTRATOR_PORT}/operator/actions?threadId=${encodeURIComponent(promotionThreadId)}`,
@@ -1863,6 +1910,8 @@ test("operator chat supports proposal rework and quarantine release flows", asyn
   assert.ok(proposalPromotionAction);
   assertInboxActionProjection(proposalPromotionAction, "proposal-promotion", {
     suggestedReplies: "empty",
+    threadTitle: promotionPending.title,
+    objective: asObject(promotionPending.summary).objective as string,
   });
 
   setProposalPromotionCandidate(promotionProposalId);
@@ -1873,8 +1922,10 @@ test("operator chat supports proposal rework and quarantine release flows", asyn
   );
   assertThreadUxProjection(asObject(completedThread), {
     currentStage: "promotion",
+    currentState: "completed",
     exceptionState: "completed",
     statusLineIncludes: /completed|promotion launched/i,
     suggestedReplies: "empty",
+    expectDistinctTitle: true,
   });
 });
