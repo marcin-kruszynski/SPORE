@@ -7278,7 +7278,7 @@ export async function validateWorkItemRun(
   const fallbackRegressionIds = dedupe(
     item.metadata?.recommendedRegressions ?? item.relatedRegressions ?? [],
   );
-  const shouldWait = options.wait !== false;
+  const shouldWait = options.wait === true;
   const currentValidation = proposal?.metadata?.validation ?? run.metadata?.validation;
   if (
     currentValidation &&

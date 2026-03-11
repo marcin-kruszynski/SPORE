@@ -1468,6 +1468,7 @@ async function main() {
     }
     const detail = await validateWorkItemGroupBundle(flags.group, {
       bundleIds: flags.bundles ? parseCsv(flags.bundles) : [],
+      wait: flags.wait === true,
       by: flags.by ?? "operator",
       source: flags.source ?? "cli",
       stub: flags.stub !== false,
@@ -1707,6 +1708,7 @@ async function main() {
       throw new Error("use work-item-validate --run <id>");
     }
     const detail = await validateWorkItemRun(flags.run, {
+      wait: flags.wait === true,
       timeout: flags.timeout ?? "180000",
       interval: flags.interval ?? "1500",
       noMonitor: flags["no-monitor"] === true,
@@ -1730,6 +1732,7 @@ async function main() {
     }
     const detail = await validateWorkItemRun(flags.run, {
       bundleIds: flags.bundles ? parseCsv(flags.bundles) : [],
+      wait: flags.wait === true,
       timeout: flags.timeout ?? "180000",
       interval: flags.interval ?? "1500",
       noMonitor: flags["no-monitor"] === true,

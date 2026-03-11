@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import test from "node:test";
 
+import { buildTsxEntrypointArgs } from "@spore/core";
 import {
   findFreePort,
   getJson,
@@ -13,11 +15,18 @@ import {
 } from "@spore/test-support";
 
 import {
+  insertWorkItemGroup,
   getProposalArtifact,
   insertProposalArtifact,
   insertWorkItemRun,
   openOrchestratorDatabase,
 } from "../../../packages/orchestrator/src/store/execution-store.js";
+import {
+  createManagedWorkItem,
+  getSelfBuildWorkItemRun,
+  runSelfBuildWorkItem,
+} from "../../../packages/orchestrator/src/self-build/managed-work.js";
+import { validateWorkItemGroupBundle } from "../../../packages/orchestrator/src/self-build/work-item-groups.js";
 import type { HarnessTempPathsWithEventLog } from "./helpers/http-harness.js";
 
 type JsonRecord = Record<string, unknown>;
@@ -50,7 +59,40 @@ async function startServer(t: test.TestContext, prefix: string) {
   });
 
   await waitForHealth(`http://127.0.0.1:${port}/health`);
-  return { port, dbPath };
+  return { port, dbPath, sessionDbPath, eventLogPath };
+}
+
+async function runCliJson(args: string[], env: NodeJS.ProcessEnv = {}) {
+  return await new Promise<JsonRecord>((resolve, reject) => {
+    const child = spawn(
+      process.execPath,
+      buildTsxEntrypointArgs("packages/orchestrator/src/cli/spore-orchestrator.js", args),
+      {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          ...env,
+        },
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk.toString();
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk.toString();
+    });
+    child.on("exit", (code) => {
+      if (code === 0) {
+        resolve(JSON.parse(stdout));
+        return;
+      }
+      reject(new Error(stderr || stdout || `cli failed with code ${code ?? 1}`));
+    });
+    child.on("error", reject);
+  });
 }
 
 async function waitForValidationState(
@@ -75,6 +117,27 @@ async function waitForValidationState(
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
   throw new Error(`timed out waiting for validation state on run ${runId}`);
+}
+
+async function waitForValidationStateInDb(
+  dbPath: string,
+  runId: string,
+  predicate: (state: JsonRecord) => boolean,
+  timeoutMs = 60000,
+) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    const detail = asObject(getSelfBuildWorkItemRun(runId, dbPath));
+    const state = asObject(detail.validation);
+    if (predicate(state)) {
+      return {
+        detail,
+        state,
+      };
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error(`timed out waiting for persisted validation state on run ${runId}`);
 }
 
 async function waitForThreadDetail(
@@ -424,4 +487,122 @@ test("operator chat reads persisted validation state while auto-validation runs"
   } finally {
     db.close();
   }
+});
+
+test("CLI validation commands queue validation instead of waiting for completion", async (t) => {
+  const { dbPath, sessionDbPath, eventLogPath, port } = await startServer(
+    t,
+    "spore-cli-self-build-validation-",
+  );
+  const { runId, proposalId } = await createOperatorUiRun(port, dbPath);
+
+  const payload = await runCliJson(
+    [
+      "work-item-validate",
+      "--run",
+      runId,
+      "--stub",
+      "--by",
+      "test-runner",
+      "--source",
+      "http-self-build-validation-test",
+    ],
+    {
+      SPORE_ORCHESTRATOR_DB_PATH: dbPath,
+      SPORE_SESSION_DB_PATH: sessionDbPath,
+      SPORE_EVENT_LOG_PATH: eventLogPath,
+    },
+  );
+
+  assert.equal(payload.ok, true);
+  const validation = asObject(asObject(payload.detail).validation);
+  assert.ok(["queued", "running"].includes(String(validation.status)));
+  assert.equal(validation.targetType, "proposal");
+  assert.equal(validation.targetId, proposalId);
+  assert.equal(validation.bundleId, "frontend-ui-pass");
+  assert.equal(validation.endedAt ?? null, null);
+
+  const completed = await waitForValidationState(
+    port,
+    runId,
+    (state) => String(state.status) === "completed",
+  );
+  assert.equal(completed.state.bundleId, "frontend-ui-pass");
+});
+
+test("internal group validation bundle queues instead of waiting for completion", async (t) => {
+  const { dbPath } = await startServer(t, "spore-group-validation-");
+  const groupId = `group-${Date.now()}`;
+  const timestamp = new Date().toISOString();
+
+  const db = openOrchestratorDatabase(dbPath);
+  try {
+    insertWorkItemGroup(db, {
+      id: groupId,
+      title: "Operator UI validation group",
+      goalPlanId: null,
+      status: "pending",
+      summary: {},
+      metadata: {},
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      lastRunAt: null,
+    });
+  } finally {
+    db.close();
+  }
+
+  const item = await createManagedWorkItem(
+    {
+      templateId: "operator-ui-pass",
+      goal: "Add a day/night mode toggle to the operator dashboard.",
+      metadata: {
+        groupId,
+      },
+      by: "test-runner",
+      source: "http-self-build-validation-test",
+    },
+    dbPath,
+  );
+
+  const seededRun = await runSelfBuildWorkItem(
+    item.id,
+    {
+      stub: true,
+      timeout: 12000,
+      interval: 250,
+      by: "test-runner",
+      source: "http-self-build-validation-test",
+    },
+    dbPath,
+  );
+  const runId = String(asObject(seededRun?.run).id ?? "");
+  assert.ok(runId);
+
+  const result = await validateWorkItemGroupBundle(
+    groupId,
+    {
+      stub: true,
+      timeout: 12000,
+      interval: 250,
+      by: "test-runner",
+      source: "http-self-build-validation-test",
+    },
+    dbPath,
+  );
+
+  assert.ok(result);
+  const validationResults = asArray<JsonRecord>(result.validationResults);
+  assert.ok(validationResults.length > 0);
+  assert.ok(
+    validationResults.every((entry) =>
+      ["queued", "running"].includes(String(asObject(entry.validation).status)),
+    ),
+  );
+
+  const persisted = asObject(getSelfBuildWorkItemRun(runId, dbPath));
+  const persistedValidation = asObject(persisted.validation);
+  assert.ok(["queued", "running"].includes(String(persistedValidation.status)));
+  assert.equal(persistedValidation.bundleId, "frontend-ui-pass");
+  assert.equal(asObject(persisted.item).id, item.id);
 });
