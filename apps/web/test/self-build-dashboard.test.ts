@@ -540,7 +540,14 @@ test("web proxy exposes operator chat routes and operator chat shell", async (t)
   const html = await htmlResponse.text();
   assert.ok(html.includes("Operator Chat"));
   assert.ok(html.includes("operator-chat-view"));
+  assert.ok(html.includes("operator-mission-hero"));
+  assert.ok(html.includes("operator-current-decision"));
+  assert.ok(html.includes("operator-progress-strip"));
+  assert.ok(html.includes("operator-quick-replies"));
   assert.ok(html.includes("operator-inbox-list"));
+  assert.ok(html.includes("data-mission-focus"));
+  assert.ok(html.includes("data-current-decision"));
+  assert.ok(html.includes("data-quick-reply"));
 
   const createdThread = await postJson(
     `${webOrigin}/api/orchestrator/operator/threads`,

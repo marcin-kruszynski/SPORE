@@ -178,14 +178,13 @@
       </section>
 
       <section id="operator-chat-view" class="view-container" style="display: none;">
-        <div class="operator-chat-layout">
+        <div class="operator-mission-console">
           <aside class="panel operator-chat-sidebar">
             <div class="panel-header">
               <div>
-                <h2>Threads</h2>
-                <p class="section-note">Conversation-first control over goal plans, review gates, validation, and promotion.</p>
+                <h2>Mission Intake</h2>
+                <p class="section-note">Start a governed mission, then use the inbox and guided console to move work through approvals, validation, and promotion.</p>
               </div>
-              <span id="operator-thread-count" class="muted">0 threads</span>
             </div>
 
             <form id="operator-thread-form" class="workflow-form operator-thread-form">
@@ -215,7 +214,7 @@
                 </label>
               </div>
               <div class="control-row">
-                <button type="submit" class="primary-button">Start Thread</button>
+                <button type="submit" class="primary-button">Start Mission</button>
                 <span id="operator-thread-feedback" class="muted">The orchestrator will turn this into a governed self-build flow.</span>
               </div>
             </form>
@@ -224,71 +223,91 @@
               <h3>Global Inbox</h3>
               <span id="operator-inbox-count" class="muted">0 pending</span>
             </div>
-            <div id="operator-inbox-list" class="operator-action-list detail-card empty-state">
+            <div id="operator-inbox-list" class="operator-action-list detail-card empty-state" data-mission-focus="inbox">
               Pending decisions across all missions will appear here.
             </div>
 
             <div class="panel-header nested">
-              <h3>Threads</h3>
-              <span class="muted">Mission list</span>
+              <h3>Missions</h3>
+              <span id="operator-thread-count" class="muted">0 missions</span>
             </div>
             <div id="operator-thread-list" class="operator-thread-list"></div>
           </aside>
 
-          <section class="panel operator-chat-main">
-            <div class="panel-header">
-              <div>
-                <h2 id="operator-chat-title">Operator Conversation</h2>
-                <p id="operator-chat-subtitle" class="section-note">Start a thread to let the orchestrator plan, run, validate, and stop for approvals only when needed.</p>
+          <section class="operator-chat-main">
+            <div class="panel operator-chat-overview-bar">
+              <div class="panel-header operator-chat-main-header">
+                <div>
+                  <h2 id="operator-chat-title">Mission Console</h2>
+                  <p id="operator-chat-subtitle" class="section-note">Select a mission to see the orchestrator-authored story, current decision, progress, and evidence in one place.</p>
+                </div>
+                <span id="operator-chat-state" class="muted">thread: idle</span>
               </div>
-              <span id="operator-chat-state" class="muted">thread: idle</span>
             </div>
 
             <div id="operator-chat-empty" class="detail-card empty-state">
-              No conversation selected. Start a new mission from the sidebar and the orchestrator will build the plan, manage the flow, and surface operator decisions here.
+              No mission selected. Start a new mission from the intake rail and the orchestrator will build the plan, manage the flow, and surface operator decisions here.
             </div>
 
             <div id="operator-chat-shell" class="operator-chat-shell" style="display: none;">
-              <div id="operator-message-list" class="operator-message-list"></div>
-              <form id="operator-chat-composer" class="operator-chat-composer">
-                <label class="form-label" for="operator-chat-input">Reply</label>
-                <textarea id="operator-chat-input" rows="4" placeholder="Reply in natural language, or answer directly with: approve, reject, edit, rework, quarantine, release, promote, hold, status."></textarea>
-                <div class="control-row">
-                  <button type="submit" class="primary-button">Send</button>
+              <section class="operator-mission-hero" id="operator-mission-hero"></section>
+              <section class="operator-progress-strip" id="operator-progress-strip"></section>
+              <section class="operator-current-decision" id="operator-current-decision" data-current-decision="true"></section>
+              <section class="operator-quick-replies" id="operator-quick-replies">
+                <button type="button" class="operator-quick-reply-chip" data-quick-reply="template" hidden>template</button>
+              </section>
+              <section class="panel operator-chat-conversation">
+                <div class="panel-header nested operator-chat-conversation-header">
+                  <h3>Conversation</h3>
                   <span id="operator-chat-feedback" class="muted">The orchestrator will route your message to the right governance step.</span>
                 </div>
-              </form>
+                <div id="operator-message-list" class="operator-message-list"></div>
+                <form id="operator-chat-composer" class="operator-chat-composer">
+                  <label class="form-label" for="operator-chat-input">Reply</label>
+                  <textarea id="operator-chat-input" rows="4" placeholder="Reply in natural language, or answer directly with: approve, reject, edit, rework, quarantine, release, promote, hold, status."></textarea>
+                  <div class="control-row">
+                    <button type="submit" class="primary-button">Send</button>
+                  </div>
+                </form>
+              </section>
             </div>
           </section>
 
-          <aside class="panel operator-chat-context">
-            <div class="panel-header">
-              <div>
-                <h2>Mission Control</h2>
-                <p class="section-note">Pending operator decisions, linked artifacts, and current execution settings.</p>
+          <aside class="operator-chat-context">
+            <section class="panel">
+              <div class="panel-header">
+                <div>
+                  <h2>Evidence Summary</h2>
+                  <p class="section-note">Server-authored plan, proposal, validation, promotion, and quarantine projections for the selected mission.</p>
+                </div>
               </div>
-              <span id="operator-pending-count" class="muted">0 pending</span>
-            </div>
+              <div id="operator-evidence-summary" class="detail-card empty-state">
+                Evidence summaries will appear here when a mission is selected.
+              </div>
+            </section>
 
-            <div id="operator-pending-actions" class="operator-action-list detail-card empty-state">
-              Pending decisions will appear here.
-            </div>
+            <section class="panel">
+              <div class="panel-header nested">
+                <h3>Linked Artifacts</h3>
+                <span id="operator-artifact-count" class="muted">0 links</span>
+              </div>
+              <div id="operator-linked-artifacts" class="operator-artifact-list detail-card empty-state">
+                The orchestrator will attach goal plans, groups, proposals, and integration branches here.
+              </div>
+            </section>
 
-            <div class="panel-header nested">
-              <h3>Linked Artifacts</h3>
-              <span id="operator-artifact-count" class="muted">0 links</span>
-            </div>
-            <div id="operator-linked-artifacts" class="operator-artifact-list detail-card empty-state">
-              The orchestrator will attach goal plans, groups, proposals, and integration branches here.
-            </div>
+            <section class="panel">
+              <div class="panel-header nested">
+                <h3>Mission Settings</h3>
+                <span class="muted">Execution policy</span>
+              </div>
+              <div id="operator-thread-settings" class="detail-card empty-state">
+                Thread execution settings will appear here.
+              </div>
+            </section>
 
-            <div class="panel-header nested">
-              <h3>Thread Settings</h3>
-              <span class="muted">Execution policy</span>
-            </div>
-            <div id="operator-thread-settings" class="detail-card empty-state">
-              Thread execution settings will appear here.
-            </div>
+            <div id="operator-pending-count" class="visually-hidden">0 pending</div>
+            <div id="operator-pending-actions" class="visually-hidden"></div>
           </aside>
         </div>
       </section>

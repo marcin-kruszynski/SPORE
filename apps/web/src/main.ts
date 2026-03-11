@@ -1,6 +1,21 @@
 /// <reference lib="dom" />
 /// <reference lib="dom.iterable" />
 
+import {
+  buildInboxActionSubmission,
+  buildQuickReplySubmission,
+  deriveMissionFocusState,
+  shouldRefreshInboxFromThreadEvent,
+} from "./operator-chat-controller.js";
+import {
+  renderOperatorCurrentDecision,
+  renderOperatorEvidenceSummary,
+  renderOperatorInboxRow,
+  renderOperatorMissionHero,
+  renderOperatorProgress,
+  renderOperatorQuickReplies,
+} from "./operator-chat-view.js";
+
 // biome-ignore lint/suspicious/noExplicitAny: the browser app renders heterogeneous operator payloads from many additive backend surfaces.
 type AnyRecord = Record<string, any>;
 
@@ -103,6 +118,8 @@ const state: AnyRecord = {
   operatorThreadDetail: null,
   operatorThreadDetailState: "idle",
   operatorThreadDetailError: null,
+  operatorHighlightedActionId: null,
+  operatorMissionFocusSource: null,
   operatorPendingInbox: [],
   operatorPendingInboxState: "idle",
   operatorPendingInboxError: null,
@@ -283,6 +300,10 @@ const els: AnyRecord = {
   operatorChatState: document.getElementById("operator-chat-state"),
   operatorChatEmpty: document.getElementById("operator-chat-empty"),
   operatorChatShell: document.getElementById("operator-chat-shell"),
+  operatorMissionHero: document.getElementById("operator-mission-hero"),
+  operatorCurrentDecision: document.getElementById("operator-current-decision"),
+  operatorProgressStrip: document.getElementById("operator-progress-strip"),
+  operatorQuickReplies: document.getElementById("operator-quick-replies"),
   operatorMessageList: document.getElementById("operator-message-list"),
   operatorChatComposer: document.getElementById("operator-chat-composer"),
   operatorChatInput: document.getElementById("operator-chat-input"),
@@ -290,6 +311,7 @@ const els: AnyRecord = {
   operatorPendingCount: document.getElementById("operator-pending-count"),
   operatorPendingActions: document.getElementById("operator-pending-actions"),
   operatorArtifactCount: document.getElementById("operator-artifact-count"),
+  operatorEvidenceSummary: document.getElementById("operator-evidence-summary"),
   operatorLinkedArtifacts: document.getElementById("operator-linked-artifacts"),
   operatorThreadSettings: document.getElementById("operator-thread-settings"),
 };
@@ -8236,19 +8258,35 @@ function connectOperatorThreadEventStream() {
   );
   state.operatorThreadEventSource = source;
 
+  const applyThreadEventPayload = (payload) => {
+    if (!payload?.ok) {
+      return;
+    }
+    const previousDetail = state.operatorThreadDetail;
+    state.operatorThreadDetail = payload.detail ?? null;
+    state.operatorThreadDetailState = "loaded";
+    renderOperatorChat();
+
+    const shouldRefreshInbox = shouldRefreshInboxFromThreadEvent(
+      previousDetail,
+      state.operatorThreadDetail,
+    );
+    const refreshTasks = [loadOperatorThreads()];
+    if (shouldRefreshInbox) {
+      refreshTasks.push(loadOperatorPendingInbox());
+    }
+
+    Promise.all(refreshTasks)
+      .then(() => {
+        renderOperatorInbox();
+        renderOperatorThreads();
+      })
+      .catch((error) => console.error(error));
+  };
+
   source.addEventListener("thread-ready", (event) => {
     try {
-      const payload = JSON.parse(event.data);
-      if (payload.ok) {
-        state.operatorThreadDetail = payload.detail ?? null;
-        renderOperatorChat();
-        Promise.all([loadOperatorThreads(), loadOperatorPendingInbox()])
-          .then(() => {
-            renderOperatorInbox();
-            renderOperatorThreads();
-          })
-          .catch((error) => console.error(error));
-      }
+      applyThreadEventPayload(JSON.parse(event.data));
     } catch (error) {
       console.error(error);
     }
@@ -8256,18 +8294,7 @@ function connectOperatorThreadEventStream() {
 
   source.addEventListener("thread-update", (event) => {
     try {
-      const payload = JSON.parse(event.data);
-      if (payload.ok) {
-        state.operatorThreadDetail = payload.detail ?? null;
-        state.operatorThreadDetailState = "loaded";
-        renderOperatorChat();
-        Promise.all([loadOperatorThreads(), loadOperatorPendingInbox()])
-          .then(() => {
-            renderOperatorInbox();
-            renderOperatorThreads();
-          })
-          .catch((error) => console.error(error));
-      }
+      applyThreadEventPayload(JSON.parse(event.data));
     } catch (error) {
       console.error(error);
     }
@@ -8317,23 +8344,11 @@ function renderOperatorInbox() {
   els.operatorInboxList.className = "operator-inbox-list";
   els.operatorInboxList.innerHTML = actions
     .map((action) => {
-      const choices = Array.isArray(action.choices) ? action.choices : [];
-      const thread = operatorThreadLookup(action.threadId);
       const active = action.threadId === state.selectedOperatorThreadId;
-      return `
-        <article class="operator-action-card ${active ? "active" : ""}" data-thread-id="${escapeHtml(String(action.threadId || ""))}">
-          <div class="operator-action-header">
-            <div>
-              <strong>${escapeHtml(String(action.title || action.actionKind || "Decision"))}</strong>
-              <div class="muted">${escapeHtml(String(action.targetType || "target"))}:${escapeHtml(String(action.targetId || "-"))}</div>
-            </div>
-            ${renderStatusBadge(action.status || "pending")}
-          </div>
-          <div class="operator-action-summary">${escapeHtml(String(action.summary || "Operator decision required."))}</div>
-          <div class="operator-inbox-thread">${escapeHtml(String(thread?.title || thread?.summary?.objective || action.threadId || "operator thread"))}</div>
-          ${choices.length > 0 ? `<div class="operator-action-controls">${choices.map((entry) => renderOperatorActionButton(action.id, entry)).join("")}</div>` : ""}
-        </article>
-      `;
+      return renderOperatorInboxRow(action, {
+        active,
+        threadFallback: operatorThreadLookup(action.threadId),
+      });
     })
     .join("");
 }
@@ -8584,19 +8599,18 @@ function renderOperatorChat() {
   const detail = state.operatorThreadDetail;
   if (els.operatorChatTitle) {
     els.operatorChatTitle.textContent =
-      detail?.title || "Operator Conversation";
+      detail?.hero?.title || detail?.title || "Mission Console";
   }
   if (els.operatorChatSubtitle) {
     els.operatorChatSubtitle.textContent =
+      detail?.hero?.statusLine ||
       detail?.summary?.objective ||
-      "Start a thread to let the orchestrator manage self-build on your behalf.";
+      "Start a mission to let the orchestrator manage self-build on your behalf.";
   }
   if (els.operatorChatState) {
     els.operatorChatState.textContent = detail
-      ? `thread:${detail.status || "idle"} · pending:${
-          Array.isArray(detail.pendingActions)
-            ? detail.pendingActions.length
-            : 0
+      ? `mission:${detail.progress?.currentState || detail.status || "idle"} · pending:${
+          Array.isArray(detail.pendingActions) ? detail.pendingActions.length : 0
         }`
       : `thread:${state.operatorThreadDetailState}`;
   }
@@ -8604,6 +8618,21 @@ function renderOperatorChat() {
   if (!detail) {
     if (els.operatorChatEmpty) els.operatorChatEmpty.style.display = "block";
     if (els.operatorChatShell) els.operatorChatShell.style.display = "none";
+    if (els.operatorMissionHero) {
+      els.operatorMissionHero.innerHTML = renderOperatorMissionHero(null);
+    }
+    if (els.operatorProgressStrip) {
+      els.operatorProgressStrip.innerHTML = renderOperatorProgress(null);
+    }
+    if (els.operatorCurrentDecision) {
+      els.operatorCurrentDecision.innerHTML = renderOperatorCurrentDecision(null);
+    }
+    if (els.operatorQuickReplies) {
+      els.operatorQuickReplies.innerHTML = renderOperatorQuickReplies(null);
+    }
+    if (els.operatorEvidenceSummary) {
+      els.operatorEvidenceSummary.innerHTML = renderOperatorEvidenceSummary(null);
+    }
     renderOperatorPendingActions(null);
     renderOperatorLinkedArtifacts(null);
     renderOperatorThreadSettings({ metadata: { execution: {} } });
@@ -8612,6 +8641,25 @@ function renderOperatorChat() {
 
   if (els.operatorChatEmpty) els.operatorChatEmpty.style.display = "none";
   if (els.operatorChatShell) els.operatorChatShell.style.display = "grid";
+
+  if (els.operatorMissionHero) {
+    els.operatorMissionHero.innerHTML = renderOperatorMissionHero(detail);
+  }
+  if (els.operatorProgressStrip) {
+    els.operatorProgressStrip.innerHTML = renderOperatorProgress(detail);
+  }
+  if (els.operatorCurrentDecision) {
+    els.operatorCurrentDecision.innerHTML = renderOperatorCurrentDecision(detail, {
+      emphasized: state.operatorMissionFocusSource === "inbox",
+      highlightedActionId: state.operatorHighlightedActionId,
+    });
+  }
+  if (els.operatorQuickReplies) {
+    els.operatorQuickReplies.innerHTML = renderOperatorQuickReplies(detail);
+  }
+  if (els.operatorEvidenceSummary) {
+    els.operatorEvidenceSummary.innerHTML = renderOperatorEvidenceSummary(detail);
+  }
 
   renderOperatorMessages(detail);
   renderOperatorPendingActions(detail);
@@ -8663,11 +8711,11 @@ async function createOperatorThreadFromForm() {
   }
 }
 
-async function sendOperatorChatReply() {
+async function sendOperatorChatReply(messageOverride = null) {
   if (!state.selectedOperatorThreadId || !els.operatorChatInput) {
     return;
   }
-  const message = els.operatorChatInput.value?.trim() || "";
+  const message = String(messageOverride ?? els.operatorChatInput.value ?? "").trim();
   if (!message) {
     if (els.operatorChatFeedback) {
       els.operatorChatFeedback.textContent = "Type a reply first.";
@@ -8678,18 +8726,17 @@ async function sendOperatorChatReply() {
     els.operatorChatFeedback.textContent = "Sending to orchestrator...";
   }
   try {
-    const payload = await orchestratorJson(
-      `/operator/threads/${encodeURIComponent(state.selectedOperatorThreadId)}/messages`,
-      {
-        method: "POST",
-        body: JSON.stringify({
-          message,
-          by: "web-operator",
-          source: "web-operator-chat",
-        }),
-      },
+    const submission = buildQuickReplySubmission(
+      state.selectedOperatorThreadId,
+      message,
     );
+    const payload = await orchestratorJson(submission.path, {
+      method: submission.method,
+      body: JSON.stringify(submission.body),
+    });
     state.operatorThreadDetail = payload.detail ?? null;
+    state.operatorHighlightedActionId = null;
+    state.operatorMissionFocusSource = "composer";
     if (els.operatorChatInput) {
       els.operatorChatInput.value = "";
     }
@@ -8713,20 +8760,16 @@ async function resolveOperatorChatAction(actionId, choice) {
     els.operatorChatFeedback.textContent = "Resolving operator action...";
   }
   try {
-    const payload = await orchestratorJson(
-      `/operator/actions/${encodeURIComponent(actionId)}/resolve`,
-      {
-        method: "POST",
-        body: JSON.stringify({
-          choice,
-          by: "web-operator",
-          source: "web-operator-chat",
-        }),
-      },
-    );
+    const submission = buildInboxActionSubmission(actionId, choice);
+    const payload = await orchestratorJson(submission.path, {
+      method: submission.method,
+      body: JSON.stringify(submission.body),
+    });
     state.operatorThreadDetail = payload.detail ?? null;
     state.selectedOperatorThreadId =
       payload.detail?.id || state.selectedOperatorThreadId;
+    state.operatorHighlightedActionId = null;
+    state.operatorMissionFocusSource = "action";
     await Promise.all([loadOperatorThreads(), loadOperatorPendingInbox()]);
     renderOperatorInbox();
     renderOperatorThreads();
@@ -8756,9 +8799,45 @@ async function handleOperatorChatClick(event) {
     return;
   }
 
+  const quickReplyButton = target?.closest(
+    "[data-quick-reply]",
+  ) as HTMLElement | null;
+  if (quickReplyButton?.dataset.quickReply) {
+    await sendOperatorChatReply(quickReplyButton.dataset.quickReply);
+    return;
+  }
+
+  const missionFocusTarget = target?.closest(
+    "[data-mission-focus][data-thread-id]",
+  ) as HTMLElement | null;
+  if (missionFocusTarget?.dataset.threadId) {
+    const nextFocus = deriveMissionFocusState(
+      {
+        selectedThreadId: state.selectedOperatorThreadId,
+        highlightedActionId: state.operatorHighlightedActionId,
+        missionFocusSource: state.operatorMissionFocusSource,
+      },
+      {
+        id: missionFocusTarget.dataset.actionId,
+        threadId: missionFocusTarget.dataset.threadId,
+      },
+    );
+    state.selectedOperatorThreadId = nextFocus.selectedThreadId;
+    state.operatorHighlightedActionId = nextFocus.highlightedActionId;
+    state.operatorMissionFocusSource = nextFocus.missionFocusSource;
+    await loadOperatorThreadDetail();
+    connectOperatorThreadEventStream();
+    renderOperatorInbox();
+    renderOperatorThreads();
+    renderOperatorChat();
+    return;
+  }
+
   const threadCard = target?.closest("[data-thread-id]") as HTMLElement | null;
   if (threadCard?.dataset.threadId) {
     state.selectedOperatorThreadId = threadCard.dataset.threadId;
+    state.operatorHighlightedActionId = null;
+    state.operatorMissionFocusSource = "thread-list";
     await loadOperatorThreadDetail();
     connectOperatorThreadEventStream();
     renderOperatorInbox();
@@ -11816,6 +11895,8 @@ if (els.operatorChatComposer) {
 [
   els.operatorThreadList,
   els.operatorInboxList,
+  els.operatorCurrentDecision,
+  els.operatorQuickReplies,
   els.operatorMessageList,
   els.operatorPendingActions,
   els.operatorLinkedArtifacts,
