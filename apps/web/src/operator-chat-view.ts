@@ -20,6 +20,7 @@ interface OperatorThreadDetail {
     stages?: Array<{
       id?: string;
       label?: string;
+      title?: string;
       status?: string;
     }>;
   } | null;
@@ -77,6 +78,16 @@ function stateClass(value: unknown): string {
   return toText(value, "unknown")
     .toLowerCase()
     .replace(/[^a-z0-9_-]+/g, "-");
+}
+
+function humanizeState(value: unknown, fallback = "Unknown"): string {
+  const text = toText(value, fallback);
+  if (!text) {
+    return fallback;
+  }
+  return text
+    .replace(/[_-]+/g, " ")
+    .replace(/\b\w/g, (character) => character.toUpperCase());
 }
 
 function renderStatusBadge(value: unknown, extraClass = ""): string {
@@ -165,9 +176,8 @@ export function renderOperatorMissionHero(
 export function renderOperatorProgress(
   detail: OperatorThreadDetail | null,
 ): string {
-  const stages = Array.isArray(detail?.progress?.stages)
-    ? detail?.progress?.stages
-    : [];
+  const progress = detail?.progress ?? null;
+  const stages = Array.isArray(progress?.stages) ? progress.stages : [];
   if (stages.length === 0) {
     return renderEmptyArticle(
       "panel operator-progress-strip-track",
@@ -175,14 +185,31 @@ export function renderOperatorProgress(
     );
   }
 
+  const currentState = humanizeState(progress?.currentState, "Mission Received");
+  const exceptionState = toText(progress?.exceptionState, "");
+
   return `
     <article class="panel operator-progress-strip-track">
+      <div class="operator-progress-summary">
+        <div class="operator-progress-summary-item">
+          <span class="operator-progress-summary-label">Current state</span>
+          <strong>${escapeHtml(currentState)}</strong>
+        </div>
+        ${
+          exceptionState
+            ? `<div class="operator-progress-overlay ${escapeHtml(stateClass(exceptionState))}">
+                <span class="operator-progress-summary-label">Exception state</span>
+                <strong>${escapeHtml(humanizeState(exceptionState))}</strong>
+              </div>`
+            : ""
+        }
+      </div>
       ${stages
         .map(
           (stage) => `
           <div class="operator-progress-stage ${escapeHtml(stateClass(stage.status))}" data-stage-id="${escapeHtml(toText(stage.id, "stage"))}">
             <span class="operator-progress-stage-status">${escapeHtml(toText(stage.status, "upcoming"))}</span>
-            <strong>${escapeHtml(toText(stage.label, stage.id ?? "Stage"))}</strong>
+            <strong>${escapeHtml(toText(stage.title, toText(stage.label, humanizeState(stage.id, "Stage"))))}</strong>
           </div>
         `,
         )

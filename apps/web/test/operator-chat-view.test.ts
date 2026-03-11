@@ -26,10 +26,10 @@ const detail = {
     currentState: "plan_approval",
     exceptionState: null,
     stages: [
-      { id: "mission_received", label: "Mission Received", status: "complete" },
-      { id: "plan_prepared", label: "Plan Prepared", status: "complete" },
-      { id: "plan_approval", label: "Plan Approval", status: "current" },
-      { id: "managed_work", label: "Managed Work", status: "upcoming" },
+      { id: "mission_received", title: "Mission received", status: "complete" },
+      { id: "plan_prepared", title: "Plan prepared", status: "complete" },
+      { id: "plan_approval", title: "Plan approval", status: "current" },
+      { id: "managed_work", title: "Managed work", status: "upcoming" },
     ],
   },
   decisionGuidance: {
@@ -69,9 +69,32 @@ test("renderOperatorProgress renders the authored progress strip", () => {
 
   assert.match(html, /operator-progress-strip-track/);
   assert.match(html, /data-stage-id="plan_approval"/);
-  assert.match(html, /Mission Received/);
-  assert.match(html, /Plan Approval/);
+  assert.match(html, /Mission received/);
+  assert.match(html, /Plan approval/);
   assert.match(html, /current/);
+  assert.match(html, /Current state/);
+  assert.match(html, /Plan Approval/);
+});
+
+test("renderOperatorProgress surfaces exception overlays from the real payload", () => {
+  const html = renderOperatorProgress({
+    ...detail,
+    progress: {
+      currentStage: "proposal_review",
+      currentState: "quarantined",
+      exceptionState: "quarantined",
+      stages: [
+        { id: "proposal_review", title: "Proposal review", status: "current" },
+        { id: "proposal_approval", title: "Proposal approval", status: "upcoming" },
+      ],
+    },
+  });
+
+  assert.match(html, /Proposal review/);
+  assert.match(html, /Current state/);
+  assert.match(html, /quarantined/);
+  assert.match(html, /Exception state/);
+  assert.match(html, /operator-progress-overlay/);
 });
 
 test("renderOperatorCurrentDecision renders decision guidance as the lead card", () => {

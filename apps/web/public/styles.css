@@ -2183,6 +2183,47 @@ button:disabled {
   background: rgba(255, 251, 246, 0.92);
 }
 
+.operator-progress-summary {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: stretch;
+}
+
+.operator-progress-summary-item,
+.operator-progress-overlay {
+  display: grid;
+  gap: 6px;
+  min-width: 180px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(24, 34, 44, 0.08);
+  background: rgba(255, 255, 255, 0.84);
+}
+
+.operator-progress-summary-label {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.operator-progress-overlay {
+  border-color: rgba(180, 69, 45, 0.24);
+  background: rgba(255, 244, 236, 0.96);
+}
+
+.operator-progress-overlay.quarantined,
+.operator-progress-overlay.rework,
+.operator-progress-overlay.validation-failed,
+.operator-progress-overlay.promotion-blocked,
+.operator-progress-overlay.held,
+.operator-progress-overlay.completed {
+  box-shadow: inset 0 0 0 1px rgba(180, 69, 45, 0.12);
+}
+
 .operator-progress-stage {
   display: grid;
   gap: 6px;
