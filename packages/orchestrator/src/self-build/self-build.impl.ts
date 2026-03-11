@@ -1123,7 +1123,6 @@ function buildValidationState(
     error: options.error ?? previous.error ?? null,
     errors: asArray(options.errors ?? previous.errors ?? []),
     bundleResults: asArray(options.bundleResults ?? previous.bundleResults ?? []),
-    trace: options.trace ?? previous.trace ?? null,
     validatedAt:
       options.validatedAt !== undefined
         ? options.validatedAt
@@ -1226,16 +1225,6 @@ function buildQueuedValidationState(context, options: LooseRecord = {}) {
     errors: [],
     bundleResults: [],
     validatedAt: null,
-    trace: buildValidationTrace(context.item, {
-      bundleIds: context.bundleIds,
-      source: context.selection?.source,
-      reasons: context.selection?.reasons,
-      bundleResults: [],
-      errors: [],
-      fallbackScenarioIds: context.fallbackScenarioIds,
-      fallbackRegressionIds: context.fallbackRegressionIds,
-      status: "queued",
-    }),
     validationFingerprint:
       options.validationFingerprint ??
       context.currentValidation?.validationFingerprint ??
@@ -1434,16 +1423,6 @@ async function executeWorkItemRunValidation(
     bundleResults,
     startedAt: runningState.startedAt ?? startedAt,
     endedAt,
-    trace: buildValidationTrace(item, {
-      bundleIds,
-      source: toText(runningState.trace?.source, "fallback"),
-      reasons: asArray(runningState.trace?.reasons),
-      bundleResults,
-      errors: validationErrors,
-      fallbackScenarioIds,
-      fallbackRegressionIds,
-      status: validationErrors.length > 0 ? "failed" : "completed",
-    }),
     validatedAt: endedAt,
   });
   const currentFingerprint = proposal
@@ -1568,25 +1547,6 @@ function scheduleWorkItemRunValidation(
               validatedAt: failedAt,
               error: failure,
               errors: [failure],
-              trace: buildValidationTrace(
-                withDatabase(dbPath, (db) => getWorkItem(db, run.workItemId)),
-                {
-                  bundleIds,
-                  source: toText(
-                    proposal?.metadata?.validation?.trace?.source ??
-                      run.metadata?.validation?.trace?.source,
-                    "fallback",
-                  ),
-                  reasons: asArray(
-                    proposal?.metadata?.validation?.trace?.reasons ??
-                      run.metadata?.validation?.trace?.reasons,
-                  ),
-                  errors: [failure],
-                  fallbackScenarioIds,
-                  fallbackRegressionIds,
-                  status: "failed",
-                },
-              ),
             });
             persistValidationStateForRun(runId, failedState, dbPath);
           }
@@ -1632,7 +1592,7 @@ function summarizeValidationBundleRecord(
 function buildValidationTrace(item, validation: LooseRecord = {}) {
   const bundleIds = dedupe(validation.bundleIds ?? []);
   const bundleResults = asArray(validation.bundleResults);
-  const source = toText(validation.source, "fallback");
+  const source = bundleIds.length > 0 ? toText(validation.source, "run-state") : "fallback";
   const scenarioIds = dedupe([
     ...bundleResults.flatMap((record) => asArray(record?.scenarioIds)),
     ...(bundleIds.length === 0
@@ -1680,6 +1640,33 @@ function buildValidationTrace(item, validation: LooseRecord = {}) {
     regressionIds,
     summary,
     reasons,
+  };
+}
+
+function withValidationTrace(detail, selection = null) {
+  if (!detail) {
+    return detail;
+  }
+  const existingTrace =
+    detail.trace && typeof detail.trace === "object" && !Array.isArray(detail.trace)
+      ? detail.trace
+      : {};
+  const validation =
+    detail.validation &&
+    typeof detail.validation === "object" &&
+    !Array.isArray(detail.validation)
+      ? detail.validation
+      : {};
+  return {
+    ...detail,
+    trace: {
+      ...existingTrace,
+      validation: buildValidationTrace(detail.item, {
+        ...validation,
+        source: selection?.source,
+        reasons: selection?.reasons,
+      }),
+    },
   };
 }
 
@@ -3179,8 +3166,9 @@ function buildWorkspaceAllocationTrace(
   const reusedFromAllocationId =
     toText(allocation.metadata?.reusedFromAllocationId, "") ||
     toText(allocation.metadata?.linkedWorkspaceId, "") ||
-    toText(allocation.metadata?.sourceWorkspaceId, "") ||
     null;
+  const sourceWorkspaceId =
+    toText(allocation.metadata?.sourceWorkspaceId, "") || null;
   const decision =
     allocation.metadata?.reusedWorkspace === true || reusedFromAllocationId
       ? "reused"
@@ -3205,6 +3193,9 @@ function buildWorkspaceAllocationTrace(
       : allocation.metadata?.reusedWorkspace === true
         ? "Workspace reuse was requested by the workflow handoff."
         : "",
+    sourceWorkspaceId
+      ? `Workspace was derived from source allocation ${sourceWorkspaceId}.`
+      : "",
     allocation.metadata?.workspacePurpose
       ? `Workspace purpose: ${allocation.metadata.workspacePurpose}.`
       : "",
@@ -3219,6 +3210,8 @@ function buildWorkspaceAllocationTrace(
   const summary =
     decision === "reused"
       ? `Reused workspace allocation ${reusedFromAllocationId ?? allocation.id ?? "unknown"} for run ${allocation.workItemRunId ?? allocation.ownerId ?? "unknown"}.`
+      : sourceWorkspaceId
+        ? `Created a derived workspace from source allocation ${sourceWorkspaceId} for run ${allocation.workItemRunId ?? allocation.ownerId ?? "unknown"}.`
       : decision === "failed"
         ? `Workspace allocation failed for run ${allocation.workItemRunId ?? allocation.ownerId ?? "unknown"}.`
         : decision === "cleaned"
@@ -3233,6 +3226,7 @@ function buildWorkspaceAllocationTrace(
     mutationScope,
     safeMode: allocation.safeMode !== false,
     failureReason: failureReason || null,
+    sourceWorkspaceId,
   };
 }
 
@@ -7639,12 +7633,12 @@ export async function queueWorkItemRunValidation(
       persistValidationStateForRun(runId, buildQueuedValidationState(context), dbPath);
       ensureWorkItemRunValidationTask(context, options, dbPath);
     }
-    return getSelfBuildWorkItemRun(runId, dbPath);
+    return withValidationTrace(getSelfBuildWorkItemRun(runId, dbPath), context.selection);
   }
   const queuedState = buildQueuedValidationState(context);
   persistValidationStateForRun(runId, queuedState, dbPath);
   ensureWorkItemRunValidationTask(context, options, dbPath);
-  return getSelfBuildWorkItemRun(runId, dbPath);
+  return withValidationTrace(getSelfBuildWorkItemRun(runId, dbPath), context.selection);
 }
 
 export async function waitForWorkItemRunValidation(
@@ -7660,7 +7654,17 @@ export async function waitForWorkItemRunValidation(
   if (task) {
     await task;
   }
-  return getSelfBuildWorkItemRun(runId, dbPath);
+  const queuedTrace =
+    queued?.trace && typeof queued.trace === "object" && !Array.isArray(queued.trace)
+      ? queued.trace
+      : {};
+  const queuedValidationTrace =
+    queuedTrace.validation &&
+    typeof queuedTrace.validation === "object" &&
+    !Array.isArray(queuedTrace.validation)
+      ? queuedTrace.validation
+      : null;
+  return withValidationTrace(getSelfBuildWorkItemRun(runId, dbPath), queuedValidationTrace);
 }
 
 export async function validateWorkItemRun(

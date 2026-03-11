@@ -1152,6 +1152,10 @@ function buildPendingActionTrace(
       reasons: [],
     };
   }
+  const storedTrace = asObject(asObject(action.payload).trace);
+  if (storedTrace.scope === "captured-at-action-creation") {
+    return storedTrace;
+  }
   const proposal = asObject(context.proposal);
   const goalPlan = asObject(context.goalPlan);
   const latestRun = asObject(context.latestRun);
@@ -1381,7 +1385,20 @@ function createPendingAction(
     summary: config.summary,
     targetType: config.targetType,
     targetId: config.targetId,
-    payload: config.payload ?? {},
+    payload: {
+      ...(config.payload ?? {}),
+      trace: {
+        ...asObject(asObject(config.payload).trace),
+        scope: "captured-at-action-creation",
+        actionKind: config.actionKind,
+        targetType: config.targetType,
+        targetId: config.targetId,
+        summary: toText(
+          asObject(asObject(config.payload).trace).summary,
+          config.summary,
+        ),
+      },
+    },
     options: config.options ?? {},
     links: {
       ...actionLinks(createId("placeholder")),

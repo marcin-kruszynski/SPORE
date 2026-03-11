@@ -2293,6 +2293,10 @@ test("self-build read surfaces expose concise trace summaries for workspace, val
     asArray(asObject(asObject(validatedRun.json.detail.trace).validation).reasons)
       .length > 0,
   );
+  assert.equal(
+    asObject(asObject(validatedRun.json.detail.validation).trace).summary ?? null,
+    null,
+  );
 });
 
 test("self-build workflow workspace reuse trace explains reused allocations over HTTP", async (t) => {
@@ -2388,6 +2392,26 @@ test("self-build workflow workspace reuse trace explains reused allocations over
       asObject(asObject(reusedWorkspace.trace).allocation)
         .reusedFromAllocationId ?? "",
     ),
+  );
+
+  const verificationWorkspace = asArray<JsonRecord>(
+    executionWorkspaces.json.detail.workspaces,
+  ).find(
+    (workspace) =>
+      String(asObject(workspace.metadata).workspacePurpose ?? "") ===
+      "verification",
+  );
+
+  assert.ok(verificationWorkspace);
+  assert.equal(
+    String(
+      asObject(asObject(verificationWorkspace.trace).allocation).decision ?? "",
+    ),
+    "created",
+  );
+  assert.match(
+    String(asObject(asObject(verificationWorkspace.trace).allocation).summary ?? ""),
+    /created|workspace/i,
   );
 });
 
@@ -3050,9 +3074,29 @@ test("operator chat follows proposal lineage without letting unrelated group pro
     thread.id,
   );
   const refreshedProposal = asObject(asObject(refreshedThread.context).proposal);
+  const initialReviewHistoryAction = asArray<JsonRecord>(
+    refreshedThread.actionHistory,
+  ).find(
+    (action) =>
+      action.actionKind === "proposal-review" &&
+      action.targetId === initialProposalId,
+  );
 
   assert.equal(refreshedProposal.id, replacement.proposalId);
   assert.equal(refreshedProposal.workItemRunId, replacement.runId);
+  assert.ok(initialReviewHistoryAction);
+  assert.equal(
+    String(asObject(initialReviewHistoryAction.trace).scope ?? ""),
+    "captured-at-action-creation",
+  );
+  assert.match(
+    String(asObject(initialReviewHistoryAction.trace).summary ?? ""),
+    new RegExp(initialProposalId),
+  );
+  assert.doesNotMatch(
+    String(asObject(initialReviewHistoryAction.trace).summary ?? ""),
+    new RegExp(replacement.proposalId),
+  );
   assert.ok(
     asArray<JsonRecord>(refreshedThread.pendingActions).some(
       (action) =>
