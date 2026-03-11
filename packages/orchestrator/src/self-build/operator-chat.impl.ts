@@ -2303,13 +2303,20 @@ export async function listOperatorPendingActions(
   const scopedThreadId = options.threadId
     ? String(options.threadId).trim()
     : "";
+  const normalizedStatus = options.status ? String(options.status).trim() : "";
   const threadIds = scopedThreadId
     ? [scopedThreadId]
-    : dedupe(
-        withDatabase(dbPath, (db) =>
-          listOperatorThreadActions(db, options),
-        ).map((action) => action.threadId),
-      );
+    : normalizedStatus === "pending"
+      ? withDatabase(dbPath, (db) =>
+          listOperatorThreads(db, {
+            limit: Math.max(limit * 4, 100),
+          }),
+        ).map((thread) => thread.id)
+      : dedupe(
+          withDatabase(dbPath, (db) =>
+            listOperatorThreadActions(db, options),
+          ).map((action) => action.threadId),
+        );
 
   const freshProjectedActions = [];
   for (const threadId of threadIds) {
@@ -2317,7 +2324,11 @@ export async function listOperatorPendingActions(
     if (!detail) {
       continue;
     }
-    freshProjectedActions.push(...asArray<LooseRecord>(detail.actionHistory));
+    freshProjectedActions.push(
+      ...(normalizedStatus === "pending" && !scopedThreadId
+        ? asArray<LooseRecord>(detail.pendingActions)
+        : asArray<LooseRecord>(detail.actionHistory)),
+    );
   }
 
   return freshProjectedActions

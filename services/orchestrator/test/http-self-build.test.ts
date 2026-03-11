@@ -1773,6 +1773,19 @@ test("operator chat supports proposal rework and quarantine release flows", asyn
       "Validation bundles succeeded for operator chat coverage.",
   });
 
+  const globalPromotionInbox = await getJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/operator/actions?actionKind=proposal-promotion`,
+  );
+  assert.equal(globalPromotionInbox.status, 200);
+  assert.ok(globalPromotionInbox.json.ok);
+  assert.ok(
+    globalPromotionInbox.json.detail.some(
+      (action) =>
+        action.threadId === promotionThreadId &&
+        action.actionKind === "proposal-promotion",
+    ),
+  );
+
   const refreshedPromotionInbox = await getJson(
     `http://127.0.0.1:${ORCHESTRATOR_PORT}/operator/actions?threadId=${encodeURIComponent(promotionThreadId)}`,
   );
