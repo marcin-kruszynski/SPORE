@@ -284,6 +284,112 @@ curl http://127.0.0.1:8789/executions
 curl http://127.0.0.1:8789/executions/e2e-review-002
 ```
 
+## Real PI Self-Build Trace Loop
+
+Use this flow when you need to understand why a live self-build mission picked a proposal, chose a pending action, selected validation bundles, kept or failed a workspace allocation, or blocked promotion.
+
+1. Start the orchestrator with isolated state and a real PI runtime:
+
+```bash
+export SPORE_ORCHESTRATOR_DB_PATH=/tmp/spore-real-pi-orchestrator.sqlite
+export SPORE_SESSION_DB_PATH=/tmp/spore-real-pi-sessions.sqlite
+export SPORE_EVENT_LOG_PATH=/tmp/spore-real-pi-events.ndjson
+export SPORE_WORKTREE_ROOT=/tmp/spore-real-pi-worktrees
+npm run orchestrator:start
+```
+
+2. Create an operator thread for a real mission (`stub:false`):
+
+```bash
+curl -sS -X POST http://127.0.0.1:8789/operator/threads \
+  -H 'content-type: application/json' \
+  -d '{
+    "message":"Refresh the self-build local-dev tracing guidance using a real PI-backed mission.",
+    "projectId":"spore",
+    "safeMode":true,
+    "stub":false,
+    "wait":false,
+    "by":"operator",
+    "source":"runbook"
+  }' | tee /tmp/spore-thread.json
+
+export THREAD_ID="$(jq -r '.detail.id' /tmp/spore-thread.json)"
+```
+
+3. Inspect the thread-level decision traces before approving anything:
+
+```bash
+curl -sS "http://127.0.0.1:8789/operator/threads/${THREAD_ID}" | jq '.detail | {
+  title,
+  status,
+  proposalSelection: .trace.proposalSelection,
+  pendingAction: .trace.pendingAction,
+  pendingActions: [.pendingActions[] | {actionKind, targetId, trace}]
+}'
+```
+
+4. Approve the goal plan in chat, then re-check the same thread trace as managed work progresses:
+
+```bash
+curl -sS -X POST "http://127.0.0.1:8789/operator/threads/${THREAD_ID}/messages" \
+  -H 'content-type: application/json' \
+  -d '{"message":"approve","by":"operator","source":"runbook"}' | jq '.detail.trace'
+```
+
+5. Once a run exists, inspect validation selection and workspace allocation without opening SQLite:
+
+```bash
+export RUN_ID="$(curl -sS "http://127.0.0.1:8789/operator/threads/${THREAD_ID}" | jq -r '.detail.context.latestRun.id')"
+
+curl -sS "http://127.0.0.1:8789/work-item-runs/${RUN_ID}" | jq '.detail | {
+  run: {id, status},
+  validationTrace: .trace.validation,
+  suggestedActions
+}'
+
+curl -sS "http://127.0.0.1:8789/work-item-runs/${RUN_ID}/workspace" | jq '.detail | {
+  workspace: {id, status, worktreePath, branchName},
+  allocationTrace: .trace.allocation,
+  cleanupPolicy
+}'
+```
+
+6. When a proposal is present, inspect promotion blockers and validation readiness from the review package:
+
+```bash
+export PROPOSAL_ID="$(curl -sS "http://127.0.0.1:8789/operator/threads/${THREAD_ID}" | jq -r '.detail.context.proposal.id')"
+
+curl -sS "http://127.0.0.1:8789/proposal-artifacts/${PROPOSAL_ID}/review-package" | jq '.detail | {
+  proposal: {id: .proposal.id, status: .proposal.status},
+  promotionTrace: .trace.promotion,
+  governance,
+  readiness
+}'
+```
+
+7. If validation needs an explicit bundle, queue it and immediately re-read the run trace to see which bundle family was selected:
+
+```bash
+curl -sS -X POST "http://127.0.0.1:8789/work-item-runs/${RUN_ID}/validate-bundle" \
+  -H 'content-type: application/json' \
+  -d '{
+    "bundleIds":["proposal-ready-fast","integration-ready-core"],
+    "stub":false,
+    "by":"operator",
+    "source":"runbook"
+  }' | jq '.detail.trace.validation'
+```
+
+8. If promotion is still blocked, keep using the read surfaces first:
+
+```bash
+curl -sS -X POST "http://127.0.0.1:8789/proposal-artifacts/${PROPOSAL_ID}/promotion-plan" \
+  -H 'content-type: application/json' \
+  -d '{"targetBranch":"main","by":"operator"}' | jq
+```
+
+When the response is `409`, the body still returns the review package detail. Read `.detail.trace.promotion` first; it is the operator-facing blocker summary and should be enough to explain the stop without dropping into SQLite or raw PI transcripts.
+
 ## TUI and Family Inspection
 
 Use the terminal surface against the same orchestrator HTTP APIs as the web client:

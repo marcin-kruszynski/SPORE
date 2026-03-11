@@ -995,7 +995,7 @@ function summarizeGoalPlanEdits(originalRecommendations = [], edited = []) {
   };
 }
 
-function resolveValidationBundleIdsForWorkItem(
+function resolveValidationBundleSelection(
   item,
   run,
   options: LooseRecord = {},
@@ -1007,12 +1007,25 @@ function resolveValidationBundleIdsForWorkItem(
       (options.bundle ? [options.bundle] : []),
   );
   if (explicit.length > 0) {
-    return explicit;
+    return {
+      bundleIds: explicit,
+      source: "explicit-request",
+      reasons: [
+        `Requested explicitly: ${explicit.join(", ")}.`,
+        "Operator-selected bundles override stored validation defaults.",
+      ],
+    };
   }
   const metadata = item?.metadata ?? {};
   const fromRun = dedupe(run?.metadata?.validationBundleIds ?? []);
   if (fromRun.length > 0) {
-    return fromRun;
+    return {
+      bundleIds: fromRun,
+      source: "run-metadata",
+      reasons: [
+        `Using bundles already attached to work-item run ${run?.id ?? "unknown"}.`,
+      ],
+    };
   }
   const fromItem = dedupe(
     metadata.validationBundleIds ??
@@ -1020,7 +1033,22 @@ function resolveValidationBundleIdsForWorkItem(
       metadata.recommendedValidationBundle ??
       [],
   );
-  return fromItem;
+  if (fromItem.length > 0) {
+    return {
+      bundleIds: fromItem,
+      source: "work-item-metadata",
+      reasons: [
+        `Using validation bundles recommended by work item ${item?.id ?? "unknown"}.`,
+      ],
+    };
+  }
+  return {
+    bundleIds: [],
+    source: "fallback",
+    reasons: [
+      "No named validation bundle was configured, so validation falls back to the work item's scenario and regression recommendations.",
+    ],
+  };
 }
 
 function buildValidationError(kind, id, message) {
@@ -1095,6 +1123,7 @@ function buildValidationState(
     error: options.error ?? previous.error ?? null,
     errors: asArray(options.errors ?? previous.errors ?? []),
     bundleResults: asArray(options.bundleResults ?? previous.bundleResults ?? []),
+    trace: options.trace ?? previous.trace ?? null,
     validatedAt:
       options.validatedAt !== undefined
         ? options.validatedAt
@@ -1163,7 +1192,7 @@ function loadWorkItemRunValidationContext(
   const proposal = withDatabase(dbPath, (db) =>
     getProposalArtifactByRunId(db, runId),
   );
-  const bundleIds = resolveValidationBundleIdsForWorkItem(item, run, options);
+  const selection = resolveValidationBundleSelection(item, run, options);
   const fallbackScenarioIds = dedupe(
     item.metadata?.recommendedScenarios ?? item.relatedScenarios ?? [],
   );
@@ -1174,7 +1203,8 @@ function loadWorkItemRunValidationContext(
     run,
     item,
     proposal,
-    bundleIds,
+    bundleIds: selection.bundleIds,
+    selection,
     fallbackScenarioIds,
     fallbackRegressionIds,
     currentValidation:
@@ -1196,6 +1226,16 @@ function buildQueuedValidationState(context, options: LooseRecord = {}) {
     errors: [],
     bundleResults: [],
     validatedAt: null,
+    trace: buildValidationTrace(context.item, {
+      bundleIds: context.bundleIds,
+      source: context.selection?.source,
+      reasons: context.selection?.reasons,
+      bundleResults: [],
+      errors: [],
+      fallbackScenarioIds: context.fallbackScenarioIds,
+      fallbackRegressionIds: context.fallbackRegressionIds,
+      status: "queued",
+    }),
     validationFingerprint:
       options.validationFingerprint ??
       context.currentValidation?.validationFingerprint ??
@@ -1394,6 +1434,16 @@ async function executeWorkItemRunValidation(
     bundleResults,
     startedAt: runningState.startedAt ?? startedAt,
     endedAt,
+    trace: buildValidationTrace(item, {
+      bundleIds,
+      source: toText(runningState.trace?.source, "fallback"),
+      reasons: asArray(runningState.trace?.reasons),
+      bundleResults,
+      errors: validationErrors,
+      fallbackScenarioIds,
+      fallbackRegressionIds,
+      status: validationErrors.length > 0 ? "failed" : "completed",
+    }),
     validatedAt: endedAt,
   });
   const currentFingerprint = proposal
@@ -1518,6 +1568,25 @@ function scheduleWorkItemRunValidation(
               validatedAt: failedAt,
               error: failure,
               errors: [failure],
+              trace: buildValidationTrace(
+                withDatabase(dbPath, (db) => getWorkItem(db, run.workItemId)),
+                {
+                  bundleIds,
+                  source: toText(
+                    proposal?.metadata?.validation?.trace?.source ??
+                      run.metadata?.validation?.trace?.source,
+                    "fallback",
+                  ),
+                  reasons: asArray(
+                    proposal?.metadata?.validation?.trace?.reasons ??
+                      run.metadata?.validation?.trace?.reasons,
+                  ),
+                  errors: [failure],
+                  fallbackScenarioIds,
+                  fallbackRegressionIds,
+                  status: "failed",
+                },
+              ),
             });
             persistValidationStateForRun(runId, failedState, dbPath);
           }
@@ -1558,6 +1627,60 @@ function summarizeValidationBundleRecord(
     validatedAt: payload.validatedAt ?? nowIso(),
     fingerprint: payload.fingerprint ?? null,
   });
+}
+
+function buildValidationTrace(item, validation: LooseRecord = {}) {
+  const bundleIds = dedupe(validation.bundleIds ?? []);
+  const bundleResults = asArray(validation.bundleResults);
+  const source = toText(validation.source, "fallback");
+  const scenarioIds = dedupe([
+    ...bundleResults.flatMap((record) => asArray(record?.scenarioIds)),
+    ...(bundleIds.length === 0
+      ? dedupe(item?.metadata?.recommendedScenarios ?? item?.relatedScenarios ?? [])
+      : []),
+    ...dedupe(validation.fallbackScenarioIds ?? []),
+  ]);
+  const regressionIds = dedupe([
+    ...bundleResults.flatMap((record) => asArray(record?.regressionIds)),
+    ...(bundleIds.length === 0
+      ? dedupe(
+          item?.metadata?.recommendedRegressions ?? item?.relatedRegressions ?? [],
+        )
+      : []),
+    ...dedupe(validation.fallbackRegressionIds ?? []),
+  ]);
+  const reasons = dedupe([
+    ...asArray(validation.reasons),
+    bundleIds.length > 0
+      ? `Selected bundle${bundleIds.length === 1 ? "" : "s"}: ${bundleIds.join(", ")}.`
+      : "No named validation bundle was selected.",
+    scenarioIds.length > 0 || regressionIds.length > 0
+      ? `Fan-out: ${scenarioIds.length} scenario${scenarioIds.length === 1 ? "" : "s"} and ${regressionIds.length} regression${regressionIds.length === 1 ? "" : "s"}.`
+      : "No scenario or regression fan-out was recorded.",
+    asArray(validation.errors).length > 0
+      ? `Validation recorded ${asArray(validation.errors).length} error${
+          asArray(validation.errors).length === 1 ? "" : "s"
+        }.`
+      : "",
+  ]);
+  const bundleLabelText = bundleResults
+    .map((record) => toText(record?.label, toText(record?.bundleId, "")))
+    .filter(Boolean)
+    .join(", ");
+  const summary = bundleIds.length > 0
+    ? `Validation uses ${bundleIds.length} ${source === "explicit-request" ? "operator-selected" : "configured"} bundle${bundleIds.length === 1 ? "" : "s"}: ${bundleIds.join(", ")}${bundleLabelText ? ` (${bundleLabelText})` : ""}.`
+    : "Validation falls back to the work item's recommended scenario and regression coverage.";
+  return {
+    source,
+    selectedBundleIds: bundleIds,
+    selectedBundleLabels: dedupe(
+      bundleResults.map((record) => toText(record?.label, toText(record?.bundleId, ""))),
+    ),
+    scenarioIds,
+    regressionIds,
+    summary,
+    reasons,
+  };
 }
 
 function computeProposalContentFingerprint(proposal) {
@@ -2912,6 +3035,9 @@ function buildProposalSummary(
       blockers: validationStatus.blockers,
       requiredBundles: validationStatus.requiredBundles,
     },
+    trace: {
+      promotion: buildPromotionTrace(governance, validationStatus),
+    },
   };
 }
 
@@ -3039,6 +3165,61 @@ function buildWorkspaceCleanupPolicy(
   };
 }
 
+function buildWorkspaceAllocationTrace(
+  allocation,
+  workItem,
+  workItemRun,
+  inspection = null,
+) {
+  if (!allocation) {
+    return null;
+  }
+  const mutationScope = dedupe(allocation.mutationScope ?? []);
+  const failureReason = toText(allocation.metadata?.error, "");
+  const decision =
+    toText(allocation.metadata?.reusedFromAllocationId, "")
+      ? "reused"
+      : allocation.status === "failed"
+        ? "failed"
+        : allocation.status === "cleaned"
+          ? "cleaned"
+          : "created";
+  const reasons = dedupe([
+    workItemRun?.id
+      ? `Workspace belongs to work-item run ${workItemRun.id}.`
+      : "",
+    workItem?.kind
+      ? `Work item kind ${workItem.kind} uses isolated workspace management.`
+      : "",
+    mutationScope.length > 0
+      ? `Mutation scope: ${mutationScope.join(", ")}.`
+      : "Mutation scope was not recorded.",
+    allocation.safeMode !== false ? "Safe mode is enabled." : "Safe mode is disabled.",
+    inspection && inspection.exists === false
+      ? "Workspace path is missing on disk, so reconciliation is likely required."
+      : "",
+    failureReason ? `Provisioning failure: ${failureReason}` : "",
+  ]);
+  const summary =
+    decision === "reused"
+      ? `Reused an existing workspace allocation for run ${allocation.workItemRunId ?? allocation.ownerId ?? "unknown"}.`
+      : decision === "failed"
+        ? `Workspace allocation failed for run ${allocation.workItemRunId ?? allocation.ownerId ?? "unknown"}.`
+        : decision === "cleaned"
+          ? `Workspace allocation was cleaned after run ${allocation.workItemRunId ?? allocation.ownerId ?? "unknown"}.`
+          : `Created a dedicated workspace for run ${allocation.workItemRunId ?? allocation.ownerId ?? "unknown"}.`;
+  return {
+    decision,
+    summary,
+    reasons,
+    reusedFromAllocationId: allocation.metadata?.reusedFromAllocationId ?? null,
+    ownerRunId: allocation.workItemRunId ?? null,
+    mutationScope,
+    safeMode: allocation.safeMode !== false,
+    failureReason: failureReason || null,
+  };
+}
+
 function enrichWorkspaceAllocation(
   allocation,
   dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
@@ -3062,6 +3243,14 @@ function enrichWorkspaceAllocation(
     ...summary,
     diagnostics,
     cleanupPolicy,
+    trace: {
+      allocation: buildWorkspaceAllocationTrace(
+        allocation,
+        context.workItem,
+        context.workItemRun,
+        inspection,
+      ),
+    },
     owner: {
       workItemId: allocation.workItemId ?? null,
       workItemRunId: allocation.workItemRunId ?? null,
@@ -4811,6 +5000,13 @@ export function getSelfBuildWorkItemRun(
     docSuggestions,
     learningRecords: learningRecords.map(buildLearningSummary),
     failure,
+    trace: {
+      validation: buildValidationTrace(item, {
+        ...(run.metadata?.validation ?? {}),
+        source: toText(run.metadata?.validation?.trace?.source, "fallback"),
+        reasons: asArray(run.metadata?.validation?.trace?.reasons),
+      }),
+    },
     suggestedActions,
     lineage: {
       workItemGroup: group ? { id: group.id, title: group.title } : null,
@@ -6580,6 +6776,28 @@ function resolveProposalPromotionContext(
   };
 }
 
+function buildPromotionTrace(governance, readiness) {
+  const blockers = dedupe([
+    ...asArray(governance?.blockers).map((blocker) => hashPayload(blocker)),
+    ...asArray(readiness?.blockers).map((blocker) => hashPayload(blocker)),
+  ]).map((fingerprint) => {
+    const combined = [...asArray(governance?.blockers), ...asArray(readiness?.blockers)];
+    return combined.find((blocker) => hashPayload(blocker) === fingerprint) ?? null;
+  }).filter(Boolean);
+  const reasons = dedupe(
+    blockers.map((blocker) => toText(blocker?.reason, "")).filter(Boolean),
+  );
+  const ready = blockers.length === 0;
+  return {
+    ready,
+    blockers,
+    summary: ready
+      ? "Promotion is ready because governance and validation gates are satisfied."
+      : `Promotion is blocked because ${reasons[0] ?? "required governance or validation evidence is missing"}`,
+    reasons,
+  };
+}
+
 function buildProposalReviewPackage(
   proposal,
   dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
@@ -6652,6 +6870,9 @@ function buildProposalReviewPackage(
       blockers: governance.blockers,
       sourceExecutionId: governance.sourceExecutionId,
       sourceRunStatus: governance.run?.status ?? null,
+    },
+    trace: {
+      promotion: buildPromotionTrace(governance, readiness),
     },
     reviewHistory: asArray(proposal.metadata?.reviewHistory),
     approvalHistory: asArray(proposal.metadata?.approvalHistory),
@@ -7115,13 +7336,13 @@ export async function cleanupManagedWorkspace(
     reason: "already-missing",
   };
   if (inspection.exists && inspection.registered) {
-    cleanupResult = await removeWorkspace({
+    cleanupResult = (await removeWorkspace({
       repoRoot,
       worktreePath: allocation.worktreePath,
       branchName: allocation.branchName ?? null,
       force: options.force === true || cleanupPolicy.requiresForce,
       keepBranch: options.keepBranch === true,
-    });
+    })) as unknown as WorkspaceCleanupResult;
   }
 
   const updated = {

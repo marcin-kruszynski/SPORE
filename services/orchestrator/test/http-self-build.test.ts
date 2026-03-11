@@ -2083,6 +2083,218 @@ test("legacy invalid proposals stay in recovery handling over HTTP", async (t) =
   assert.equal(approvedProposal.json.detail.status, "rework_required");
 });
 
+test("self-build read surfaces expose concise trace summaries for workspace, validation, and promotion blockers", async (t) => {
+  const ORCHESTRATOR_PORT = await findFreePort();
+  const { dbPath, sessionDbPath, eventLogPath } = withEventLogPath(
+    await makeTempPaths("spore-http-self-build-observability-"),
+  ) as HarnessTempPathsWithEventLog;
+  const worktreeRoot = `${dbPath}.worktrees`;
+  const repoRoot = await makeTempRepo();
+
+  const orchestrator = startProcess(
+    "node",
+    ["services/orchestrator/server.js"],
+    {
+      SPORE_ORCHESTRATOR_PORT: String(ORCHESTRATOR_PORT),
+      SPORE_ORCHESTRATOR_DB_PATH: dbPath,
+      SPORE_SESSION_DB_PATH: sessionDbPath,
+      SPORE_EVENT_LOG_PATH: eventLogPath,
+      SPORE_WORKSPACE_REPO_ROOT: repoRoot,
+      SPORE_WORKTREE_ROOT: worktreeRoot,
+    },
+  );
+
+  t.after(async () => {
+    await stopProcess(orchestrator);
+  });
+  t.after(async () => {
+    await fs.rm(worktreeRoot, { recursive: true, force: true });
+    await fs.rm(repoRoot, { recursive: true, force: true });
+  });
+
+  await waitForHealth(`http://127.0.0.1:${ORCHESTRATOR_PORT}/health`);
+
+  const item = createWorkItem(
+    {
+      title: "Observability fixture work item",
+      kind: "workflow",
+      goal: "Expose self-build trace summaries without reading SQLite directly.",
+      metadata: {
+        projectPath: "config/projects/spore.yaml",
+        projectId: "spore",
+        domainId: "docs",
+        mutationScope: ["docs"],
+        safeMode: true,
+      },
+    },
+    dbPath,
+  );
+  const seeded = insertProposalArtifactForWorkItem({
+    dbPath,
+    itemId: item.id,
+    itemTitle: item.title,
+    itemGoal: item.goal,
+    proposalStatus: "ready_for_review",
+  });
+  const workspaceId = `workspace-observability-${Date.now()}`;
+  const workspacePath = path.join(worktreeRoot, workspaceId);
+  const timestamp = new Date().toISOString();
+  await fs.mkdir(workspacePath, { recursive: true });
+
+  const db = openOrchestratorDatabase(dbPath);
+  try {
+    insertWorkspaceAllocation(db, {
+      id: workspaceId,
+      projectId: "spore",
+      ownerType: "work-item-run",
+      ownerId: seeded.runId,
+      executionId: `execution:${seeded.runId}`,
+      stepId: null,
+      workItemId: item.id,
+      workItemRunId: seeded.runId,
+      proposalArtifactId: seeded.proposalId,
+      worktreePath: workspacePath,
+      branchName: `spore/test/${workspaceId}`,
+      baseRef: "HEAD",
+      integrationBranch: null,
+      mode: "git-worktree",
+      safeMode: true,
+      mutationScope: ["docs"],
+      status: "active",
+      metadata: {
+        source: "test-seed",
+        repoRoot,
+      },
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      cleanedAt: null,
+    });
+    const proposal = getProposalArtifact(db, seeded.proposalId);
+    assert.ok(proposal);
+    updateProposalArtifact(db, {
+      ...proposal,
+      updatedAt: timestamp,
+      artifacts: {
+        ...asObject(proposal.artifacts),
+        workspace: {
+          id: workspaceId,
+          workspaceId,
+          worktreePath: workspacePath,
+          branchName: `spore/test/${workspaceId}`,
+          baseRef: "HEAD",
+          status: "active",
+          mutationScope: ["docs"],
+        },
+      },
+      metadata: {
+        ...asObject(proposal.metadata),
+        workspaceId,
+      },
+    });
+  } finally {
+    db.close();
+  }
+
+  const runId = seeded.runId;
+  const proposalId = seeded.proposalId;
+
+  const workspaceDetail = await getJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/work-item-runs/${encodeURIComponent(runId)}/workspace`,
+  );
+  assert.equal(workspaceDetail.status, 200);
+  assert.ok(workspaceDetail.json.ok);
+  assert.equal(
+    String(
+      asObject(asObject(workspaceDetail.json.detail.trace).allocation).decision ??
+        "",
+    ),
+    "created",
+  );
+  assert.match(
+    String(
+      asObject(asObject(workspaceDetail.json.detail.trace).allocation).summary ??
+        "",
+    ),
+    /workspace|worktree|safe mode/i,
+  );
+  assert.ok(
+    asArray(asObject(asObject(workspaceDetail.json.detail.trace).allocation).reasons)
+      .length > 0,
+  );
+
+  const reviewedProposal = await postJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/proposal-artifacts/${encodeURIComponent(proposalId)}/review`,
+    {
+      status: "reviewed",
+      comments: "Review before checking blocker traces.",
+      by: "test-runner",
+    },
+  );
+  assert.equal(reviewedProposal.status, 200);
+  assert.ok(reviewedProposal.json.ok);
+
+  const approvedProposal = await postJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/proposal-artifacts/${encodeURIComponent(proposalId)}/approval`,
+    {
+      status: "approved",
+      comments: "Approve before validation so promotion stays blocked.",
+      by: "test-runner",
+      targetBranch: "main",
+    },
+  );
+  assert.equal(approvedProposal.status, 200);
+  assert.ok(approvedProposal.json.ok);
+
+  const reviewPackage = await getJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/proposal-artifacts/${encodeURIComponent(proposalId)}/review-package`,
+  );
+  assert.equal(reviewPackage.status, 200);
+  assert.ok(reviewPackage.json.ok);
+  assert.equal(
+    asObject(asObject(reviewPackage.json.detail.trace).promotion).ready,
+    false,
+  );
+  assert.ok(
+    asArray<JsonRecord>(
+      asObject(asObject(reviewPackage.json.detail.trace).promotion).blockers,
+    ).length > 0,
+  );
+  assert.match(
+    String(asObject(asObject(reviewPackage.json.detail.trace).promotion).summary ?? ""),
+    /blocked|validation|promotion/i,
+  );
+
+  const validatedRun = await postJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/work-item-runs/${encodeURIComponent(runId)}/validate-bundle`,
+    {
+      bundleIds: ["proposal-ready-fast", "integration-ready-core"],
+      stub: true,
+      timeout: 12000,
+      interval: 250,
+      by: "test-runner",
+      source: "http-self-build-observability-test",
+    },
+  );
+  assert.equal(validatedRun.status, 200);
+  assert.ok(validatedRun.json.ok);
+  assert.equal(
+    String(asObject(asObject(validatedRun.json.detail.trace).validation).source ?? ""),
+    "explicit-request",
+  );
+  assert.deepEqual(
+    asArray(asObject(asObject(validatedRun.json.detail.trace).validation).selectedBundleIds),
+    ["proposal-ready-fast", "integration-ready-core"],
+  );
+  assert.match(
+    String(asObject(asObject(validatedRun.json.detail.trace).validation).summary ?? ""),
+    /proposal-ready-fast|integration-ready-core|scenario|regression/i,
+  );
+  assert.ok(
+    asArray(asObject(asObject(validatedRun.json.detail.trace).validation).reasons)
+      .length > 0,
+  );
+});
+
 test("operator chat routes create governed threads and accept chat-driven approvals", async (t) => {
   const ORCHESTRATOR_PORT = await findFreePort();
   const { dbPath, sessionDbPath, eventLogPath } = withEventLogPath(
@@ -2697,14 +2909,39 @@ test("operator chat follows proposal lineage without letting unrelated group pro
   const unrelatedRefreshProposal = asObject(
     asObject(unrelatedRefresh.context).proposal,
   );
+  const unrelatedRefreshTrace = asObject(unrelatedRefresh.trace);
 
   assert.equal(unrelatedRefreshProposal.id, initial.proposalId);
   assert.notEqual(unrelatedRefreshProposal.id, unrelated.proposalId);
+  assert.equal(
+    asObject(unrelatedRefreshTrace.proposalSelection).selectedProposalId,
+    initial.proposalId,
+  );
+  assert.ok(
+    asArray<string>(
+      asObject(unrelatedRefreshTrace.proposalSelection).ignoredProposalIds,
+    ).includes(unrelated.proposalId),
+  );
+  assert.match(
+    String(asObject(unrelatedRefreshTrace.proposalSelection).summary ?? ""),
+    /lineage|ignored|selected/i,
+  );
+  assert.equal(
+    asObject(unrelatedRefreshTrace.pendingAction).actionKind,
+    "proposal-review",
+  );
+  assert.match(
+    String(asObject(unrelatedRefreshTrace.pendingAction).summary ?? ""),
+    /review|ready_for_review|proposal/i,
+  );
   assert.ok(
     asArray<JsonRecord>(unrelatedRefresh.pendingActions).some(
       (action) =>
         action.actionKind === "proposal-review" &&
-        action.targetId === initial.proposalId,
+        action.targetId === initial.proposalId &&
+        /review|ready_for_review|proposal/i.test(
+          String(asObject(action.trace).summary ?? ""),
+        ),
     ),
   );
 

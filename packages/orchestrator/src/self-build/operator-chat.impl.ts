@@ -1141,10 +1141,86 @@ function buildThreadHero(
   };
 }
 
+function buildPendingActionTrace(
+  action: LooseRecord | null,
+  context: LooseRecord = {},
+) {
+  if (!action) {
+    return {
+      actionKind: null,
+      summary: "No operator action is currently pending.",
+      reasons: [],
+    };
+  }
+  const proposal = asObject(context.proposal);
+  const goalPlan = asObject(context.goalPlan);
+  const latestRun = asObject(context.latestRun);
+  const activeQuarantine = asObject(context.activeQuarantine);
+  switch (toText(action.actionKind, "")) {
+    case "proposal-review":
+      return {
+        actionKind: action.actionKind,
+        summary: `Pending proposal review because proposal ${toText(proposal.id, toText(action.targetId, "unknown"))} is ${toText(proposal.status, "ready_for_review")}.`,
+        reasons: dedupe([
+          proposal.id ? `Selected proposal ${proposal.id} is the current thread proposal.` : "",
+          proposal.status ? `Proposal status is ${proposal.status}.` : "",
+        ]),
+      };
+    case "proposal-approval":
+      return {
+        actionKind: action.actionKind,
+        summary: `Pending proposal approval because proposal ${toText(proposal.id, toText(action.targetId, "unknown"))} already passed review.`,
+        reasons: dedupe([
+          proposal.status ? `Proposal status is ${proposal.status}.` : "",
+        ]),
+      };
+    case "managed-run-recovery":
+      return {
+        actionKind: action.actionKind,
+        summary: `Pending recovery because run ${toText(latestRun.id, toText(action.targetId, "unknown"))} failed before producing a replacement proposal.`,
+        reasons: dedupe([
+          latestRun.status ? `Latest run status is ${latestRun.status}.` : "",
+          toText(latestRun.failureReason, ""),
+        ]),
+      };
+    case "goal-plan-review":
+      return {
+        actionKind: action.actionKind,
+        summary: `Pending goal-plan review because goal plan ${toText(goalPlan.id, toText(action.targetId, "unknown"))} is ready for operator approval.`,
+        reasons: dedupe([
+          goalPlan.status ? `Goal plan status is ${goalPlan.status}.` : "",
+        ]),
+      };
+    case "proposal-promotion":
+      return {
+        actionKind: action.actionKind,
+        summary: `Pending promotion decision because proposal ${toText(proposal.id, toText(action.targetId, "unknown"))} is promotion-ready.`,
+        reasons: dedupe([
+          proposal.status ? `Proposal status is ${proposal.status}.` : "",
+        ]),
+      };
+    case "quarantine-release":
+      return {
+        actionKind: action.actionKind,
+        summary: `Pending quarantine release because quarantine ${toText(activeQuarantine.id, toText(action.targetId, "unknown"))} is active.`,
+        reasons: dedupe([
+          activeQuarantine.reason ? `Quarantine reason: ${activeQuarantine.reason}` : "",
+        ]),
+      };
+    default:
+      return {
+        actionKind: action.actionKind,
+        summary: toText(action.summary, action.title ? String(action.title) : "Operator action pending."),
+        reasons: [],
+      };
+  }
+}
+
 function describePendingAction(
   action: LooseRecord | null,
   thread?: LooseRecord,
   progress?: LooseRecord,
+  context: LooseRecord = {},
 ) {
   if (!action) {
     return null;
@@ -1160,6 +1236,7 @@ function describePendingAction(
   return {
     ...action,
     choices,
+    trace: buildPendingActionTrace(action, context),
     decisionGuidance,
     threadSummary:
       thread && progress
@@ -1329,7 +1406,7 @@ function createPendingAction(
   };
 }
 
-function chooseActiveProposal(
+function selectActiveProposal(
   group: LooseRecord | null,
   linkage: OperatorThreadLinkage,
   currentProposal: LooseRecord | null = null,
@@ -1337,7 +1414,20 @@ function chooseActiveProposal(
 ) {
   const proposals = asArray<LooseRecord>(group?.proposals);
   if (proposals.length === 0) {
-    return currentProposal;
+    return {
+      proposal: currentProposal,
+      trace: {
+        selectedProposalId: toText(currentProposal?.id, "") || null,
+        candidateProposalIds: [],
+        ignoredProposalIds: [],
+        summary: currentProposal
+          ? `Kept proposal ${currentProposal.id} because the group has no newer proposal candidates.`
+          : "No proposal is currently linked to this thread.",
+        reasons: currentProposal
+          ? ["The active group does not expose proposal candidates."]
+          : ["No proposal candidates were available."],
+      },
+    };
   }
   const lineageAnchored = proposals.filter((proposal) =>
     proposalMatchesThreadLineage(proposal, linkage, currentProposal, dbPath),
@@ -1355,7 +1445,21 @@ function chooseActiveProposal(
         ? []
         : proposals;
   if (candidates.length === 0) {
-    return currentProposal;
+    return {
+      proposal: currentProposal,
+      trace: {
+        selectedProposalId: toText(currentProposal?.id, "") || null,
+        candidateProposalIds: [],
+        ignoredProposalIds: dedupe(proposals.map((proposal) => proposal.id)),
+        summary: currentProposal
+          ? `Kept proposal ${currentProposal.id} because no group proposal matched the thread lineage.`
+          : "No proposal matched the thread lineage anchor.",
+        reasons: [
+          "Thread lineage is anchored to an existing proposal, work item, or run.",
+          "Available group proposals were ignored because they did not match that lineage.",
+        ],
+      },
+    };
   }
   const sorted = [...candidates].sort((left, right) => {
     const rightTime = proposalTimestamp(right);
@@ -1374,10 +1478,44 @@ function chooseActiveProposal(
       String(left.id) === String(linkage.activeProposalId)
     ) {
       return -1;
-    }
-    return 0;
-  });
-  return sorted[0] ?? currentProposal;
+      }
+      return 0;
+    });
+  const proposal = sorted[0] ?? currentProposal;
+  const ignoredProposalIds = dedupe(
+    proposals
+      .filter((entry) => String(entry.id) !== String(proposal?.id ?? ""))
+      .map((entry) => entry.id),
+  );
+  return {
+    proposal,
+    trace: {
+      selectedProposalId: toText(proposal?.id, "") || null,
+      candidateProposalIds: dedupe(candidates.map((entry) => entry.id)),
+      ignoredProposalIds,
+      summary: proposal
+        ? `Selected proposal ${proposal.id} for this thread because it best matches the current lineage and recency checks.`
+        : "No proposal was selected for this thread.",
+      reasons: dedupe([
+        hasLineageAnchor
+          ? "Applied thread lineage filters before considering proposal recency."
+          : "No lineage anchor was present, so group proposals were ranked by recency.",
+        lineageAnchored.length > 0 && proposals.length !== lineageAnchored.length
+          ? `Ignored ${proposals.length - lineageAnchored.length} unrelated proposal${proposals.length - lineageAnchored.length === 1 ? "" : "s"}.`
+          : "",
+        proposal ? "Picked the newest remaining proposal candidate." : "",
+      ]),
+    },
+  };
+}
+
+function chooseActiveProposal(
+  group: LooseRecord | null,
+  linkage: OperatorThreadLinkage,
+  currentProposal: LooseRecord | null = null,
+  dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
+) {
+  return selectActiveProposal(group, linkage, currentProposal, dbPath).proposal;
 }
 
 function resolveLatestThreadRun(
@@ -2081,7 +2219,8 @@ async function syncThreadState(threadId: string, dbPath: string) {
   let proposal = linkage.activeProposalId
     ? getProposalSummary(linkage.activeProposalId, dbPath)
     : null;
-  proposal = chooseActiveProposal(group, linkage, proposal, dbPath);
+  let proposalSelection = selectActiveProposal(group, linkage, proposal, dbPath);
+  proposal = proposalSelection.proposal;
   let latestRun = resolveLatestThreadRun(group, linkage, proposal, dbPath);
 
   let integrationBranch =
@@ -2147,7 +2286,13 @@ async function syncThreadState(threadId: string, dbPath: string) {
       group = goalPlan?.materializedGroup?.id
         ? getWorkItemGroupSummary(String(goalPlan.materializedGroup.id), dbPath)
         : group;
-      proposal = chooseActiveProposal(group, extractLinkage(thread), proposal, dbPath);
+      proposalSelection = selectActiveProposal(
+        group,
+        extractLinkage(thread),
+        proposal,
+        dbPath,
+      );
+      proposal = proposalSelection.proposal;
       latestRun = resolveLatestThreadRun(group, extractLinkage(thread), proposal, dbPath);
     } else if (
       latestRunNeedsRecovery(latestRun, proposal)
@@ -2210,7 +2355,13 @@ async function syncThreadState(threadId: string, dbPath: string) {
       group = group?.id
         ? getWorkItemGroupSummary(String(group.id), dbPath)
         : group;
-      proposal = chooseActiveProposal(group, extractLinkage(thread), proposal, dbPath);
+      proposalSelection = selectActiveProposal(
+        group,
+        extractLinkage(thread),
+        proposal,
+        dbPath,
+      );
+      proposal = proposalSelection.proposal;
       latestRun = resolveLatestThreadRun(group, extractLinkage(thread), proposal, dbPath);
       integrationBranch =
         getProposalIntegrationBranch(proposal) ||
@@ -2292,10 +2443,10 @@ async function syncThreadState(threadId: string, dbPath: string) {
   const hero = buildThreadHero(thread, progress, pendingActions);
   const evidenceSummary = buildThreadEvidenceSummary(context);
   const projectedPendingActions = pendingActions
-    .map((action) => describePendingAction(action, thread, progress))
+    .map((action) => describePendingAction(action, thread, progress, context))
     .filter(Boolean);
   const projectedActionHistory = actionHistory
-    .map((action) => describePendingAction(action, thread, progress))
+    .map((action) => describePendingAction(action, thread, progress, context))
     .filter(Boolean);
   const summary = buildThreadSummary(thread, messages, pendingActions, context);
   const status = inferThreadStatus(goalPlan, group, proposal, pendingActions);
@@ -2336,6 +2487,10 @@ async function syncThreadState(threadId: string, dbPath: string) {
     pendingActions: projectedPendingActions,
     actionHistory: projectedActionHistory,
     context,
+    trace: {
+      proposalSelection: proposalSelection.trace,
+      pendingAction: buildPendingActionTrace(projectedPendingActions[0] ?? null, context),
+    },
     links: threadLinks(threadId),
   };
 }
