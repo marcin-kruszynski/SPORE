@@ -104,7 +104,8 @@ export function deriveMissionSelectionState(
   currentState: MissionFocusState,
   target: MissionSelectionTarget,
 ): MissionFocusState {
-  const source = toText(target.source, currentState.missionFocusSource ?? "") || null;
+  const source =
+    toText(target.source, currentState.missionFocusSource ?? "") || null;
   const isInboxSelection = source === "inbox";
   return {
     selectedThreadId:
@@ -150,16 +151,14 @@ export function resolveInboxRowContent(
       toText(threadFallback?.title, "") ||
       fallbackObjective ||
       toText(action.threadId, "Mission"),
-    objective:
-      toText(action.threadSummary?.objective, "") || fallbackObjective,
+    objective: toText(action.threadSummary?.objective, "") || fallbackObjective,
     reason:
       toText(action.inboxSummary?.reason, "") ||
       toText(action.decisionGuidance?.why, "") ||
       toText(action.summary, "Operator decision required."),
     waitingLabel,
     urgency: toText(action.inboxSummary?.urgency, "normal"),
-    decisionTitle:
-      toText(action.decisionGuidance?.title, "") || waitingLabel,
+    decisionTitle: toText(action.decisionGuidance?.title, "") || waitingLabel,
     primaryAction:
       toText(action.decisionGuidance?.primaryAction, "") ||
       toText(firstChoice?.label, "") ||

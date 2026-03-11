@@ -55,7 +55,10 @@ test("renderOperatorMissionHero uses server-authored hero content", () => {
 
   assert.match(html, /operator-mission-hero-card/);
   assert.match(html, /Polish operator chat mission console/);
-  assert.match(html, /I prepared a plan and need your approval before I start\./);
+  assert.match(
+    html,
+    /I prepared a plan and need your approval before I start\./,
+  );
   assert.match(html, /Plan Approval/);
   assert.match(html, /Approve the plan/);
   assert.match(html, /Stub runtime/);
@@ -106,7 +109,8 @@ test("renderOperatorInboxRow uses thread and inbox projections for core row cont
     summary: "fallback summary should not lead the row",
     threadSummary: {
       title: "Mission Alpha",
-      objective: "Polish the browser operator chat into a guided mission console",
+      objective:
+        "Polish the browser operator chat into a guided mission console",
     },
     inboxSummary: {
       urgency: "normal",
@@ -125,7 +129,10 @@ test("renderOperatorInboxRow uses thread and inbox projections for core row cont
     html,
     /Polish the browser operator chat into a guided mission console/,
   );
-  assert.match(html, /Plan approval is waiting before managed work can start\./);
+  assert.match(
+    html,
+    /Plan approval is waiting before managed work can start\./,
+  );
   assert.match(html, /Waiting for plan approval/);
   assert.match(html, /Review the mission plan/);
   assert.doesNotMatch(html, /fallback summary should not lead the row/);

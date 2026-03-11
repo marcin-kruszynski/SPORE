@@ -145,6 +145,37 @@ Workflow templates may also define `stepSets`, which the service exposes back th
 - `POST /work-items`
 - `POST /work-items/:id/run`
 
+## Operator Chat Mission-Control Contract
+
+The operator chat routes now carry browser-ready mission-control projections so the Web UI can stay thin over orchestrator state.
+
+- `GET /operator/threads/:id` returns server-authored mission projections such as:
+  - `hero` for the mission headline, status line, phase, and execution badges
+  - `progress` for the mission-stage strip and exception overlays
+  - `decisionGuidance` for the current decision title, why, next step, risk note, primary action, and quick replies
+  - `evidenceSummary` for linked plan, proposal, validation, promotion, and quarantine summaries
+- `GET /operator/actions` returns a global inbox contract that already includes:
+  - `threadSummary`
+  - `inboxSummary`
+  - `decisionGuidance`
+  - `choices`
+
+That keeps clients from inferring mission state from raw artifacts or joining pending actions against separate thread lookups just to render the inbox.
+
+The selected-thread stream at `GET /operator/threads/:id/stream` is the live update surface for the active mission. Browser clients should use it to refresh the selected thread detail and then refresh the global inbox and thread list so mission-control state stays synchronized.
+
+## Simplest Operator Flow
+
+The smallest supervised loop is:
+
+1. Start a mission with `POST /operator/threads`.
+2. Review the plan in `GET /operator/threads/:id`.
+3. Approve the plan by chat reply or `POST /operator/actions/:id/resolve`.
+4. Review the resulting proposal and evidence from the same thread detail.
+5. Approve, promote, or request rework from the same thread or the global inbox.
+
+In short: `start mission -> review plan -> approve -> review proposal -> approve/promote/rework`.
+
 ## Run
 
 ```bash
@@ -196,6 +227,10 @@ curl -X POST http://127.0.0.1:8789/operator/threads/<thread-id>/messages \
   -d '{"message":"approve","by":"operator","source":"curl"}'
 curl http://127.0.0.1:8789/operator/actions
 curl http://127.0.0.1:8789/operator/actions?threadId=<thread-id>
+curl http://127.0.0.1:8789/operator/threads/<thread-id>
+curl -X POST http://127.0.0.1:8789/operator/actions/<action-id>/resolve \
+  -H 'content-type: application/json' \
+  -d '{"choice":"approve","by":"operator","source":"curl"}'
 curl http://127.0.0.1:8789/self-build/dashboard
 curl http://127.0.0.1:8789/self-build/summary
 curl http://127.0.0.1:8789/self-build/decisions

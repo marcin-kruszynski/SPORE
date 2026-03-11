@@ -8583,7 +8583,9 @@ function renderOperatorChat() {
   if (els.operatorChatState) {
     els.operatorChatState.textContent = detail
       ? `mission:${detail.progress?.currentState || detail.status || "idle"} · pending:${
-          Array.isArray(detail.pendingActions) ? detail.pendingActions.length : 0
+          Array.isArray(detail.pendingActions)
+            ? detail.pendingActions.length
+            : 0
         }`
       : `thread:${state.operatorThreadDetailState}`;
   }
@@ -8598,13 +8600,15 @@ function renderOperatorChat() {
       els.operatorProgressStrip.innerHTML = renderOperatorProgress(null);
     }
     if (els.operatorCurrentDecision) {
-      els.operatorCurrentDecision.innerHTML = renderOperatorCurrentDecision(null);
+      els.operatorCurrentDecision.innerHTML =
+        renderOperatorCurrentDecision(null);
     }
     if (els.operatorQuickReplies) {
       els.operatorQuickReplies.innerHTML = renderOperatorQuickReplies(null);
     }
     if (els.operatorEvidenceSummary) {
-      els.operatorEvidenceSummary.innerHTML = renderOperatorEvidenceSummary(null);
+      els.operatorEvidenceSummary.innerHTML =
+        renderOperatorEvidenceSummary(null);
     }
     renderOperatorPendingActions(null);
     renderOperatorLinkedArtifacts(null);
@@ -8622,16 +8626,20 @@ function renderOperatorChat() {
     els.operatorProgressStrip.innerHTML = renderOperatorProgress(detail);
   }
   if (els.operatorCurrentDecision) {
-    els.operatorCurrentDecision.innerHTML = renderOperatorCurrentDecision(detail, {
-      emphasized: state.operatorMissionFocusSource === "inbox",
-      highlightedActionId: state.operatorHighlightedActionId,
-    });
+    els.operatorCurrentDecision.innerHTML = renderOperatorCurrentDecision(
+      detail,
+      {
+        emphasized: state.operatorMissionFocusSource === "inbox",
+        highlightedActionId: state.operatorHighlightedActionId,
+      },
+    );
   }
   if (els.operatorQuickReplies) {
     els.operatorQuickReplies.innerHTML = renderOperatorQuickReplies(detail);
   }
   if (els.operatorEvidenceSummary) {
-    els.operatorEvidenceSummary.innerHTML = renderOperatorEvidenceSummary(detail);
+    els.operatorEvidenceSummary.innerHTML =
+      renderOperatorEvidenceSummary(detail);
   }
 
   renderOperatorMessages(detail);
@@ -8695,7 +8703,9 @@ async function sendOperatorChatReply(messageOverride = null) {
   if (!state.selectedOperatorThreadId || !els.operatorChatInput) {
     return;
   }
-  const message = String(messageOverride ?? els.operatorChatInput.value ?? "").trim();
+  const message = String(
+    messageOverride ?? els.operatorChatInput.value ?? "",
+  ).trim();
   if (!message) {
     if (els.operatorChatFeedback) {
       els.operatorChatFeedback.textContent = "Type a reply first.";

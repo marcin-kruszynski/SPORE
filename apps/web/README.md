@@ -118,12 +118,28 @@ This app now provides the first minimal browser-based operator surface for SPORE
   - execution-level workspace summaries for mutating workflow runs
 - now renders a dedicated Operator Chat surface that lets operators:
   - start a self-build mission in freeform text
+  - land in a mission-control layout driven by server-authored `hero`, `progress`, `decisionGuidance`, and `evidenceSummary` projections from `GET /operator/threads/:id`
   - follow the selected mission through a live thread stream
+  - keep the selected mission hero, progress strip, current decision card, evidence summary, thread list, and global inbox in sync from the selected-thread SSE stream
   - inspect a global inbox of pending decisions across all operator threads
+  - rely on `GET /operator/actions` payloads that already include `threadSummary`, `inboxSummary`, `decisionGuidance`, and direct `choices` so the browser does not join raw thread state just to render the inbox
   - review orchestrator-generated goal plans from the same thread
   - edit pending goal plans directly in chat with commands such as `keep only docs` or `drop 2`
+  - use orchestrator-authored quick replies when the current decision offers safe steering hints, such as goal-plan review scope edits
   - approve, reject, rework, quarantine, release, or promote pending governance gates with action buttons or chat replies
   - follow linked goal plans, groups, proposals, and integration branches without leaving the browser mission-control view
+
+## Simplest Operator Flow
+
+The shortest guided operator path is:
+
+1. Start a mission.
+2. Review the server-authored plan summary in the selected mission.
+3. Approve the plan.
+4. Review the proposal package when the orchestrator returns with evidence.
+5. Approve, promote, or request rework from the same mission thread or the global inbox.
+
+In the browser this usually looks like `start mission -> review plan -> approve -> review proposal -> approve/promote/rework`.
 
 ## Run
 

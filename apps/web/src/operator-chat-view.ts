@@ -1,7 +1,7 @@
 import {
-  resolveInboxRowContent,
   type OperatorActionProjection,
   type OperatorThreadFallback,
+  resolveInboxRowContent,
 } from "./operator-chat-controller.js";
 
 interface OperatorThreadDetail {
@@ -74,7 +74,9 @@ function toText(value: unknown, fallback = ""): string {
 }
 
 function stateClass(value: unknown): string {
-  return toText(value, "unknown").toLowerCase().replace(/[^a-z0-9_-]+/g, "-");
+  return toText(value, "unknown")
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "-");
 }
 
 function renderStatusBadge(value: unknown, extraClass = ""): string {
@@ -130,7 +132,9 @@ export function renderOperatorActionButtons(
   `;
 }
 
-export function renderOperatorMissionHero(detail: OperatorThreadDetail | null): string {
+export function renderOperatorMissionHero(
+  detail: OperatorThreadDetail | null,
+): string {
   const hero = detail?.hero ?? null;
   if (!hero) {
     return renderEmptyArticle(
@@ -151,17 +155,19 @@ export function renderOperatorMissionHero(detail: OperatorThreadDetail | null): 
         ${renderStatusBadge(hero.phase ?? "Mission", "phase")}
         ${hero.primaryCtaHint ? renderDetailPill(hero.primaryCtaHint, true) : ""}
         <div class="operator-mission-badges">
-          ${badges
-            .map((badge) => renderDetailPill(String(badge)))
-            .join("")}
+          ${badges.map((badge) => renderDetailPill(String(badge))).join("")}
         </div>
       </div>
     </article>
   `;
 }
 
-export function renderOperatorProgress(detail: OperatorThreadDetail | null): string {
-  const stages = Array.isArray(detail?.progress?.stages) ? detail?.progress?.stages : [];
+export function renderOperatorProgress(
+  detail: OperatorThreadDetail | null,
+): string {
+  const stages = Array.isArray(detail?.progress?.stages)
+    ? detail?.progress?.stages
+    : [];
   if (stages.length === 0) {
     return renderEmptyArticle(
       "panel operator-progress-strip-track",
@@ -172,12 +178,14 @@ export function renderOperatorProgress(detail: OperatorThreadDetail | null): str
   return `
     <article class="panel operator-progress-strip-track">
       ${stages
-        .map((stage) => `
+        .map(
+          (stage) => `
           <div class="operator-progress-stage ${escapeHtml(stateClass(stage.status))}" data-stage-id="${escapeHtml(toText(stage.id, "stage"))}">
             <span class="operator-progress-stage-status">${escapeHtml(toText(stage.status, "upcoming"))}</span>
             <strong>${escapeHtml(toText(stage.label, stage.id ?? "Stage"))}</strong>
           </div>
-        `)
+        `,
+        )
         .join("")}
     </article>
   `;
@@ -246,8 +254,12 @@ export function renderOperatorCurrentDecision(
   `;
 }
 
-export function renderOperatorQuickReplies(detail: OperatorThreadDetail | null): string {
-  const suggestedReplies = Array.isArray(detail?.decisionGuidance?.suggestedReplies)
+export function renderOperatorQuickReplies(
+  detail: OperatorThreadDetail | null,
+): string {
+  const suggestedReplies = Array.isArray(
+    detail?.decisionGuidance?.suggestedReplies,
+  )
     ? detail?.decisionGuidance?.suggestedReplies.filter(Boolean)
     : [];
 
@@ -282,13 +294,17 @@ export function renderOperatorQuickReplies(detail: OperatorThreadDetail | null):
   `;
 }
 
-export function renderOperatorEvidenceSummary(detail: OperatorThreadDetail | null): string {
+export function renderOperatorEvidenceSummary(
+  detail: OperatorThreadDetail | null,
+): string {
   const evidence = detail?.evidenceSummary ?? null;
   if (!evidence || typeof evidence !== "object") {
     return '<div class="detail-card empty-state">Evidence summaries will appear here when a mission is selected.</div>';
   }
 
-  const entries = Object.entries(evidence).filter(([, value]) => value && typeof value === "object");
+  const entries = Object.entries(evidence).filter(
+    ([, value]) => value && typeof value === "object",
+  );
   if (entries.length === 0) {
     return '<div class="detail-card empty-state">No evidence summary is available for this mission yet.</div>';
   }
@@ -323,7 +339,10 @@ export function renderOperatorInboxRow(
   action: OperatorActionProjection,
   options: RenderInboxRowOptions = {},
 ): string {
-  const content = resolveInboxRowContent(action, options.threadFallback ?? null);
+  const content = resolveInboxRowContent(
+    action,
+    options.threadFallback ?? null,
+  );
   const choices = Array.isArray(action.choices) ? action.choices : [];
   const classes = ["operator-action-card", "operator-inbox-row"];
   if (options.active) {

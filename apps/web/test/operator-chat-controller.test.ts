@@ -10,33 +10,27 @@ import {
 } from "../src/operator-chat-controller.js";
 
 test("buildQuickReplySubmission shapes a chat reply request", () => {
-  assert.deepEqual(
-    buildQuickReplySubmission("thread-7", "Keep only docs"),
-    {
-      path: "/operator/threads/thread-7/messages",
-      method: "POST",
-      body: {
-        message: "Keep only docs",
-        by: "web-operator",
-        source: "web-operator-chat",
-      },
+  assert.deepEqual(buildQuickReplySubmission("thread-7", "Keep only docs"), {
+    path: "/operator/threads/thread-7/messages",
+    method: "POST",
+    body: {
+      message: "Keep only docs",
+      by: "web-operator",
+      source: "web-operator-chat",
     },
-  );
+  });
 });
 
 test("buildInboxActionSubmission shapes a direct inbox resolution request", () => {
-  assert.deepEqual(
-    buildInboxActionSubmission("action-9", "approve"),
-    {
-      path: "/operator/actions/action-9/resolve",
-      method: "POST",
-      body: {
-        choice: "approve",
-        by: "web-operator",
-        source: "web-operator-chat",
-      },
+  assert.deepEqual(buildInboxActionSubmission("action-9", "approve"), {
+    path: "/operator/actions/action-9/resolve",
+    method: "POST",
+    body: {
+      choice: "approve",
+      by: "web-operator",
+      source: "web-operator-chat",
     },
-  );
+  });
 });
 
 test("deriveMissionSelectionState focuses the owning mission and highlights the decision from the inbox", () => {
@@ -96,7 +90,7 @@ test("focusCurrentDecisionCard scrolls and focuses the current decision card", (
   assert.equal(focusCurrentDecisionCard(target), true);
   assert.deepEqual(calls, [
     JSON.stringify({ behavior: "smooth", block: "start", inline: "nearest" }),
-    "focus:{\"preventScroll\":true}",
+    'focus:{"preventScroll":true}',
   ]);
 });
 

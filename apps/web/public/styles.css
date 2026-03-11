@@ -2086,7 +2086,11 @@ button:disabled {
 .operator-chat-overview-bar {
   background:
     linear-gradient(135deg, rgba(31, 48, 62, 0.92), rgba(63, 89, 110, 0.84)),
-    radial-gradient(circle at top right, rgba(255, 214, 170, 0.28), transparent 32%);
+    radial-gradient(
+      circle at top right,
+      rgba(255, 214, 170, 0.28),
+      transparent 32%
+    );
   color: #f8efe4;
 }
 
@@ -2125,7 +2129,11 @@ button:disabled {
   padding: 22px 24px;
   background:
     linear-gradient(140deg, rgba(28, 42, 54, 0.96), rgba(67, 90, 109, 0.9)),
-    radial-gradient(circle at top right, rgba(244, 196, 145, 0.34), transparent 30%);
+    radial-gradient(
+      circle at top right,
+      rgba(244, 196, 145, 0.34),
+      transparent 30%
+    );
   color: #f8f1e6;
 }
 
@@ -2212,7 +2220,11 @@ button:disabled {
   gap: 14px;
   border-radius: 24px;
   padding: 22px;
-  background: linear-gradient(180deg, rgba(255, 248, 240, 0.98), rgba(255, 255, 255, 0.88));
+  background: linear-gradient(
+    180deg,
+    rgba(255, 248, 240, 0.98),
+    rgba(255, 255, 255, 0.88)
+  );
   border-color: rgba(180, 69, 45, 0.18);
 }
 
@@ -2278,7 +2290,11 @@ button:disabled {
   gap: 14px;
   border-radius: 24px;
   padding: 20px;
-  background: linear-gradient(180deg, rgba(248, 243, 235, 0.96), rgba(255, 255, 255, 0.86));
+  background: linear-gradient(
+    180deg,
+    rgba(248, 243, 235, 0.96),
+    rgba(255, 255, 255, 0.86)
+  );
 }
 
 .operator-quick-replies-header {
@@ -2374,7 +2390,10 @@ button:disabled {
 
 @media (min-width: 1280px) {
   .operator-mission-console {
-    grid-template-columns: minmax(280px, 0.82fr) minmax(0, 1.35fr) minmax(280px, 0.92fr);
+    grid-template-columns: minmax(280px, 0.82fr) minmax(0, 1.35fr) minmax(
+        280px,
+        0.92fr
+      );
   }
 }
 

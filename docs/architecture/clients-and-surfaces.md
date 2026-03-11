@@ -53,6 +53,8 @@ The current browser surface now renders:
 
 The browser and orchestrator now also expose a conversation-first operator surface for self-build.
 
+The current Web UI presents that surface as a mission-control view driven by orchestrator-authored projections instead of browser-derived heuristics.
+
 The preferred routes for that surface are:
 
 - `GET /operator/threads`
@@ -68,12 +70,19 @@ This surface is intentionally thin over orchestrator-owned state.
 Operators can:
 
 - state a mission in freeform text,
+- review a server-authored mission hero, progress strip, current decision card, and evidence summary from `GET /operator/threads/:id`,
 - ask for status in freeform text,
 - edit a goal plan in chat with instructions such as `keep only docs`, `drop 2`, or `prioritize operator-ui-pass`,
 - inspect a global inbox of pending decisions across all operator threads,
+- rely on `GET /operator/actions` to return `threadSummary`, `inboxSummary`, `decisionGuidance`, and `choices` so inbox rows render directly from one contract,
 - resolve review, rework, quarantine-release, and promotion gates through action buttons,
+- use orchestrator-authored quick replies when a decision stage exposes safe suggested replies,
 - resolve the same gates by replying in chat with direct answers such as `approve`, `reject`, `rework`, `quarantine`, `release`, `promote`, or `hold`,
 - follow one selected mission through a live SSE thread stream.
+
+The simplest operator path is `start mission -> review plan -> approve -> review proposal -> approve/promote/rework`.
+
+For the active mission, clients should treat `GET /operator/threads/:id/stream` as the live source for selected-thread updates. When that stream advances, the browser should refresh the selected mission detail and refresh the global inbox so thread-local progress and cross-thread decisions stay synchronized.
 
 The important boundary is unchanged:
 
@@ -95,7 +104,8 @@ Clients should:
 - tolerate partial payloads while backend capabilities are still expanding,
 - render optional lineage and coordination metadata when present,
 - avoid hard-coding assumptions about a single linear execution path,
-- distinguish between runtime-session control and workflow-execution control.
+- distinguish between runtime-session control and workflow-execution control,
+- prefer server-authored operator-chat projections over recomputing hero, progress, evidence, or inbox summaries from raw artifacts client-side.
 
 ## Optional Payload Fields For Emerging Coordination Views
 

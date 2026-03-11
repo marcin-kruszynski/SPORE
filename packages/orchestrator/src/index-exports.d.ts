@@ -103,9 +103,11 @@ declare module "@spore/orchestrator" {
   } from "./self-build/self-build.js";
 
   export {
+    getProposalArtifact,
     getWorkItem,
     openOrchestratorDatabase,
     updateStep,
+    updateProposalArtifact,
     updateWorkItem,
   } from "./store/execution-store.js";
 }

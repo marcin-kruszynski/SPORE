@@ -13,11 +13,13 @@ Turn SPORE's current self-build backend into a conversation-first operator exper
 The target experience is:
 
 1. Operator starts a mission in chat.
-2. Orchestrator creates and explains the goal plan.
-3. Orchestrator requests review when needed.
-4. Orchestrator runs the managed flow.
-5. Orchestrator requests review/approval/promotion at the right checkpoints.
-6. Operator answers from the same thread.
+2. Orchestrator creates and explains the goal plan in a mission-control view.
+3. Operator reviews the plan and approves it from the same thread or the global inbox.
+4. Orchestrator runs the managed flow and returns with proposal evidence.
+5. Operator reviews the proposal and decides to approve, promote, or request rework.
+6. The same thread stays live while the inbox and mission detail refresh around the selected mission.
+
+The shortest operator path is `start mission -> review plan -> approve -> review proposal -> approve/promote/rework`.
 
 ## Delivery Rules
 
@@ -61,11 +63,15 @@ The target experience is:
 - [x] Add richer intent routing for follow-up instructions like scope narrowing and plan edits.
 - [x] Add explicit handling for proposal rework and quarantine/release from chat.
 - [x] Add a conversation-level inbox that aggregates pending actions across all threads.
+- [x] Add inbox-ready thread and decision projections directly to pending-action payloads.
 - [ ] Add better summarization for validation failures and promotion blockers.
 
 ### Phase 5 - Streaming And Mission Control Polish
 
 - [x] Add SSE or incremental polling for live thread updates.
+- [x] Add server-authored hero, progress, decision, and evidence projections for the selected mission.
+- [x] Add quick replies for safe review stages such as goal-plan scope edits.
+- [x] Keep the selected mission detail and the cross-thread inbox synchronized from selected-thread live updates.
 - [ ] Add richer evidence cards and diff-focused proposal summaries in chat.
 - [ ] Add keyboard-first chat ergonomics and action shortcuts.
 - [ ] Add cross-links between Operator Chat and self-build dashboard cards.
@@ -74,7 +80,7 @@ The target experience is:
 
 The current slice delivers:
 
-- a dedicated Operator Chat panel in Web UI,
+- a dedicated Operator Chat mission-control panel in Web UI,
 - thread/message/action persistence in orchestrator SQLite,
 - mission creation from chat,
 - goal-plan review requests,
@@ -82,9 +88,19 @@ The current slice delivers:
 - chat-driven plan edits such as `keep only docs`, `drop 2`, and `prioritize operator-ui-pass`,
 - orchestrator-owned progression into self-build artifacts,
 - proposal review/approval/rework/quarantine-release/promotion gates as pending actions,
-- live thread streaming for the selected operator conversation,
-- a global inbox of pending actions across all operator threads,
+- server-authored mission `hero`, `progress`, `decisionGuidance`, and `evidenceSummary` projections on thread detail,
+- a global inbox of pending actions across all operator threads with `threadSummary`, `inboxSummary`, `decisionGuidance`, and direct `choices`,
+- quick replies for safe review stages,
+- live thread streaming for the selected operator conversation with inbox and thread-list refresh,
 - linked artifact context for goal plans, work-item groups, proposals, and integration branches.
+
+## Current Mission-Control Contract
+
+`GET /operator/threads/:id` is the preferred selected-mission read surface. It now carries the hero, progress, current-decision guidance, evidence summary, pending actions, and linked artifacts that the browser uses directly.
+
+`GET /operator/actions` is the preferred global inbox surface. Each pending action already includes the thread title/objective, inbox summary, decision guidance, and action choices needed for compact inbox rendering.
+
+`GET /operator/threads/:id/stream` is the preferred live update surface for the active mission. Clients should refresh the selected mission detail and the global inbox when stream events arrive.
 
 ## Next Recommended Work
 
@@ -92,7 +108,7 @@ The current slice delivers:
 2. Add better summarization for validation failures and promotion blockers.
 3. Add keyboard-first chat ergonomics and action shortcuts.
 4. Expand tests for promotion-ready and blocked-integration chat flows.
-5. Consider a dedicated inbox-oriented backend projection that ships thread title and mission summary directly with each pending action.
+5. Add stronger proposal diff summaries so promotion decisions can stay inside the same mission-control loop.
 
 ## Verification
 
