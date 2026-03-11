@@ -10,6 +10,7 @@ import {
   createWorkItem,
   getProposalByRun,
   getProposalReviewPackage,
+  getProposalSummary,
   getSelfBuildWorkItemRun,
   getWorkspaceByRun,
   insertProposalArtifact,
@@ -392,6 +393,18 @@ test("legacy blocked-run proposals are forced into recovery instead of review or
         (action) => action.action !== "review-proposal",
       ),
     );
+
+    const proposalSummary = getProposalSummary(proposalId, dbPath);
+    assert.ok(proposalSummary);
+    assert.equal(proposalSummary.status, "rework_required");
+    assert.equal(proposalSummary.links.review ?? null, null);
+    assert.equal(proposalSummary.links.approval ?? null, null);
+
+    const proposalByRun = getProposalByRun(runId, dbPath);
+    assert.ok(proposalByRun);
+    assert.equal(proposalByRun.status, "rework_required");
+    assert.equal(proposalByRun.links.review ?? null, null);
+    assert.equal(proposalByRun.links.approval ?? null, null);
 
     const reviewed = await reviewProposalArtifact(
       proposalId,

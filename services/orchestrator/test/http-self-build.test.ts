@@ -1631,6 +1631,15 @@ test("legacy invalid proposals stay in recovery handling over HTTP", async (t) =
     ),
   );
 
+  const proposalDetail = await getJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/proposal-artifacts/${encodeURIComponent(proposalId)}`,
+  );
+  assert.equal(proposalDetail.status, 200);
+  assert.ok(proposalDetail.json.ok);
+  assert.equal(proposalDetail.json.detail.status, "rework_required");
+  assert.equal(proposalDetail.json.detail.links.review ?? null, null);
+  assert.equal(proposalDetail.json.detail.links.approval ?? null, null);
+
   const summary = await getJson(
     `http://127.0.0.1:${ORCHESTRATOR_PORT}/self-build/summary`,
   );

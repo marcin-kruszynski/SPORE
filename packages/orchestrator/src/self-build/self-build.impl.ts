@@ -2201,7 +2201,13 @@ function buildGoalPlanSummary(plan, items = [], group = null) {
   };
 }
 
-function buildGroupSummary(group, items = [], runs = [], proposals = []) {
+function buildGroupSummary(
+  group,
+  items = [],
+  runs = [],
+  proposals = [],
+  dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
+) {
   const latestRunAt =
     runs[0]?.endedAt ?? runs[0]?.startedAt ?? group.lastRunAt ?? null;
   const counts = runs.reduce((accumulator, run) => {
@@ -2245,7 +2251,7 @@ function buildGroupSummary(group, items = [], runs = [], proposals = []) {
       transitionLog,
     },
     readiness: evaluated.readiness,
-    proposals: proposals.map((proposal) => buildProposalSummary(proposal)),
+    proposals: proposals.map((proposal) => buildProposalSummary(proposal, dbPath)),
     validationSummary: runs.reduce((accumulator, run) => {
       const status = summarizeValidationState(run.metadata?.validation);
       accumulator[status] = (accumulator[status] ?? 0) + 1;
@@ -2276,7 +2282,7 @@ function listGroupProposals(
   }
   return withDatabase(dbPath, (db) => listProposalArtifacts(db, null, 500))
     .filter((proposal) => itemIds.has(proposal.workItemId))
-    .map(buildProposalSummary);
+    .map((proposal) => buildProposalSummary(proposal, dbPath));
 }
 
 function appendGroupBatchHistory(
@@ -2354,14 +2360,33 @@ function ensureSafeMode(item, projectId = null) {
   return { safeMode, mutationScope };
 }
 
-function buildProposalSummary(artifact) {
+function buildProposalSummary(
+  artifact,
+  dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
+) {
   const summary = buildProposalSummaryHelper(artifact);
   if (!summary) {
     return null;
   }
   const validationStatus = buildProposalValidationStatus(artifact);
+  const governance = buildProposalGovernanceContext(artifact, dbPath);
+  const effectiveStatus = governance.ready ? summary.status : "rework_required";
+  const links = governance.ready
+    ? summary.links
+    : {
+        self: summary.links.self,
+        reviewPackage: summary.links.reviewPackage,
+      };
   return {
     ...summary,
+    status: effectiveStatus,
+    links,
+    governance: {
+      ready: governance.ready,
+      blockers: governance.blockers,
+      sourceExecutionId: governance.sourceExecutionId,
+      sourceRunStatus: governance.run?.status ?? null,
+    },
     validation: validationStatus.validation,
     validationDrift: validationStatus.validationDrift,
     readiness: {
@@ -3988,7 +4013,7 @@ export async function reworkProposalArtifact(
   };
   withDatabase(dbPath, (db) => updateProposalArtifact(db, updatedProposal));
   return {
-    proposal: buildProposalSummary(updatedProposal),
+    proposal: buildProposalSummary(updatedProposal, dbPath),
     reworkItem: reworkItem ? getSelfBuildWorkItem(reworkItem.id, dbPath) : null,
     group: group ? getWorkItemGroupSummary(group.id, dbPath) : null,
   };
@@ -4086,7 +4111,7 @@ export function getSelfBuildWorkItem(
     : [];
   const groupRuns = groupItems.flatMap((entry) => entry.runs ?? []);
   const groupSummary = group
-    ? buildGroupSummary(group, groupItems, groupRuns)
+    ? buildGroupSummary(group, groupItems, groupRuns, [], dbPath)
     : null;
   const derivedItem =
     groupSummary?.items?.find((entry) => entry.id === itemId) ?? item;
@@ -4110,7 +4135,7 @@ export function getSelfBuildWorkItem(
       },
     },
     latestProposal: latestProposal
-      ? buildProposalSummary(latestProposal)
+      ? buildProposalSummary(latestProposal, dbPath)
       : null,
     latestWorkspace: buildWorkspaceSummary(latestWorkspace),
     links: {
@@ -4262,7 +4287,7 @@ export function getSelfBuildWorkItemRun(
   return {
     ...buildWorkItemRunSummary(run, item, previousRun),
     item,
-    proposal: buildProposalSummary(proposal),
+    proposal: buildProposalSummary(proposal, dbPath),
     workspace: buildWorkspaceSummary(workspace),
     validation: run.metadata?.validation ?? null,
     docSuggestions,
@@ -4345,6 +4370,7 @@ export async function rerunSelfBuildWorkItemRun(
           withDatabase(dbPath, (db) =>
             getProposalArtifact(db, result.proposal.id),
           ),
+          dbPath,
         );
       }
     }
@@ -4495,7 +4521,7 @@ export async function runSelfBuildWorkItem(
     return {
       item: failedItem,
       run: failedRun,
-      proposal: buildProposalSummary(proposal),
+      proposal: buildProposalSummary(proposal, dbPath),
       learningRecord: buildLearningSummary(learningRecord),
       docSuggestions,
       error: error.message,
@@ -4575,7 +4601,7 @@ export async function runSelfBuildWorkItem(
   return {
     item: settledItem,
     run: getManagedWorkItemRun(runDetail.id, dbPath),
-    proposal: buildProposalSummary(proposal),
+    proposal: buildProposalSummary(proposal, dbPath),
     learningRecord: buildLearningSummary(learningRecord),
     docSuggestions,
   };
@@ -6015,10 +6041,13 @@ function buildProposalReviewPackage(
     ? String(proposal.status)
     : "rework_required";
   return {
-    proposal: buildProposalSummary({
-      ...proposal,
-      status: effectiveProposalStatus,
-    }),
+    proposal: buildProposalSummary(
+      {
+        ...proposal,
+        status: effectiveProposalStatus,
+      },
+      dbPath,
+    ),
     workItemRun: run,
     workItem,
     workspace,
@@ -6157,7 +6186,7 @@ export function getProposalSummary(
   const artifact = withDatabase(dbPath, (db) =>
     getProposalArtifact(db, artifactId),
   );
-  return buildProposalSummary(artifact);
+  return buildProposalSummary(artifact, dbPath);
 }
 
 export function getProposalReviewPackage(
@@ -6215,7 +6244,7 @@ export function planProposalPromotion(
       artifact.id,
   });
   return {
-    proposal: buildProposalSummary(artifact),
+    proposal: buildProposalSummary(artifact, dbPath),
     reviewPackage,
     promotion,
     plan,
@@ -6320,7 +6349,7 @@ export async function invokeProposalPromotion(
     );
   }
   return {
-    proposal: proposal ? buildProposalSummary(proposal) : planned.proposal,
+    proposal: proposal ? buildProposalSummary(proposal, dbPath) : planned.proposal,
     reviewPackage: planned.reviewPackage,
     promotion: planned.promotion,
     detail,
@@ -6331,7 +6360,7 @@ export function getProposalByRun(runId, dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
   const artifact = withDatabase(dbPath, (db) =>
     getProposalArtifactByRunId(db, runId),
   );
-  return buildProposalSummary(artifact);
+  return buildProposalSummary(artifact, dbPath);
 }
 
 export function listExecutionWorkspaces(
@@ -6587,7 +6616,7 @@ export async function reviewProposalArtifact(
       },
     };
     withDatabase(dbPath, (db) => updateProposalArtifact(db, updated));
-    return buildProposalSummary(updated);
+    return buildProposalSummary(updated, dbPath);
   }
   const status =
     String(decision.status ?? "reviewed").trim() === "rejected"
@@ -6621,7 +6650,7 @@ export async function reviewProposalArtifact(
     },
   };
   withDatabase(dbPath, (db) => updateProposalArtifact(db, updated));
-  return buildProposalSummary(updated);
+  return buildProposalSummary(updated, dbPath);
 }
 
 export async function approveProposalArtifact(
@@ -6668,7 +6697,7 @@ export async function approveProposalArtifact(
       },
     };
     withDatabase(dbPath, (db) => updateProposalArtifact(db, updated));
-    return buildProposalSummary(updated);
+    return buildProposalSummary(updated, dbPath);
   }
   const blockers =
     approved === "approved" && !sourceExecutionId
@@ -6772,7 +6801,7 @@ export async function approveProposalArtifact(
     },
   };
   withDatabase(dbPath, (db) => updateProposalArtifact(db, updated));
-  return buildProposalSummary(updated);
+  return buildProposalSummary(updated, dbPath);
 }
 
 export async function validateWorkItemRun(
@@ -8690,7 +8719,7 @@ async function runSelfBuildLoopIteration(
   const promotionProposal = withDatabase(dbPath, (db) =>
     listProposalArtifacts(db, "promotion_ready", 50),
   )
-    .map((proposal) => buildProposalSummary(proposal))
+    .map((proposal) => buildProposalSummary(proposal, dbPath))
     .find(Boolean);
   if (promotionProposal) {
     const evaluation = evaluateProposalPromotionAutonomy(
@@ -9049,7 +9078,7 @@ export function getSelfBuildSummary(dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
   const goalPlans = listGoalPlansSummary({ limit: 100 }, dbPath);
   const proposals = withDatabase(dbPath, (db) =>
     listProposalArtifacts(db, null, 100),
-  ).map(buildProposalSummary);
+  ).map((proposal) => buildProposalSummary(proposal, dbPath));
   const workspaces = withDatabase(dbPath, (db) =>
     listWorkspaceAllocations(db, { limit: 200 }),
   ).map(buildWorkspaceSummary);
