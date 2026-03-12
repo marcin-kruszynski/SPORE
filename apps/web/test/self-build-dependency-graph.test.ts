@@ -15,6 +15,8 @@ import {
   waitForHealth,
 } from "@spore/test-support";
 
+import { ensureWebRuntimeBuilt } from "./runtime-harness.js";
+
 type TempPaths = {
   dbPath: string;
   sessionDbPath: string;
@@ -144,6 +146,8 @@ function mutateWorkItem(
 }
 
 test("self-build web proxy exposes dependency authoring, impact summary, and readiness detail", async (t) => {
+  await ensureWebRuntimeBuilt();
+
   const ORCHESTRATOR_PORT = await findFreePort();
   const WEB_PORT = await findFreePort();
   const { dbPath, sessionDbPath, eventLogPath } = (await makeTempPaths(
@@ -179,8 +183,8 @@ test("self-build web proxy exposes dependency authoring, impact summary, and rea
   const htmlResponse = await fetch(`${webOrigin}/`);
   assert.equal(htmlResponse.status, 200);
   const html = await htmlResponse.text();
-  assert.ok(html.includes("self-build-view"));
-  assert.ok(html.includes("main.js"));
+  assert.ok(html.includes('<div id="root"></div>'));
+  assert.ok(!html.includes("self-build-view"));
 
   const goalPlan = await postJson<GoalPlanResponse>(
     `${webOrigin}/api/orchestrator/goals/plan`,

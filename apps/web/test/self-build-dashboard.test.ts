@@ -10,6 +10,8 @@ import {
   waitForHealth,
 } from "@spore/test-support";
 
+import { ensureWebRuntimeBuilt } from "./runtime-harness.js";
+
 type TempPaths = {
   dbPath: string;
   sessionDbPath: string;
@@ -131,6 +133,8 @@ type WorkItemGroupDetailResponse = {
 };
 
 test("self-build dashboard exposes dedicated operator-first surface with overview, urgent queue, and drilldown navigation", async (t) => {
+  await ensureWebRuntimeBuilt();
+
   const ORCHESTRATOR_PORT = await findFreePort();
   const WEB_PORT = await findFreePort();
   const { dbPath, sessionDbPath, eventLogPath } = (await makeTempPaths(
@@ -166,12 +170,12 @@ test("self-build dashboard exposes dedicated operator-first surface with overvie
   const html = await htmlResponse.text();
 
   // Verify basic operator page structure loads
+  assert.ok(html.includes('<div id="root"></div>'));
+  assert.ok(!html.includes("main.js"), "React shell should not load legacy main.js");
   assert.ok(
-    html.includes("SPORE") || html.includes("Operator"),
-    "HTML should contain operator page content",
+    !html.includes("self-build-view"),
+    "React shell should not inline the legacy self-build DOM",
   );
-  assert.ok(html.includes("main.js"), "HTML should load main.js");
-  assert.ok(html.includes("styles.css"), "HTML should load styles.css");
 
   const learningTrendsViaWeb = await getJson(
     `http://127.0.0.1:${WEB_PORT}/api/orchestrator/self-build/learning-trends`,
@@ -505,6 +509,8 @@ test("self-build dashboard exposes dedicated operator-first surface with overvie
 });
 
 test("web proxy exposes operator chat routes and operator chat shell", async (t) => {
+  await ensureWebRuntimeBuilt();
+
   const ORCHESTRATOR_PORT = await findFreePort();
   const WEB_PORT = await findFreePort();
   const { dbPath, sessionDbPath, eventLogPath } = (await makeTempPaths(
@@ -538,16 +544,13 @@ test("web proxy exposes operator chat routes and operator chat shell", async (t)
   const htmlResponse = await fetch(`${webOrigin}/`);
   assert.equal(htmlResponse.status, 200);
   const html = await htmlResponse.text();
-  assert.ok(html.includes("Operator Chat"));
-  assert.ok(html.includes("operator-chat-view"));
-  assert.ok(html.includes("operator-mission-hero"));
-  assert.ok(html.includes("operator-current-decision"));
-  assert.ok(html.includes("operator-progress-strip"));
-  assert.ok(html.includes("operator-quick-replies"));
-  assert.ok(html.includes("operator-inbox-list"));
-  assert.ok(html.includes("data-mission-focus"));
-  assert.ok(html.includes("data-current-decision"));
-  assert.ok(html.includes("data-quick-reply"));
+  assert.ok(html.includes('<div id="root"></div>'));
+
+  const legacyResponse = await fetch(`${webOrigin}/legacy-dashboard`);
+  assert.equal(legacyResponse.status, 200);
+  const legacyHtml = await legacyResponse.text();
+  assert.ok(legacyHtml.includes("Operator Console"));
+  assert.ok(legacyHtml.includes("/legacy-dashboard/styles.css"));
 
   const createdThread = await postJson(
     `${webOrigin}/api/orchestrator/operator/threads`,
