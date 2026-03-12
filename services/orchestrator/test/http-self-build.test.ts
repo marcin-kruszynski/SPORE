@@ -1087,7 +1087,12 @@ test("self-build summary and lineage routes expose operator-first visibility", a
         // best-effort cleanup for test-owned worktrees
       }
     }
-    await fs.rm(worktreeRoot, { recursive: true, force: true });
+    await fs.rm(worktreeRoot, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 100,
+    });
   });
 
   await waitForHealth(`http://127.0.0.1:${ORCHESTRATOR_PORT}/health`);
@@ -2465,7 +2470,12 @@ test("self-build read surfaces expose concise trace summaries for workspace, val
     await stopProcess(orchestrator);
   });
   t.after(async () => {
-    await fs.rm(worktreeRoot, { recursive: true, force: true });
+    await fs.rm(worktreeRoot, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 100,
+    });
     await fs.rm(repoRoot, { recursive: true, force: true });
   });
 
@@ -2934,7 +2944,12 @@ test("queued validation trace stays aligned with the scheduled bundle while vali
     await stopProcess(orchestrator);
   });
   t.after(async () => {
-    await fs.rm(worktreeRoot, { recursive: true, force: true });
+    await fs.rm(worktreeRoot, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 100,
+    });
     await fs.rm(repoRoot, { recursive: true, force: true });
   });
 
@@ -3058,7 +3073,12 @@ test("self-build workflow workspace reuse trace explains reused allocations over
     await stopProcess(orchestrator);
   });
   t.after(async () => {
-    await fs.rm(worktreeRoot, { recursive: true, force: true });
+    await fs.rm(worktreeRoot, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 100,
+    });
     await fs.rm(repoRoot, { recursive: true, force: true });
   });
 
