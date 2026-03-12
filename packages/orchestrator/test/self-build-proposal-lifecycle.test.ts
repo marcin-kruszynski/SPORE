@@ -103,7 +103,8 @@ function insertProposalFixture({
       triggerSource: "test",
       requestedBy: "test-runner",
       result:
-        runResult ?? (sourceExecutionId ? { executionId: sourceExecutionId } : {}),
+        runResult ??
+        (sourceExecutionId ? { executionId: sourceExecutionId } : {}),
       metadata: {
         itemKind: item.kind,
         itemStatusBeforeRun: item.kind,
