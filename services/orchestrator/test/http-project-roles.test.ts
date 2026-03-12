@@ -13,6 +13,37 @@ import {
   withEventLogPath,
 } from "./helpers/http-harness.js";
 
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForPromotionPlan(
+  port: number,
+  rootExecutionId: string,
+  targetBranch: string,
+  objective: string,
+  timeoutMs = 60000,
+) {
+  const deadline = Date.now() + timeoutMs;
+  let lastResponse: Awaited<ReturnType<typeof postJson>> | null = null;
+  while (Date.now() < deadline) {
+    const response = await postJson(
+      `http://127.0.0.1:${port}/promotions/plan`,
+      {
+        execution: rootExecutionId,
+        targetBranch,
+        objective,
+      },
+    );
+    if (response.status === 200) {
+      return response;
+    }
+    lastResponse = response;
+    await sleep(250);
+  }
+  return lastResponse;
+}
+
 test("project coordination and promotion routes expose coordinator and integrator lanes", async (t) => {
   const ORCHESTRATOR_PORT = await findFreePort();
   const WEB_PORT = await findFreePort();
@@ -140,14 +171,11 @@ test("project coordination and promotion routes expose coordinator and integrato
   assert.equal(treeApproval.status, 200);
   assert.ok(treeApproval.json.ok);
 
-  const promotionPlan = await postJson(
-    `http://127.0.0.1:${ORCHESTRATOR_PORT}/promotions/plan`,
-    {
-      execution: rootExecutionId,
-      targetBranch: "main",
-      objective:
-        "Promote reviewed feature outputs into an integration candidate.",
-    },
+  const promotionPlan = await waitForPromotionPlan(
+    ORCHESTRATOR_PORT,
+    rootExecutionId,
+    "main",
+    "Promote reviewed feature outputs into an integration candidate.",
   );
   assert.equal(promotionPlan.status, 200);
   assert.ok(promotionPlan.json.ok);

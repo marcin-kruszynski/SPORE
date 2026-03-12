@@ -64,7 +64,7 @@ export function openOrchestratorDatabase(dbPath) {
   const db = new DatabaseSync(dbPath);
   db.exec(`
     PRAGMA journal_mode = WAL;
-    PRAGMA busy_timeout = 3000;
+    PRAGMA busy_timeout = 10000;
     CREATE TABLE IF NOT EXISTS workflow_executions (
       id TEXT PRIMARY KEY,
       coordination_group_id TEXT,

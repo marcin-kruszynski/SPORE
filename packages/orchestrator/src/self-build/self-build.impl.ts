@@ -31,6 +31,7 @@ import {
   runRegressionById,
   runScenarioById,
 } from "../scenarios/run-history.js";
+import { withRetriedOrchestratorDatabase } from "../store/db.js";
 import {
   findActiveQuarantineRecord,
   findActiveSelfBuildOverrideRecord,
@@ -74,7 +75,6 @@ import {
   listWorkItemGroups,
   listWorkItemRuns,
   listWorkspaceAllocations,
-  openOrchestratorDatabase,
   updateDocSuggestionRecord,
   updateGoalPlan,
   updateProposalArtifact,
@@ -196,12 +196,10 @@ type AggregatedPackPolicy = {
 };
 
 function withDatabase(dbPath, fn) {
-  const db = openOrchestratorDatabase(dbPath);
-  try {
-    return fn(db);
-  } finally {
-    db.close();
-  }
+  return withRetriedOrchestratorDatabase(dbPath, fn, {
+    attempts: 8,
+    delayMs: 250,
+  });
 }
 
 function createId(prefix) {

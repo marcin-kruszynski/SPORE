@@ -4,6 +4,6 @@
     "composite": true,
     "noEmit": true
   },
-  "include": ["src/**/*", "test/**/*", "server.ts"],
+  "include": ["src/**/*", "test/**/*", "server.ts", "run-cli.ts"],
   "exclude": ["dist", "public"]
 }

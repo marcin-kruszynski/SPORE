@@ -1,6 +1,9 @@
 import crypto from "node:crypto";
 import { DEFAULT_ORCHESTRATOR_DB_PATH } from "../metadata/constants.js";
-import { openOrchestratorDatabase } from "../store/db.js";
+import {
+  type openOrchestratorDatabase,
+  withRetriedOrchestratorDatabase,
+} from "../store/db.js";
 import {
   findActiveQuarantineRecord,
   findPendingOperatorThreadAction,
@@ -104,12 +107,10 @@ function withDatabase<T>(
   dbPath: string,
   fn: (db: ReturnType<typeof openOrchestratorDatabase>) => T,
 ): T {
-  const db = openOrchestratorDatabase(dbPath);
-  try {
-    return fn(db);
-  } finally {
-    db.close();
-  }
+  return withRetriedOrchestratorDatabase(dbPath, fn, {
+    attempts: 8,
+    delayMs: 250,
+  });
 }
 
 function nowIso(): string {

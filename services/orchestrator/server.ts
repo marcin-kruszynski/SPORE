@@ -1,9 +1,7 @@
 #!/usr/bin/env node
-import { spawn } from "node:child_process";
 import http from "node:http";
 import { URL } from "node:url";
 
-import { buildTsxEntrypointArgs, PROJECT_ROOT } from "@spore/core";
 import {
   approveProposalArtifact,
   cleanupManagedWorkspace,
@@ -103,6 +101,7 @@ import {
   postOperatorThreadMessage,
   resolveOperatorThreadAction,
 } from "../../packages/orchestrator/src/self-build/operator-chat.js";
+import { runCli } from "./run-cli.js";
 
 function json(response, statusCode, payload) {
   response.writeHead(statusCode, {
@@ -134,40 +133,6 @@ async function readJsonBody(request) {
   }
   const raw = Buffer.concat(chunks).toString("utf8").trim();
   return raw ? JSON.parse(raw) : {};
-}
-
-function runCli(args) {
-  return new Promise((resolve, reject) => {
-    const [scriptPath, ...scriptArgs] = args;
-    const child = spawn(
-      process.execPath,
-      buildTsxEntrypointArgs(scriptPath, scriptArgs),
-      {
-        cwd: PROJECT_ROOT,
-        env: {
-          ...process.env,
-        },
-        stdio: ["ignore", "pipe", "pipe"],
-      },
-    );
-    let stdout = "";
-    let stderr = "";
-    child.stdout.on("data", (chunk) => {
-      stdout += chunk.toString();
-    });
-    child.stderr.on("data", (chunk) => {
-      stderr += chunk.toString();
-    });
-    child.on("exit", (code) => {
-      if (code === 0) {
-        resolve(JSON.parse(stdout));
-        return;
-      }
-      reject(
-        new Error(stderr || stdout || `command failed: ${args.join(" ")}`),
-      );
-    });
-  });
 }
 
 function buildPlanArgs(body) {
