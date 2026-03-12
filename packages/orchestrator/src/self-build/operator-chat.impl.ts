@@ -382,6 +382,28 @@ function summarizeRun(run: LooseRecord | null) {
   };
 }
 
+function proposalValidationStatus(
+  proposal: LooseRecord | null | undefined,
+  latestRun: LooseRecord | null | undefined,
+) {
+  const proposalValidation = asObject(proposal?.validation);
+  const proposalMetadataValidation = asObject(asObject(proposal?.metadata).validation);
+  const runValidation = asObject(asObject(latestRun?.metadata).validation);
+  return toText(
+    proposalValidation.status,
+    toText(proposalMetadataValidation.status, toText(runValidation.status, "")),
+  );
+}
+
+function proposalValidationInFlight(
+  proposal: LooseRecord | null | undefined,
+  latestRun: LooseRecord | null | undefined,
+) {
+  return ["queued", "running"].includes(
+    proposalValidationStatus(proposal, latestRun),
+  );
+}
+
 function timestampFor(value: unknown) {
   const timestamp = new Date(String(value ?? 0)).getTime();
   return Number.isFinite(timestamp) ? timestamp : 0;
@@ -2459,60 +2481,62 @@ async function syncThreadState(threadId: string, dbPath: string) {
           String(proposal.status) === "validation_required" &&
           extractExecutionSettings(thread).autoValidate !== false
         ) {
-          appendThreadMessage(
-            threadId,
-            "assistant",
-            "event",
-            `Proposal ${proposal.id} needs validation. I am running the configured validation flow now.`,
-            {
-              artifacts: [
-                artifactRef(
-                  "proposal",
-                  String(proposal.id),
-                  toText(asObject(proposal.summary).title, String(proposal.id)),
-                  String(proposal.status),
-                ),
-              ],
-            },
-            dbPath,
-          );
-          if (group?.id) {
-            await queueWorkItemGroupValidationBundle(
-              String(group.id),
-              executionRunOptions(thread, {
-                source: "operator-chat-validation",
-                wait: false,
-              }),
+          if (!proposalValidationInFlight(proposal, latestRun)) {
+            appendThreadMessage(
+              threadId,
+              "assistant",
+              "event",
+              `Proposal ${proposal.id} needs validation. I am running the configured validation flow now.`,
+              {
+                artifacts: [
+                  artifactRef(
+                    "proposal",
+                    String(proposal.id),
+                    toText(asObject(proposal.summary).title, String(proposal.id)),
+                    String(proposal.status),
+                  ),
+                ],
+              },
+              dbPath,
+            );
+            if (group?.id) {
+              await queueWorkItemGroupValidationBundle(
+                String(group.id),
+                executionRunOptions(thread, {
+                  source: "operator-chat-validation",
+                  wait: false,
+                }),
+                dbPath,
+              );
+            }
+            group = group?.id
+              ? getWorkItemGroupSummary(String(group.id), dbPath)
+              : group;
+            proposalSelection = selectActiveProposal(
+              group,
+              extractLinkage(thread),
+              proposal,
+              dbPath,
+            );
+            proposal = proposalSelection.proposal;
+            latestRun = resolveLatestThreadRun(
+              group,
+              extractLinkage(thread),
+              proposal,
+              dbPath,
+            );
+            integrationBranch =
+              getProposalIntegrationBranch(proposal) ||
+              linkage.integrationBranch ||
+              null;
+            activeQuarantine = findThreadQuarantine(
+              goalPlan,
+              group,
+              proposal,
+              integrationBranch,
               dbPath,
             );
           }
-          group = group?.id
-            ? getWorkItemGroupSummary(String(group.id), dbPath)
-            : group;
-          proposalSelection = selectActiveProposal(
-            group,
-            extractLinkage(thread),
-            proposal,
-            dbPath,
-          );
-          proposal = proposalSelection.proposal;
-          latestRun = resolveLatestThreadRun(
-            group,
-            extractLinkage(thread),
-            proposal,
-            dbPath,
-          );
-          integrationBranch =
-            getProposalIntegrationBranch(proposal) ||
-            linkage.integrationBranch ||
-            null;
-          activeQuarantine = findThreadQuarantine(
-            goalPlan,
-            group,
-            proposal,
-            integrationBranch,
-            dbPath,
-          );
         } else if (proposal && String(proposal.status) === "promotion_ready") {
           const reviewPackage = getProposalReviewPackage(
             String(proposal.id),

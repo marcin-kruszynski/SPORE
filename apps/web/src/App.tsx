@@ -1,6 +1,6 @@
 import { Suspense, lazy } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 
 import { Toaster as Sonner } from "./components/ui/sonner.js";
 import { Toaster } from "./components/ui/toaster.js";
@@ -12,6 +12,8 @@ const queryClient = new QueryClient();
 const ChatPage = lazy(() => import("./pages/ChatPage.js"));
 const MissionMapPage = lazy(() => import("./pages/MissionMapPage.js"));
 const SelfBuildPage = lazy(() => import("./pages/SelfBuildPage.js"));
+const AgentCockpitPage = lazy(() => import("./pages/AgentCockpitPage.js"));
+const AgentLaneDetailPage = lazy(() => import("./pages/AgentLaneDetailPage.js"));
 const EvidenceDetailPage = lazy(() => import("./pages/EvidenceDetailPage.js"));
 const SpacesPage = lazy(() => import("./pages/SpacesPage.js"));
 const SpaceDetailPage = lazy(() => import("./pages/SpaceDetailPage.js"));
@@ -45,9 +47,12 @@ const App = () => (
         <DashboardLayout>
           <Suspense fallback={<RouteLoadingFallback />}>
             <Routes>
-              <Route path="/" element={<ChatPage />} />
+              <Route path="/" element={<Navigate to="/cockpit" replace />} />
+              <Route path="/chat" element={<ChatPage />} />
               <Route path="/mission-map" element={<MissionMapPage />} />
               <Route path="/self-build" element={<SelfBuildPage />} />
+              <Route path="/cockpit" element={<AgentCockpitPage />} />
+              <Route path="/cockpit/agents/:laneId" element={<AgentLaneDetailPage />} />
               <Route path="/evidence/:kind/:id" element={<EvidenceDetailPage />} />
               <Route path="/spaces" element={<SpacesPage />} />
               <Route path="/spaces/:id" element={<SpaceDetailPage />} />
