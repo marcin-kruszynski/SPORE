@@ -1,6 +1,7 @@
 // biome-ignore-all lint/suspicious/noExplicitAny: execution orchestration bridges additive SQLite rows and runtime payloads whose exact shape is workflow-dependent.
 import { spawn } from "node:child_process";
 import crypto from "node:crypto";
+import fs from "node:fs/promises";
 import path from "node:path";
 import { buildTsxEntrypointArgs } from "@spore/core";
 import {
@@ -11,6 +12,8 @@ import {
   DEFAULT_SESSION_DB_PATH,
   getSession,
   openSessionDatabase,
+  transitionSessionRecord,
+  upsertSession,
 } from "@spore/session-manager";
 import {
   buildWorkspaceBranchName,
@@ -51,8 +54,8 @@ import {
 import {
   getEscalation,
   getExecution,
-  getWorkflowHandoff,
   getStep,
+  getWorkflowHandoff,
   getWorkspaceAllocationByStepId,
   insertApproval,
   insertAuditRecord,
@@ -74,8 +77,8 @@ import {
   listScenarioRunExecutions,
   listScenarioRuns,
   listSteps,
-  listWorkflowHandoffs,
   listWorkflowEvents,
+  listWorkflowHandoffs,
   listWorkspaceAllocations,
   markWorkflowHandoffConsumed,
   openOrchestratorDatabase,
@@ -85,11 +88,6 @@ import {
   updateWorkspaceAllocation,
 } from "../store/execution-store.js";
 import { writeExecutionBrief } from "./brief.js";
-import {
-  buildExpectedHandoff,
-  handoffsConsumedByStep,
-  selectInboundWorkflowHandoffs,
-} from "./handoff-context.js";
 import {
   type AuditEventOptions,
   asEventPayload,
@@ -108,8 +106,12 @@ import {
   getPromotionSummary,
   shouldDeferImmediateParentHold,
 } from "./execution-metadata.js";
+import {
+  buildExpectedHandoff,
+  handoffsConsumedByStep,
+  selectInboundWorkflowHandoffs,
+} from "./handoff-context.js";
 import { comparePolicies } from "./policy-diff.js";
-import { publishWorkflowStepHandoffs } from "./workflow-handoffs.js";
 import {
   findBlockedWave,
   getActiveSteps,
@@ -125,6 +127,7 @@ import {
   isWaveSatisfied,
   summarizeStepStates as summarizeWaveStepStates,
 } from "./wave-state.js";
+import { publishWorkflowStepHandoffs } from "./workflow-handoffs.js";
 
 type LooseRecord = any;
 
@@ -226,7 +229,10 @@ async function readSessionWithRetry(
   let lastError = null;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     try {
-      return withSessionDatabase(dbPath, (db) => getSession(db, sessionId));
+      const session = withSessionDatabase(dbPath, (db) =>
+        getSession(db, sessionId),
+      );
+      return await reconcileSessionFromArtifacts(dbPath, session);
     } catch (error) {
       if (!isSessionDatabaseLocked(error)) {
         throw error;
@@ -241,6 +247,59 @@ async function readSessionWithRetry(
     lastError ??
     new Error(`session database remained locked for session ${sessionId}`)
   );
+}
+
+async function readJsonFileIfExists(filePath) {
+  if (!filePath) {
+    return null;
+  }
+  try {
+    return JSON.parse(await fs.readFile(filePath, "utf8"));
+  } catch (error) {
+    if (error && typeof error === "object" && "code" in error) {
+      if (error.code === "ENOENT") {
+        return null;
+      }
+    }
+    throw error;
+  }
+}
+
+function deriveSessionExitPath(session) {
+  if (!session?.launchCommand) {
+    return null;
+  }
+  const launchCommand = path.isAbsolute(session.launchCommand)
+    ? session.launchCommand
+    : path.join(PROJECT_ROOT, session.launchCommand);
+  if (!launchCommand.endsWith(".launch.sh")) {
+    return null;
+  }
+  return launchCommand.replace(/\.launch\.sh$/, ".exit.json");
+}
+
+async function reconcileSessionFromArtifacts(sessionDbPath, session) {
+  if (!session || !["planned", "starting", "active"].includes(session.state)) {
+    return session;
+  }
+  const exitPath = deriveSessionExitPath(session);
+  const exitInfo = await readJsonFileIfExists(exitPath);
+  if (!Number.isInteger(exitInfo?.exitCode)) {
+    return session;
+  }
+  const nextState = exitInfo.exitCode === 0 ? "completed" : "failed";
+  return withSessionDatabase(sessionDbPath, (db) => {
+    const current = getSession(db, session.id);
+    if (
+      !current ||
+      !["planned", "starting", "active"].includes(current.state)
+    ) {
+      return current ?? session;
+    }
+    const updated = transitionSessionRecord(current, nextState);
+    upsertSession(db, updated);
+    return updated;
+  });
 }
 
 function buildRetriedSessionId(execution, step, nextAttempt) {
@@ -1062,6 +1121,29 @@ function isExecutionDispatchBlocked(state) {
   return ["paused", "held"].includes(state);
 }
 
+function shouldPreserveDispatchBlock(execution) {
+  if (execution.state === "paused") {
+    return true;
+  }
+  if (execution.state !== "held") {
+    return false;
+  }
+  return !String(execution.holdReason ?? "").startsWith("wave-");
+}
+
+function isExecutionSettled(detail) {
+  if (!detail || !SETTLED_EXECUTION_STATES.includes(detail.execution.state)) {
+    return false;
+  }
+  if (
+    ["paused", "held"].includes(detail.execution.state) &&
+    getActiveSteps(detail.steps).length > 0
+  ) {
+    return false;
+  }
+  return true;
+}
+
 function blockingChildren(children) {
   return children.filter((child) => !isTerminalExecutionState(child.state));
 }
@@ -1121,6 +1203,32 @@ function resumeExecutionRecord(execution) {
     heldAt: null,
     resumedAt: new Date().toISOString(),
     endedAt: null,
+  });
+}
+
+function transitionExecutionAfterProgress(
+  execution,
+  nextState,
+  overrides = {},
+) {
+  const shouldClearDispatchBlock =
+    ["paused", "held"].includes(execution.state) &&
+    nextState !== execution.state;
+  return transitionExecutionRecord(execution, nextState, {
+    ...(shouldClearDispatchBlock
+      ? {
+          heldFromState: null,
+          holdReason: null,
+          holdOwner: null,
+          holdGuidance: null,
+          holdExpiresAt: null,
+          pausedAt: null,
+          heldAt: null,
+          resumedAt: new Date().toISOString(),
+          endedAt: null,
+        }
+      : {}),
+    ...overrides,
   });
 }
 
@@ -3259,11 +3367,7 @@ export async function driveCoordinationGroup(
   }
 
   while (Date.now() - startedAt < timeoutMs) {
-    if (
-      detail.details.every((item) =>
-        SETTLED_EXECUTION_STATES.includes(item.execution.state),
-      )
-    ) {
+    if (detail.details.every((item) => isExecutionSettled(item))) {
       return detail;
     }
     await sleep(intervalMs);
@@ -3295,9 +3399,7 @@ async function launchStep(execution, step, options: LooseRecord = {}) {
   try {
     const allSteps = listSteps(db, execution.id);
     previousStep =
-      step.sequence > 0
-        ? (allSteps[step.sequence - 1] ?? null)
-        : null;
+      step.sequence > 0 ? (allSteps[step.sequence - 1] ?? null) : null;
     workspace = await ensureStepWorkspace(db, execution, step);
     inboundHandoffs = selectInboundWorkflowHandoffs({
       execution,
@@ -3429,7 +3531,7 @@ async function launchStep(execution, step, options: LooseRecord = {}) {
     for (const handoff of handoffsConsumedByStep(step, inboundHandoffs)) {
       markWorkflowHandoffConsumed(db, String(handoff.id ?? ""), nowIso());
     }
-    const updatedExecution = transitionExecutionRecord(
+    const updatedExecution = transitionExecutionAfterProgress(
       currentExecution,
       "running",
       {
@@ -3762,7 +3864,7 @@ export async function reconcileExecution(
     );
   }
 
-  if (SETTLED_EXECUTION_STATES.includes(detail.execution.state)) {
+  if (isExecutionSettled(detail)) {
     return detail;
   }
 
@@ -3792,7 +3894,7 @@ export async function reconcileExecution(
       let updatedDetail = null;
       try {
         const execution = getExecution(db, executionId);
-        const dispatchBlocked = isExecutionDispatchBlocked(execution.state);
+        const dispatchBlocked = shouldPreserveDispatchBlock(execution);
 
         for (const observation of observations) {
           if (!observation.settledStep) {
@@ -4016,7 +4118,7 @@ export async function reconcileExecution(
           const pendingStep = reviewPendingSteps.sort(
             (left, right) => left.sequence - right.sequence,
           )[0];
-          const waitingReview = transitionExecutionRecord(
+          const waitingReview = transitionExecutionAfterProgress(
             execution,
             dispatchBlocked ? execution.state : "waiting_review",
             {
@@ -4036,7 +4138,7 @@ export async function reconcileExecution(
           const pendingStep = approvalPendingSteps.sort(
             (left, right) => left.sequence - right.sequence,
           )[0];
-          const waitingApproval = transitionExecutionRecord(
+          const waitingApproval = transitionExecutionAfterProgress(
             execution,
             dispatchBlocked ? execution.state : "waiting_approval",
             {
@@ -4049,7 +4151,7 @@ export async function reconcileExecution(
         }
 
         const nextLaunchable = getNextLaunchableSteps(refreshedSteps);
-        const runningExecution = transitionExecutionRecord(
+        const runningExecution = transitionExecutionAfterProgress(
           execution,
           dispatchBlocked ? execution.state : "running",
           {
@@ -4108,7 +4210,7 @@ export async function reconcileExecution(
   });
 
   const refreshed = getExecutionDetail(executionId, dbPath, sessionDbPath);
-  if (SETTLED_EXECUTION_STATES.includes(refreshed.execution.state)) {
+  if (isExecutionSettled(refreshed)) {
     return refreshed;
   }
 
@@ -4209,7 +4311,7 @@ export async function driveExecution(executionId, options: LooseRecord = {}) {
 
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeoutMs) {
-    if (SETTLED_EXECUTION_STATES.includes(detail.execution.state)) {
+    if (isExecutionSettled(detail)) {
       return detail;
     }
     await sleep(intervalMs);
@@ -4329,11 +4431,15 @@ export async function recordReviewDecision(
         finalState: updatedStep.state,
         sessionId: updatedStep.sessionId,
       });
-      const updatedExecution = transitionExecutionRecord(execution, "running", {
-        currentStepIndex: retryTarget.sequence,
-        reviewStatus: payload.status,
-        approvalStatus: null,
-      });
+      const updatedExecution = transitionExecutionAfterProgress(
+        execution,
+        "running",
+        {
+          currentStepIndex: retryTarget.sequence,
+          reviewStatus: payload.status,
+          approvalStatus: null,
+        },
+      );
       updateExecution(db, updatedExecution);
       emitWorkflowEvent(db, {
         executionId,
@@ -4383,11 +4489,15 @@ export async function recordReviewDecision(
         updateStep(db, resetStep);
       }
       updateStep(db, resetReviewStep);
-      const updatedExecution = transitionExecutionRecord(execution, "running", {
-        currentStepIndex: retriedTarget.sequence,
-        reviewStatus: payload.status,
-        approvalStatus: null,
-      });
+      const updatedExecution = transitionExecutionAfterProgress(
+        execution,
+        "running",
+        {
+          currentStepIndex: retriedTarget.sequence,
+          reviewStatus: payload.status,
+          approvalStatus: null,
+        },
+      );
       updateExecution(db, updatedExecution);
       emitWorkflowEvent(db, {
         executionId,
@@ -4571,10 +4681,14 @@ export async function recordApprovalDecision(
         finalState: updatedStep.state,
         sessionId: updatedStep.sessionId,
       });
-      const updatedExecution = transitionExecutionRecord(execution, "running", {
-        currentStepIndex: retryTarget.sequence,
-        approvalStatus: payload.status,
-      });
+      const updatedExecution = transitionExecutionAfterProgress(
+        execution,
+        "running",
+        {
+          currentStepIndex: retryTarget.sequence,
+          approvalStatus: payload.status,
+        },
+      );
       updateExecution(db, updatedExecution);
       emitWorkflowEvent(db, {
         executionId,
@@ -4620,10 +4734,14 @@ export async function recordApprovalDecision(
         updateStep(db, resetStep);
       }
       updateStep(db, resetApprovalStep);
-      const updatedExecution = transitionExecutionRecord(execution, "running", {
-        currentStepIndex: retriedTarget.sequence,
-        approvalStatus: payload.status,
-      });
+      const updatedExecution = transitionExecutionAfterProgress(
+        execution,
+        "running",
+        {
+          currentStepIndex: retriedTarget.sequence,
+          approvalStatus: payload.status,
+        },
+      );
       updateExecution(db, updatedExecution);
       emitWorkflowEvent(db, {
         executionId,
@@ -4769,10 +4887,14 @@ export function resolveExecutionEscalation(
       }
       const resumedStep = prepareOperatorResumeStep(targetStep, execution);
       updateStep(db, resumedStep);
-      const resumedExecution = transitionExecutionRecord(execution, "running", {
-        currentStepIndex: resumedStep.sequence,
-        endedAt: null,
-      });
+      const resumedExecution = transitionExecutionAfterProgress(
+        execution,
+        "running",
+        {
+          currentStepIndex: resumedStep.sequence,
+          endedAt: null,
+        },
+      );
       updateExecution(db, resumedExecution);
       emitWorkflowEvent(db, {
         executionId,

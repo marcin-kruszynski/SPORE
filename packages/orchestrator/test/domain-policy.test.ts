@@ -4,6 +4,10 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
+  openSessionDatabase,
+  upsertSession,
+} from "../../session-manager/src/store/session-store.js";
+import {
   applyExecutionTreeGovernance,
   createExecution,
   getExecutionDetail,
@@ -16,9 +20,13 @@ import {
   spawnExecutionBranches,
 } from "../src/execution/workflow-execution.js";
 import { planWorkflowInvocation } from "../src/invocation/plan-workflow-invocation.js";
-import { transitionStepRecord } from "../src/lifecycle/execution-lifecycle.js";
+import {
+  transitionExecutionRecord,
+  transitionStepRecord,
+} from "../src/lifecycle/execution-lifecycle.js";
 import {
   openOrchestratorDatabase,
+  updateExecution,
   updateStep,
 } from "../src/store/execution-store.js";
 
@@ -445,4 +453,311 @@ test("wave gate any can unlock the next wave before all prior-wave steps settle"
     (step) => step.id === reviewer.id,
   );
   assert.equal(refreshedReviewer.state, "active");
+});
+
+test("completed retry sessions can unblock held executions and launch the next wave", async () => {
+  const { dbPath, sessionDbPath } = await makeTempPaths();
+  const invocationId = `held-retry-reconcile-${Date.now()}`;
+  const invocation = await planWorkflowInvocation({
+    workflowPath: "config/workflows/frontend-ui-pass.yaml",
+    projectPath: "config/projects/spore.yaml",
+    domainId: "frontend",
+    roles: ["lead", "scout", "builder", "tester", "reviewer"],
+    invocationId,
+    objective: "Recover a held execution after a successful retry session.",
+  });
+
+  createExecution(invocation, dbPath);
+
+  const initial = getExecutionDetail(
+    invocation.invocationId,
+    dbPath,
+    sessionDbPath,
+  );
+  const lead = initial.steps.find((step) => step.role === "lead");
+  const scout = initial.steps.find((step) => step.role === "scout");
+
+  assert.ok(lead);
+  assert.ok(scout);
+
+  const retriedSessionId = `${invocation.invocationId}-frontend-lead-1-r2`;
+  const timestamp = new Date().toISOString();
+  const db = openOrchestratorDatabase(dbPath);
+  try {
+    updateStep(
+      db,
+      transitionStepRecord(lead, "active", {
+        attemptCount: 2,
+        sessionId: retriedSessionId,
+        launchedAt: timestamp,
+        lastError: "failed",
+      }),
+    );
+    updateStep(
+      db,
+      transitionStepRecord(scout, "completed", {
+        launchedAt: timestamp,
+        settledAt: timestamp,
+      }),
+    );
+    updateExecution(
+      db,
+      transitionExecutionRecord(initial.execution, "held", {
+        heldFromState: "running",
+        holdReason: "wave-0-blocked",
+        heldAt: timestamp,
+      }),
+    );
+  } finally {
+    db.close();
+  }
+
+  const sessionDb = openSessionDatabase(sessionDbPath);
+  try {
+    upsertSession(sessionDb, {
+      id: retriedSessionId,
+      runId: `${invocation.invocationId}-1`,
+      agentIdentityId: "lead:lead",
+      profileId: "lead",
+      role: "lead",
+      state: "completed",
+      runtimeAdapter: "pi",
+      transportMode: "rpc",
+      sessionMode: "persistent",
+      projectId: "spore",
+      projectName: "SPORE",
+      projectType: "application",
+      domainId: "frontend",
+      workflowId: "frontend-ui-pass",
+      parentSessionId: null,
+      contextPath: null,
+      transcriptPath: "tmp/sessions/held-retry-reconcile.transcript.md",
+      launcherType: "tmux",
+      launchCommand: "fake",
+      tmuxSession: null,
+      startedAt: timestamp,
+      endedAt: timestamp,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+  } finally {
+    sessionDb.close();
+  }
+
+  const detail = await reconcileExecution(invocation.invocationId, {
+    dbPath,
+    sessionDbPath,
+    stub: true,
+    launcher: "stub",
+    noMonitor: true,
+  });
+
+  const refreshedLead = detail.steps.find((step) => step.role === "lead");
+  const builder = detail.steps.find((step) => step.role === "builder");
+
+  assert.equal(refreshedLead.state, "completed");
+  assert.equal(detail.execution.state, "running");
+  assert.equal(detail.execution.holdReason, null);
+  assert.equal(builder.state, "active");
+});
+
+test("completed retry sessions can unblock held executions into waiting_review", async () => {
+  const { dbPath, sessionDbPath } = await makeTempPaths();
+  const invocationId = `held-retry-review-${Date.now()}`;
+  const invocation = await planWorkflowInvocation({
+    projectPath: "config/projects/example-project.yaml",
+    domainId: "backend",
+    roles: ["reviewer"],
+    invocationId,
+    objective: "Recover a held review gate after a successful retry session.",
+  });
+
+  createExecution(invocation, dbPath);
+
+  const initial = getExecutionDetail(
+    invocation.invocationId,
+    dbPath,
+    sessionDbPath,
+  );
+  const reviewer = initial.steps.find((step) => step.role === "reviewer");
+
+  assert.ok(reviewer);
+
+  const retriedSessionId = `${invocation.invocationId}-backend-reviewer-1-r2`;
+  const timestamp = new Date().toISOString();
+  const db = openOrchestratorDatabase(dbPath);
+  try {
+    updateStep(
+      db,
+      transitionStepRecord(reviewer, "active", {
+        attemptCount: 2,
+        sessionId: retriedSessionId,
+        launchedAt: timestamp,
+        lastError: "failed",
+      }),
+    );
+    updateExecution(
+      db,
+      transitionExecutionRecord(initial.execution, "held", {
+        heldFromState: "running",
+        holdReason: "wave-0-blocked",
+        heldAt: timestamp,
+      }),
+    );
+  } finally {
+    db.close();
+  }
+
+  const sessionDb = openSessionDatabase(sessionDbPath);
+  try {
+    upsertSession(sessionDb, {
+      id: retriedSessionId,
+      runId: `${invocation.invocationId}-1`,
+      agentIdentityId: "reviewer:reviewer",
+      profileId: "reviewer",
+      role: "reviewer",
+      state: "completed",
+      runtimeAdapter: "pi",
+      transportMode: "rpc",
+      sessionMode: "persistent",
+      projectId: "example-project",
+      projectName: "Example Project",
+      projectType: "application",
+      domainId: "backend",
+      workflowId: invocation.workflow.id,
+      parentSessionId: null,
+      contextPath: null,
+      transcriptPath: "tmp/sessions/held-retry-review.transcript.md",
+      launcherType: "tmux",
+      launchCommand: "fake",
+      tmuxSession: null,
+      startedAt: timestamp,
+      endedAt: timestamp,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+  } finally {
+    sessionDb.close();
+  }
+
+  const detail = await reconcileExecution(invocation.invocationId, {
+    dbPath,
+    sessionDbPath,
+  });
+
+  const refreshedReviewer = detail.steps.find(
+    (step) => step.role === "reviewer",
+  );
+
+  assert.equal(refreshedReviewer.state, "review_pending");
+  assert.equal(detail.execution.state, "waiting_review");
+  assert.equal(detail.execution.holdReason, null);
+});
+
+test("exit artifacts can reconcile stale active sessions and unblock the next wave", async () => {
+  const { root, dbPath, sessionDbPath } = await makeTempPaths();
+  const invocationId = `artifact-session-reconcile-${Date.now()}`;
+  const invocation = await planWorkflowInvocation({
+    workflowPath: "config/workflows/frontend-ui-pass.yaml",
+    projectPath: "config/projects/spore.yaml",
+    domainId: "frontend",
+    roles: ["lead", "scout", "builder", "tester", "reviewer"],
+    invocationId,
+    objective:
+      "Recover a held execution from stale session state using exit artifacts.",
+  });
+
+  createExecution(invocation, dbPath);
+
+  const initial = getExecutionDetail(
+    invocation.invocationId,
+    dbPath,
+    sessionDbPath,
+  );
+  const lead = initial.steps.find((step) => step.role === "lead");
+  const scout = initial.steps.find((step) => step.role === "scout");
+
+  assert.ok(lead);
+  assert.ok(scout);
+
+  const timestamp = new Date().toISOString();
+  const db = openOrchestratorDatabase(dbPath);
+  try {
+    updateStep(
+      db,
+      transitionStepRecord(lead, "completed", {
+        launchedAt: timestamp,
+        settledAt: timestamp,
+      }),
+    );
+    updateStep(
+      db,
+      transitionStepRecord(scout, "active", {
+        launchedAt: timestamp,
+      }),
+    );
+    updateExecution(
+      db,
+      transitionExecutionRecord(initial.execution, "held", {
+        heldFromState: "running",
+        holdReason: "wave-0-blocked",
+        heldAt: timestamp,
+      }),
+    );
+  } finally {
+    db.close();
+  }
+
+  const launchScriptPath = path.join(root, `${scout.sessionId}.launch.sh`);
+  const exitPath = launchScriptPath.replace(/\.launch\.sh$/, ".exit.json");
+  await fs.writeFile(launchScriptPath, "#!/usr/bin/env bash\n", "utf8");
+  await fs.writeFile(exitPath, '{"exitCode":0}\n', "utf8");
+
+  const sessionDb = openSessionDatabase(sessionDbPath);
+  try {
+    upsertSession(sessionDb, {
+      id: scout.sessionId,
+      runId: `${invocation.invocationId}-2`,
+      agentIdentityId: "scout:scout",
+      profileId: "scout",
+      role: "scout",
+      state: "active",
+      runtimeAdapter: "pi",
+      transportMode: "rpc",
+      sessionMode: "ephemeral",
+      projectId: "spore",
+      projectName: "SPORE",
+      projectType: "application",
+      domainId: "frontend",
+      workflowId: "frontend-ui-pass",
+      parentSessionId: lead.sessionId,
+      contextPath: null,
+      transcriptPath: path.join(root, `${scout.sessionId}.transcript.md`),
+      launcherType: "pi-rpc",
+      launchCommand: launchScriptPath,
+      tmuxSession: `tmux-${scout.sessionId}`,
+      startedAt: timestamp,
+      endedAt: null,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+  } finally {
+    sessionDb.close();
+  }
+
+  const detail = await reconcileExecution(invocation.invocationId, {
+    dbPath,
+    sessionDbPath,
+    stub: true,
+    launcher: "stub",
+    noMonitor: true,
+  });
+
+  const refreshedScout = detail.steps.find((step) => step.role === "scout");
+  const builder = detail.steps.find((step) => step.role === "builder");
+
+  assert.equal(refreshedScout.state, "completed");
+  assert.equal(detail.execution.state, "running");
+  assert.equal(detail.execution.holdReason, null);
+  assert.equal(builder.state, "active");
 });
