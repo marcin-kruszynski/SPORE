@@ -122,6 +122,25 @@ Start the shared read surface:
 npm run gateway:start
 ```
 
+For the easiest full local stack startup with isolated state and Real PI enabled, use:
+
+```bash
+scripts/run-self-build-real-pi.sh
+```
+
+That script:
+
+- binds gateway, orchestrator, and web to `0.0.0.0`
+- creates isolated SQLite/event/worktree state under `tmp/self-build-runs/<timestamp>/`
+- starts each service in its own `tmux` session
+- prints the URLs, log paths, and stop command
+
+To stop the most recent run:
+
+```bash
+scripts/stop-self-build.sh --latest
+```
+
 Then query:
 
 ```bash

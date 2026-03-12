@@ -28,6 +28,8 @@ artifacts/*
 !artifacts/README.md
 scripts/*
 !scripts/README.md
+!scripts/run-self-build-real-pi.sh
+!scripts/stop-self-build.sh
 
 # Generated browser assets
 apps/web/public/*.js
