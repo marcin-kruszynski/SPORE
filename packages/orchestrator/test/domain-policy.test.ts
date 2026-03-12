@@ -555,10 +555,10 @@ test("completed retry sessions can unblock held executions and launch the next w
   const refreshedLead = detail.steps.find((step) => step.role === "lead");
   const builder = detail.steps.find((step) => step.role === "builder");
 
-  assert.equal(refreshedLead.state, "completed");
-  assert.equal(detail.execution.state, "running");
+  assert.equal(refreshedLead.state, "review_pending");
+  assert.equal(detail.execution.state, "waiting_review");
   assert.equal(detail.execution.holdReason, null);
-  assert.equal(builder.state, "active");
+  assert.equal(builder.state, "planned");
 });
 
 test("completed retry sessions can unblock held executions into waiting_review", async () => {
@@ -756,10 +756,10 @@ test("exit artifacts can reconcile stale active sessions and unblock the next wa
   const refreshedScout = detail.steps.find((step) => step.role === "scout");
   const builder = detail.steps.find((step) => step.role === "builder");
 
-  assert.equal(refreshedScout.state, "completed");
-  assert.equal(detail.execution.state, "running");
+  assert.equal(refreshedScout.state, "review_pending");
+  assert.equal(detail.execution.state, "waiting_review");
   assert.equal(detail.execution.holdReason, null);
-  assert.equal(builder.state, "active");
+  assert.equal(builder.state, "planned");
 });
 
 test("final rpc-status artifacts can reconcile stale active sessions and unblock the next wave", async () => {
@@ -884,10 +884,10 @@ test("final rpc-status artifacts can reconcile stale active sessions and unblock
   const refreshedScout = detail.steps.find((step) => step.role === "scout");
   const builder = detail.steps.find((step) => step.role === "builder");
 
-  assert.equal(refreshedScout.state, "completed");
-  assert.equal(detail.execution.state, "running");
+  assert.equal(refreshedScout.state, "review_pending");
+  assert.equal(detail.execution.state, "waiting_review");
   assert.equal(detail.execution.holdReason, null);
-  assert.equal(builder.state, "active");
+  assert.equal(builder.state, "planned");
 });
 
 test("persisted artifact recovery remains visible when session-manager settles before orchestrator reconcile", async () => {
@@ -1000,10 +1000,10 @@ test("persisted artifact recovery remains visible when session-manager settles b
   const refreshedScout = detail.steps.find((step) => step.role === "scout");
   const builder = detail.steps.find((step) => step.role === "builder");
 
-  assert.equal(refreshedScout.state, "completed");
-  assert.equal(detail.execution.state, "running");
+  assert.equal(refreshedScout.state, "review_pending");
+  assert.equal(detail.execution.state, "waiting_review");
   assert.equal(detail.execution.holdReason, null);
-  assert.equal(builder.state, "active");
+  assert.equal(builder.state, "planned");
   assert.equal(detail.artifactRecovery.count, 1);
   assert.equal(detail.artifactRecovery.events[0].signalSource, "rpc-status");
   assert.equal(
