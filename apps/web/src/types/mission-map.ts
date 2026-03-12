@@ -164,11 +164,32 @@ export interface MissionMapApiSessionRecord {
   state?: string | null;
   role?: string | null;
   projectName?: string | null;
+  sessionMode?: string | null;
   runtimeAdapter?: string | null;
   transportMode?: string | null;
   launcherType?: string | null;
+  launchCommand?: string | null;
+  tmuxSession?: string | null;
+  transcriptPath?: string | null;
+  contextPath?: string | null;
   startedAt?: string | null;
   updatedAt?: string | null;
+}
+
+export interface MissionMapApiSessionArtifactDescriptor {
+  name?: string | null;
+  path?: string | null;
+  exists?: boolean | null;
+  size?: number | null;
+  updatedAt?: string | null;
+}
+
+export interface MissionMapApiSessionEvent {
+  id?: string | null;
+  type?: string | null;
+  timestamp?: string | null;
+  createdAt?: string | null;
+  payload?: Record<string, unknown> | null;
 }
 
 export interface MissionMapApiExecutionDetail {
@@ -196,6 +217,8 @@ export interface MissionMapApiCoordinationGroupSummary {
 export interface MissionMapApiSessionLive {
   ok?: boolean;
   session?: MissionMapApiSessionRecord | null;
+  events?: MissionMapApiSessionEvent[] | null;
+  artifacts?: Record<string, MissionMapApiSessionArtifactDescriptor | null> | null;
   diagnostics?: {
     status?: string | null;
     operatorUrgency?: string | null;
@@ -208,6 +231,18 @@ export interface MissionMapApiSessionLive {
   workspace?: {
     id?: string | null;
     purpose?: string | null;
+    branchName?: string | null;
+    baseRef?: string | null;
+    worktreePath?: string | null;
+    sourceWorkspaceId?: string | null;
+    sourceRef?: string | null;
+    sourceCommit?: string | null;
+  } | null;
+  launchContext?: {
+    cwd?: string | null;
+    workspaceId?: string | null;
+    branchName?: string | null;
+    purpose?: string | null;
     sourceWorkspaceId?: string | null;
     sourceRef?: string | null;
     sourceCommit?: string | null;
@@ -215,9 +250,12 @@ export interface MissionMapApiSessionLive {
   launcherMetadata?: {
     cwd?: string | null;
     launcherType?: string | null;
+    tmuxSession?: string | null;
+    runId?: string | null;
     runtimeAdapter?: string | null;
     transportMode?: string | null;
     mode?: string | null;
+    rpcStatus?: Record<string, unknown> | null;
   } | null;
   controlHistory?: Array<Record<string, unknown>> | null;
   controlAck?: Record<string, unknown> | null;

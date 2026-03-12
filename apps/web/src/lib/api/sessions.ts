@@ -8,3 +8,17 @@ export function getSessionLive(sessionId: string) {
     `${API_PREFIX}/${encodeURIComponent(sessionId)}/live`,
   );
 }
+
+export function getSessionArtifact(
+  sessionId: string,
+  artifactName: string,
+) {
+  return requestPayloadJson<{
+    content?: string | Record<string, unknown> | Array<Record<string, unknown>>;
+    path?: string | null;
+  }>(
+    `${API_PREFIX}/${encodeURIComponent(sessionId)}/artifacts/${encodeURIComponent(
+      artifactName,
+    )}`,
+  );
+}

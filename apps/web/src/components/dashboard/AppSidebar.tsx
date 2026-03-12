@@ -1,5 +1,5 @@
 import {
-  MessageSquare, Network, ShieldCheck, Layers, FolderKanban, Users, Bot, Sparkles, Wrench, GitBranch, Settings, ChevronLeft,
+  MessageSquare, Network, ShieldCheck, Layers, FolderKanban, Users, Bot, Sparkles, Wrench, GitBranch, Settings, ChevronLeft, TerminalSquare,
 } from "lucide-react";
 import { NavLink } from "../NavLink.js";
 import { useLocation } from "react-router-dom";
@@ -9,7 +9,8 @@ import {
 import { cn } from "../../lib/utils.js";
 
 const navItems = [
-  { title: "Chat", url: "/", icon: MessageSquare },
+  { title: "Chat", url: "/chat", icon: MessageSquare },
+  { title: "Agent Cockpit", url: "/cockpit", icon: TerminalSquare },
   { title: "Mission Map", url: "/mission-map", icon: Network },
   { title: "Self-Build", url: "/self-build", icon: ShieldCheck },
   { title: "Spaces", url: "/spaces", icon: Layers },

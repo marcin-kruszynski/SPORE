@@ -39,6 +39,16 @@ test("react dashboard shell serves SPA routes and preserves legacy route isolati
   const missionMapHtml = await missionMapResponse.text();
   assert.match(missionMapHtml, /<div id="root"><\/div>/);
 
+  const cockpitResponse = await fetch(`${webOrigin}/cockpit`);
+  assert.equal(cockpitResponse.status, 200);
+  const cockpitHtml = await cockpitResponse.text();
+  assert.match(cockpitHtml, /<div id="root"><\/div>/);
+
+  const cockpitDetailResponse = await fetch(`${webOrigin}/cockpit/agents/test-lane`);
+  assert.equal(cockpitDetailResponse.status, 200);
+  const cockpitDetailHtml = await cockpitDetailResponse.text();
+  assert.match(cockpitDetailHtml, /<div id="root"><\/div>/);
+
   const dottedRouteResponse = await fetch(`${webOrigin}/projects/foo.bar`);
   assert.equal(dottedRouteResponse.status, 200);
   const dottedRouteHtml = await dottedRouteResponse.text();

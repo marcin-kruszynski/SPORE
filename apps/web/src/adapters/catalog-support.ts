@@ -2,7 +2,8 @@ import { resolveMissionMapExecutionLink } from "./mission-map.js";
 import {
   buildEvidenceHref,
   resolveMissionEvidenceTargetFromArtifact,
-} from "./self-build.js";
+} from "./evidence-links.js";
+import { asArray, humanize, toText } from "./adapter-utils.js";
 import type {
   MissionMapApiCoordinationGroupSummary,
   MissionMapApiExecutionRecord,
@@ -58,14 +59,7 @@ export interface ThreadBundle {
   matchWarning: string | null;
 }
 
-export function toText(value: unknown, fallback = "") {
-  const text = String(value ?? "").trim();
-  return text || fallback;
-}
-
-export function asArray<T>(value: T[] | null | undefined): T[] {
-  return Array.isArray(value) ? value : [];
-}
+export { asArray, humanize, toText } from "./adapter-utils.js";
 
 export function basenameWithoutExtension(value: unknown) {
   const text = toText(value, "");
@@ -97,13 +91,6 @@ export function buildEntityAliases(input: {
     input.path,
     ...(input.extraAliases ?? []),
   ]);
-}
-
-export function humanize(value: unknown, fallback = "Unknown") {
-  const text = toText(value, fallback);
-  return text
-    .replace(/[_-]+/g, " ")
-    .replace(/\b\w/g, (character) => character.toUpperCase());
 }
 
 function entityIdFor(entry: CanonicalEntityEntry, fallbackLabel: string) {

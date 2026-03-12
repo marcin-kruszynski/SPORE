@@ -3236,6 +3236,79 @@ test("operator thread reads stay idempotent after plan approval", async (t) => {
   assert.equal(String(afterReads.runs[0]?.id ?? ""), initialRunId);
 });
 
+test("operator chat does not append duplicate validation-start events while validation is already running", async (t) => {
+  const { ORCHESTRATOR_PORT, dbPath } = await startOperatorChatServer(
+    t,
+    "spore-http-operator-chat-validation-dedupe-",
+  );
+
+  const thread = await createStubOperatorThread(
+    ORCHESTRATOR_PORT,
+    "Refresh the self-build onboarding docs and keep the change in safe mode.",
+    {
+      wait: false,
+      autoValidate: true,
+      interval: 100,
+      timeout: 12000,
+    },
+  );
+  const threadId = String(thread.id ?? "");
+  assert.ok(threadId);
+
+  const approvedThread = await replyInOperatorThread(
+    ORCHESTRATOR_PORT,
+    threadId,
+    "approve",
+  );
+  const group = asObject(asObject(approvedThread.context).group);
+  const items = asArray<JsonRecord>(group.items);
+  const seededItem = items[0] ?? null;
+  assert.ok(seededItem);
+
+  const seeded = insertProposalArtifactForWorkItem({
+    dbPath,
+    itemId: String(seededItem.id ?? ""),
+    itemTitle: String(seededItem.title ?? "Work item"),
+    itemGoal: String(seededItem.goal ?? ""),
+    proposalStatus: "validation_required",
+  });
+
+  setProposalProjectionState(dbPath, seeded.proposalId, {
+    proposalStatus: "validation_required",
+    promotionStatus: "blocked",
+    validationStatus: "running",
+    validationSummary: "Validation is already in progress.",
+  });
+
+  const readValidationMessages = () => {
+    const db = openOrchestratorDatabase(dbPath);
+    try {
+      return listOperatorThreadMessages(db, threadId, 200).filter(
+        (message) =>
+          message.role === "assistant" &&
+          message.kind === "event" &&
+          String(message.content).includes(
+            "needs validation. I am running the configured validation flow now.",
+          ),
+      );
+    } finally {
+      db.close();
+    }
+  };
+
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const detail = await getOperatorThreadDetail(ORCHESTRATOR_PORT, threadId);
+    assert.equal(
+      String(asObject(asObject(detail.context).proposal).id ?? ""),
+      seeded.proposalId,
+    );
+    await sleep(50);
+  }
+
+  const validationMessages = readValidationMessages();
+  assert.equal(validationMessages.length, 0);
+});
+
 test("operator chat supports proposal rework and quarantine release flows", async (t) => {
   const ORCHESTRATOR_PORT = await findFreePort();
   const { dbPath, sessionDbPath, eventLogPath } = withEventLogPath(
