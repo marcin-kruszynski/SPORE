@@ -73,6 +73,11 @@ interface OperatorThreadExecutionSettings extends LooseRecord {
   autoPromote?: boolean;
 }
 
+interface OperatorThreadObservedAutoRun extends LooseRecord {
+  goalPlanId?: string | null;
+  claimedAt?: string | null;
+}
+
 const OPERATOR_PROGRESS_STAGES = [
   { id: "mission_received", title: "Mission received" },
   { id: "plan_prepared", title: "Plan prepared" },
@@ -210,6 +215,58 @@ function extractLinkage(
     activeRunId: toText(linkage.activeRunId, "") || null,
     integrationBranch: toText(linkage.integrationBranch, "") || null,
   };
+}
+
+function extractManagedWorkAutoRun(
+  thread: LooseRecord | null | undefined,
+): OperatorThreadObservedAutoRun {
+  return asObject(asObject(asObject(thread?.metadata).observed).managedWorkAutoRun);
+}
+
+function claimManagedWorkAutoRun(
+  threadId: string,
+  goalPlanId: string,
+  dbPath: string,
+) {
+  return withDatabase(dbPath, (db) => {
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      const thread = getOperatorThread(db, threadId);
+      if (!thread) {
+        db.exec("ROLLBACK");
+        return false;
+      }
+      const existingGoalPlanId = toText(
+        extractManagedWorkAutoRun(thread).goalPlanId,
+        "",
+      );
+      if (existingGoalPlanId === goalPlanId) {
+        db.exec("COMMIT");
+        return false;
+      }
+      upsertOperatorThread(db, {
+        ...thread,
+        metadata: mergeThreadMetadata(thread, {
+          observed: {
+            managedWorkAutoRun: {
+              goalPlanId,
+              claimedAt: nowIso(),
+            },
+          },
+        }),
+        updatedAt: nowIso(),
+      });
+      db.exec("COMMIT");
+      return true;
+    } catch (error) {
+      try {
+        db.exec("ROLLBACK");
+      } catch {
+        // ignore rollback failures after transactional errors
+      }
+      throw error;
+    }
+  });
 }
 
 function mergeThreadMetadata(
@@ -2298,151 +2355,168 @@ async function syncThreadState(threadId: string, dbPath: string) {
       );
     } else if (goalPlan && String(goalPlan.status) === "planned") {
       pendingActions = requestGoalPlanReviewAction(threadId, goalPlan, dbPath);
-    } else if (
-      goalPlan &&
-      ["reviewed", "materialized"].includes(String(goalPlan.status)) &&
-      extractExecutionSettings(thread).autoRun !== false
-    ) {
-      appendThreadMessage(
-        threadId,
-        "assistant",
-        "event",
-        `Goal plan ${goalPlan.id} is approved. I am materializing and running managed work now.`,
-        {
-          artifacts: [
-            artifactRef(
-              "goal-plan",
-              String(goalPlan.id),
-              toText(goalPlan.title, String(goalPlan.id)),
-              String(goalPlan.status),
-            ),
-          ],
-        },
-        dbPath,
-      );
-      await runGoalPlan(
-        String(goalPlan.id),
-        {
-          ...executionRunOptions(thread),
-          autoValidate: extractExecutionSettings(thread).autoValidate !== false,
-        },
-        dbPath,
-      );
-      goalPlan = getGoalPlanSummary(String(goalPlan.id), dbPath);
-      group = goalPlan?.materializedGroup?.id
-        ? getWorkItemGroupSummary(String(goalPlan.materializedGroup.id), dbPath)
-        : group;
-      proposalSelection = selectActiveProposal(
-        group,
-        extractLinkage(thread),
-        proposal,
-        dbPath,
-      );
-      proposal = proposalSelection.proposal;
-      latestRun = resolveLatestThreadRun(
-        group,
-        extractLinkage(thread),
-        proposal,
-        dbPath,
-      );
-    } else if (latestRunNeedsRecovery(latestRun, proposal)) {
-      pendingActions = requestManagedRunRecoveryAction(
-        threadId,
-        latestRun,
-        group,
-        dbPath,
-      );
-    } else if (
-      proposal &&
-      ["draft", "ready_for_review"].includes(String(proposal.status))
-    ) {
-      pendingActions = requestProposalReviewAction(threadId, proposal, dbPath);
-    } else if (proposal && String(proposal.status) === "reviewed") {
-      pendingActions = requestProposalApprovalAction(
-        threadId,
-        proposal,
-        dbPath,
-      );
-    } else if (
-      proposal &&
-      [
-        "rejected",
-        "rework_required",
-        "validation_failed",
-        "promotion_blocked",
-      ].includes(String(proposal.status))
-    ) {
-      pendingActions = requestProposalReworkAction(threadId, proposal, dbPath);
-    } else if (
-      proposal &&
-      String(proposal.status) === "validation_required" &&
-      extractExecutionSettings(thread).autoValidate !== false
-    ) {
-      appendThreadMessage(
-        threadId,
-        "assistant",
-        "event",
-        `Proposal ${proposal.id} needs validation. I am running the configured validation flow now.`,
-        {
-          artifacts: [
-            artifactRef(
-              "proposal",
-              String(proposal.id),
-              toText(asObject(proposal.summary).title, String(proposal.id)),
-              String(proposal.status),
-            ),
-          ],
-        },
-        dbPath,
-      );
-      if (group?.id) {
-        await queueWorkItemGroupValidationBundle(
-          String(group.id),
-          executionRunOptions(thread, {
-            source: "operator-chat-validation",
-            wait: false,
-          }),
+    } else {
+      let startedManagedWorkAutoRun = false;
+      if (
+        goalPlan &&
+        ["reviewed", "materialized"].includes(String(goalPlan.status)) &&
+        extractExecutionSettings(thread).autoRun !== false &&
+        claimManagedWorkAutoRun(threadId, String(goalPlan.id), dbPath)
+      ) {
+        startedManagedWorkAutoRun = true;
+        appendThreadMessage(
+          threadId,
+          "assistant",
+          "event",
+          `Goal plan ${goalPlan.id} is approved. I am materializing and running managed work now.`,
+          {
+            artifacts: [
+              artifactRef(
+                "goal-plan",
+                String(goalPlan.id),
+                toText(goalPlan.title, String(goalPlan.id)),
+                String(goalPlan.status),
+              ),
+            ],
+          },
+          dbPath,
+        );
+        await runGoalPlan(
+          String(goalPlan.id),
+          {
+            ...executionRunOptions(thread),
+            autoValidate: extractExecutionSettings(thread).autoValidate !== false,
+          },
+          dbPath,
+        );
+        goalPlan = getGoalPlanSummary(String(goalPlan.id), dbPath);
+        group = goalPlan?.materializedGroup?.id
+          ? getWorkItemGroupSummary(String(goalPlan.materializedGroup.id), dbPath)
+          : group;
+        proposalSelection = selectActiveProposal(
+          group,
+          extractLinkage(thread),
+          proposal,
+          dbPath,
+        );
+        proposal = proposalSelection.proposal;
+        latestRun = resolveLatestThreadRun(
+          group,
+          extractLinkage(thread),
+          proposal,
           dbPath,
         );
       }
-      group = group?.id
-        ? getWorkItemGroupSummary(String(group.id), dbPath)
-        : group;
-      proposalSelection = selectActiveProposal(
-        group,
-        extractLinkage(thread),
-        proposal,
-        dbPath,
-      );
-      proposal = proposalSelection.proposal;
-      latestRun = resolveLatestThreadRun(
-        group,
-        extractLinkage(thread),
-        proposal,
-        dbPath,
-      );
-      integrationBranch =
-        getProposalIntegrationBranch(proposal) ||
-        linkage.integrationBranch ||
-        null;
-      activeQuarantine = findThreadQuarantine(
-        goalPlan,
-        group,
-        proposal,
-        integrationBranch,
-        dbPath,
-      );
-    } else if (proposal && String(proposal.status) === "promotion_ready") {
-      const reviewPackage = getProposalReviewPackage(
-        String(proposal.id),
-        dbPath,
-      );
-      pendingActions = requestProposalPromotionAction(
-        threadId,
-        proposal,
-        reviewPackage,
-        dbPath,
-      );
+
+      if (!startedManagedWorkAutoRun) {
+        if (latestRunNeedsRecovery(latestRun, proposal)) {
+          pendingActions = requestManagedRunRecoveryAction(
+            threadId,
+            latestRun,
+            group,
+            dbPath,
+          );
+        } else if (
+          proposal &&
+          ["draft", "ready_for_review"].includes(String(proposal.status))
+        ) {
+          pendingActions = requestProposalReviewAction(
+            threadId,
+            proposal,
+            dbPath,
+          );
+        } else if (proposal && String(proposal.status) === "reviewed") {
+          pendingActions = requestProposalApprovalAction(
+            threadId,
+            proposal,
+            dbPath,
+          );
+        } else if (
+          proposal &&
+          [
+            "rejected",
+            "rework_required",
+            "validation_failed",
+            "promotion_blocked",
+          ].includes(String(proposal.status))
+        ) {
+          pendingActions = requestProposalReworkAction(
+            threadId,
+            proposal,
+            dbPath,
+          );
+        } else if (
+          proposal &&
+          String(proposal.status) === "validation_required" &&
+          extractExecutionSettings(thread).autoValidate !== false
+        ) {
+          appendThreadMessage(
+            threadId,
+            "assistant",
+            "event",
+            `Proposal ${proposal.id} needs validation. I am running the configured validation flow now.`,
+            {
+              artifacts: [
+                artifactRef(
+                  "proposal",
+                  String(proposal.id),
+                  toText(asObject(proposal.summary).title, String(proposal.id)),
+                  String(proposal.status),
+                ),
+              ],
+            },
+            dbPath,
+          );
+          if (group?.id) {
+            await queueWorkItemGroupValidationBundle(
+              String(group.id),
+              executionRunOptions(thread, {
+                source: "operator-chat-validation",
+                wait: false,
+              }),
+              dbPath,
+            );
+          }
+          group = group?.id
+            ? getWorkItemGroupSummary(String(group.id), dbPath)
+            : group;
+          proposalSelection = selectActiveProposal(
+            group,
+            extractLinkage(thread),
+            proposal,
+            dbPath,
+          );
+          proposal = proposalSelection.proposal;
+          latestRun = resolveLatestThreadRun(
+            group,
+            extractLinkage(thread),
+            proposal,
+            dbPath,
+          );
+          integrationBranch =
+            getProposalIntegrationBranch(proposal) ||
+            linkage.integrationBranch ||
+            null;
+          activeQuarantine = findThreadQuarantine(
+            goalPlan,
+            group,
+            proposal,
+            integrationBranch,
+            dbPath,
+          );
+        } else if (proposal && String(proposal.status) === "promotion_ready") {
+          const reviewPackage = getProposalReviewPackage(
+            String(proposal.id),
+            dbPath,
+          );
+          pendingActions = requestProposalPromotionAction(
+            threadId,
+            proposal,
+            reviewPackage,
+            dbPath,
+          );
+        }
+      }
     }
   }
 

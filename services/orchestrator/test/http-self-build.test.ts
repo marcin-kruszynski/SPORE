@@ -13,6 +13,8 @@ import {
   insertProposalArtifact,
   insertWorkItemRun,
   insertWorkspaceAllocation,
+  listOperatorThreadMessages,
+  listWorkItemRuns,
   openOrchestratorDatabase,
   updateProposalArtifact,
   updateWorkspaceAllocation,
@@ -2834,6 +2836,114 @@ test("operator chat routes create governed threads and accept chat-driven approv
   assert.equal(pendingActions.status, 200);
   assert.ok(pendingActions.json.ok);
   assert.ok(Array.isArray(pendingActions.json.detail));
+});
+
+test("operator thread reads stay idempotent after plan approval", async (t) => {
+  const { ORCHESTRATOR_PORT, dbPath } = await startOperatorChatServer(
+    t,
+    "spore-http-operator-chat-idempotent-",
+  );
+  const autoRunEventText =
+    "I am materializing and running managed work now.";
+
+  const createdThread = await createStubOperatorThread(
+    ORCHESTRATOR_PORT,
+    "Refresh the self-build onboarding docs and keep the change in safe mode.",
+    {
+      wait: false,
+      autoValidate: false,
+      interval: 100,
+      timeout: 12000,
+    },
+  );
+  const threadId = String(createdThread.id ?? "");
+  assert.ok(threadId);
+
+  const editedThread = await replyInOperatorThread(
+    ORCHESTRATOR_PORT,
+    threadId,
+    "keep only docs",
+  );
+  assert.equal(
+    asArray<JsonRecord>(
+      asObject(asObject(editedThread.context).goalPlan).recommendations,
+    ).length,
+    1,
+  );
+
+  const approveResponsePromise = fetch(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/operator/threads/${encodeURIComponent(threadId)}/messages`,
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        message: "approve",
+        by: "test-runner",
+        source: "http-operator-chat-test",
+      }),
+    },
+  );
+
+  await sleep(100);
+
+  const readPayloads = await Promise.all(
+    Array.from({ length: 5 }, () =>
+      getJson(
+        `http://127.0.0.1:${ORCHESTRATOR_PORT}/operator/threads/${encodeURIComponent(threadId)}`,
+      ),
+    ),
+  );
+
+  const approveResponse = await approveResponsePromise;
+  const approvedPayload = {
+    status: approveResponse.status,
+    json: await approveResponse.json(),
+  };
+  assert.equal(approvedPayload.status, 200);
+  assert.ok(approvedPayload.json.ok);
+
+  for (const payload of readPayloads) {
+    assert.equal(payload.status, 200);
+    assert.ok(payload.json.ok);
+  }
+
+  const approvedThread = approvedPayload.json.detail;
+  const group = asObject(asObject(approvedThread.context).group);
+  const items = asArray<JsonRecord>(group.items);
+  const workItemId = String(items[0]?.id ?? "");
+  assert.ok(workItemId, "expected managed work to materialize after approval");
+
+  const readThreadSnapshot = () => {
+    const db = openOrchestratorDatabase(dbPath);
+    try {
+      const messages = listOperatorThreadMessages(db, threadId, 200);
+      const runs = listWorkItemRuns(db, workItemId, 20);
+      return {
+        autoRunEvents: messages.filter(
+          (message) =>
+            message.role === "assistant" &&
+            message.kind === "event" &&
+            String(message.content).includes(autoRunEventText),
+        ),
+        runs,
+      };
+    } finally {
+      db.close();
+    }
+  };
+
+  const beforeReads = readThreadSnapshot();
+  assert.equal(beforeReads.autoRunEvents.length, 1);
+  assert.equal(beforeReads.runs.length, 1);
+  const initialRunId = String(beforeReads.runs[0]?.id ?? "");
+  assert.ok(initialRunId);
+
+  const afterReads = readThreadSnapshot();
+  assert.equal(afterReads.autoRunEvents.length, 1);
+  assert.equal(afterReads.runs.length, 1);
+  assert.equal(String(afterReads.runs[0]?.id ?? ""), initialRunId);
 });
 
 test("operator chat supports proposal rework and quarantine release flows", async (t) => {
