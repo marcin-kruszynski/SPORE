@@ -67,6 +67,7 @@ import {
   listApprovals,
   listAuditRecords,
   listChildExecutions,
+  countWorkflowHandoffConsumers,
   listEscalations,
   listExecutionGroup,
   listExecutions,
@@ -77,11 +78,13 @@ import {
   listScenarioRunExecutions,
   listScenarioRuns,
   listSteps,
+  listWorkflowHandoffConsumers,
+  listWorkflowHandoffConsumerRoles,
   listWorkflowEvents,
   listWorkflowHandoffs,
   listWorkspaceAllocations,
-  markWorkflowHandoffConsumed,
   openOrchestratorDatabase,
+  recordWorkflowHandoffConsumption,
   updateEscalation,
   updateExecution,
   updateStep,
@@ -111,6 +114,7 @@ import {
   handoffsConsumedByStep,
   selectInboundWorkflowHandoffs,
 } from "./handoff-context.js";
+import { resolveHandoffEnforcement } from "./handoff-validation.js";
 import { comparePolicies } from "./policy-diff.js";
 import {
   findBlockedWave,
@@ -1653,10 +1657,13 @@ export function getExecutionDetail(
     const reviews = listReviews(db, executionId);
     const approvals = listApprovals(db, executionId);
     const events = listWorkflowEvents(db, executionId);
-    const handoffs = listWorkflowHandoffs(db, {
-      executionId,
-      limit: 200,
-    });
+    const handoffs = enrichWorkflowHandoffs(
+      db,
+      listWorkflowHandoffs(db, {
+        executionId,
+        limit: 200,
+      }),
+    );
     const escalations = listEscalations(db, executionId);
     const audit = listAuditRecords(db, executionId);
     const childExecutions = listChildExecutions(db, executionId);
@@ -1717,10 +1724,13 @@ export function listExecutionHandoffs(
     if (!execution) {
       return null;
     }
-    return listWorkflowHandoffs(db, {
-      executionId,
-      limit: 200,
-    });
+    return enrichWorkflowHandoffs(
+      db,
+      listWorkflowHandoffs(db, {
+        executionId,
+        limit: 200,
+      }),
+    );
   });
 }
 
@@ -1738,7 +1748,7 @@ export function getExecutionHandoff(
     if (!handoff || handoff.executionId !== executionId) {
       return null;
     }
-    return handoff;
+    return enrichWorkflowHandoffs(db, [handoff])[0] ?? null;
   });
 }
 
@@ -1790,6 +1800,29 @@ function buildPolicyDiff(baseline = {}, candidate = {}) {
       tone: "removed",
     })),
   ];
+}
+
+function enrichWorkflowHandoffs(db, handoffs) {
+  return handoffs.map((handoff) => {
+    const consumers = listWorkflowHandoffConsumers(db, {
+      handoffId: handoff.id,
+      limit: 50,
+    });
+    const consumerCount = countWorkflowHandoffConsumers(db, handoff.id);
+    return {
+      ...handoff,
+      validation: handoff.validation ?? {},
+      consumers,
+      consumerCount,
+      consumerRoles: listWorkflowHandoffConsumerRoles(db, handoff.id),
+      deliveryStatus:
+        consumerCount > 0 && handoff.status === "ready"
+          ? handoff.targetRole || handoff.toStepId
+            ? "consumed"
+            : "partially_consumed"
+          : handoff.status,
+    };
+  });
 }
 
 export async function getExecutionPolicyDiff(
@@ -3529,7 +3562,15 @@ async function launchStep(execution, step, options: LooseRecord = {}) {
       });
     }
     for (const handoff of handoffsConsumedByStep(step, inboundHandoffs)) {
-      markWorkflowHandoffConsumed(db, String(handoff.id ?? ""), nowIso());
+      recordWorkflowHandoffConsumption(db, {
+        id: `consumer-${String(handoff.id ?? "handoff")}-${String(step.id ?? "step")}`,
+        executionId: String(currentExecution.id),
+        handoffId: String(handoff.id ?? ""),
+        consumerStepId: String(step.id ?? ""),
+        consumerRole: String(step.role ?? ""),
+        consumerSessionId: String(updatedStep.sessionId ?? "") || null,
+        consumedAt: nowIso(),
+      });
     }
     const updatedExecution = transitionExecutionAfterProgress(
       currentExecution,
@@ -3639,6 +3680,18 @@ function settleStepFromSession(step, session) {
     );
   }
   return null;
+}
+
+function hasBlockingInvalidHandoff(db, executionId, stepId) {
+  return listWorkflowHandoffs(db, {
+    executionId,
+    fromStepId: stepId,
+    limit: 50,
+  }).some(
+    (handoff) =>
+      handoff.validation?.valid === false &&
+      handoff.validation?.mode === "blocked",
+  );
 }
 
 function reconcileCoordinationState(db, execution) {
@@ -3901,7 +3954,8 @@ export async function reconcileExecution(
             continue;
           }
 
-          const { activeStep, settledStep } = observation;
+          const { activeStep } = observation;
+          let settledStep = observation.settledStep;
           if (["failed", "stopped"].includes(settledStep.state)) {
             const retryAllowed =
               activeStep.attemptCount < activeStep.maxAttempts;
@@ -4040,13 +4094,37 @@ export async function reconcileExecution(
           updateStep(db, settledStep);
           if (["completed", "review_pending"].includes(settledStep.state)) {
             await publishBuilderWorkspaceHandoff(db, execution, settledStep);
-            await publishWorkflowStepHandoffs({
+            const publishedHandoffs = await publishWorkflowStepHandoffs({
               db,
               execution,
               step: settledStep,
               session: observation.session,
               steps: listSteps(db, executionId),
             });
+            const enforced = resolveHandoffEnforcement(
+              settledStep,
+              publishedHandoffs,
+            );
+            if (enforced.enforcement) {
+              settledStep = enforced.step;
+              updateStep(db, settledStep);
+              emitWorkflowEvent(db, {
+                executionId: execution.id,
+                stepId: settledStep.id,
+                sessionId: settledStep.sessionId,
+                type:
+                  enforced.enforcement.mode === "blocked"
+                    ? "workflow.step.handoff_blocked"
+                    : enforced.enforcement.mode === "review_pending"
+                      ? "workflow.step.handoff_review_pending"
+                      : "workflow.step.handoff_degraded",
+                payload: {
+                  mode: enforced.enforcement.mode,
+                  handoffId: enforced.enforcement.handoffId,
+                  issues: enforced.enforcement.issues,
+                },
+              });
+            }
           }
           settleStepWorkspace(
             db,
@@ -4340,6 +4418,14 @@ export async function recordReviewDecision(
     if (!reviewStep) {
       throw new Error(`no review-pending step for execution: ${executionId}`);
     }
+    if (
+      payload.status === "approved" &&
+      hasBlockingInvalidHandoff(db, executionId, reviewStep.id)
+    ) {
+      throw new Error(
+        `step ${reviewStep.id} has blocked workflow handoff validation issues`,
+      );
+    }
     const review = createReviewRecord({
       executionId,
       stepId: reviewStep.id,
@@ -4379,9 +4465,12 @@ export async function recordReviewDecision(
     });
 
     if (payload.status === "approved") {
-      const updatedStep = transitionStepRecord(reviewStep, "approval_pending", {
+      const nextStepState = reviewStep.approvalRequired
+        ? "approval_pending"
+        : "completed";
+      const updatedStep = transitionStepRecord(reviewStep, nextStepState, {
         reviewStatus: payload.status,
-        approvalStatus: reviewStep.approvalRequired ? "pending" : null,
+        approvalStatus: reviewStep.approvalRequired ? "pending" : "approved",
       });
       updateStep(db, updatedStep);
       settleStepWorkspace(db, updatedStep, "settled", {
@@ -4415,6 +4504,45 @@ export async function recordReviewDecision(
     }
 
     const retryTarget = selectRetryTargetStep(steps, reviewStep, execution);
+    const validationRetryTarget =
+      payload.status === "changes_requested" &&
+      !retryTarget &&
+      hasBlockingInvalidHandoff(db, executionId, reviewStep.id)
+        ? prepareOperatorResumeStep(
+            reviewStep,
+            execution,
+            "handoff_validation_rework",
+          )
+        : null;
+
+    if (payload.status === "changes_requested" && validationRetryTarget) {
+      updateStep(db, validationRetryTarget);
+      const updatedExecution = transitionExecutionAfterProgress(
+        execution,
+        "running",
+        {
+          currentStepIndex: validationRetryTarget.sequence,
+          reviewStatus: payload.status,
+          approvalStatus: null,
+        },
+      );
+      updateExecution(db, updatedExecution);
+      emitWorkflowEvent(db, {
+        executionId,
+        stepId: validationRetryTarget.id,
+        sessionId: validationRetryTarget.sessionId,
+        type: "workflow.review.changes_requested",
+        payload: {
+          retryTargetStepId: validationRetryTarget.id,
+          retryTargetRole: validationRetryTarget.role,
+          nextAttempt: validationRetryTarget.attemptCount,
+          nextSessionId: validationRetryTarget.sessionId,
+          resetStepIds: [validationRetryTarget.id],
+          validationRework: true,
+        },
+      });
+      return getExecutionDetail(executionId, dbPath, sessionDbPath);
+    }
 
     if (
       payload.status === "changes_requested" &&

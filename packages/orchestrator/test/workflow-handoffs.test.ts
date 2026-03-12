@@ -9,14 +9,20 @@ import test from "node:test";
 import {
   createExecution,
   driveExecution,
+  recordReviewDecision,
 } from "../src/execution/workflow-execution.js";
+import { buildExpectedHandoff } from "../src/execution/handoff-context.js";
+import { publishWorkflowStepHandoffs } from "../src/execution/workflow-handoffs.js";
+import { transitionStepRecord } from "../src/lifecycle/execution-lifecycle.js";
 import { planWorkflowInvocation } from "../src/invocation/plan-workflow-invocation.js";
 import {
   getWorkflowHandoff,
+  listWorkflowHandoffConsumers,
   listWorkflowHandoffs,
   markWorkflowHandoffConsumed,
   openOrchestratorDatabase,
   upsertWorkflowHandoff,
+  updateStep,
 } from "../src/store/execution-store.js";
 
 function run(command: string, args: string[], options: SpawnOptionsWithoutStdio = {}) {
@@ -112,6 +118,12 @@ test("workflow handoffs persist ready and consumed records by execution order", 
       payload: {
         changedPaths: ["packages/orchestrator/src/execution/workflow-execution.impl.ts"],
       },
+      validation: {
+        valid: true,
+        degraded: false,
+        mode: "accept",
+        issues: [],
+      },
       createdAt: "2026-03-12T10:00:00.000Z",
       updatedAt: "2026-03-12T10:00:00.000Z",
       consumedAt: null,
@@ -145,6 +157,12 @@ test("workflow handoffs persist ready and consumed records by execution order", 
       payload: {
         workspacePurpose: "authoring",
       },
+      validation: {
+        valid: true,
+        degraded: false,
+        mode: "accept",
+        issues: [],
+      },
       createdAt: "2026-03-12T10:00:01.000Z",
       updatedAt: "2026-03-12T10:00:01.000Z",
       consumedAt: null,
@@ -168,6 +186,7 @@ test("workflow handoffs persist ready and consumed records by execution order", 
 
     const consumedHandoff = getWorkflowHandoff(db, "handoff-builder-summary");
     assert.equal(consumedHandoff?.status, "consumed");
+    assert.equal(consumedHandoff?.validation?.valid, true);
     assert.equal(
       consumedHandoff?.consumedAt,
       "2026-03-12T10:05:00.000Z",
@@ -183,6 +202,126 @@ test("workflow handoffs persist ready and consumed records by execution order", 
   } finally {
     db.close();
   }
+});
+
+test("published handoffs persist degraded validation metadata for invalid output", async (t) => {
+  const tempRoot = await fs.mkdtemp(
+    path.join(os.tmpdir(), "spore-workflow-handoffs-invalid-"),
+  );
+  t.after(async () => {
+    await fs.rm(tempRoot, { recursive: true, force: true });
+  });
+
+  const dbPath = path.join(tempRoot, "orchestrator.sqlite");
+  const transcriptPath = path.join(tempRoot, "session.transcript.md");
+  const profilePath = path.join(tempRoot, "invalid-builder.yaml");
+  await fs.writeFile(
+    profilePath,
+    [
+      "id: builder-invalid",
+      "role: builder",
+      "handoffPolicy:",
+      "  mode: artifact-plus-summary",
+      "  outputKind: implementation_summary",
+      "  marker: SPORE_HANDOFF_JSON",
+      "  requiredSections: [summary, changed_paths, tests_run]",
+      "  enforcementMode: review_pending",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+  await fs.writeFile(
+    transcriptPath,
+    [
+      "[stub:agent-output:start]",
+      "Builder finished the task without a structured handoff.",
+      "[stub:agent-output:end]",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+
+  const db = openOrchestratorDatabase(dbPath);
+  try {
+    const published = await publishWorkflowStepHandoffs({
+      db,
+      execution: {
+        id: "execution-invalid",
+        updatedAt: "2026-03-12T10:00:00.000Z",
+        objective: "Validate degraded handoff metadata.",
+      },
+      step: {
+        id: "execution-invalid:step:1",
+        sessionId: "session-invalid",
+        role: "builder",
+        profilePath,
+        updatedAt: "2026-03-12T10:00:00.000Z",
+      },
+      session: {
+        transcriptPath,
+      },
+      steps: [
+        {
+          id: "execution-invalid:step:1",
+          role: "builder",
+          wave: 0,
+        },
+        {
+          id: "execution-invalid:step:2",
+          role: "tester",
+          wave: 1,
+        },
+      ],
+    });
+
+    assert.equal(published.length, 1);
+    const primary = published[0] as Record<string, any>;
+    assert.equal(primary.validation?.valid, false);
+    assert.equal(primary.validation?.mode, "review_pending");
+    assert.equal(primary.validation?.degraded, true);
+    assert.equal(
+      primary.validation?.issues?.some(
+        (issue) => issue.code === "missing_marker",
+      ),
+      true,
+    );
+
+    const persisted = getWorkflowHandoff(
+      db,
+      "handoff-execution-invalid-step-1-implementation_summary",
+    );
+    assert.equal(persisted?.validation?.valid, false);
+    assert.equal(persisted?.validation?.mode, "review_pending");
+  } finally {
+    db.close();
+  }
+});
+
+test("coordinator and integrator profiles expose structured handoff contracts", async () => {
+  const coordinator = await buildExpectedHandoff({
+    profilePath: "config/profiles/coordinator.yaml",
+  });
+  const integrator = await buildExpectedHandoff({
+    profilePath: "config/profiles/integrator.yaml",
+  });
+
+  assert.equal(coordinator?.kind, "routing_summary");
+  assert.equal(coordinator?.enforcementMode, "review_pending");
+  assert.deepEqual(coordinator?.requiredSections, [
+    "summary",
+    "active_lanes",
+    "blockers",
+    "next_actions",
+  ]);
+  assert.equal(integrator?.kind, "integration_summary");
+  assert.equal(integrator?.enforcementMode, "blocked");
+  assert.deepEqual(integrator?.requiredSections, [
+    "summary",
+    "verdict",
+    "target_branch",
+    "integration_branch",
+    "blockers",
+  ]);
 });
 
 test("completed steps publish normalized workflow handoff artifacts", async (t) => {
@@ -266,7 +405,9 @@ test("completed steps publish normalized workflow handoff artifacts", async (t) 
     const scoutHandoff = JSON.parse(scoutHandoffRaw);
 
     assert.equal(leadHandoff.primary.kind, "task_brief");
+    assert.equal(leadHandoff.primary.validation.valid, true);
     assert.equal(scoutHandoff.primary.kind, "scout_findings");
+    assert.equal(scoutHandoff.primary.validation.valid, true);
   } finally {
     db.close();
   }
@@ -329,6 +470,23 @@ test("downstream sessions receive curated inbound workflow handoffs", async (t) 
   assert.ok(builderStep?.sessionId);
   assert.ok(testerStep?.sessionId);
 
+  const db = openOrchestratorDatabase(dbPath);
+  try {
+    const consumers = listWorkflowHandoffConsumers(db, {
+      executionId: created.execution.id,
+      limit: 20,
+    });
+    assert.ok(consumers.length >= 2);
+    assert.ok(
+      consumers.some((record) => record.consumerStepId === builderStep.id),
+    );
+    assert.ok(
+      consumers.some((record) => record.consumerStepId === testerStep.id),
+    );
+  } finally {
+    db.close();
+  }
+
   const [builderPlanRaw, testerPlanRaw] = await Promise.all([
     fs.readFile(sessionArtifactPath(builderStep.sessionId, "plan.json"), "utf8"),
     fs.readFile(sessionArtifactPath(testerStep.sessionId, "plan.json"), "utf8"),
@@ -352,4 +510,216 @@ test("downstream sessions receive curated inbound workflow handoffs", async (t) 
     testerPlan.metadata.expectedHandoff.kind,
     "verification_summary",
   );
+});
+
+test("blocked handoff validation prevents review approval from advancing the step", async (t) => {
+  const tempRoot = await fs.mkdtemp(
+    path.join(os.tmpdir(), "spore-workflow-handoffs-blocked-review-"),
+  );
+  const dbPath = path.join(tempRoot, "orchestrator.sqlite");
+  const sessionDbPath = path.join(tempRoot, "sessions.sqlite");
+  t.after(async () => {
+    await fs.rm(tempRoot, { recursive: true, force: true });
+  });
+
+  const invocation = await planWorkflowInvocation({
+    workflowPath: "config/workflows/review-pass.yaml",
+    projectPath: "config/projects/spore.yaml",
+    domainId: "docs",
+    roles: ["lead", "reviewer"],
+    objective: "Validate blocked handoff approval protection.",
+    invocationId: `workflow-handoffs-blocked-${Date.now()}`,
+  });
+  const created = createExecution(invocation, dbPath);
+  const reviewStep = created.steps.find((step) => step.role === "reviewer");
+  assert.ok(reviewStep?.id);
+
+  const db = openOrchestratorDatabase(dbPath);
+  try {
+    upsertWorkflowHandoff(db, {
+      id: "handoff-blocked-review-step",
+      executionId: created.execution.id,
+      fromStepId: reviewStep.id,
+      toStepId: "",
+      sourceRole: "reviewer",
+      targetRole: null,
+      kind: "review_summary",
+      status: "ready",
+      summary: {
+        title: "Blocked review summary",
+        outcome: "invalid structured payload",
+        confidence: "low",
+      },
+      artifacts: {
+        sessionId: reviewStep.sessionId,
+        transcriptPath: null,
+        briefPath: null,
+        handoffPath: null,
+        workspaceId: null,
+        proposalArtifactId: null,
+        snapshotRef: null,
+        snapshotCommit: null,
+      },
+      payload: {},
+      validation: {
+        valid: false,
+        degraded: true,
+        mode: "blocked",
+        issues: [
+          {
+            code: "missing_required_section",
+            message: "summary is malformed",
+            section: "summary",
+          },
+        ],
+      },
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      consumedAt: null,
+    });
+  } finally {
+    db.close();
+  }
+
+  await assert.rejects(
+    () =>
+      recordReviewDecision(
+        created.execution.id,
+        {
+          status: "approved",
+          decidedBy: "test-runner",
+          comments: "approve",
+        },
+        dbPath,
+        sessionDbPath,
+      ),
+    /blocked workflow handoff validation issues/,
+  );
+});
+
+test("approving a review-pending step without approval requirement completes it", async (t) => {
+  const tempRoot = await fs.mkdtemp(
+    path.join(os.tmpdir(), "spore-workflow-handoffs-review-complete-"),
+  );
+  const dbPath = path.join(tempRoot, "orchestrator.sqlite");
+  const sessionDbPath = path.join(tempRoot, "sessions.sqlite");
+  t.after(async () => {
+    await fs.rm(tempRoot, { recursive: true, force: true });
+  });
+
+  const invocation = await planWorkflowInvocation({
+    workflowPath: "config/workflows/frontend-ui-pass.yaml",
+    projectPath: "config/projects/spore.yaml",
+    domainId: "frontend",
+    roles: ["lead", "scout", "builder", "tester", "reviewer"],
+    objective: "Validate review approval semantics for degraded handoffs.",
+    invocationId: `workflow-handoffs-review-complete-${Date.now()}`,
+  });
+  const created = createExecution(invocation, dbPath);
+  const leadStep = created.steps.find((step) => step.role === "lead");
+  assert.ok(leadStep?.id);
+
+  const db = openOrchestratorDatabase(dbPath);
+  try {
+    updateStep(
+      db,
+      transitionStepRecord(leadStep, "review_pending", {
+        reviewStatus: "pending",
+        approvalStatus: null,
+      }),
+    );
+  } finally {
+    db.close();
+  }
+
+  const detail = await recordReviewDecision(
+    created.execution.id,
+    {
+      status: "approved",
+      decidedBy: "test-runner",
+      comments: "approve degraded handoff",
+    },
+    dbPath,
+    sessionDbPath,
+  );
+  const updatedLeadStep = detail?.steps.find((step) => step.id === leadStep.id);
+  assert.equal(updatedLeadStep?.state, "completed");
+  assert.equal(updatedLeadStep?.approvalStatus, "approved");
+});
+
+test("changes requested can rerun a single-step blocked handoff workflow", async (t) => {
+  const tempRoot = await fs.mkdtemp(
+    path.join(os.tmpdir(), "spore-workflow-handoffs-single-step-rework-"),
+  );
+  const dbPath = path.join(tempRoot, "orchestrator.sqlite");
+  const sessionDbPath = path.join(tempRoot, "sessions.sqlite");
+  t.after(async () => {
+    await fs.rm(tempRoot, { recursive: true, force: true });
+  });
+
+  const invocation = await planWorkflowInvocation({
+    workflowPath: "config/workflows/feature-promotion.yaml",
+    projectPath: "config/projects/spore.yaml",
+    domainId: "backend",
+    roles: ["integrator"],
+    objective: "Validate blocked single-step handoff recovery.",
+    invocationId: `workflow-handoffs-single-step-${Date.now()}`,
+  });
+  const created = createExecution(invocation, dbPath);
+  const integratorStep = created.steps[0];
+  assert.ok(integratorStep?.id);
+
+  const db = openOrchestratorDatabase(dbPath);
+  try {
+    updateStep(
+      db,
+      transitionStepRecord(integratorStep, "review_pending", {
+        reviewStatus: "pending",
+        approvalStatus: null,
+        lastError: "handoff_validation_blocked",
+      }),
+    );
+    upsertWorkflowHandoff(db, {
+      id: "handoff-single-step-integrator",
+      executionId: created.execution.id,
+      fromStepId: integratorStep.id,
+      toStepId: "",
+      sourceRole: "integrator",
+      targetRole: null,
+      kind: "integration_summary",
+      status: "ready",
+      summary: {
+        title: "Invalid integration summary",
+        outcome: "blocked",
+      },
+      artifacts: {},
+      payload: {},
+      validation: {
+        valid: false,
+        degraded: true,
+        mode: "blocked",
+        issues: [{ code: "missing_required_section", message: "missing verdict" }],
+      },
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      consumedAt: null,
+    });
+  } finally {
+    db.close();
+  }
+
+  const detail = await recordReviewDecision(
+    created.execution.id,
+    {
+      status: "changes_requested",
+      decidedBy: "test-runner",
+      comments: "rerun integrator with fixed handoff",
+    },
+    dbPath,
+    sessionDbPath,
+  );
+  const updatedStep = detail?.steps.find((step) => step.id === integratorStep.id);
+  assert.equal(updatedStep?.state, "planned");
+  assert.equal(updatedStep?.attemptCount, 2);
+  assert.match(String(updatedStep?.lastError ?? ""), /handoff_validation_rework/);
 });

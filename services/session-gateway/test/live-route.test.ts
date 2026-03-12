@@ -113,6 +113,12 @@ test("session live route returns diagnostics and control guidance", async (t) =>
           sessionId,
           primary: {
             kind: "implementation_summary",
+            validation: {
+              valid: false,
+              degraded: true,
+              mode: "review_pending",
+              issues: [{ code: "missing_marker" }],
+            },
           },
         },
         null,
@@ -218,6 +224,8 @@ test("session live route returns diagnostics and control guidance", async (t) =>
   assert.equal(response.json.artifacts.transcript.exists, true);
   assert.equal(response.json.artifacts.handoff.exists, true);
   assert.equal(response.json.artifacts.rpcStatus.exists, true);
+  assert.equal(response.json.handoff.primary.kind, "implementation_summary");
+  assert.equal(response.json.handoff.primary.validation.mode, "review_pending");
   assert.equal(response.json.controlHistory.length, 1);
   assert.equal(response.json.launcherMetadata.launcherType, "pi-rpc");
   assert.equal(response.json.launcherMetadata.runtimeAdapter, "runtime-pi");

@@ -47,6 +47,7 @@ export async function buildExpectedHandoff(step: Record<string, unknown>) {
     kind,
     marker: String(handoffPolicy.marker ?? DEFAULT_MARKER).trim() || DEFAULT_MARKER,
     requiredSections: normalizeRequiredSections(handoffPolicy.requiredSections),
+    enforcementMode: String(handoffPolicy.enforcementMode ?? "accept").trim() || "accept",
   };
 }
 
@@ -112,10 +113,5 @@ export function selectInboundWorkflowHandoffs({
 }
 
 export function handoffsConsumedByStep(step: Record<string, unknown>, handoffs: Array<Record<string, unknown>>) {
-  const stepRole = String(step.role ?? "");
-  return handoffs.filter((handoff) => {
-    const targetRole = String(handoff.targetRole ?? "").trim();
-    const toStepId = String(handoff.toStepId ?? "").trim();
-    return targetRole === stepRole && (!toStepId || toStepId === String(step.id ?? ""));
-  });
+  return handoffs.filter(Boolean);
 }

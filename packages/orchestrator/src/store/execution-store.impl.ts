@@ -10,6 +10,7 @@ import type {
   SelfBuildDecisionListOptions,
   SelfBuildIntakeListOptions,
   SelfBuildOverrideListOptions,
+  WorkflowHandoffConsumerListOptions,
   WorkflowHandoffListOptions,
   WorkspaceAllocationListOptions,
 } from "../types/contracts.js";
@@ -37,6 +38,7 @@ import {
   mapWorkItem,
   mapWorkItemGroup,
   mapWorkItemRun,
+  mapWorkflowHandoffConsumer,
   mapWorkflowHandoff,
   mapWorkspaceAllocation,
 } from "./entity-mappers.js";
@@ -170,6 +172,7 @@ export function openOrchestratorDatabase(dbPath) {
       summary_json TEXT,
       artifacts_json TEXT,
       payload_json TEXT,
+      validation_json TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       consumed_at TEXT
@@ -184,6 +187,23 @@ export function openOrchestratorDatabase(dbPath) {
       ON workflow_handoffs(status, updated_at DESC);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_workflow_handoffs_unique
       ON workflow_handoffs(execution_id, from_step_id, kind, to_step_id);
+    CREATE TABLE IF NOT EXISTS workflow_handoff_consumers (
+      id TEXT PRIMARY KEY,
+      execution_id TEXT NOT NULL,
+      handoff_id TEXT NOT NULL,
+      consumer_step_id TEXT NOT NULL,
+      consumer_role TEXT NOT NULL,
+      consumer_session_id TEXT,
+      consumed_at TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_workflow_handoff_consumers_unique
+      ON workflow_handoff_consumers(handoff_id, consumer_step_id);
+    CREATE INDEX IF NOT EXISTS idx_workflow_handoff_consumers_execution
+      ON workflow_handoff_consumers(execution_id, consumed_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_workflow_handoff_consumers_handoff
+      ON workflow_handoff_consumers(handoff_id, consumed_at DESC);
     CREATE TABLE IF NOT EXISTS workflow_escalations (
       id TEXT PRIMARY KEY,
       execution_id TEXT NOT NULL,
@@ -633,6 +653,7 @@ export function openOrchestratorDatabase(dbPath) {
   ensureColumn(db, "workflow_executions", "metadata_json", "TEXT");
   ensureColumn(db, "workflow_steps", "session_mode", "TEXT");
   ensureColumn(db, "workflow_steps", "policy_json", "TEXT");
+  ensureColumn(db, "workflow_handoffs", "validation_json", "TEXT");
   db.exec(`
     UPDATE workflow_executions
     SET coordination_group_id = id
@@ -918,6 +939,7 @@ function normalizeWorkflowHandoff(handoff) {
     summaryJson: JSON.stringify(handoff.summary ?? {}),
     artifactsJson: JSON.stringify(handoff.artifacts ?? {}),
     payloadJson: JSON.stringify(handoff.payload ?? {}),
+    validationJson: JSON.stringify(handoff.validation ?? {}),
     createdAt: handoff.createdAt,
     updatedAt: handoff.updatedAt,
     consumedAt: handoff.consumedAt ?? null,
@@ -929,11 +951,11 @@ export function upsertWorkflowHandoff(db, handoff) {
   db.prepare(`
     INSERT INTO workflow_handoffs (
       id, execution_id, from_step_id, to_step_id, source_role, target_role,
-      kind, status, summary_json, artifacts_json, payload_json,
+      kind, status, summary_json, artifacts_json, payload_json, validation_json,
       created_at, updated_at, consumed_at
     ) VALUES (
       @id, @executionId, @fromStepId, @toStepId, @sourceRole, @targetRole,
-      @kind, @status, @summaryJson, @artifactsJson, @payloadJson,
+      @kind, @status, @summaryJson, @artifactsJson, @payloadJson, @validationJson,
       @createdAt, @updatedAt, @consumedAt
     )
     ON CONFLICT(execution_id, from_step_id, kind, to_step_id)
@@ -945,6 +967,7 @@ export function upsertWorkflowHandoff(db, handoff) {
       summary_json = excluded.summary_json,
       artifacts_json = excluded.artifacts_json,
       payload_json = excluded.payload_json,
+      validation_json = excluded.validation_json,
       created_at = excluded.created_at,
       updated_at = excluded.updated_at,
       consumed_at = excluded.consumed_at
@@ -962,6 +985,111 @@ export function markWorkflowHandoffConsumed(db, handoffId, consumedAt) {
   });
 }
 
+export function recordWorkflowHandoffConsumption(db, consumption) {
+  db.prepare(`
+    INSERT INTO workflow_handoff_consumers (
+      id,
+      execution_id,
+      handoff_id,
+      consumer_step_id,
+      consumer_role,
+      consumer_session_id,
+      consumed_at,
+      created_at,
+      updated_at
+    ) VALUES (
+      @id,
+      @executionId,
+      @handoffId,
+      @consumerStepId,
+      @consumerRole,
+      @consumerSessionId,
+      @consumedAt,
+      @createdAt,
+      @updatedAt
+    )
+    ON CONFLICT(handoff_id, consumer_step_id)
+    DO UPDATE SET
+      consumer_role = excluded.consumer_role,
+      consumer_session_id = excluded.consumer_session_id,
+      consumed_at = excluded.consumed_at,
+      updated_at = excluded.updated_at
+  `).run({
+    ...consumption,
+    consumerSessionId: consumption.consumerSessionId ?? null,
+    createdAt: consumption.createdAt ?? consumption.consumedAt,
+    updatedAt: consumption.updatedAt ?? consumption.consumedAt,
+  });
+}
+
+export function deleteWorkflowHandoffConsumers(db, handoffId) {
+  db.prepare(`DELETE FROM workflow_handoff_consumers WHERE handoff_id = ?`).run(
+    handoffId,
+  );
+}
+
+export function countWorkflowHandoffConsumers(db, handoffId) {
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) AS total FROM workflow_handoff_consumers WHERE handoff_id = ?`,
+    )
+    .get(handoffId) as { total?: number } | undefined;
+  return Number(row?.total ?? 0);
+}
+
+export function listWorkflowHandoffConsumerRoles(db, handoffId) {
+  const rows = db
+    .prepare(
+      `SELECT DISTINCT consumer_role AS consumerRole FROM workflow_handoff_consumers WHERE handoff_id = ? ORDER BY consumer_role ASC`,
+    )
+    .all(handoffId) as Array<{ consumerRole?: string }>;
+  return rows.map((row) => String(row.consumerRole ?? "")).filter(Boolean);
+}
+
+export function listWorkflowHandoffConsumers(
+  db,
+  options: WorkflowHandoffConsumerListOptions = {},
+) {
+  const clauses = [];
+  const params = [];
+  if (options.executionId) {
+    clauses.push("execution_id = ?");
+    params.push(options.executionId);
+  }
+  if (options.handoffId) {
+    clauses.push("handoff_id = ?");
+    params.push(options.handoffId);
+  }
+  if (options.consumerStepId) {
+    clauses.push("consumer_step_id = ?");
+    params.push(options.consumerStepId);
+  }
+  if (options.consumerRole) {
+    clauses.push("consumer_role = ?");
+    params.push(options.consumerRole);
+  }
+  const limit = Number.parseInt(String(options.limit ?? "100"), 10) || 100;
+  const rows = db
+    .prepare(`
+      SELECT
+        id,
+        execution_id AS executionId,
+        handoff_id AS handoffId,
+        consumer_step_id AS consumerStepId,
+        consumer_role AS consumerRole,
+        consumer_session_id AS consumerSessionId,
+        consumed_at AS consumedAt,
+        created_at AS createdAt,
+        updated_at AS updatedAt
+      FROM workflow_handoff_consumers
+      ${clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : ""}
+      ORDER BY consumed_at DESC, created_at DESC
+      LIMIT ?
+    `)
+    .all(...params, limit);
+  return rows.map((record) => mapWorkflowHandoffConsumer(record));
+}
+
 export function getWorkflowHandoff(db, handoffId) {
   const record = db
     .prepare(`
@@ -977,6 +1105,7 @@ export function getWorkflowHandoff(db, handoffId) {
         summary_json AS summaryJson,
         artifacts_json AS artifactsJson,
         payload_json AS payloadJson,
+        validation_json AS validationJson,
         created_at AS createdAt,
         updated_at AS updatedAt,
         consumed_at AS consumedAt
@@ -1036,6 +1165,7 @@ export function listWorkflowHandoffs(
         summary_json AS summaryJson,
         artifacts_json AS artifactsJson,
         payload_json AS payloadJson,
+        validation_json AS validationJson,
         created_at AS createdAt,
         updated_at AS updatedAt,
         consumed_at AS consumedAt

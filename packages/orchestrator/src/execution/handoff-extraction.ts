@@ -82,6 +82,16 @@ export function extractStructuredHandoffBlock(
   }
 }
 
+export function hasStructuredHandoffMarker(
+  output: string,
+  marker = "SPORE_HANDOFF_JSON",
+) {
+  const pattern = new RegExp(
+    `\\[${marker}_BEGIN\\]([\\s\\S]*?)\\[${marker}_END\\]`,
+  );
+  return pattern.test(output);
+}
+
 export function fallbackHandoffSummary(output: string, role: string) {
   const trimmed = output.trim();
   const firstParagraph = trimmed.split(/\n\s*\n/)[0]?.trim() ?? "";

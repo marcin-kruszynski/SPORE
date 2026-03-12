@@ -187,6 +187,12 @@ test("tui execution and family commands consume orchestrator HTTP surfaces", {
         snapshotCommit: null,
       },
       payload: {},
+      validation: {
+        valid: false,
+        degraded: true,
+        mode: "review_pending",
+        issues: [{ code: "missing_marker", message: "missing marker" }],
+      },
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       consumedAt: null,
@@ -226,6 +232,20 @@ test("tui execution and family commands consume orchestrator HTTP surfaces", {
   const handoffsPayload = JSON.parse(handoffsOutput.stdout);
   assert.equal(handoffsPayload.detail.executionId, executionId);
   assert.equal(handoffsPayload.detail.handoffs[0]?.kind, "task_brief");
+  assert.equal(handoffsPayload.detail.handoffs[0]?.validation?.mode, "review_pending");
+
+  const handoffDetailOutput = await runCli([
+    "handoffs",
+    "--execution",
+    executionId,
+    "--handoff",
+    `${executionId}-handoff`,
+    "--api",
+    `http://127.0.0.1:${orchestratorPort}`,
+  ]);
+  const handoffDetailPayload = JSON.parse(handoffDetailOutput.stdout);
+  assert.equal(handoffDetailPayload.detail.id, `${executionId}-handoff`);
+  assert.equal(handoffDetailPayload.detail.validation.mode, "review_pending");
 
   const scenarioListOutput = await runCli([
     "scenario-list",

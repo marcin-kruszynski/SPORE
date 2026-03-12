@@ -113,6 +113,27 @@ export interface WorkflowHandoffListOptions extends JsonObject {
   limit?: number | string;
 }
 
+export interface WorkflowHandoffConsumerListOptions extends JsonObject {
+  executionId?: string;
+  handoffId?: string;
+  consumerStepId?: string;
+  consumerRole?: string;
+  limit?: number | string;
+}
+
+export interface HandoffValidationIssue extends JsonObject {
+  code: string;
+  message: string;
+  section?: string | null;
+}
+
+export interface HandoffValidationResult extends JsonObject {
+  valid: boolean;
+  degraded: boolean;
+  mode?: string | null;
+  issues: HandoffValidationIssue[];
+}
+
 export interface WorkspaceCleanupPolicy extends JsonObject {
   eligible: boolean;
   reason: string;

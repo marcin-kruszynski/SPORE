@@ -114,6 +114,12 @@ Runtime artifacts from a real PI-backed run should appear under `tmp/sessions/`,
 - `*.rpc-status.json`
 - `*.control.ndjson`
 
+When inspecting `*.handoff.json`, check both the semantic payload and the validation envelope:
+
+- `validation.valid`
+- `validation.mode`
+- `validation.issues[]`
+
 ## Gateway Smoke Test
 
 Start the shared read surface:
@@ -630,6 +636,7 @@ For dependency-aware self-build verification, also confirm that:
 - Use the runtime `launch-context` artifact or `/sessions/:id/live` `launcherMetadata.cwd` when you need proof that a mutating run launched inside its provisioned workspace rather than the canonical repo root.
 - Use `tmp/sessions/<sessionId>.handoff.json` when you need the normalized durable handoff captured from one completed step.
 - Use `/executions/:id/handoffs` when you need the execution-wide handoff chain rather than one session artifact.
+- Use the execution handoff read surfaces to inspect `consumerCount`, `validation.mode`, and `validation.issues` before approving a degraded step.
 - Prefer `session-manager reconcile` for detached-session cleanup.
 - Prefer `services/session-gateway/` as the shared read API for clients instead of reading local state files directly.
 - Prefer orchestrator execution reads and workflow event streams over inferring workflow state from runtime artifacts alone.

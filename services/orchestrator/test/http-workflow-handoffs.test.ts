@@ -5,6 +5,7 @@ import {
   createExecution,
   listSteps,
   planWorkflowInvocation,
+  recordWorkflowHandoffConsumption,
   upsertWorkflowHandoff,
   openOrchestratorDatabase,
 } from "@spore/orchestrator";
@@ -65,9 +66,24 @@ test("orchestrator exposes execution workflow handoff list and detail routes", a
       payload: {
         changedPaths: ["apps/web/src/main.ts"],
       },
+      validation: {
+        valid: true,
+        degraded: false,
+        mode: "accept",
+        issues: [],
+      },
       createdAt: "2026-03-12T12:00:00.000Z",
       updatedAt: "2026-03-12T12:00:00.000Z",
       consumedAt: null,
+    });
+    recordWorkflowHandoffConsumption(db, {
+      id: "consumer-http-builder-summary-tester",
+      executionId: invocation.invocationId,
+      handoffId: "handoff-http-builder-summary",
+      consumerStepId: `${invocation.invocationId}:step:4`,
+      consumerRole: "tester",
+      consumerSessionId: `${invocation.invocationId}-tester`,
+      consumedAt: "2026-03-12T12:10:00.000Z",
     });
   } finally {
     db.close();
@@ -99,6 +115,8 @@ test("orchestrator exposes execution workflow handoff list and detail routes", a
     listResponse.json.detail.handoffs[0].kind,
     "implementation_summary",
   );
+  assert.equal(listResponse.json.detail.handoffs[0].consumerCount, 1);
+  assert.equal(listResponse.json.detail.handoffs[0].validation.valid, true);
 
   const detailResponse = await getJson(
     `http://127.0.0.1:${orchestratorPort}/executions/${encodeURIComponent(invocation.invocationId)}/handoffs/${encodeURIComponent("handoff-http-builder-summary")}`,
@@ -107,4 +125,6 @@ test("orchestrator exposes execution workflow handoff list and detail routes", a
   assert.equal(detailResponse.json.ok, true);
   assert.equal(detailResponse.json.detail.id, "handoff-http-builder-summary");
   assert.equal(detailResponse.json.detail.sourceRole, "builder");
+  assert.equal(detailResponse.json.detail.consumerCount, 1);
+  assert.equal(detailResponse.json.detail.consumers[0].consumerRole, "tester");
 });

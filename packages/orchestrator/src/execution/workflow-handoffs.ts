@@ -1,13 +1,22 @@
 import { PROJECT_ROOT } from "../metadata/constants.js";
-import { getWorkspaceAllocationByStepId, upsertWorkflowHandoff } from "../store/execution-store.js";
+import {
+  deleteWorkflowHandoffConsumers,
+  getWorkspaceAllocationByStepId,
+  upsertWorkflowHandoff,
+} from "../store/execution-store.js";
 import {
   extractAgentOutputSegment,
+  hasStructuredHandoffMarker,
   extractStructuredHandoffBlock,
   fallbackHandoffSummary,
   readSessionTranscript,
   writeSessionHandoffArtifact,
 } from "./handoff-extraction.js";
 import { buildExpectedHandoff } from "./handoff-context.js";
+import {
+  deriveHandoffEnforcementMode,
+  validateStructuredHandoff,
+} from "./handoff-validation.js";
 
 function sanitizeSegment(value: string) {
   return value.replace(/[^a-zA-Z0-9._-]/g, "-");
@@ -71,8 +80,17 @@ export async function publishWorkflowStepHandoffs({
 
   const transcript = await readSessionTranscript(String(session.transcriptPath ?? "") || null);
   const output = extractAgentOutputSegment(transcript);
+  const markerFound = hasStructuredHandoffMarker(output, expectedHandoff.marker);
   const parsedBlock = extractStructuredHandoffBlock(output, expectedHandoff.marker);
   const parsedObject = normalizeObject(parsedBlock);
+  const validation = {
+    ...validateStructuredHandoff({
+      markerFound,
+      parsedBlock,
+      requiredSections: expectedHandoff.requiredSections,
+    }),
+    mode: deriveHandoffEnforcementMode(expectedHandoff.enforcementMode),
+  };
   const summary = {
     ...fallbackHandoffSummary(output, String(step.role ?? "role")),
     ...normalizeObject(parsedObject.summary),
@@ -93,8 +111,9 @@ export async function publishWorkflowStepHandoffs({
         targetRole,
         kind: expectedHandoff.kind,
         status: "ready",
-        summary,
-        artifacts: {
+    summary,
+    validation,
+    artifacts: {
           sessionId: String(step.sessionId),
           transcriptPath: String(session.transcriptPath ?? "") || null,
           briefPath: briefArtifactPath(String(execution.id), String(step.sessionId)),
@@ -130,6 +149,7 @@ export async function publishWorkflowStepHandoffs({
           outcome: "snapshot-published",
           confidence: "high",
         },
+        validation,
         artifacts: {
           sessionId: String(step.sessionId),
           transcriptPath: String(session.transcriptPath ?? "") || null,
@@ -157,6 +177,7 @@ export async function publishWorkflowStepHandoffs({
     role: String(step.role),
     primary: primaryHandoff,
     auxiliary,
+    validation,
   };
   const writtenArtifact = await writeSessionHandoffArtifact(String(step.sessionId), artifact);
   const allHandoffs = [primaryHandoff, ...auxiliary].map((handoff) => ({
@@ -165,9 +186,10 @@ export async function publishWorkflowStepHandoffs({
       ...normalizeObject(handoff.artifacts),
       handoffPath: writtenArtifact.relativePath,
     },
-  }));
+  })) as Array<Record<string, unknown>>;
 
   for (const handoff of allHandoffs) {
+    deleteWorkflowHandoffConsumers(db, String(handoff.id ?? ""));
     upsertWorkflowHandoff(db, handoff);
   }
   return allHandoffs;

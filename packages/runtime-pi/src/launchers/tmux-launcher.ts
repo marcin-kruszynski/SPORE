@@ -91,6 +91,21 @@ function buildStubHandoffJson(plan: SessionPlan): string | null {
     if (section === "summary") {
       continue;
     }
+    if (
+      [
+        "verdict",
+        "target_branch",
+        "integration_branch",
+        "next_role",
+      ].includes(section)
+    ) {
+      payload[section] = `stub ${section} for ${role}`;
+      continue;
+    }
+    if (section === "scope") {
+      payload[section] = [`stub ${section} for ${role}`];
+      continue;
+    }
     payload[section] = [`stub ${section} for ${role}`];
   }
   return JSON.stringify(payload, null, 2);

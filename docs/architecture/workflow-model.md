@@ -207,7 +207,9 @@ The handoff contract is intentionally narrower than free-form agent messaging:
 - each settled step publishes one primary semantic handoff,
 - some steps may also publish auxiliary evidence handoffs,
 - downstream steps receive curated inbound handoffs through runtime context rather than transcript scraping,
-- selection is wave-aware and role-optional, so workflows without `scout` or with partial-unlock exploration still behave deterministically.
+- selection is wave-aware and role-optional, so workflows without `scout` or with partial-unlock exploration still behave deterministically,
+- structured handoffs are validated against profile policy before the publication is treated as trustworthy,
+- fan-out consumption is tracked per downstream target instead of overloading publication state.
 
 The canonical semantic chain for the current implementation workflows is:
 
@@ -217,13 +219,17 @@ The canonical semantic chain for the current implementation workflows is:
 - `builder -> workspace_snapshot` as auxiliary evidence,
 - `tester -> verification_summary`
 - `reviewer -> review_summary`
+- `coordinator -> routing_summary`
+- `integrator -> integration_summary`
 
 Rules:
 
 - downstream steps consume only compatible prior-wave handoffs unless a future workflow contract opts into same-wave sharing,
 - builder-to-tester snapshot handoff remains the authoritative file-level evidence path,
 - proposal artifacts may mirror workflow handoff references, but they do not replace the handoff store,
-- clients should inspect workflow handoffs through orchestrator read surfaces rather than inferring them from raw transcripts.
+- clients should inspect workflow handoffs through orchestrator read surfaces rather than inferring them from raw transcripts,
+- invalid structured output may still produce a degraded artifact for evidence, but enforcement policy decides whether the step proceeds, waits for review, or is blocked from advancement,
+- broadcast handoffs can be consumed by multiple downstream steps in the next compatible wave, with each consumer recorded independently.
 
 ## Builder and Tester Verification Workspaces
 

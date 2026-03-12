@@ -7,7 +7,8 @@
 - receives human direction,
 - chooses workflow templates,
 - dispatches project-root work to coordinators or direct domain work to leads,
-- synthesizes status across domains.
+- synthesizes status across domains,
+- emits a durable orchestration handoff when the active profile requires one.
 
 ### Coordinator
 
@@ -15,7 +16,8 @@
 - routes one project objective across multiple domain lead lanes,
 - remains read-mostly by default,
 - receives project-level escalations and promotion blockers,
-- does not receive a mutating workspace unless policy explicitly opts in.
+- does not receive a mutating workspace unless policy explicitly opts in,
+- emits a durable `routing_summary` handoff for downstream project lanes and operator inspection.
 
 ### Lead
 
@@ -62,7 +64,8 @@
 - consumes durable promotion sources such as proposal artifacts, workspace-linked branches, or snapshot-backed workspaces,
 - uses a dedicated integration workspace and integration branch metadata,
 - may resolve clearly mechanical conflicts when policy allows it,
-- escalates semantic or ambiguous blockers back to the coordinator.
+- escalates semantic or ambiguous blockers back to the coordinator,
+- emits a durable `integration_summary` handoff for promotion state and integration evidence.
 
 ## Runtime Input And Output Contract
 
@@ -70,7 +73,8 @@ Profiles remain the source of runtime behavior, but each role now has an explici
 
 - a role consumes curated inbound handoffs from prior compatible steps,
 - a role receives the expected outbound handoff kind and required sections in the invocation brief,
-- the runtime turn remains bounded, but the final output must leave behind a normalized durable handoff artifact for later steps and operator inspection.
+- the runtime turn remains bounded, but the final output must leave behind a normalized durable handoff artifact for later steps and operator inspection,
+- profile policy can require review or block advancement when the structured handoff is missing or malformed.
 
 This keeps role responsibilities explicit without introducing unrestricted peer-to-peer messaging.
 

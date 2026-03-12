@@ -6379,7 +6379,7 @@ function renderExecutionHandoffPanel(handoffs = null) {
               <article class="workflow-launch-card">
                 <div class="session-title">
                   <strong>${escapeHtml(normalizeText(handoff.kind))}</strong>
-                  ${renderStatePill(normalizeText(handoff.status, "ready"))}
+                  ${renderStatePill(normalizeText(handoff.deliveryStatus ?? handoff.status, "ready"))}
                 </div>
                 <div class="session-meta">
                   <code>from=${escapeHtml(normalizeText(handoff.sourceRole))}</code>
@@ -6388,10 +6388,16 @@ function renderExecutionHandoffPanel(handoffs = null) {
                 </div>
                 <div class="muted">${escapeHtml(normalizeText(handoff.summary?.title || handoff.summary?.outcome || "No summary recorded."))}</div>
                 <div class="session-meta">
+                  <code>validation=${escapeHtml(normalizeText(handoff.validation?.mode, handoff.validation?.valid === false ? "invalid" : "valid"))}</code>
+                  <code>degraded=${escapeHtml(String(Boolean(handoff.validation?.degraded)))}</code>
+                  <code>consumers=${escapeHtml(String(handoff.consumerCount ?? 0))}</code>
+                </div>
+                <div class="session-meta">
                   <code>handoff=${escapeHtml(normalizeText(handoff.artifacts?.handoffPath))}</code>
                   <code>workspace=${escapeHtml(normalizeText(handoff.artifacts?.workspaceId))}</code>
                   <code>updated=${escapeHtml(formatTimestamp(handoff.updatedAt))}</code>
                 </div>
+                ${Array.isArray(handoff.validation?.issues) && handoff.validation.issues.length > 0 ? `<div class="detail-support">${escapeHtml(handoff.validation.issues.map((issue) => normalizeText(issue.code)).join(", "))}</div>` : ""}
               </article>
             `,
           )
