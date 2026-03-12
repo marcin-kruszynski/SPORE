@@ -108,6 +108,8 @@ declare module "@spore/orchestrator" {
 
   export {
     getWorkspaceAllocation,
+    listOperatorThreadMessages,
+    listWorkItemRuns,
     getProposalArtifact,
     getWorkItem,
     insertProposalArtifact,

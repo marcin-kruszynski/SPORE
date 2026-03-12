@@ -996,7 +996,8 @@ async function seedStandalonePromotionReadyProposal(
         projectId: "spore",
         validation: {
           status: "completed",
-          summary: "Required validation bundles completed for standalone promotion coverage.",
+          summary:
+            "Required validation bundles completed for standalone promotion coverage.",
           bundleResults: [
             {
               bundleId: "integration-ready-core",
@@ -2200,7 +2201,10 @@ test("standalone self-build promotion-ready proposals plan and invoke integrator
     promotionPlan.json.detail.promotion.sourceExecutionId,
     seeded.executionId,
   );
-  assert.equal(promotionPlan.json.detail.plan.rootExecution.id, seeded.executionId);
+  assert.equal(
+    promotionPlan.json.detail.plan.rootExecution.id,
+    seeded.executionId,
+  );
   assert.equal(
     promotionPlan.json.detail.plan.invocation.metadata.invocationMetadata
       .projectRole,
@@ -2243,6 +2247,20 @@ test("standalone self-build promotion-ready proposals plan and invoke integrator
   assert.equal(
     integratorExecution.json.detail.execution.topology?.kind,
     "promotion-lane",
+  );
+
+  const proposalAfterPromotion = await getJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/proposal-artifacts/${encodeURIComponent(seeded.proposalId)}`,
+  );
+  assert.equal(proposalAfterPromotion.status, 200);
+  assert.ok(proposalAfterPromotion.json.ok);
+  assert.equal(
+    proposalAfterPromotion.json.detail.status,
+    "promotion_candidate",
+  );
+  assert.equal(
+    proposalAfterPromotion.json.detail.promotionStatus,
+    "promotion_candidate",
   );
 });
 
@@ -3116,8 +3134,7 @@ test("operator thread reads stay idempotent after plan approval", async (t) => {
     t,
     "spore-http-operator-chat-idempotent-",
   );
-  const autoRunEventText =
-    "I am materializing and running managed work now.";
+  const autoRunEventText = "I am materializing and running managed work now.";
 
   const createdThread = await createStubOperatorThread(
     ORCHESTRATOR_PORT,

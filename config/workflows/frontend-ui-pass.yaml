@@ -9,7 +9,7 @@ stepSets:
     gate:
       mode: all
     policy:
-      maxActiveMs: 30000
+      maxActiveMs: 90000
       onTimeout: hold_execution
       onFailure: hold_execution
       blockNextWaveOnOpenEscalation: true
@@ -18,7 +18,7 @@ stepSets:
     gate:
       mode: all
     policy:
-      maxActiveMs: 75000
+      maxActiveMs: 120000
       onTimeout: open_escalation
       onFailure: open_escalation
       blockNextWaveOnOpenEscalation: true
@@ -27,7 +27,7 @@ stepSets:
     gate:
       mode: all
     policy:
-      maxActiveMs: 60000
+      maxActiveMs: 90000
       onTimeout: open_escalation
       onFailure: open_escalation
       blockNextWaveOnOpenEscalation: true
@@ -36,7 +36,7 @@ stepSets:
     gate:
       mode: all
     policy:
-      maxActiveMs: 30000
+      maxActiveMs: 90000
       onTimeout: hold_execution
       onFailure: fail_execution
       blockNextWaveOnOpenEscalation: true

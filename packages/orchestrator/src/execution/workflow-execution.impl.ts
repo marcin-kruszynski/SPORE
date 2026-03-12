@@ -2401,8 +2401,7 @@ function summarizeStandalonePromotionSources(execution, db) {
       code: "missing_promotion_ready_proposal_source",
       executionId: execution.id,
       domainId: execution.domainId ?? null,
-      message:
-        `standalone execution ${execution.id} has no promotion-ready proposal sources`,
+      message: `standalone execution ${execution.id} has no promotion-ready proposal sources`,
     });
   }
 
@@ -2458,7 +2457,11 @@ export async function planPromotionForExecution(
       : selected;
     const groupId = promotionRoot.coordinationGroupId ?? promotionRoot.id;
     const sourceSummary = executionSupportsProjectCoordination(root)
-      ? summarizePromotionSources(promotionRoot, listExecutionGroup(db, groupId), db)
+      ? summarizePromotionSources(
+          promotionRoot,
+          listExecutionGroup(db, groupId),
+          db,
+        )
       : summarizeStandalonePromotionSources(promotionRoot, db);
     if (sourceSummary.blockers.length > 0 || sourceSummary.count === 0) {
       const primary = sourceSummary.blockers[0] ?? {

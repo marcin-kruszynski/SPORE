@@ -175,8 +175,10 @@ function actionLinks(actionId: string) {
 function normalizeExecutionSettings(
   payload: LooseRecord = {},
 ): OperatorThreadExecutionSettings {
+  const defaultTimeout = payload.stub === false ? 600000 : 180000;
   const timeout =
-    Number.parseInt(String(payload.timeout ?? "180000"), 10) || 180000;
+    Number.parseInt(String(payload.timeout ?? String(defaultTimeout)), 10) ||
+    defaultTimeout;
   const interval =
     Number.parseInt(String(payload.interval ?? "1500"), 10) || 1500;
   return {
@@ -220,7 +222,9 @@ function extractLinkage(
 function extractManagedWorkAutoRun(
   thread: LooseRecord | null | undefined,
 ): OperatorThreadObservedAutoRun {
-  return asObject(asObject(asObject(thread?.metadata).observed).managedWorkAutoRun);
+  return asObject(
+    asObject(asObject(thread?.metadata).observed).managedWorkAutoRun,
+  );
 }
 
 function claimManagedWorkAutoRun(
@@ -2385,13 +2389,17 @@ async function syncThreadState(threadId: string, dbPath: string) {
           String(goalPlan.id),
           {
             ...executionRunOptions(thread),
-            autoValidate: extractExecutionSettings(thread).autoValidate !== false,
+            autoValidate:
+              extractExecutionSettings(thread).autoValidate !== false,
           },
           dbPath,
         );
         goalPlan = getGoalPlanSummary(String(goalPlan.id), dbPath);
         group = goalPlan?.materializedGroup?.id
-          ? getWorkItemGroupSummary(String(goalPlan.materializedGroup.id), dbPath)
+          ? getWorkItemGroupSummary(
+              String(goalPlan.materializedGroup.id),
+              dbPath,
+            )
           : group;
         proposalSelection = selectActiveProposal(
           group,

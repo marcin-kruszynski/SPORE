@@ -7223,6 +7223,7 @@ export async function invokeProposalPromotion(
     withDatabase(dbPath, (db) =>
       updateProposalArtifact(db, {
         ...proposal,
+        status: "promotion_candidate",
         updatedAt: nowIso(),
         metadata: {
           ...proposal.metadata,
