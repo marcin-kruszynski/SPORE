@@ -13,6 +13,9 @@ reviewPolicy:
   required: false
 handoffPolicy:
   mode: approve-revise-reject
+  outputKind: review_summary
+  marker: SPORE_HANDOFF_JSON
+  requiredSections: [summary, verdict, rationale, blockers, confidence]
 docsPolicy:
   updateRequired: false
 telemetryPolicy:

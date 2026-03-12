@@ -58,6 +58,13 @@ function resolveRequiredPath(filePath: string | null, label: string): string {
   return filePath;
 }
 
+function parseJsonFlag<T>(value: string | undefined): T | null {
+  if (!value) {
+    return null;
+  }
+  return JSON.parse(value) as T;
+}
+
 function resolvePlanWorkingDirectory(plan: SessionPlan): string | null {
   const candidates = [plan.session?.cwd, plan.metadata?.workspace?.cwd];
   for (const candidate of candidates) {
@@ -105,6 +112,8 @@ async function loadOrBuildPlan(flags: CliFlags): Promise<SessionPlan> {
     workspaceSourceId: flags["workspace-source-id"] ?? null,
     workspaceSourceRef: flags["workspace-source-ref"] ?? null,
     workspaceSourceCommit: flags["workspace-source-commit"] ?? null,
+    inboundHandoffs: parseJsonFlag(flags["inbound-handoffs-json"]),
+    expectedHandoff: parseJsonFlag(flags["expected-handoff-json"]),
   });
 }
 
@@ -211,6 +220,7 @@ async function main() {
   await writeLaunchScript({
     launcherType,
     assets,
+    plan,
     stubDurationSeconds: Number.parseInt(flags["stub-seconds"] ?? "2", 10),
     cwd: resolvePlanWorkingDirectory(plan) ?? PROJECT_ROOT,
     workspace: plan.metadata?.workspace ?? null,

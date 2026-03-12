@@ -6,11 +6,13 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
+  createExecution,
   approveProposalArtifact,
   createWorkItem,
   getProposalByRun,
   getProposalReviewPackage,
   getProposalSummary,
+  planWorkflowInvocation,
   getSelfBuildWorkItemRun,
   insertProposalArtifact,
   insertWorkItemRun,
@@ -18,6 +20,7 @@ import {
   openOrchestratorDatabase,
   reviewProposalArtifact,
   runSelfBuildWorkItem,
+  upsertWorkflowHandoff,
 } from "../src/index.js";
 
 function run(
@@ -578,6 +581,93 @@ test("legacy blocked-run proposals are forced into recovery instead of review or
     );
     assert.ok(approved);
     assert.equal(approved.status, "rework_required");
+  } finally {
+    await fs.rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("proposal review package surfaces workflow handoff references from the source execution", async () => {
+  const tempRoot = await fs.mkdtemp(
+    path.join(os.tmpdir(), "spore-proposal-review-handoffs-"),
+  );
+  const dbPath = path.join(tempRoot, "orchestrator.sqlite");
+
+  try {
+    const item = createWorkItem(
+      {
+        title: "Review package should include workflow handoff refs",
+        kind: "workflow",
+        goal: "Verify proposal review package handoff references.",
+      },
+      dbPath,
+    );
+    const invocation = await planWorkflowInvocation({
+      workflowPath: "config/workflows/review-pass.yaml",
+      projectPath: "config/projects/spore.yaml",
+      domainId: "docs",
+      roles: ["lead", "reviewer"],
+      objective: "Verify proposal review package handoff refs.",
+      invocationId: `proposal-handoffs-${Date.now()}`,
+    });
+    const created = createExecution(invocation, dbPath);
+    const leadStep = created.steps.find((step) => step.role === "lead");
+    assert.ok(leadStep?.id);
+
+    const db = openOrchestratorDatabase(dbPath);
+    try {
+      upsertWorkflowHandoff(db, {
+        id: "proposal-handoff-task-brief",
+        executionId: created.execution.id,
+        fromStepId: leadStep.id,
+        toStepId: "",
+        sourceRole: "lead",
+        targetRole: "reviewer",
+        kind: "task_brief",
+        status: "ready",
+        summary: {
+          title: "Lead task brief",
+          objective: item.goal,
+          outcome: "ready for review",
+          confidence: "high",
+        },
+        artifacts: {
+          sessionId: leadStep.sessionId,
+          transcriptPath: `tmp/sessions/${leadStep.sessionId}.transcript.md`,
+          briefPath: `tmp/orchestrator/${created.execution.id}/${leadStep.sessionId}.brief.md`,
+          handoffPath: `tmp/sessions/${leadStep.sessionId}.handoff.json`,
+          workspaceId: null,
+          proposalArtifactId: null,
+          snapshotRef: null,
+          snapshotCommit: null,
+        },
+        payload: {
+          summary: {
+            title: "Lead task brief",
+          },
+        },
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        consumedAt: null,
+      });
+    } finally {
+      db.close();
+    }
+
+    const runId = `work-item-run-${Date.now()}`;
+    const { proposalId } = insertProposalFixture({
+      dbPath,
+      item,
+      runId,
+      runStatus: "completed",
+      sourceExecutionId: created.execution.id,
+      proposalStatus: "ready_for_review",
+    });
+
+    const reviewPackage = getProposalReviewPackage(proposalId, dbPath);
+    assert.ok(reviewPackage);
+    assert.equal(reviewPackage.execution?.id, created.execution.id);
+    assert.equal(reviewPackage.handoffs?.[0]?.kind, "task_brief");
+    assert.equal(reviewPackage.handoffs?.[0]?.sourceRole, "lead");
   } finally {
     await fs.rm(tempRoot, { recursive: true, force: true });
   }

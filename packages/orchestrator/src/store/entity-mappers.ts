@@ -107,6 +107,19 @@ export function mapProposalArtifact(record) {
     : null;
 }
 
+export function mapWorkflowHandoff(record) {
+  return record
+    ? {
+        ...record,
+        toStepId: record.toStepId || null,
+        targetRole: record.targetRole || null,
+        summary: parseJsonField(record.summaryJson, {}),
+        artifacts: parseJsonField(record.artifactsJson, {}),
+        payload: parseJsonField(record.payloadJson, {}),
+      }
+    : null;
+}
+
 export function mapWorkspaceAllocation(record) {
   return record
     ? {

@@ -110,6 +110,7 @@ Runtime artifacts from a real PI-backed run should appear under `tmp/sessions/`,
 - `*.pi-session.jsonl`
 - `*.stderr.log`
 - `*.transcript.md`
+- `*.handoff.json`
 - `*.rpc-status.json`
 - `*.control.ndjson`
 
@@ -608,6 +609,8 @@ For dependency-aware self-build verification, also confirm that:
 - Use `workspace-reconcile` before manual intervention if a worktree looks orphaned, missing, or dirty.
 - Use `workspace-cleanup` only after proposal/governance state says the workspace is disposable, or with `--force` when the operator is making an explicit recovery decision.
 - Use the runtime `launch-context` artifact or `/sessions/:id/live` `launcherMetadata.cwd` when you need proof that a mutating run launched inside its provisioned workspace rather than the canonical repo root.
+- Use `tmp/sessions/<sessionId>.handoff.json` when you need the normalized durable handoff captured from one completed step.
+- Use `/executions/:id/handoffs` when you need the execution-wide handoff chain rather than one session artifact.
 - Prefer `session-manager reconcile` for detached-session cleanup.
 - Prefer `services/session-gateway/` as the shared read API for clients instead of reading local state files directly.
 - Prefer orchestrator execution reads and workflow event streams over inferring workflow state from runtime artifacts alone.

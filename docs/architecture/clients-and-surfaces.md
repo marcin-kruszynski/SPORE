@@ -47,6 +47,7 @@ The current browser surface now renders:
 - workflow-level pause, hold, and resume controls through orchestrator APIs,
 - escalation resolve and resume controls through orchestrator APIs,
 - live execution follow through the orchestrator SSE stream,
+- workflow handoff summaries and linked evidence when the orchestrator exposes them,
 - a dedicated `Operator Chat` surface for conversation-first self-build control.
 
 ## Conversation-First Operator Chat
@@ -91,6 +92,8 @@ The important boundary is unchanged:
 
 That means threads and pending actions are operator-facing coordination records, while goal plans, work-item groups, proposals, validations, and promotion state stay authoritative.
 
+Workflow handoffs sit beside those records as a durable evidence surface between raw transcripts and governed proposal artifacts.
+
 That split keeps the state model centralized while allowing future CLI and Web UI work to grow from the same contracts.
 
 ## Thin-Client Rule
@@ -129,6 +132,7 @@ Current orchestrator read surfaces are expanding toward:
 - execution children,
 - coordination-group list/detail,
 - execution event history,
+- execution handoff list/detail,
 - execution escalation history,
 - combined execution history,
 - scenario catalog and durable scenario runs,
@@ -152,6 +156,8 @@ The current preferred live session surface is:
 That route should be preferred when a client needs one combined payload for session metadata, recent events, artifact summary, and control history.
 
 It now also carries derived diagnostics and suggested recovery actions, so browser and TUI clients should use it before inventing separate “health” heuristics for live sessions.
+
+When workflow handoff sidecars are present, clients should also use the same live session payload to discover them instead of reading local files directly.
 
 When a client needs durable control acknowledgement or idempotency state, the preferred surfaces are:
 

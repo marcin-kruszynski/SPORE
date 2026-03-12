@@ -1,5 +1,5 @@
 version: 2
-updated_at: 2026-03-10
+updated_at: 2026-03-12
 owner: documentation-steward
 scope: canonical-docs-only
 notes:
@@ -279,6 +279,13 @@ documents:
     owner: architecture-council
     tags: [operator-chat, web, governance]
     path: docs/decisions/ADR-0012-operator-chat-surface.md
+  - id: adr-workflow-handoffs-runtime-role-inputs
+    type: decision
+    domain: orchestration
+    status: accepted
+    owner: architecture-council
+    tags: [workflow, handoff, runtime, roles]
+    path: docs/decisions/ADR-0013-workflow-handoffs-and-runtime-role-inputs.md
   - id: bootstrap-completion-summary
     type: historical
     domain: shared

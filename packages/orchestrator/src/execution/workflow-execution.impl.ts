@@ -51,6 +51,7 @@ import {
 import {
   getEscalation,
   getExecution,
+  getWorkflowHandoff,
   getStep,
   getWorkspaceAllocationByStepId,
   insertApproval,
@@ -73,8 +74,10 @@ import {
   listScenarioRunExecutions,
   listScenarioRuns,
   listSteps,
+  listWorkflowHandoffs,
   listWorkflowEvents,
   listWorkspaceAllocations,
+  markWorkflowHandoffConsumed,
   openOrchestratorDatabase,
   updateEscalation,
   updateExecution,
@@ -82,6 +85,11 @@ import {
   updateWorkspaceAllocation,
 } from "../store/execution-store.js";
 import { writeExecutionBrief } from "./brief.js";
+import {
+  buildExpectedHandoff,
+  handoffsConsumedByStep,
+  selectInboundWorkflowHandoffs,
+} from "./handoff-context.js";
 import {
   type AuditEventOptions,
   asEventPayload,
@@ -101,6 +109,7 @@ import {
   shouldDeferImmediateParentHold,
 } from "./execution-metadata.js";
 import { comparePolicies } from "./policy-diff.js";
+import { publishWorkflowStepHandoffs } from "./workflow-handoffs.js";
 import {
   findBlockedWave,
   getActiveSteps,
@@ -1536,6 +1545,10 @@ export function getExecutionDetail(
     const reviews = listReviews(db, executionId);
     const approvals = listApprovals(db, executionId);
     const events = listWorkflowEvents(db, executionId);
+    const handoffs = listWorkflowHandoffs(db, {
+      executionId,
+      limit: 200,
+    });
     const escalations = listEscalations(db, executionId);
     const audit = listAuditRecords(db, executionId);
     const childExecutions = listChildExecutions(db, executionId);
@@ -1564,6 +1577,7 @@ export function getExecutionDetail(
       reviews,
       approvals,
       events,
+      handoffs,
       escalations,
       audit,
       childExecutions: childExecutions.map(decorateExecution),
@@ -1583,6 +1597,40 @@ export function listExecutionEvents(
       return null;
     }
     return listWorkflowEvents(db, executionId);
+  });
+}
+
+export function listExecutionHandoffs(
+  executionId,
+  dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
+) {
+  return withOrchestratorDatabase(dbPath, (db) => {
+    const execution = getExecution(db, executionId);
+    if (!execution) {
+      return null;
+    }
+    return listWorkflowHandoffs(db, {
+      executionId,
+      limit: 200,
+    });
+  });
+}
+
+export function getExecutionHandoff(
+  executionId,
+  handoffId,
+  dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
+) {
+  return withOrchestratorDatabase(dbPath, (db) => {
+    const execution = getExecution(db, executionId);
+    if (!execution) {
+      return null;
+    }
+    const handoff = getWorkflowHandoff(db, handoffId);
+    if (!handoff || handoff.executionId !== executionId) {
+      return null;
+    }
+    return handoff;
   });
 }
 
@@ -3239,20 +3287,36 @@ function assertNoActiveStep(steps, executionId, action) {
 }
 
 async function launchStep(execution, step, options: LooseRecord = {}) {
-  const briefPath = await writeExecutionBrief(execution, step);
   const dbPath = options.dbPath ?? DEFAULT_ORCHESTRATOR_DB_PATH;
   const db = openOrchestratorDatabase(dbPath);
   let workspace = null;
   let previousStep = null;
+  let inboundHandoffs = [];
   try {
+    const allSteps = listSteps(db, execution.id);
     previousStep =
       step.sequence > 0
-        ? (listSteps(db, execution.id)[step.sequence - 1] ?? null)
+        ? (allSteps[step.sequence - 1] ?? null)
         : null;
     workspace = await ensureStepWorkspace(db, execution, step);
+    inboundHandoffs = selectInboundWorkflowHandoffs({
+      execution,
+      step,
+      steps: allSteps,
+      handoffs: listWorkflowHandoffs(db, {
+        executionId: execution.id,
+        status: "ready",
+        limit: 200,
+      }),
+    });
   } finally {
     db.close();
   }
+  const expectedHandoff = await buildExpectedHandoff(step);
+  const briefPath = await writeExecutionBrief(execution, step, {
+    inboundHandoffs,
+    expectedHandoff,
+  });
   const parentSessionId = previousStep?.sessionId ?? null;
 
   const args = [
@@ -3296,6 +3360,12 @@ async function launchStep(execution, step, options: LooseRecord = {}) {
   }
   if (contextLimit) {
     args.push("--context-limit", String(contextLimit));
+  }
+  if (inboundHandoffs.length > 0) {
+    args.push("--inbound-handoffs-json", JSON.stringify(inboundHandoffs));
+  }
+  if (expectedHandoff) {
+    args.push("--expected-handoff-json", JSON.stringify(expectedHandoff));
   }
   if (parentSessionId) {
     args.push("--parent", parentSessionId);
@@ -3355,6 +3425,9 @@ async function launchStep(execution, step, options: LooseRecord = {}) {
           launchedCwd: currentWorkspace.worktreePath,
         },
       });
+    }
+    for (const handoff of handoffsConsumedByStep(step, inboundHandoffs)) {
+      markWorkflowHandoffConsumed(db, String(handoff.id ?? ""), nowIso());
     }
     const updatedExecution = transitionExecutionRecord(
       currentExecution,
@@ -3865,6 +3938,13 @@ export async function reconcileExecution(
           updateStep(db, settledStep);
           if (["completed", "review_pending"].includes(settledStep.state)) {
             await publishBuilderWorkspaceHandoff(db, execution, settledStep);
+            await publishWorkflowStepHandoffs({
+              db,
+              execution,
+              step: settledStep,
+              session: observation.session,
+              steps: listSteps(db, executionId),
+            });
           }
           settleStepWorkspace(
             db,

@@ -102,6 +102,17 @@ export interface WorkspaceAllocationListOptions extends JsonObject {
   limit?: number | string;
 }
 
+export interface WorkflowHandoffListOptions extends JsonObject {
+  executionId?: string;
+  fromStepId?: string;
+  toStepId?: string;
+  sourceRole?: string;
+  targetRole?: string;
+  kind?: string;
+  status?: string;
+  limit?: number | string;
+}
+
 export interface WorkspaceCleanupPolicy extends JsonObject {
   eligible: boolean;
   reason: string;

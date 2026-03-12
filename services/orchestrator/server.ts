@@ -9,6 +9,8 @@ import {
   createManagedWorkItem,
   createSelfBuildOverride,
   editGoalPlan,
+  getExecutionDetail,
+  getExecutionHandoff,
   getDocSuggestionSummary,
   getDocSuggestionsForRun,
   getGoalPlanHistory,
@@ -42,6 +44,7 @@ import {
   getWorkspaceDetailByRun,
   invokeProposalPromotion,
   listExecutionEvents,
+  listExecutionHandoffs,
   listExecutionWorkspaces,
   listGoalPlansSummary,
   listIntegrationBranchSummaries,
@@ -963,6 +966,47 @@ const server = http.createServer(async (request, response) => {
         url.searchParams.get("scope")?.trim() || "execution",
       ]);
       json(response, 200, payload);
+      return;
+    }
+
+    if (
+      request.method === "GET" &&
+      parts.length === 3 &&
+      parts[0] === "executions" &&
+      parts[2] === "handoffs"
+    ) {
+      const detail = getExecutionDetail(parts[1]);
+      if (!detail) {
+        notFound(response, `execution not found: ${parts[1]}`);
+        return;
+      }
+      json(response, 200, {
+        ok: true,
+        detail: {
+          executionId: parts[1],
+          handoffs: listExecutionHandoffs(parts[1]) ?? [],
+        },
+      });
+      return;
+    }
+
+    if (
+      request.method === "GET" &&
+      parts.length === 4 &&
+      parts[0] === "executions" &&
+      parts[2] === "handoffs"
+    ) {
+      const detail = getExecutionDetail(parts[1]);
+      if (!detail) {
+        notFound(response, `execution not found: ${parts[1]}`);
+        return;
+      }
+      const handoff = getExecutionHandoff(parts[1], parts[3]);
+      if (!handoff) {
+        notFound(response, `execution handoff not found: ${parts[3]}`);
+        return;
+      }
+      json(response, 200, { ok: true, detail: handoff });
       return;
     }
 

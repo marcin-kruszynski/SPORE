@@ -22,32 +22,39 @@
 - owns a domain stream,
 - decomposes local tasks,
 - invokes scout/builder/tester lanes,
-- requests reviewer gate when ready.
+- requests reviewer gate when ready,
+- emits a durable `task_brief` handoff that scopes downstream work.
 
 ### Scout
 
 - research-first exploration,
 - source/docs analysis,
 - architecture and dependency mapping,
-- findings packaged for builders and leads.
+- findings packaged for builders and leads,
+- emits a durable `scout_findings` handoff with recommendations, risks, and evidence links.
 
 ### Builder
 
 - implementation-focused execution,
 - produces scoped code and artifacts,
-- updates docs and config alongside changes.
+- updates docs and config alongside changes,
+- consumes upstream task and research handoffs when they exist,
+- emits a durable `implementation_summary` handoff and, when applicable, a `workspace_snapshot` evidence handoff.
 
 ### Tester
 
 - validates correctness and behavior,
 - runs tests/probes/checklists,
-- reports defects and confidence bounds.
+- reports defects and confidence bounds,
+- consumes builder implementation and snapshot handoffs,
+- emits a durable `verification_summary` handoff.
 
 ### Reviewer
 
 - independent quality gate,
 - inspects artifacts and policy compliance,
-- returns approve/revise/reject outcome.
+- returns approve/revise/reject outcome,
+- emits a durable `review_summary` handoff alongside governance decisions.
 
 ### Integrator
 
@@ -56,6 +63,16 @@
 - uses a dedicated integration workspace and integration branch metadata,
 - may resolve clearly mechanical conflicts when policy allows it,
 - escalates semantic or ambiguous blockers back to the coordinator.
+
+## Runtime Input And Output Contract
+
+Profiles remain the source of runtime behavior, but each role now has an explicit handoff contract:
+
+- a role consumes curated inbound handoffs from prior compatible steps,
+- a role receives the expected outbound handoff kind and required sections in the invocation brief,
+- the runtime turn remains bounded, but the final output must leave behind a normalized durable handoff artifact for later steps and operator inspection.
+
+This keeps role responsibilities explicit without introducing unrestricted peer-to-peer messaging.
 
 ## Dynamic Profile Mapping
 

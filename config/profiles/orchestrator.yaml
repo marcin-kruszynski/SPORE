@@ -14,6 +14,9 @@ reviewPolicy:
 handoffPolicy:
   mode: explicit
   mustReportUpward: true
+  outputKind: task_brief
+  marker: SPORE_HANDOFF_JSON
+  requiredSections: [summary, next_action, blockers, risks]
 docsPolicy:
   updateRequired: true
 telemetryPolicy:

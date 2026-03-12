@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   getWorkItem,
   openOrchestratorDatabase,
+  upsertWorkflowHandoff,
   updateWorkItem,
 } from "@spore/orchestrator";
 import {
@@ -157,6 +158,43 @@ test("tui execution and family commands consume orchestrator HTTP surfaces", {
   assert.equal(executionPayload.execution.id, executionId);
   assert.ok(executionPayload.tree.rootExecutionId === executionId);
 
+  const firstStep = executionPayload.steps?.[0];
+  assert.ok(firstStep?.id);
+  const db = openOrchestratorDatabase(dbPath);
+  try {
+    upsertWorkflowHandoff(db, {
+      id: `${executionId}-handoff`,
+      executionId,
+      fromStepId: firstStep.id,
+      toStepId: "",
+      sourceRole: firstStep.role,
+      targetRole: null,
+      kind: "task_brief",
+      status: "ready",
+      summary: {
+        title: "Execution task brief",
+        outcome: "queued",
+        confidence: "high",
+      },
+      artifacts: {
+        sessionId: firstStep.sessionId ?? null,
+        transcriptPath: null,
+        briefPath: null,
+        handoffPath: null,
+        workspaceId: null,
+        proposalArtifactId: null,
+        snapshotRef: null,
+        snapshotCommit: null,
+      },
+      payload: {},
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      consumedAt: null,
+    });
+  } finally {
+    db.close();
+  }
+
   const familyOutput = await runCli([
     "family",
     "--execution",
@@ -177,6 +215,17 @@ test("tui execution and family commands consume orchestrator HTTP surfaces", {
   const historyPayload = JSON.parse(historyOutput.stdout);
   assert.equal(historyPayload.detail.execution.id, executionId);
   assert.ok(Array.isArray(historyPayload.detail.timeline));
+
+  const handoffsOutput = await runCli([
+    "handoffs",
+    "--execution",
+    executionId,
+    "--api",
+    `http://127.0.0.1:${orchestratorPort}`,
+  ]);
+  const handoffsPayload = JSON.parse(handoffsOutput.stdout);
+  assert.equal(handoffsPayload.detail.executionId, executionId);
+  assert.equal(handoffsPayload.detail.handoffs[0]?.kind, "task_brief");
 
   const scenarioListOutput = await runCli([
     "scenario-list",

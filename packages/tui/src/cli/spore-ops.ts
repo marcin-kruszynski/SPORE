@@ -377,6 +377,17 @@ async function executionHistory(flags: CliFlags) {
   console.log(formatJson(payload));
 }
 
+async function executionHandoffs(flags: CliFlags) {
+  if (!flags.execution) {
+    throw new Error("use handoffs --execution <id>");
+  }
+  const payload = await orchestratorRequest(
+    flags,
+    `/executions/${encodeURIComponent(flags.execution)}/handoffs`,
+  );
+  console.log(formatJson(payload));
+}
+
 async function projectPlan(flags: CliFlags) {
   const body = {
     project: flags.project ?? "config/projects/example-project.yaml",
@@ -2533,6 +2544,10 @@ async function main() {
   }
   if (command === "history") {
     await executionHistory(flags);
+    return;
+  }
+  if (command === "handoffs") {
+    await executionHandoffs(flags);
     return;
   }
   if (command === "project-plan") {

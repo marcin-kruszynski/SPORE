@@ -204,6 +204,27 @@ export function buildProposalArtifacts(
   };
 }
 
+export function buildWorkflowHandoffRefs(handoffs = []) {
+  return asArray(handoffs).map((handoff) => ({
+    id: handoff.id,
+    kind: handoff.kind,
+    status: handoff.status,
+    sourceRole: handoff.sourceRole,
+    targetRole: handoff.targetRole ?? null,
+    fromStepId: handoff.fromStepId,
+    toStepId: handoff.toStepId ?? null,
+    summary:
+      handoff.summary && typeof handoff.summary === "object"
+        ? handoff.summary
+        : {},
+    artifacts:
+      handoff.artifacts && typeof handoff.artifacts === "object"
+        ? handoff.artifacts
+        : {},
+    updatedAt: handoff.updatedAt ?? null,
+  }));
+}
+
 export function buildDocSuggestions(item, run, proposal = null) {
   const suggestions = [];
   if (

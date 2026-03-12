@@ -13,6 +13,9 @@ reviewPolicy:
   required: false
 handoffPolicy:
   mode: verdict-plus-evidence
+  outputKind: verification_summary
+  marker: SPORE_HANDOFF_JSON
+  requiredSections: [summary, verdict, tests_run, blockers, confidence]
 docsPolicy:
   updateRequired: false
 telemetryPolicy:

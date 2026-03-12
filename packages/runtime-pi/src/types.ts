@@ -50,6 +50,41 @@ export interface SessionWorkspace {
   sourceCommit: string | null;
 }
 
+export interface SessionPlanHandoffSummary {
+  title?: string;
+  objective?: string | null;
+  outcome?: string | null;
+  confidence?: string | null;
+  [key: string]: unknown;
+}
+
+export interface SessionPlanHandoffArtifacts {
+  sessionId?: string | null;
+  transcriptPath?: string | null;
+  briefPath?: string | null;
+  handoffPath?: string | null;
+  workspaceId?: string | null;
+  proposalArtifactId?: string | null;
+  snapshotRef?: string | null;
+  snapshotCommit?: string | null;
+  [key: string]: unknown;
+}
+
+export interface SessionPlanHandoff {
+  id: string;
+  kind: string;
+  sourceRole: string;
+  targetRole: string | null;
+  summary: SessionPlanHandoffSummary;
+  artifacts: SessionPlanHandoffArtifacts;
+}
+
+export interface ExpectedSessionHandoff {
+  kind: string;
+  marker: string;
+  requiredSections: string[];
+}
+
 export interface SessionPlan {
   version: number;
   runtime: "pi";
@@ -96,6 +131,8 @@ export interface SessionPlan {
   metadata: {
     generatedAt: string;
     workspace: SessionWorkspace | null;
+    inboundHandoffs: SessionPlanHandoff[];
+    expectedHandoff: ExpectedSessionHandoff | null;
     sourceFiles: {
       profile: string;
       runtime: string;

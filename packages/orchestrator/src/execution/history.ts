@@ -1,4 +1,5 @@
 export {
+  getExecutionHandoff,
   getCoordinationGroupDetail,
   getExecutionDetail,
   getExecutionHistory,
@@ -14,6 +15,7 @@ export {
   listExecutionChildren,
   listExecutionEscalations,
   listExecutionEvents,
+  listExecutionHandoffs,
   listExecutionSummaries,
   listRegressionCatalog,
   listScenarioCatalog,

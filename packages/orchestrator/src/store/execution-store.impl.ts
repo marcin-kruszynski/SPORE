@@ -10,6 +10,7 @@ import type {
   SelfBuildDecisionListOptions,
   SelfBuildIntakeListOptions,
   SelfBuildOverrideListOptions,
+  WorkflowHandoffListOptions,
   WorkspaceAllocationListOptions,
 } from "../types/contracts.js";
 import {
@@ -36,6 +37,7 @@ import {
   mapWorkItem,
   mapWorkItemGroup,
   mapWorkItemRun,
+  mapWorkflowHandoff,
   mapWorkspaceAllocation,
 } from "./entity-mappers.js";
 import {
@@ -156,6 +158,32 @@ export function openOrchestratorDatabase(dbPath) {
       payload_json TEXT,
       created_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS workflow_handoffs (
+      id TEXT PRIMARY KEY,
+      execution_id TEXT NOT NULL,
+      from_step_id TEXT NOT NULL,
+      to_step_id TEXT NOT NULL DEFAULT '',
+      source_role TEXT NOT NULL,
+      target_role TEXT,
+      kind TEXT NOT NULL,
+      status TEXT NOT NULL,
+      summary_json TEXT,
+      artifacts_json TEXT,
+      payload_json TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      consumed_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_workflow_handoffs_execution
+      ON workflow_handoffs(execution_id, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_workflow_handoffs_from_step
+      ON workflow_handoffs(from_step_id, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_workflow_handoffs_to_step
+      ON workflow_handoffs(to_step_id, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_workflow_handoffs_status
+      ON workflow_handoffs(status, updated_at DESC);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_workflow_handoffs_unique
+      ON workflow_handoffs(execution_id, from_step_id, kind, to_step_id);
     CREATE TABLE IF NOT EXISTS workflow_escalations (
       id TEXT PRIMARY KEY,
       execution_id TEXT NOT NULL,
@@ -875,6 +903,149 @@ export function insertWorkflowEvent(db, event) {
     payloadJson: JSON.stringify(event.payload ?? {}),
     createdAt: event.createdAt,
   });
+}
+
+function normalizeWorkflowHandoff(handoff) {
+  return {
+    id: handoff.id,
+    executionId: handoff.executionId,
+    fromStepId: handoff.fromStepId,
+    toStepId: handoff.toStepId ?? "",
+    sourceRole: handoff.sourceRole,
+    targetRole: handoff.targetRole ?? null,
+    kind: handoff.kind,
+    status: handoff.status,
+    summaryJson: JSON.stringify(handoff.summary ?? {}),
+    artifactsJson: JSON.stringify(handoff.artifacts ?? {}),
+    payloadJson: JSON.stringify(handoff.payload ?? {}),
+    createdAt: handoff.createdAt,
+    updatedAt: handoff.updatedAt,
+    consumedAt: handoff.consumedAt ?? null,
+  };
+}
+
+export function upsertWorkflowHandoff(db, handoff) {
+  const normalized = normalizeWorkflowHandoff(handoff);
+  db.prepare(`
+    INSERT INTO workflow_handoffs (
+      id, execution_id, from_step_id, to_step_id, source_role, target_role,
+      kind, status, summary_json, artifacts_json, payload_json,
+      created_at, updated_at, consumed_at
+    ) VALUES (
+      @id, @executionId, @fromStepId, @toStepId, @sourceRole, @targetRole,
+      @kind, @status, @summaryJson, @artifactsJson, @payloadJson,
+      @createdAt, @updatedAt, @consumedAt
+    )
+    ON CONFLICT(execution_id, from_step_id, kind, to_step_id)
+    DO UPDATE SET
+      id = excluded.id,
+      source_role = excluded.source_role,
+      target_role = excluded.target_role,
+      status = excluded.status,
+      summary_json = excluded.summary_json,
+      artifacts_json = excluded.artifacts_json,
+      payload_json = excluded.payload_json,
+      created_at = excluded.created_at,
+      updated_at = excluded.updated_at,
+      consumed_at = excluded.consumed_at
+  `).run(normalized);
+}
+
+export function markWorkflowHandoffConsumed(db, handoffId, consumedAt) {
+  db.prepare(`
+    UPDATE workflow_handoffs
+    SET status = 'consumed', updated_at = @consumedAt, consumed_at = @consumedAt
+    WHERE id = @id
+  `).run({
+    id: handoffId,
+    consumedAt,
+  });
+}
+
+export function getWorkflowHandoff(db, handoffId) {
+  const record = db
+    .prepare(`
+      SELECT
+        id,
+        execution_id AS executionId,
+        from_step_id AS fromStepId,
+        to_step_id AS toStepId,
+        source_role AS sourceRole,
+        target_role AS targetRole,
+        kind,
+        status,
+        summary_json AS summaryJson,
+        artifacts_json AS artifactsJson,
+        payload_json AS payloadJson,
+        created_at AS createdAt,
+        updated_at AS updatedAt,
+        consumed_at AS consumedAt
+      FROM workflow_handoffs
+      WHERE id = ?
+    `)
+    .get(handoffId);
+  return mapWorkflowHandoff(record);
+}
+
+export function listWorkflowHandoffs(
+  db,
+  options: WorkflowHandoffListOptions = {},
+) {
+  const clauses = [];
+  const params = [];
+  if (options.executionId) {
+    clauses.push("execution_id = ?");
+    params.push(options.executionId);
+  }
+  if (options.fromStepId) {
+    clauses.push("from_step_id = ?");
+    params.push(options.fromStepId);
+  }
+  if (options.toStepId) {
+    clauses.push("to_step_id = ?");
+    params.push(options.toStepId);
+  }
+  if (options.sourceRole) {
+    clauses.push("source_role = ?");
+    params.push(options.sourceRole);
+  }
+  if (options.targetRole) {
+    clauses.push("target_role = ?");
+    params.push(options.targetRole);
+  }
+  if (options.kind) {
+    clauses.push("kind = ?");
+    params.push(options.kind);
+  }
+  if (options.status) {
+    clauses.push("status = ?");
+    params.push(options.status);
+  }
+  const limit = Number.parseInt(String(options.limit ?? "50"), 10) || 50;
+  const rows = db
+    .prepare(`
+      SELECT
+        id,
+        execution_id AS executionId,
+        from_step_id AS fromStepId,
+        to_step_id AS toStepId,
+        source_role AS sourceRole,
+        target_role AS targetRole,
+        kind,
+        status,
+        summary_json AS summaryJson,
+        artifacts_json AS artifactsJson,
+        payload_json AS payloadJson,
+        created_at AS createdAt,
+        updated_at AS updatedAt,
+        consumed_at AS consumedAt
+      FROM workflow_handoffs
+      ${clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : ""}
+      ORDER BY updated_at DESC, created_at DESC
+      LIMIT ?
+    `)
+    .all(...params, limit);
+  return rows.map((record) => mapWorkflowHandoff(record));
 }
 
 export function insertEscalation(db, escalation) {

@@ -6362,6 +6362,45 @@ function renderExecutionWorkspacePanel(workspaceDetail = null) {
   `;
 }
 
+function renderExecutionHandoffPanel(handoffs = null) {
+  if (!Array.isArray(handoffs) || handoffs.length === 0) {
+    return `<div class="detail-card empty-state compact-empty">No workflow handoffs recorded for this execution yet.</div>`;
+  }
+  return `
+    <section class="detail-card">
+      <div class="session-title">
+        <strong>Workflow Handoffs</strong>
+        <span class="muted">${escapeHtml(String(handoffs.length))}</span>
+      </div>
+      <div class="workflow-launch-list">
+        ${handoffs
+          .map(
+            (handoff) => `
+              <article class="workflow-launch-card">
+                <div class="session-title">
+                  <strong>${escapeHtml(normalizeText(handoff.kind))}</strong>
+                  ${renderStatePill(normalizeText(handoff.status, "ready"))}
+                </div>
+                <div class="session-meta">
+                  <code>from=${escapeHtml(normalizeText(handoff.sourceRole))}</code>
+                  <code>to=${escapeHtml(normalizeText(handoff.targetRole))}</code>
+                  <code>step=${escapeHtml(normalizeText(handoff.fromStepId))}</code>
+                </div>
+                <div class="muted">${escapeHtml(normalizeText(handoff.summary?.title || handoff.summary?.outcome || "No summary recorded."))}</div>
+                <div class="session-meta">
+                  <code>handoff=${escapeHtml(normalizeText(handoff.artifacts?.handoffPath))}</code>
+                  <code>workspace=${escapeHtml(normalizeText(handoff.artifacts?.workspaceId))}</code>
+                  <code>updated=${escapeHtml(formatTimestamp(handoff.updatedAt))}</code>
+                </div>
+              </article>
+            `,
+          )
+          .join("")}
+      </div>
+    </section>
+  `;
+}
+
 function renderExecutionDetail() {
   const detail = state.executionDetail;
   const execution = detail?.execution;
@@ -6572,6 +6611,7 @@ function renderExecutionDetail() {
       <div class="detail-span"><span class="muted">Objective</span><br /><code>${escapeHtml(normalizeText(execution.objective))}</code></div>
     </div>
     ${renderExecutionWorkspacePanel(detail?.workspaces ?? null)}
+    ${renderExecutionHandoffPanel(detail?.handoffs ?? null)}
     ${renderPolicyPanel({
       title: "Effective Policy",
       policy: effectivePolicy,

@@ -72,6 +72,30 @@ function resolveDisplayWorkingDirectory(plan: SessionPlan): string | null {
   return path.isAbsolute(rawCwd) ? rawCwd : path.join(PROJECT_ROOT, rawCwd);
 }
 
+function buildStubHandoffJson(plan: SessionPlan): string | null {
+  const expected = plan.metadata?.expectedHandoff;
+  if (!expected?.kind) {
+    return null;
+  }
+  const role = plan.session.role;
+  const summary = {
+    title: `${role} ${expected.kind}`,
+    objective: plan.project?.name ?? null,
+    outcome: `stub ${expected.kind}`,
+    confidence: "medium",
+  };
+  const payload: Record<string, unknown> = {
+    summary,
+  };
+  for (const section of expected.requiredSections ?? []) {
+    if (section === "summary") {
+      continue;
+    }
+    payload[section] = [`stub ${section} for ${role}`];
+  }
+  return JSON.stringify(payload, null, 2);
+}
+
 export async function writeLaunchAssets({
   sessionId,
   plan,
@@ -140,6 +164,28 @@ export async function writeLaunchAssets({
     "",
     "Use the project documentation and the startup context before taking action.",
     "",
+    Array.isArray(plan.metadata?.inboundHandoffs) &&
+    plan.metadata.inboundHandoffs.length > 0
+      ? [
+          "## Inbound Handoffs",
+          ...plan.metadata.inboundHandoffs.map(
+            (handoff) =>
+              `- ${handoff.kind} from ${handoff.sourceRole}${handoff.targetRole ? ` to ${handoff.targetRole}` : ""}`,
+          ),
+          "",
+        ].join("\n")
+      : "",
+    plan.metadata?.expectedHandoff
+      ? [
+          "## Expected Handoff Output",
+          `- Kind: ${plan.metadata.expectedHandoff.kind}`,
+          `- Marker: ${plan.metadata.expectedHandoff.marker}`,
+          `- Required sections: ${plan.metadata.expectedHandoff.requiredSections.join(", ")}`,
+          "",
+          `End with [${plan.metadata.expectedHandoff.marker}_BEGIN] ... [${plan.metadata.expectedHandoff.marker}_END].`,
+          "",
+        ].join("\n")
+      : "",
     "## Runtime Contract",
     "- Treat this as a bounded workflow step, not an open-ended coding session.",
     "- Prefer a direct deliverable over exploratory tool usage.",
@@ -172,12 +218,14 @@ export async function writeLaunchAssets({
 export async function writeLaunchScript({
   launcherType,
   assets,
+  plan,
   stubDurationSeconds = 2,
   cwd = PROJECT_ROOT,
   workspace = null,
 }: {
   launcherType: string;
   assets: LaunchAssets;
+  plan: SessionPlan;
   stubDurationSeconds?: number;
   cwd?: string;
   workspace?: SessionWorkspace | null;
@@ -240,6 +288,18 @@ export async function writeLaunchScript({
               ? `echo "Workspace: ${workspace.id} (${workspace.branchName ?? "unknown"})" | tee -a ${shellEscape(transcriptPath)}`
               : null,
             `cat ${shellEscape(promptPath)} | tee -a ${shellEscape(transcriptPath)}`,
+            plan.metadata?.expectedHandoff
+              ? [
+                  `printf '\n[stub:agent-output:start]\n' | tee -a ${shellEscape(transcriptPath)}`,
+                  `printf 'Stub ${plan.metadata.expectedHandoff.kind} for ${plan.session.role}.\n\n' | tee -a ${shellEscape(transcriptPath)}`,
+                  `cat <<'EOF' | tee -a ${shellEscape(transcriptPath)}`,
+                  `[${plan.metadata.expectedHandoff.marker}_BEGIN]`,
+                  buildStubHandoffJson(plan) ?? "{}",
+                  `[${plan.metadata.expectedHandoff.marker}_END]`,
+                  "EOF",
+                  `printf '\n[stub:agent-output:end]\n' | tee -a ${shellEscape(transcriptPath)}`,
+                ].join("\n")
+              : null,
             `sleep ${stubDurationSeconds}`,
             'echo "Stub session finished." | tee -a ' +
               shellEscape(transcriptPath),

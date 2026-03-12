@@ -43,9 +43,11 @@ The bootstrap execution path now supports:
 - ordered multi-session step launch,
 - wave-based launch of multiple steps inside one execution when a workflow defines `stepSets`,
 - wave-gated unlock rules inside one execution (`all`, `any`, `min_success_count`),
+- durable workflow handoff records that preserve normalized role outputs between steps,
 - sequential builder-to-tester verification handoff for the canonical implementation workflows,
 - builder authoring workspaces plus tester verification workspaces created from a builder snapshot rather than a shared mutable worktree,
 - parent-child session linking between consecutive steps,
+- startup context and invocation briefs that can carry curated inbound handoffs plus the expected outbound handoff contract for the active role,
 - domain-aware workflow policy defaults from `config/domains/*.yaml` plus project `activeDomains[]` overrides,
 - execution records that can carry lineage metadata such as `parentExecutionId` and `coordinationGroupId`,
 - execution records that can carry branch metadata such as `branchKey`,
@@ -193,6 +195,36 @@ That means one execution can now express both:
 - strict parallel stages,
 - partial-unlock exploratory stages where one successful lane is enough to move the workflow forward.
 
+## Workflow Handoffs
+
+Workflow steps now have two distinct coordination channels:
+
+- durable execution state such as step status, review state, approval state, and events,
+- durable workflow handoff artifacts that preserve what one role wants the next role to consume.
+
+The handoff contract is intentionally narrower than free-form agent messaging:
+
+- each settled step publishes one primary semantic handoff,
+- some steps may also publish auxiliary evidence handoffs,
+- downstream steps receive curated inbound handoffs through runtime context rather than transcript scraping,
+- selection is wave-aware and role-optional, so workflows without `scout` or with partial-unlock exploration still behave deterministically.
+
+The canonical semantic chain for the current implementation workflows is:
+
+- `lead -> task_brief`
+- `scout -> scout_findings`
+- `builder -> implementation_summary`
+- `builder -> workspace_snapshot` as auxiliary evidence,
+- `tester -> verification_summary`
+- `reviewer -> review_summary`
+
+Rules:
+
+- downstream steps consume only compatible prior-wave handoffs unless a future workflow contract opts into same-wave sharing,
+- builder-to-tester snapshot handoff remains the authoritative file-level evidence path,
+- proposal artifacts may mirror workflow handoff references, but they do not replace the handoff store,
+- clients should inspect workflow handoffs through orchestrator read surfaces rather than inferring them from raw transcripts.
+
 ## Builder and Tester Verification Workspaces
 
 The current verification contract for the canonical implementation workflows is:
@@ -211,6 +243,8 @@ The workflow engine now treats builder and tester differently:
 - builder is the mutating lane and owns the authoring workspace,
 - tester validates a frozen snapshot and should not repair source in place,
 - reviewer remains read-only.
+
+That builder snapshot is also modeled as a first-class workflow handoff artifact so the semantic summary and the file-level verification evidence share one durable lineage chain.
 
 Do not model final verification as `builder + tester` in the same wave for the canonical implementation workflows. If the system later needs early parallel testing, add an explicit preflight tester lane instead of reintroducing shared builder/tester mutation timing.
 

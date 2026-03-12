@@ -48,6 +48,32 @@
       "required": ["generatedAt", "sourceFiles"],
       "properties": {
         "generatedAt": { "type": "string" },
+        "inboundHandoffs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "kind", "sourceRole", "targetRole", "summary", "artifacts"],
+            "properties": {
+              "id": { "type": "string" },
+              "kind": { "type": "string" },
+              "sourceRole": { "type": "string" },
+              "targetRole": { "type": ["string", "null"] },
+              "summary": { "type": "object" },
+              "artifacts": { "type": "object" }
+            }
+          }
+        },
+        "expectedHandoff": {
+          "type": ["object", "null"],
+          "properties": {
+            "kind": { "type": "string" },
+            "marker": { "type": "string" },
+            "requiredSections": {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          }
+        },
         "sourceFiles": {
           "type": "object",
           "required": ["profile", "runtime"],

@@ -54,6 +54,7 @@ This file is the broader inventory view over `docs/`. It separates active ground
 - `docs/decisions/ADR-0007-feature-integrator-promotion-boundary.md`
 - `docs/decisions/ADR-0008-typescript-first-codebase.md`
 - `docs/decisions/ADR-0012-operator-chat-surface.md`
+- `docs/decisions/ADR-0013-workflow-handoffs-and-runtime-role-inputs.md`
 
 ### References And Research
 

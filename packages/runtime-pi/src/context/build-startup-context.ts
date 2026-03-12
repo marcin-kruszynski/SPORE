@@ -101,6 +101,12 @@ export async function writeStartupContext(
       sessionMode: plan.session.sessionMode,
     },
     retrieval: context,
+    handoffs: {
+      inbound: Array.isArray(plan.metadata.inboundHandoffs)
+        ? plan.metadata.inboundHandoffs
+        : [],
+      expected: plan.metadata.expectedHandoff ?? null,
+    },
   };
   await fs.writeFile(resolved, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
   return {

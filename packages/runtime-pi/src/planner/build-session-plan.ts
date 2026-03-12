@@ -8,10 +8,12 @@ import {
   PROJECT_ROOT,
 } from "../metadata/constants.js";
 import type {
+  ExpectedSessionHandoff,
   RuntimeConfig,
   RuntimeProfile,
   RuntimeProjectConfig,
   SessionPlan,
+  SessionPlanHandoff,
 } from "../types.js";
 
 export interface BuildSessionPlanOptions {
@@ -34,6 +36,8 @@ export interface BuildSessionPlanOptions {
   workspaceSourceId?: string | null;
   workspaceSourceRef?: string | null;
   workspaceSourceCommit?: string | null;
+  inboundHandoffs?: SessionPlanHandoff[] | null;
+  expectedHandoff?: ExpectedSessionHandoff | null;
 }
 
 function relativeToProject(filePath: string): string {
@@ -85,6 +89,8 @@ export async function buildSessionPlan({
   workspaceSourceId = null,
   workspaceSourceRef = null,
   workspaceSourceCommit = null,
+  inboundHandoffs = null,
+  expectedHandoff = null,
 }: BuildSessionPlanOptions): Promise<SessionPlan> {
   const resolvedProfilePath = resolveRequiredInputPath(
     profilePath,
@@ -181,6 +187,8 @@ export async function buildSessionPlan({
               sourceCommit: workspaceSourceCommit ?? null,
             }
           : null,
+      inboundHandoffs: Array.isArray(inboundHandoffs) ? inboundHandoffs : [],
+      expectedHandoff: expectedHandoff ?? null,
       sourceFiles: {
         profile: relativeToProject(resolvedProfilePath),
         runtime: relativeToProject(resolvedRuntimePath),

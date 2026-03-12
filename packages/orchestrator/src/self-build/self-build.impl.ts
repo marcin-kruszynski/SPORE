@@ -11,7 +11,7 @@ import {
   reconcileWorkspace,
   removeWorkspace,
 } from "@spore/workspace-manager";
-import { getExecutionDetail } from "../execution/history.js";
+import { getExecutionDetail, listExecutionHandoffs } from "../execution/history.js";
 import {
   invokeFeaturePromotion,
   planPromotionForExecution,
@@ -120,6 +120,7 @@ import {
   attachWorkspacePatchArtifact as attachWorkspacePatchArtifactHelper,
   buildDocSuggestions as buildDocSuggestionsHelper,
   buildProposalArtifacts as buildProposalArtifactsHelper,
+  buildWorkflowHandoffRefs as buildWorkflowHandoffRefsHelper,
 } from "./proposal-artifacts.js";
 import { buildQueueSummary as buildQueueSummaryHelper } from "./queue-summary.js";
 import {
@@ -3072,6 +3073,28 @@ function buildProposalSummary(artifact, dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
   };
 }
 
+function attachProposalWorkflowHandoffRefs(
+  proposal,
+  executionId,
+  dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
+) {
+  if (!proposal || !executionId) {
+    return proposal;
+  }
+  const handoffs = listExecutionHandoffs(executionId, dbPath) ?? [];
+  return {
+    ...proposal,
+    artifacts: {
+      ...(proposal.artifacts ?? {}),
+      workflowHandoffs: buildWorkflowHandoffRefsHelper(handoffs),
+    },
+    metadata: {
+      ...(proposal.metadata ?? {}),
+      sourceExecutionId: executionId,
+    },
+  };
+}
+
 function buildLearningSummary(record) {
   return buildLearningSummaryHelper(record);
 }
@@ -5289,6 +5312,11 @@ export async function runSelfBuildWorkItem(
         proposalWorkspace,
         nowIso,
       );
+      proposal = attachProposalWorkflowHandoffRefs(
+        proposal,
+        failedRun.result?.executionId ?? proposalWorkspace?.executionId ?? null,
+        dbPath,
+      );
       withDatabase(dbPath, (db) => insertProposalArtifact(db, proposal));
     }
     provisionedWorkspace = syncWorkspaceAllocationForRunOutcome(
@@ -5380,6 +5408,11 @@ export async function runSelfBuildWorkItem(
       proposal,
       proposalWorkspace,
       nowIso,
+    );
+    proposal = attachProposalWorkflowHandoffRefs(
+      proposal,
+      runDetail.result?.executionId ?? proposalWorkspace?.executionId ?? null,
+      dbPath,
     );
     withDatabase(dbPath, (db) => insertProposalArtifact(db, proposal));
   }
@@ -6964,6 +6997,8 @@ function buildProposalReviewPackage(
           },
         })
       : null,
+    handoffs:
+      executionDetail?.handoffs ?? proposal.artifacts?.workflowHandoffs ?? [],
     promotion,
     readiness: {
       ready: readiness.ready,

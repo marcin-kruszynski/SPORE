@@ -55,6 +55,7 @@ Use `docs/` as ground truth for product state, architecture, operations, and dir
 - Feature integrator promotion boundary: [decisions/ADR-0007-feature-integrator-promotion-boundary.md](decisions/ADR-0007-feature-integrator-promotion-boundary.md)
 - TypeScript-first codebase: [decisions/ADR-0008-typescript-first-codebase.md](decisions/ADR-0008-typescript-first-codebase.md)
 - Conversation-first operator chat surface: [decisions/ADR-0012-operator-chat-surface.md](decisions/ADR-0012-operator-chat-surface.md)
+- Durable workflow handoffs and runtime role inputs: [decisions/ADR-0013-workflow-handoffs-and-runtime-role-inputs.md](decisions/ADR-0013-workflow-handoffs-and-runtime-role-inputs.md)
 
 Note: early bootstrap history contains two accepted `ADR-0001` files. Keep both as historical foundation records and do not reuse that number.
 

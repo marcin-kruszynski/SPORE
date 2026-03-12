@@ -107,6 +107,20 @@ test("session live route returns diagnostics and control guidance", async (t) =>
   await Promise.all([
     fs.writeFile(`${base}.transcript.md`, "builder transcript\n", "utf8"),
     fs.writeFile(
+      `${base}.handoff.json`,
+      `${JSON.stringify(
+        {
+          sessionId,
+          primary: {
+            kind: "implementation_summary",
+          },
+        },
+        null,
+        2,
+      )}\n`,
+      "utf8",
+    ),
+    fs.writeFile(
       `${base}.rpc-status.json`,
       `${JSON.stringify({ ok: true }, null, 2)}\n`,
       "utf8",
@@ -161,6 +175,7 @@ test("session live route returns diagnostics and control guidance", async (t) =>
   });
   t.after(async () => {
     await stopProcess(gateway);
+    await fs.rm(`${base}.handoff.json`, { force: true });
     await fs.rm(`${base}.transcript.md`, { force: true });
     await fs.rm(`${base}.rpc-status.json`, { force: true });
     await fs.rm(`${base}.launch-context.json`, { force: true });
@@ -201,6 +216,7 @@ test("session live route returns diagnostics and control guidance", async (t) =>
     ),
   );
   assert.equal(response.json.artifacts.transcript.exists, true);
+  assert.equal(response.json.artifacts.handoff.exists, true);
   assert.equal(response.json.artifacts.rpcStatus.exists, true);
   assert.equal(response.json.controlHistory.length, 1);
   assert.equal(response.json.launcherMetadata.launcherType, "pi-rpc");

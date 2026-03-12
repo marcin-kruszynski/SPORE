@@ -13,6 +13,9 @@ reviewPolicy:
   required: false
 handoffPolicy:
   mode: findings-first
+  outputKind: scout_findings
+  marker: SPORE_HANDOFF_JSON
+  requiredSections: [summary, findings, recommendations, risks, evidence]
 docsPolicy:
   updateRequired: true
 telemetryPolicy:

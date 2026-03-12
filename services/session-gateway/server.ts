@@ -476,6 +476,7 @@ function getArtifactMap(session: SessionRecord): Record<string, string> {
   return {
     plan: `${base}.plan.json`,
     context: `${base}.context.json`,
+    handoff: `${base}.handoff.json`,
     prompt: `${base}.prompt.md`,
     launch: `${base}.launch.sh`,
     transcript: `${base}.transcript.md`,
@@ -583,6 +584,7 @@ async function readArtifactContent<T = ArtifactContent>(
   if (
     artifactName === "plan" ||
     artifactName === "context" ||
+    artifactName === "handoff" ||
     artifactName === "exit" ||
     artifactName === "rpcStatus" ||
     artifactName === "launchContext"
