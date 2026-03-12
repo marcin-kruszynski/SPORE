@@ -16,6 +16,7 @@ handoffPolicy:
   outputKind: implementation_summary
   marker: SPORE_HANDOFF_JSON
   requiredSections: [summary, changed_paths, tests_run, open_risks]
+  enforcementMode: review_pending
 docsPolicy:
   updateRequired: true
 telemetryPolicy:

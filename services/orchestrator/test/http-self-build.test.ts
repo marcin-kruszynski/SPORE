@@ -9,6 +9,7 @@ import test from "node:test";
 import {
   createExecution,
   createWorkItem,
+  getExecutionDetail,
   getProposalArtifact,
   getWorkspaceAllocation,
   insertProposalArtifact,
@@ -21,6 +22,7 @@ import {
   updateProposalArtifact,
   updateWorkspaceAllocation,
 } from "@spore/orchestrator";
+import { openSessionDatabase, upsertSession } from "@spore/session-manager";
 import {
   findFreePort,
   getJson,
@@ -33,6 +35,15 @@ import {
   withEventLogPath,
 } from "@spore/test-support";
 import { removeWorkspace } from "@spore/workspace-manager";
+import { reconcileExecution } from "../../../packages/orchestrator/src/execution/workflow-execution.impl.js";
+import {
+  transitionExecutionRecord,
+  transitionStepRecord,
+} from "../../../packages/orchestrator/src/lifecycle/execution-lifecycle.js";
+import {
+  updateExecution,
+  updateStep,
+} from "../../../packages/orchestrator/src/store/execution-store.impl.js";
 import type { HarnessTempPathsWithEventLog } from "./helpers/http-harness.js";
 
 type JsonRecord = Record<string, unknown>;
@@ -2657,6 +2668,244 @@ test("self-build read surfaces expose concise trace summaries for workspace, val
     asObject(asObject(validatedRun.json.detail.validation).trace).summary ??
       null,
     null,
+  );
+});
+
+test("artifact recovery clues stay visible on execution and self-build HTTP detail routes", async (t) => {
+  const ORCHESTRATOR_PORT = await findFreePort();
+  const { dbPath, sessionDbPath, eventLogPath } = withEventLogPath(
+    await makeTempPaths("spore-http-self-build-artifact-recovery-"),
+  ) as HarnessTempPathsWithEventLog;
+
+  const orchestrator = startProcess(
+    "node",
+    ["services/orchestrator/server.js"],
+    {
+      SPORE_ORCHESTRATOR_PORT: String(ORCHESTRATOR_PORT),
+      SPORE_ORCHESTRATOR_DB_PATH: dbPath,
+      SPORE_SESSION_DB_PATH: sessionDbPath,
+      SPORE_EVENT_LOG_PATH: eventLogPath,
+    },
+  );
+
+  t.after(async () => {
+    await stopProcess(orchestrator);
+  });
+
+  await waitForHealth(`http://127.0.0.1:${ORCHESTRATOR_PORT}/health`);
+
+  const item = createWorkItem(
+    {
+      title: "Artifact recovery visibility fixture",
+      kind: "workflow",
+      goal: "Keep artifact auto-heal clues visible in operator-facing HTTP detail routes.",
+      metadata: {
+        workflowPath: "config/workflows/frontend-ui-pass.yaml",
+        projectPath: "config/projects/spore.yaml",
+        projectId: "spore",
+        domainId: "frontend",
+        roles: ["lead"],
+        safeMode: true,
+      },
+    },
+    dbPath,
+  );
+  const runId = `work-item-run-artifact-recovery-${Date.now()}`;
+  const proposalId = `proposal-artifact-recovery-${Date.now()}`;
+  const invocationId = `http-self-build-artifact-recovery-${Date.now()}`;
+  const invocation = await planWorkflowInvocation({
+    workflowPath: "config/workflows/frontend-ui-pass.yaml",
+    projectPath: "config/projects/spore.yaml",
+    domainId: "frontend",
+    roles: ["lead"],
+    invocationId,
+    objective:
+      "Recover a stale active session from rpc status artifacts and surface the clues.",
+  });
+
+  createExecution(invocation, dbPath);
+
+  const initial = getExecutionDetail(invocationId, dbPath, sessionDbPath);
+  assert.ok(initial);
+
+  const lead = initial.steps[0];
+  const timestamp = new Date().toISOString();
+  const launchScriptPath = path.join(
+    path.dirname(dbPath),
+    `${lead.sessionId}.launch.sh`,
+  );
+  const rpcStatusPath = launchScriptPath.replace(
+    /\.launch\.sh$/,
+    ".rpc-status.json",
+  );
+
+  const db = openOrchestratorDatabase(dbPath);
+  try {
+    updateStep(
+      db,
+      transitionStepRecord(lead, "active", {
+        launchedAt: timestamp,
+      }),
+    );
+    updateExecution(
+      db,
+      transitionExecutionRecord(initial.execution, "running", {
+        currentStepIndex: lead.sequence,
+        startedAt: timestamp,
+      }),
+    );
+    insertWorkItemRunFixture(db, {
+      runId,
+      itemId: item.id,
+      status: "completed",
+      triggerSource: "artifact-recovery-test",
+      requestedBy: "test-runner",
+      result: {
+        executionId: invocationId,
+      },
+      metadata: {
+        itemKind: item.kind,
+        itemStatusBeforeRun: "pending",
+      },
+      timestamp,
+    });
+    insertProposalArtifactFixture(db, {
+      proposalId,
+      runId,
+      itemId: item.id,
+      itemTitle: item.title,
+      itemGoal: item.goal,
+      proposalStatus: "ready_for_review",
+      timestamp,
+    });
+  } finally {
+    db.close();
+  }
+
+  await fs.writeFile(launchScriptPath, "#!/usr/bin/env bash\n", "utf8");
+  await fs.writeFile(
+    rpcStatusPath,
+    `${JSON.stringify(
+      {
+        runner: "pi-rpc-runner",
+        status: "completed",
+        terminalSignal: {
+          settled: true,
+          exitCode: 0,
+          finishedAt: timestamp,
+          source: "runner-finalize",
+        },
+      },
+      null,
+      2,
+    )}\n`,
+    "utf8",
+  );
+
+  const sessionDb = openSessionDatabase(sessionDbPath);
+  try {
+    upsertSession(sessionDb, {
+      id: lead.sessionId,
+      runId: `${invocationId}-lead`,
+      agentIdentityId: "lead:lead",
+      profileId: "lead",
+      role: "lead",
+      state: "active",
+      runtimeAdapter: "pi",
+      transportMode: "rpc",
+      sessionMode: "ephemeral",
+      projectId: "spore",
+      projectName: "SPORE",
+      projectType: "application",
+      domainId: "frontend",
+      workflowId: "frontend-ui-pass",
+      parentSessionId: null,
+      contextPath: null,
+      transcriptPath: path.join(
+        path.dirname(dbPath),
+        `${lead.sessionId}.transcript.md`,
+      ),
+      launcherType: "pi-rpc",
+      launchCommand: launchScriptPath,
+      tmuxSession: `tmux-${lead.sessionId}`,
+      startedAt: timestamp,
+      endedAt: null,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+  } finally {
+    sessionDb.close();
+  }
+
+  await reconcileExecution(invocationId, {
+    dbPath,
+    sessionDbPath,
+    stub: true,
+    launcher: "stub",
+    noMonitor: true,
+  });
+
+  const executionDetail = await getJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/executions/${encodeURIComponent(invocationId)}`,
+  );
+  assert.equal(executionDetail.status, 200);
+  assert.ok(executionDetail.json.ok);
+  assert.equal(executionDetail.json.detail.artifactRecovery.count, 1);
+  assert.equal(
+    executionDetail.json.detail.artifactRecovery.events[0].signalSource,
+    "rpc-status",
+  );
+  assert.equal(
+    executionDetail.json.detail.artifactRecovery.events[0].fallbackReason,
+    "exit-file-missing",
+  );
+  assert.equal(
+    executionDetail.json.detail.artifactRecovery.events[0].terminalSignalSource,
+    "runner-finalize",
+  );
+
+  const executionHistory = await getJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/executions/${encodeURIComponent(invocationId)}/history`,
+  );
+  assert.equal(executionHistory.status, 200);
+  assert.ok(executionHistory.json.ok);
+  assert.equal(executionHistory.json.detail.artifactRecovery.count, 1);
+  const recoveryTimelineItem = executionHistory.json.detail.timeline.find(
+    (entry: JsonRecord) => entry.label === "workflow.step.artifact_recovered",
+  );
+  assert.ok(recoveryTimelineItem);
+  assert.equal(
+    asObject(recoveryTimelineItem.payload).signalSource,
+    "rpc-status",
+  );
+  assert.equal(
+    asObject(recoveryTimelineItem.payload).fallbackReason,
+    "exit-file-missing",
+  );
+
+  const runDetail = await getJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/work-item-runs/${encodeURIComponent(runId)}`,
+  );
+  assert.equal(runDetail.status, 200);
+  assert.ok(runDetail.json.ok);
+  assert.equal(runDetail.json.detail.execution.id, invocationId);
+  assert.equal(runDetail.json.detail.execution.artifactRecovery.count, 1);
+  assert.equal(
+    runDetail.json.detail.execution.artifactRecovery.events[0].signalSource,
+    "rpc-status",
+  );
+
+  const reviewPackage = await getJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/proposal-artifacts/${encodeURIComponent(proposalId)}/review-package`,
+  );
+  assert.equal(reviewPackage.status, 200);
+  assert.ok(reviewPackage.json.ok);
+  assert.equal(reviewPackage.json.detail.execution.id, invocationId);
+  assert.equal(reviewPackage.json.detail.execution.artifactRecovery.count, 1);
+  assert.equal(
+    reviewPackage.json.detail.execution.artifactRecovery.events[0]
+      .fallbackReason,
+    "exit-file-missing",
   );
 });
 

@@ -14,6 +14,10 @@ reviewPolicy:
 handoffPolicy:
   mode: explicit
   mustReportUpward: true
+  outputKind: routing_summary
+  marker: SPORE_HANDOFF_JSON
+  requiredSections: [summary, active_lanes, blockers, next_actions]
+  enforcementMode: review_pending
 docsPolicy:
   updateRequired: true
 telemetryPolicy:

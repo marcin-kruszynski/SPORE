@@ -23,6 +23,28 @@ export interface SuggestedAction {
   httpHint: string | null;
 }
 
+export interface ArtifactRecoveryEntry extends JsonObject {
+  eventId?: string;
+  executionId?: string;
+  stepId?: string | null;
+  sessionId?: string | null;
+  recoveredAt?: string | null;
+  signalSource?: string | null;
+  terminalSignalSource?: string | null;
+  fallbackReason?: string | null;
+  artifactPath?: string | null;
+  exitCode?: number | null;
+  finalState?: string | null;
+  artifactRecoveryCount?: number | null;
+}
+
+export interface ArtifactRecoverySummary extends JsonObject {
+  count: number;
+  bySignalSource: Record<string, number>;
+  lastRecoveredAt: string | null;
+  events: ArtifactRecoveryEntry[];
+}
+
 export interface DependencyBlocker extends JsonObject {
   id?: string;
   reasonCode?: string | null;
@@ -111,6 +133,27 @@ export interface WorkflowHandoffListOptions extends JsonObject {
   kind?: string;
   status?: string;
   limit?: number | string;
+}
+
+export interface WorkflowHandoffConsumerListOptions extends JsonObject {
+  executionId?: string;
+  handoffId?: string;
+  consumerStepId?: string;
+  consumerRole?: string;
+  limit?: number | string;
+}
+
+export interface HandoffValidationIssue extends JsonObject {
+  code: string;
+  message: string;
+  section?: string | null;
+}
+
+export interface HandoffValidationResult extends JsonObject {
+  valid: boolean;
+  degraded: boolean;
+  mode?: string | null;
+  issues: HandoffValidationIssue[];
 }
 
 export interface WorkspaceCleanupPolicy extends JsonObject {

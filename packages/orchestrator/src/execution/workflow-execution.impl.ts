@@ -9,9 +9,11 @@ import {
   readControlMessagesFromOffset,
 } from "@spore/runtime-pi";
 import {
+  buildSessionArtifactRecoveryTelemetry,
   DEFAULT_SESSION_DB_PATH,
   getSession,
   openSessionDatabase,
+  reconcileSessionFromArtifacts,
   transitionSessionRecord,
   upsertSession,
 } from "@spore/session-manager";
@@ -67,6 +69,7 @@ import {
   listApprovals,
   listAuditRecords,
   listChildExecutions,
+  countWorkflowHandoffConsumers,
   listEscalations,
   listExecutionGroup,
   listExecutions,
@@ -77,11 +80,13 @@ import {
   listScenarioRunExecutions,
   listScenarioRuns,
   listSteps,
+  listWorkflowHandoffConsumers,
+  listWorkflowHandoffConsumerRoles,
   listWorkflowEvents,
   listWorkflowHandoffs,
   listWorkspaceAllocations,
-  markWorkflowHandoffConsumed,
   openOrchestratorDatabase,
+  recordWorkflowHandoffConsumption,
   updateEscalation,
   updateExecution,
   updateStep,
@@ -111,6 +116,7 @@ import {
   handoffsConsumedByStep,
   selectInboundWorkflowHandoffs,
 } from "./handoff-context.js";
+import { resolveHandoffEnforcement } from "./handoff-validation.js";
 import { comparePolicies } from "./policy-diff.js";
 import {
   findBlockedWave,
@@ -128,6 +134,7 @@ import {
   summarizeStepStates as summarizeWaveStepStates,
 } from "./wave-state.js";
 import { publishWorkflowStepHandoffs } from "./workflow-handoffs.js";
+import type { ArtifactRecoverySummary } from "../types/contracts.js";
 
 type LooseRecord = any;
 
@@ -229,10 +236,16 @@ async function readSessionWithRetry(
   let lastError = null;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     try {
-      const session = withSessionDatabase(dbPath, (db) =>
-        getSession(db, sessionId),
-      );
-      return await reconcileSessionFromArtifacts(dbPath, session);
+      const result = await reconcileSessionFromArtifacts({
+        dbPath,
+        sessionId,
+      });
+      return {
+        session: result.session,
+        artifactRecovery: result.signal
+          ? buildSessionArtifactRecoveryTelemetry(result.signal)
+          : null,
+      };
     } catch (error) {
       if (!isSessionDatabaseLocked(error)) {
         throw error;
@@ -249,57 +262,17 @@ async function readSessionWithRetry(
   );
 }
 
-async function readJsonFileIfExists(filePath) {
-  if (!filePath) {
-    return null;
+function buildArtifactRecoveryPayload(artifactRecovery, artifactRecoveryCount) {
+  if (!artifactRecovery) {
+    return {};
   }
-  try {
-    return JSON.parse(await fs.readFile(filePath, "utf8"));
-  } catch (error) {
-    if (error && typeof error === "object" && "code" in error) {
-      if (error.code === "ENOENT") {
-        return null;
-      }
-    }
-    throw error;
-  }
-}
-
-function deriveSessionExitPath(session) {
-  if (!session?.launchCommand) {
-    return null;
-  }
-  const launchCommand = path.isAbsolute(session.launchCommand)
-    ? session.launchCommand
-    : path.join(PROJECT_ROOT, session.launchCommand);
-  if (!launchCommand.endsWith(".launch.sh")) {
-    return null;
-  }
-  return launchCommand.replace(/\.launch\.sh$/, ".exit.json");
-}
-
-async function reconcileSessionFromArtifacts(sessionDbPath, session) {
-  if (!session || !["planned", "starting", "active"].includes(session.state)) {
-    return session;
-  }
-  const exitPath = deriveSessionExitPath(session);
-  const exitInfo = await readJsonFileIfExists(exitPath);
-  if (!Number.isInteger(exitInfo?.exitCode)) {
-    return session;
-  }
-  const nextState = exitInfo.exitCode === 0 ? "completed" : "failed";
-  return withSessionDatabase(sessionDbPath, (db) => {
-    const current = getSession(db, session.id);
-    if (
-      !current ||
-      !["planned", "starting", "active"].includes(current.state)
-    ) {
-      return current ?? session;
-    }
-    const updated = transitionSessionRecord(current, nextState);
-    upsertSession(db, updated);
-    return updated;
-  });
+  return {
+    artifactRecovery,
+    artifactRecoveryCount,
+    signalSource: artifactRecovery.signalSource,
+    terminalSignalSource: artifactRecovery.terminalSignalSource,
+    fallbackReason: artifactRecovery.fallbackReason,
+  };
 }
 
 function buildRetriedSessionId(execution, step, nextAttempt) {
@@ -1653,12 +1626,16 @@ export function getExecutionDetail(
     const reviews = listReviews(db, executionId);
     const approvals = listApprovals(db, executionId);
     const events = listWorkflowEvents(db, executionId);
-    const handoffs = listWorkflowHandoffs(db, {
-      executionId,
-      limit: 200,
-    });
+    const handoffs = enrichWorkflowHandoffs(
+      db,
+      listWorkflowHandoffs(db, {
+        executionId,
+        limit: 200,
+      }),
+    );
     const escalations = listEscalations(db, executionId);
     const audit = listAuditRecords(db, executionId);
+    const artifactRecovery = buildArtifactRecoverySummary(events);
     const childExecutions = listChildExecutions(db, executionId);
     const coordinationGroup = execution.coordinationGroupId
       ? listExecutionGroup(db, execution.coordinationGroupId)
@@ -1671,6 +1648,10 @@ export function getExecutionDetail(
           .map((step) => ({
             sessionId: step.sessionId,
             session: getSession(sessionDb, step.sessionId),
+            artifactRecovery:
+              artifactRecovery.events.find(
+                (entry) => entry.sessionId === step.sessionId,
+              ) ?? null,
           }))
           .filter((item) => item.session),
       );
@@ -1688,6 +1669,7 @@ export function getExecutionDetail(
       handoffs,
       escalations,
       audit,
+      artifactRecovery,
       childExecutions: childExecutions.map(decorateExecution),
       coordinationGroup: coordinationGroup.map(decorateExecution),
       sessions,
@@ -1717,10 +1699,13 @@ export function listExecutionHandoffs(
     if (!execution) {
       return null;
     }
-    return listWorkflowHandoffs(db, {
-      executionId,
-      limit: 200,
-    });
+    return enrichWorkflowHandoffs(
+      db,
+      listWorkflowHandoffs(db, {
+        executionId,
+        limit: 200,
+      }),
+    );
   });
 }
 
@@ -1738,7 +1723,7 @@ export function getExecutionHandoff(
     if (!handoff || handoff.executionId !== executionId) {
       return null;
     }
-    return handoff;
+    return enrichWorkflowHandoffs(db, [handoff])[0] ?? null;
   });
 }
 
@@ -1790,6 +1775,29 @@ function buildPolicyDiff(baseline = {}, candidate = {}) {
       tone: "removed",
     })),
   ];
+}
+
+function enrichWorkflowHandoffs(db, handoffs) {
+  return handoffs.map((handoff) => {
+    const consumers = listWorkflowHandoffConsumers(db, {
+      handoffId: handoff.id,
+      limit: 50,
+    });
+    const consumerCount = countWorkflowHandoffConsumers(db, handoff.id);
+    return {
+      ...handoff,
+      validation: handoff.validation ?? {},
+      consumers,
+      consumerCount,
+      consumerRoles: listWorkflowHandoffConsumerRoles(db, handoff.id),
+      deliveryStatus:
+        consumerCount > 0 && handoff.status === "ready"
+          ? handoff.targetRole || handoff.toStepId
+            ? "consumed"
+            : "partially_consumed"
+          : handoff.status,
+    };
+  });
 }
 
 export async function getExecutionPolicyDiff(
@@ -1899,6 +1907,49 @@ function orderedTimeline(items) {
     }
     return String(left.id ?? "").localeCompare(String(right.id ?? ""));
   });
+}
+
+function buildArtifactRecoverySummary(events = []): ArtifactRecoverySummary {
+  const recoveredEvents = events
+    .filter((event) => event.type === "workflow.step.artifact_recovered")
+    .map((event) => {
+      const payload = event.payload ?? {};
+      const artifactRecovery = payload.artifactRecovery ?? {};
+      return {
+        eventId: event.id,
+        executionId: event.executionId,
+        stepId: event.stepId,
+        sessionId: event.sessionId,
+        recoveredAt: event.createdAt ?? null,
+        signalSource:
+          payload.signalSource ?? artifactRecovery.signalSource ?? null,
+        terminalSignalSource:
+          payload.terminalSignalSource ??
+          artifactRecovery.terminalSignalSource ??
+          null,
+        fallbackReason:
+          payload.fallbackReason ?? artifactRecovery.fallbackReason ?? null,
+        artifactPath: artifactRecovery.artifactPath ?? null,
+        exitCode: artifactRecovery.exitCode ?? null,
+        finalState: artifactRecovery.nextState ?? null,
+        artifactRecoveryCount:
+          payload.artifactRecoveryCount ??
+          artifactRecovery.artifactRecoveryCount ??
+          null,
+      };
+    });
+  const bySignalSource = recoveredEvents.reduce((accumulator, entry) => {
+    const key = String(entry.signalSource ?? "unknown");
+    accumulator[key] = (accumulator[key] ?? 0) + 1;
+    return accumulator;
+  }, {});
+  return {
+    count: recoveredEvents.length,
+    bySignalSource,
+    lastRecoveredAt:
+      recoveredEvents[recoveredEvents.length - 1]?.recoveredAt ?? null,
+    events: recoveredEvents,
+  };
 }
 
 function buildExecutionHistoryItems(detail, policyDiff) {
@@ -2013,6 +2064,7 @@ export async function getExecutionHistory(
     approvals: detail.approvals,
     escalations: detail.escalations,
     audit: detail.audit,
+    artifactRecovery: detail.artifactRecovery,
     policyDiff,
     timeline: buildExecutionHistoryItems(detail, policyDiff),
     sessions: detail.sessions,
@@ -3529,7 +3581,15 @@ async function launchStep(execution, step, options: LooseRecord = {}) {
       });
     }
     for (const handoff of handoffsConsumedByStep(step, inboundHandoffs)) {
-      markWorkflowHandoffConsumed(db, String(handoff.id ?? ""), nowIso());
+      recordWorkflowHandoffConsumption(db, {
+        id: `consumer-${String(handoff.id ?? "handoff")}-${String(step.id ?? "step")}`,
+        executionId: String(currentExecution.id),
+        handoffId: String(handoff.id ?? ""),
+        consumerStepId: String(step.id ?? ""),
+        consumerRole: String(step.role ?? ""),
+        consumerSessionId: String(updatedStep.sessionId ?? "") || null,
+        consumedAt: nowIso(),
+      });
     }
     const updatedExecution = transitionExecutionAfterProgress(
       currentExecution,
@@ -3639,6 +3699,18 @@ function settleStepFromSession(step, session) {
     );
   }
   return null;
+}
+
+function hasBlockingInvalidHandoff(db, executionId, stepId) {
+  return listWorkflowHandoffs(db, {
+    executionId,
+    fromStepId: stepId,
+    limit: 50,
+  }).some(
+    (handoff) =>
+      handoff.validation?.valid === false &&
+      handoff.validation?.mode === "blocked",
+  );
 }
 
 function reconcileCoordinationState(db, execution) {
@@ -3872,20 +3944,21 @@ export async function reconcileExecution(
   if (activeSteps.length > 0) {
     const observations = [];
     for (const activeStep of activeSteps) {
-      const session = await readSessionWithRetry(
+      const sessionObservation = await readSessionWithRetry(
         sessionDbPath,
         activeStep.sessionId,
       );
       await applyActiveStepWatchdog(
         detail.execution,
         activeStep,
-        session,
+        sessionObservation.session,
         options,
       );
       observations.push({
         activeStep,
-        session,
-        settledStep: settleStepFromSession(activeStep, session),
+        session: sessionObservation.session,
+        artifactRecovery: sessionObservation.artifactRecovery,
+        settledStep: settleStepFromSession(activeStep, sessionObservation.session),
       });
     }
 
@@ -3901,7 +3974,34 @@ export async function reconcileExecution(
             continue;
           }
 
-          const { activeStep, settledStep } = observation;
+          const { activeStep } = observation;
+          let settledStep = observation.settledStep;
+          const priorArtifactRecoveryCount = listWorkflowEvents(
+            db,
+            executionId,
+          ).filter(
+            (event) => event.type === "workflow.step.artifact_recovered",
+          ).length;
+          const artifactRecoveryCount = observation.artifactRecovery
+            ? priorArtifactRecoveryCount + 1
+            : null;
+          if (observation.artifactRecovery && artifactRecoveryCount) {
+            emitWorkflowEvent(db, {
+              executionId,
+              stepId: activeStep.id,
+              sessionId: activeStep.sessionId,
+              type: "workflow.step.artifact_recovered",
+              payload: {
+                sequence: activeStep.sequence,
+                wave: activeStep.wave ?? activeStep.sequence,
+                role: activeStep.role,
+                ...buildArtifactRecoveryPayload(
+                  observation.artifactRecovery,
+                  artifactRecoveryCount,
+                ),
+              },
+            });
+          }
           if (["failed", "stopped"].includes(settledStep.state)) {
             const retryAllowed =
               activeStep.attemptCount < activeStep.maxAttempts;
@@ -3922,6 +4022,10 @@ export async function reconcileExecution(
                   nextAttempt: retriedStep.attemptCount,
                   maxAttempts: retriedStep.maxAttempts,
                   nextSessionId: retriedStep.sessionId,
+                  ...buildArtifactRecoveryPayload(
+                    observation.artifactRecovery,
+                    artifactRecoveryCount,
+                  ),
                 },
               });
               continue;
@@ -3971,6 +4075,10 @@ export async function reconcileExecution(
                 finalState: settledStep.state,
                 attemptCount: settledStep.attemptCount,
                 maxAttempts: settledStep.maxAttempts,
+                ...buildArtifactRecoveryPayload(
+                  observation.artifactRecovery,
+                  artifactRecoveryCount,
+                ),
               },
             });
             if (failureAction === "hold_execution") {
@@ -4040,13 +4148,37 @@ export async function reconcileExecution(
           updateStep(db, settledStep);
           if (["completed", "review_pending"].includes(settledStep.state)) {
             await publishBuilderWorkspaceHandoff(db, execution, settledStep);
-            await publishWorkflowStepHandoffs({
+            const publishedHandoffs = await publishWorkflowStepHandoffs({
               db,
               execution,
               step: settledStep,
               session: observation.session,
               steps: listSteps(db, executionId),
             });
+            const enforced = resolveHandoffEnforcement(
+              settledStep,
+              publishedHandoffs,
+            );
+            if (enforced.enforcement) {
+              settledStep = enforced.step;
+              updateStep(db, settledStep);
+              emitWorkflowEvent(db, {
+                executionId: execution.id,
+                stepId: settledStep.id,
+                sessionId: settledStep.sessionId,
+                type:
+                  enforced.enforcement.mode === "blocked"
+                    ? "workflow.step.handoff_blocked"
+                    : enforced.enforcement.mode === "review_pending"
+                      ? "workflow.step.handoff_review_pending"
+                      : "workflow.step.handoff_degraded",
+                payload: {
+                  mode: enforced.enforcement.mode,
+                  handoffId: enforced.enforcement.handoffId,
+                  issues: enforced.enforcement.issues,
+                },
+              });
+            }
           }
           settleStepWorkspace(
             db,
@@ -4068,6 +4200,10 @@ export async function reconcileExecution(
                 wave: settledStep.wave ?? settledStep.sequence,
                 role: settledStep.role,
                 dispatchBlocked,
+                ...buildArtifactRecoveryPayload(
+                  observation.artifactRecovery,
+                  artifactRecoveryCount,
+                ),
               },
             });
             continue;
@@ -4078,13 +4214,17 @@ export async function reconcileExecution(
             stepId: settledStep.id,
             sessionId: settledStep.sessionId,
             type: "workflow.step.completed",
-            payload: {
-              sequence: settledStep.sequence,
-              wave: settledStep.wave ?? settledStep.sequence,
-              role: settledStep.role,
-              attemptCount: settledStep.attemptCount,
-            },
-          });
+              payload: {
+                sequence: settledStep.sequence,
+                wave: settledStep.wave ?? settledStep.sequence,
+                role: settledStep.role,
+                attemptCount: settledStep.attemptCount,
+                ...buildArtifactRecoveryPayload(
+                  observation.artifactRecovery,
+                  artifactRecoveryCount,
+                ),
+              },
+            });
         }
 
         const activeWaves = [
@@ -4340,6 +4480,14 @@ export async function recordReviewDecision(
     if (!reviewStep) {
       throw new Error(`no review-pending step for execution: ${executionId}`);
     }
+    if (
+      payload.status === "approved" &&
+      hasBlockingInvalidHandoff(db, executionId, reviewStep.id)
+    ) {
+      throw new Error(
+        `step ${reviewStep.id} has blocked workflow handoff validation issues`,
+      );
+    }
     const review = createReviewRecord({
       executionId,
       stepId: reviewStep.id,
@@ -4379,9 +4527,12 @@ export async function recordReviewDecision(
     });
 
     if (payload.status === "approved") {
-      const updatedStep = transitionStepRecord(reviewStep, "approval_pending", {
+      const nextStepState = reviewStep.approvalRequired
+        ? "approval_pending"
+        : "completed";
+      const updatedStep = transitionStepRecord(reviewStep, nextStepState, {
         reviewStatus: payload.status,
-        approvalStatus: reviewStep.approvalRequired ? "pending" : null,
+        approvalStatus: reviewStep.approvalRequired ? "pending" : "approved",
       });
       updateStep(db, updatedStep);
       settleStepWorkspace(db, updatedStep, "settled", {
@@ -4415,6 +4566,45 @@ export async function recordReviewDecision(
     }
 
     const retryTarget = selectRetryTargetStep(steps, reviewStep, execution);
+    const validationRetryTarget =
+      payload.status === "changes_requested" &&
+      !retryTarget &&
+      hasBlockingInvalidHandoff(db, executionId, reviewStep.id)
+        ? prepareOperatorResumeStep(
+            reviewStep,
+            execution,
+            "handoff_validation_rework",
+          )
+        : null;
+
+    if (payload.status === "changes_requested" && validationRetryTarget) {
+      updateStep(db, validationRetryTarget);
+      const updatedExecution = transitionExecutionAfterProgress(
+        execution,
+        "running",
+        {
+          currentStepIndex: validationRetryTarget.sequence,
+          reviewStatus: payload.status,
+          approvalStatus: null,
+        },
+      );
+      updateExecution(db, updatedExecution);
+      emitWorkflowEvent(db, {
+        executionId,
+        stepId: validationRetryTarget.id,
+        sessionId: validationRetryTarget.sessionId,
+        type: "workflow.review.changes_requested",
+        payload: {
+          retryTargetStepId: validationRetryTarget.id,
+          retryTargetRole: validationRetryTarget.role,
+          nextAttempt: validationRetryTarget.attemptCount,
+          nextSessionId: validationRetryTarget.sessionId,
+          resetStepIds: [validationRetryTarget.id],
+          validationRework: true,
+        },
+      });
+      return getExecutionDetail(executionId, dbPath, sessionDbPath);
+    }
 
     if (
       payload.status === "changes_requested" &&

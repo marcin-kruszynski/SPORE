@@ -1,1283 +1,823 @@
 <div align="center">
 
+<br/>
+
 ```
-   _____ ____  ____  ____  ______
-  / ___// __ \/ __ \/ __ \/ ____/
-  \__ \/ /_/ / / / / /_/ / __/   
- ___/ / ____/ /_/ / _, _/ /___   
-/____/_/    \____/_/ |_/_____/   
+   ███████╗██████╗  ██████╗ ██████╗ ███████╗
+   ██╔════╝██╔══██╗██╔═══██╗██╔══██╗██╔════╝
+   ███████╗██████╔╝██║   ██║██████╔╝█████╗  
+   ╚════██║██╔═══╝ ██║   ██║██╔══██╗██╔══╝  
+   ███████║██║     ╚██████╔╝██║  ██║███████╗
+   ╚══════╝╚═╝      ╚═════╝ ╚═╝  ╚═╝╚══════╝
 ```
 
-### Swarm Protocol for Orchestration, Rituals & Execution
+### **Swarm Protocol for Orchestration, Rituals & Execution**
 
-A modular, profile-driven, documentation-first foundation<br/>for multi-agent orchestration across software projects.
+*A self-improving multi-agent orchestration platform*<br/>
+*that governs its own development.*
+
+<br/>
+
+[![Node 24+](https://img.shields.io/badge/Node-24%2B-339933?style=for-the-badge&logo=node.js&logoColor=white)](https://nodejs.org)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org)
+[![Zero Dependencies](https://img.shields.io/badge/Runtime_Deps-Zero-00C853?style=for-the-badge)](.)
+[![Local-First](https://img.shields.io/badge/Storage-Local--First_SQLite-FF6F00?style=for-the-badge)](.)
+[![License: MIT](https://img.shields.io/badge/License-MIT-A855F7?style=for-the-badge)](LICENSE)
+
+<br/>
+
+**Documentation-First** · **Profile-Driven** · **Self-Building** · **Human-Steerable** · **Fully Observable**
 
 ---
 
-**Documentation-First** · **Profile-Driven** · **Local-First** · **PI-Runtime** · **Human-Steerable**
+<br/>
+
+[Architecture](#-architecture) · [How It Works](#-how-it-works) · [Self-Build](#-self-build-system) · [Roles](#-role-system) · [Surfaces](#-operator-surfaces) · [Quick Start](#-quick-start) · [Roadmap](#-roadmap) · [Docs](#-documentation)
 
 </div>
 
----
+<br/>
 
-## Table of Contents
+## Why SPORE?
 
-- [Vision](#vision)
-- [Core Principles](#core-principles)
-- [Architecture Overview](#architecture-overview)
-- [Role Hierarchy](#role-hierarchy)
-- [Session Lifecycle](#session-lifecycle)
-- [Workflow Orchestration](#workflow-orchestration)
-- [System Layers](#system-layers)
-- [Package Map](#package-map)
-- [Configuration Model](#configuration-model)
-- [Data Architecture](#data-architecture)
-- [Operator Surfaces](#operator-surfaces)
-- [End-to-End Flow](#end-to-end-flow)
-- [Current Stage](#current-stage)
-- [Getting Started](#getting-started)
-- [Working Commands](#working-commands)
-- [Repository Structure](#repository-structure)
-- [Design Influences](#design-influences)
-- [Documentation](#documentation)
-- [License](#license)
+Agentic workflows fail for three predictable reasons: they **mix implementation with coordination**, they **hide decisions in chat** that vanish when sessions end, and they provide **weak inspectability** -- operators cannot see, steer, or trust what agents are doing.
 
----
+SPORE solves this with a **structured orchestration protocol** where every decision is a durable artifact, every agent runs in an inspectable session, and the system can **safely improve itself** through governed, observable loops.
 
-## Vision
+> **SPORE doesn't just orchestrate agents -- it orchestrates its own evolution.**
 
-Agentic workflows fail for three predictable reasons:
+<br/>
 
-1. **They mix implementation with coordination** -- agents try to do everything at once.
-2. **They hide architectural intent in chat** -- decisions vanish after the session ends.
-3. **They provide weak inspectability** -- operators cannot see, steer, or trust what agents are doing.
+## ✦ Key Capabilities
 
-SPORE addresses this by building a **structured orchestration protocol** where:
+<table>
+<tr>
+<td width="33%" valign="top">
 
-- An **orchestrator** dispatches work through **domain-aware leads**.
-- Leads decompose tasks across **specialized workers** (scouts, builders, testers).
-- An independent **reviewer** provides quality gates with approve/revise/reject verdicts.
-- Every agent runs in a **durable, inspectable session** backed by tmux.
-- All behavior is driven by **declarative profiles and workflow templates**, not hardcoded logic.
-- **Documentation and decisions are first-class artifacts**, not afterthoughts.
+### 🎭 Role-Based Orchestration
+An orchestrator dispatches through domain-aware leads to specialized workers. Eight architectural roles with profile-driven behavior.
 
-### North Star Outcomes
+</td>
+<td width="33%" valign="top">
 
-| Outcome | How SPORE Achieves It |
-|---|---|
-| Faster multi-project execution with governance | Orchestrator-to-lead-to-worker delegation with workflow templates |
-| Predictable quality gates | Reviewer lanes with approve/revise/reject handoff policies |
-| Human-steerable transparent runtime | Live tmux sessions, SSE event streams, operator control actions |
-| Strong retrieval of prior decisions | Local-first docs knowledge base with keyword + semantic search |
-| Domain-shaped execution behavior | Domain policies override retries, watchdogs, session mode, and docs retrieval |
-| Coordinated execution families | Rooted execution trees, branch spawning, and lineage-aware group control |
-| Parallel work inside one execution | Workflow step sets become launch waves with multiple active steps |
-| Durable operator validation loops | Scenario and regression catalogs with rerun, trends, reports, run-center summaries, and live session diagnostics |
-| Actionable operator triage | Run-center alerts, explicit failure classification, and recovery suggestions on runs and live sessions |
-| Snapshot-based final verification | Builder authoring workspaces hand off git-backed snapshots to separate tester verification workspaces |
+### 🔄 Supervised Self-Build
+SPORE plans, executes, reviews, and promotes improvements to itself through governed loops with human checkpoints.
 
----
+</td>
+<td width="33%" valign="top">
 
-## Core Principles
+### 🔍 Full Observability
+Every session runs in tmux. Every decision is recorded. Every workflow step produces durable, inspectable artifacts.
 
-```
- 1. Documentation-first              7. Observability before scale
- 2. Local-first by default           8. Live inspectability of active agents
- 3. Composable over monolithic       9. Human-steerable orchestration
- 4. Profiles over hardcoded roles   10. Clear planning/execution/review boundaries
- 5. Templates over ad hoc            11. Safe incrementalism
- 6. Runtime abstraction, PI-first   12. Reference, do not clone
-```
+</td>
+</tr>
+<tr>
+<td width="33%" valign="top">
+
+### 📋 Durable Governance
+Review gates, approval workflows, quarantine, rollback, escalation resolution -- governance is structural, not advisory.
+
+</td>
+<td width="33%" valign="top">
+
+### 💬 Operator Chat Control
+Natural language mission control. State goals, review plans, approve gates, and steer execution through conversation.
+
+</td>
+<td width="33%" valign="top">
+
+### 🧩 Zero Runtime Dependencies
+Built entirely on Node.js built-ins. SQLite for state. tmux for sessions. No external services required.
+
+</td>
+</tr>
+</table>
+
+<br/>
 
 ---
 
-## Architecture Overview
+<br/>
 
-SPORE is organized into five distinct architectural layers, each with clear ownership boundaries:
+## 🏗 Architecture
+
+SPORE is organized into **five distinct layers**, each with clear ownership boundaries:
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                    5. CLIENT SURFACES                               │
-│         ┌──────────┐   ┌──────────┐   ┌──────────┐                │
-│         │   CLI    │   │   TUI    │   │  Web UI  │                │
-│         └────┬─────┘   └────┬─────┘   └────┬─────┘                │
-│              │              │               │                       │
-├──────────────┼──────────────┼───────────────┼───────────────────────┤
-│              4. SESSION & OBSERVABILITY                              │
-│         ┌────┴──────────────┴───────────────┴────┐                 │
-│         │         Session Gateway (HTTP)          │                 │
-│         │    status · events · artifacts · SSE    │                 │
-│         │    control: stop · complete · steer     │                 │
-│         └────────────────┬───────────────────────┘                 │
-│                          │                                          │
-│         ┌────────────────┴───────────────────────┐                 │
-│         │         Session Manager (SQLite)        │                 │
-│         │  lifecycle · metadata · events · feed   │                 │
-│         │  reconciliation · detached recovery     │                 │
-│         └────────────────────────────────────────┘                 │
-│                                                                     │
-├─────────────────────────────────────────────────────────────────────┤
-│              3. RUNTIME & ORCHESTRATION                              │
-│    ┌────────────────────┐     ┌─────────────────────────┐          │
-│    │   Orchestrator     │     │     Runtime PI           │          │
-│    │  plan · invoke     │     │  plan · launch · steer   │          │
-│    │  drive · review    │     │  pi-rpc · pi-json · stub │          │
-│    │  approve · reject  │     │  tmux-backed execution   │          │
-│    └────────┬───────────┘     └──────────┬──────────────┘          │
-│             │     step-by-step drive      │                         │
-│             └─────────────────────────────┘                         │
-│                                                                     │
-├─────────────────────────────────────────────────────────────────────┤
-│              2. CONFIGURATION                                       │
-│    ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐            │
-│    │ Profiles │ │ Workflows│ │ Projects │ │ Domains  │            │
-│    │  6 roles │ │ 4 types  │ │  compose │ │  4 areas │            │
-│    └──────────┘ └──────────┘ └──────────┘ └──────────┘            │
-│    ┌──────────┐ ┌──────────┐ ┌───────────────────────┐            │
-│    │  Teams   │ │  System  │ │  JSON Schema Validation│            │
-│    │  2 seeds │ │ defaults │ │  12 schema definitions │            │
-│    └──────────┘ └──────────┘ └───────────────────────┘            │
-│                                                                     │
-├─────────────────────────────────────────────────────────────────────┤
-│              1. KNOWLEDGE & GOVERNANCE                               │
-│    ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐            │
-│    │   Docs   │ │   ADRs   │ │ Research │ │ Docs KB  │            │
-│    │  111 md  │ │ decisions│ │  6 repos │ │  SQLite  │            │
-│    │  files   │ │  tracked │ │ analyzed │ │  search  │            │
-│    └──────────┘ └──────────┘ └──────────┘ └──────────┘            │
-└─────────────────────────────────────────────────────────────────────┘
+╔═══════════════════════════════════════════════════════════════════════════╗
+║                                                                         ║
+║   ┌─────────────┐    ┌─────────────┐    ┌─────────────┐                ║
+║   │  🌐 Web UI  │    │  📟 TUI     │    │  ⌨️  CLIs   │                ║
+║   │  :8788      │    │  Dashboard  │    │  100+ cmds  │                ║
+║   └──────┬──────┘    └──────┬──────┘    └──────┬──────┘   SURFACES    ║
+║          └──────────────────┼──────────────────┘                       ║
+║ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┼ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ║
+║                             │                                          ║
+║   ┌─────────────────────────┴──────────────────────────┐               ║
+║   │             Session Gateway  :8787                  │               ║
+║   │      status · events · artifacts · SSE · control    │  OBSERVE     ║
+║   └─────────────────────────┬──────────────────────────┘               ║
+║                             │                                          ║
+║   ┌─────────────────────────┴──────────────────────────┐               ║
+║   │             Session Manager (SQLite)                │               ║
+║   │      lifecycle · metadata · events · reconcile      │               ║
+║   └────────────────────────────────────────────────────┘               ║
+║ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ║
+║                                                                         ║
+║   ┌──────────────────────┐    ┌────────────────────────┐               ║
+║   │   Orchestrator :8789 │    │    Runtime PI           │               ║
+║   │   plan · invoke      │    │    plan · launch        │  EXECUTE     ║
+║   │   drive · review     │    │    pi-rpc · steer       │               ║
+║   │   self-build · govern│    │    tmux-backed          │               ║
+║   └──────────┬───────────┘    └──────────┬─────────────┘               ║
+║              └───────── step drive ──────┘                              ║
+║ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ║
+║                                                                         ║
+║   ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐             ║
+║   │Profiles│ │Workflows│ │Projects│ │Domains │ │ Policy │  CONFIGURE  ║
+║   │  8     │ │  12    │ │   2    │ │   4    │ │ Packs 7│             ║
+║   └────────┘ └────────┘ └────────┘ └────────┘ └────────┘             ║
+║   ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐                        ║
+║   │Scenarios│ │Regress.│ │V-Bundle│ │Schemas │                        ║
+║   │  11    │ │   6    │ │   4    │ │  15    │                        ║
+║   └────────┘ └────────┘ └────────┘ └────────┘                        ║
+║ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ║
+║                                                                         ║
+║   ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐                        ║
+║   │  Docs  │ │  ADRs  │ │Research│ │Docs KB │   KNOWLEDGE            ║
+║   │ 100+   │ │  14    │ │   6    │ │ SQLite │                        ║
+║   └────────┘ └────────┘ └────────┘ └────────┘                        ║
+║                                                                         ║
+╚═══════════════════════════════════════════════════════════════════════════╝
 ```
 
-**Boundary rules:**
-- Knowledge retrieval is never hidden inside the orchestrator.
-- Session metadata is never UI-specific.
-- Clients never own domain logic.
-- Runtime details never leak into config without an explicit adapter.
+**Core boundary rules:**
+- Clients are thin over HTTP -- never touch SQLite directly
+- Sessions explain runtime; executions explain workflow; coordination groups explain management
+- Knowledge retrieval is domain-policy-shaped, never hidden inside the orchestrator
+- Approval ≠ Promotion ≠ Merge -- each is a distinct governed transition
+
+<br/>
 
 ---
 
-## Role Hierarchy
+<br/>
 
-SPORE now uses eight architectural roles. Concrete behavior is attached via **profiles** -- the same role can have domain-specific variants (e.g., `backend-builder`, `docs-scout`, `browser-tester`).
+## ⚡ How It Works
+
+### 1. Plan
+
+The orchestrator resolves profiles, merges domain policies, and builds a multi-step execution plan:
 
 ```
-                        ┌──────────────┐
-                        │  HUMAN       │
-                        │  OPERATOR    │
-                        └──────┬───────┘
-                               │ directs
-                        ┌──────▼───────┐
-                        │ ORCHESTRATOR │
-                        └──────┬───────┘
-                               │ portfolio / project dispatch
-                        ┌──────▼───────┐
-                        │ COORDINATOR  │
-                        │ project root │
-                        └──────┬───────┘
-                               │ delegates to domain
-               ┌───────────────┼───────────────┐
-               │               │               │
-        ┌──────▼──────┐ ┌─────▼──────┐ ┌─────▼──────┐
-        │    LEAD     │ │    LEAD    │ │    LEAD    │
-        │  (backend)  │ │ (frontend) │ │   (cli)    │
-        │             │ │            │ │            │
-        │ Decomposes  │ │ Decomposes │ │ Decomposes │
-        │ tasks,      │ │ tasks,     │ │ tasks,     │
-        │ invokes     │ │ invokes    │ │ invokes    │
-        │ workers     │ │ workers    │ │ workers    │
-        └──────┬──────┘ └────────────┘ └────────────┘
-               │                                      ┌────────────┐
-               │                                      │ INTEGRATOR │
-               │                                      │ promotion  │
-               │                                      └────────────┘
-               │
-    ┌──────────┼──────────┐
-    │          │          │
-┌───▼───┐ ┌───▼────┐ ┌───▼────┐     ┌──────────┐
-│ SCOUT │ │BUILDER │ │ TESTER │     │ REVIEWER │
-│       │ │        │ │        │     │          │
-│Research│ │Implement│ │Validate│ ──► │ Quality  │
-│explore│ │ code   │ │ verify │     │ gate     │
-│analyze│ │ docs   │ │ report │     │ approve/ │
-│       │ │        │ │        │     │ revise/  │
-└───────┘ └────────┘ └────────┘     │ reject   │
-                                     └──────────┘
+  Workflow YAML ──┐     ┌── Domain Policy
+  Profile YAML ───┤     ├── Policy Packs
+  Project YAML ───┘     └── Runtime Config
+          │                       │
+          └───────┬───────────────┘
+                  ▼
+       ┌─────────────────────┐
+       │   ORCHESTRATOR      │
+       │   ─────────────     │
+       │   Resolve profiles  │
+       │   Merge policies    │
+       │   Build step plan   │
+       │   Snapshot config   │
+       └─────────┬───────────┘
+                 │
+                 ▼
+       Durable Execution Record
+       (SQLite + event log)
 ```
 
-| Role | Session Mode | Core Responsibility |
-|---|---|---|
-| **Orchestrator** | persistent | Portfolio and top-level workflow coordinator |
-| **Coordinator** | persistent | Project-root coordinator over one execution family; read-mostly by default |
-| **Lead** | persistent | Domain-scoped coordinator; task decomposition; worker invocation |
-| **Scout** | ephemeral | Research-first exploration; source/docs analysis; findings handoff |
-| **Builder** | ephemeral | Implementation-focused; produces code and artifacts; requires review |
-| **Tester** | ephemeral | Validation; runs tests/probes/checklists; reports defects with evidence |
-| **Reviewer** | ephemeral | Independent quality gate; approve/revise/reject verdicts |
-| **Integrator** | ephemeral | Explicit post-review promotion lane using a dedicated integration workspace |
+### 2. Execute
+
+Each step launches a tmux-backed PI session. The orchestrator drives step-by-step with watchdogs:
+
+```
+       Step 1 (scout)          Step 2 (builder)         Step 3 (tester)
+      ┌──────────────┐        ┌──────────────┐        ┌──────────────┐
+      │  📡 Research │   ──►  │  🔨 Build    │   ──►  │  🧪 Verify   │
+      │  tmux + PI   │        │  tmux + PI   │        │  tmux + PI   │
+      │  RPC control │        │  workspace   │        │  snapshot    │
+      └──────┬───────┘        └──────┬───────┘        └──────┬───────┘
+             │                       │                        │
+             ▼                       ▼                        ▼
+       scout_findings        implementation_summary    verification_summary
+                             + workspace_snapshot
+```
+
+### 3. Review & Govern
+
+Independent reviewer provides quality gates. Operator can intervene at any point:
+
+```
+       ┌──────────────┐
+       │  📝 Reviewer  │
+       │  Independent  │
+       │  quality gate │
+       └──────┬───────┘
+              │
+      ┌───────┼───────┐
+      │       │       │
+   approve  revise  reject
+      │       │       │
+      ▼       ▼       ▼
+   proceed  retry    fail
+      │
+      ▼
+   ┌──────────────┐        ┌───────────────────────────┐
+   │  🔄 Promote  │   ──►  │  Integration Branch       │
+   │  Integrator  │        │  (never auto-merge main)  │
+   └──────────────┘        └───────────────────────────┘
+```
+
+### 4. Observe & Steer
+
+Every artifact is inspectable. Operators see everything in real-time:
+
+```
+   ┌─────────────────────────────────────────────────────────────┐
+   │                    OPERATOR SURFACES                         │
+   │                                                             │
+   │   💬 Chat       "Start a docs maintenance pass"             │
+   │   ────────      Server projects plan → operator reviews     │
+   │                 Approve gates via buttons or natural text    │
+   │                                                             │
+   │   🌐 Web UI     Execution trees · Lineage boards            │
+   │   ────────      Wave progression · Governance controls      │
+   │                 Self-build dashboard · Live SSE streams     │
+   │                                                             │
+   │   📟 TUI        Dashboard · Inspect · Run-center            │
+   │   ────────      100+ commands · Self-build triage           │
+   │                                                             │
+   │   📊 Events     NDJSON event log · SSE streaming            │
+   │   ────────      Session + workflow + control events         │
+   └─────────────────────────────────────────────────────────────┘
+```
+
+<br/>
 
 ---
 
-## Session Lifecycle
+<br/>
 
-Every agent runs in a **durable, inspectable session**. Sessions are backed by tmux for live terminal inspection, tracked in SQLite for metadata, and observable through NDJSON event logs.
+## 🔄 Self-Build System
+
+SPORE's flagship capability: **the system improves itself** through governed, observable loops with human checkpoints at every critical transition.
 
 ```
-                    ┌─────────┐
-                    │ PLANNED │
-                    └────┬────┘
-                         │ launch
-                    ┌────▼────┐
-                    │STARTING │
-                    └────┬────┘
-                         │ agent responds
-                    ┌────▼────┐
-             ┌──────│ ACTIVE  │──────┐
-             │      └────┬────┘      │
-             │           │           │
-        operator    task done    error/timeout
-        pause            │           │
-             │      ┌────▼─────┐ ┌───▼────┐
-             │      │COMPLETED │ │ FAILED │
-             │      └──────────┘ └────────┘
-        ┌────▼────┐
-        │ PAUSED  │      operator    ┌─────────┐
-        └─────────┘      stop ──────►│ STOPPED │
-                                     └─────────┘
-              operator cancel        ┌──────────┐
-              ──────────────────────►│ CANCELED │
-                                     └──────────┘
-
-        All terminal states ──────►  ┌──────────┐
-                                     │ ARCHIVED │
-                                     └──────────┘
+   ┌──────────┐     ┌──────────┐     ┌──────────┐     ┌──────────┐     ┌──────────┐
+   │          │     │          │     │          │     │          │     │          │
+   │  🎯 Goal │────►│  📋 Plan │────►│  ⚙️ Run  │────►│  ✅ Valid │────►│  🚀 Prom │
+   │          │     │          │     │          │     │          │     │          │
+   │  Define  │     │  Review  │     │ Execute  │     │ Validate │     │ Promote  │
+   │  intent  │     │  & edit  │     │ in       │     │ with     │     │ to       │
+   │          │     │  items   │     │ isolated │     │ bundles  │     │ integ.   │
+   │          │     │          │     │ workspace│     │          │     │ branch   │
+   └──────────┘     └──────────┘     └──────────┘     └──────────┘     └──────────┘
+        │                │                │                │                │
+        ▼                ▼                ▼                ▼                ▼
+   Operator         Operator         Workspace        Proposal        Integration
+   states goal      reviews plan     isolation        artifacts       branch
+   in chat          edits items      git worktree     review/approve  landing zone
 ```
 
-**Session metadata links to:** project, domain, team, workflow template, task/goal, role profile, parent/child relationships, tmux session name, launcher type, launch command.
+### The Self-Build Pipeline
 
-**Per-session artifacts** (stored in `tmp/sessions/`):
+| Stage | What Happens | Governance |
+|-------|-------------|------------|
+| **Goal** | Operator states an objective via chat or CLI | Natural language, converted to structured plan |
+| **Plan** | System creates work items from templates | Operator reviews, edits, reorders before materialization |
+| **Execute** | Each work item runs in an isolated git worktree | Policy-gated, watchdog-monitored, workspace-backed |
+| **Validate** | Named validation bundles check results | Typecheck, lint, tests, format -- configurable per domain |
+| **Propose** | Builder outputs become proposal artifacts | Separate review and approval transitions |
+| **Promote** | Integrator moves approved work to integration branch | Never auto-merges to main; operator decides |
 
-| Artifact | Format | Purpose |
-|---|---|---|
-| `<id>.plan.json` | JSON | Session launch plan |
-| `<id>.context.json` | JSON | Startup retrieval context from docs-kb |
-| `<id>.prompt.md` | Markdown | Generated system prompt |
-| `<id>.launch.sh` | Bash | tmux launch script |
-| `<id>.transcript.md` | Markdown | Live-appended session transcript |
-| `<id>.pi-events.jsonl` | NDJSON | Raw PI event stream |
-| `<id>.pi-session.jsonl` | NDJSON | RPC session log |
-| `<id>.control.ndjson` | NDJSON | Control message queue |
-| `<id>.exit.json` | JSON | Process exit code |
-| `<id>.rpc-status.json` | JSON | RPC runner state snapshot |
+### Safety Mechanisms
+
+```
+   ┌─────────────────────────────────────────────────────────┐
+   │                   GOVERNANCE LAYER                       │
+   │                                                         │
+   │   🛡️  Protected Scope      Override requests for        │
+   │       Guards               sensitive repository areas   │
+   │                                                         │
+   │   🔒 Quarantine            Block further attempts       │
+   │       Records              until operator releases      │
+   │                                                         │
+   │   ⏪ Rollback              Revert integration branch    │
+   │       Actions              changes with full lineage    │
+   │                                                         │
+   │   📊 Learning              Extract patterns from        │
+   │       Trends               past runs to improve plans   │
+   │                                                         │
+   │   🎚️  Policy               Auto-derived tuning          │
+   │       Recommendations      candidates from learnings    │
+   │                                                         │
+   │   📥 Autonomous            Priority-scored intake       │
+   │       Intake Queue         from learnings & diagnostics │
+   └─────────────────────────────────────────────────────────┘
+```
+
+<br/>
 
 ---
 
-## Workflow Orchestration
+<br/>
 
-Workflows are **durable, multi-step execution plans** with built-in review and approval gates. The orchestrator drives each step sequentially, launching sessions and monitoring completion.
+## 🎭 Role System
 
-Workflow behavior now also passes through a merged domain policy layer. The effective execution policy is composed from:
-
-- workflow defaults from `config/workflows/*.yaml`
-- domain defaults from `config/domains/*.yaml`
-- project-specific domain overrides from `config/projects/* activeDomains[]`
-
-That policy currently controls:
-
-- default role sets when a caller does not specify roles,
-- per-role retry limits,
-- step watchdog soft and hard timeouts,
-- reviewer-step review and approval requirements,
-- per-role session mode overrides,
-- role-scoped workspace defaults for the canonical builder/tester verification handoff,
-- startup retrieval query terms and result limits for `docs-kb`.
-
-Reusable policy packs in `config/policy-packs/` can feed those same merged blocks before raw domain and project overrides are applied.
-
-The merged policy is snapshotted into each execution and step record at creation time so later config edits do not erase the provenance of a past run.
-
-Workflow templates can now define `stepSets` with explicit wave gates:
-
-- `all`
-- `any`
-- `min_success_count`
-
-This lets one execution express both strict sequential stages and partially unlocked parallel work.
+Eight architectural roles form SPORE's delegation hierarchy. Concrete behavior is attached via **profiles** -- the same role can have domain-specific variants.
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                    WORKFLOW EXECUTION                            │
-│                                                                 │
-│  ┌─────────┐   ┌──────────┐   ┌──────────┐   ┌─────────────┐ │
-│  │  PLAN   │──►│ RUNNING  │──►│ WAITING  │──►│  WAITING    │ │
-│  │         │   │          │   │ REVIEW   │   │  APPROVAL   │ │
-│  └─────────┘   └──────────┘   └──────────┘   └──────┬──────┘ │
-│                                                       │        │
-│                          ┌───────────────┬────────────┤        │
-│                          │               │            │        │
-│                    ┌─────▼─────┐  ┌──────▼───┐ ┌─────▼─────┐ │
-│                    │ COMPLETED │  │ REJECTED │ │  FAILED   │ │
-│                    └───────────┘  └──────────┘ └───────────┘ │
-└─────────────────────────────────────────────────────────────────┘
+                              ┌─────────────────┐
+                              │   👤 OPERATOR    │
+                              │   Human-in-loop  │
+                              └────────┬────────┘
+                                       │
+                              ┌────────▼────────┐
+                              │  🎯 ORCHESTRATOR │  Portfolio coordinator
+                              │     persistent   │  Dispatches projects
+                              └────────┬────────┘
+                                       │
+                              ┌────────▼────────┐
+                              │  📊 COORDINATOR  │  Project-root manager
+                              │     persistent   │  Read-mostly, delegates
+                              └────────┬────────┘
+                                       │
+                 ┌─────────────────────┼─────────────────────┐
+                 │                     │                     │
+        ┌────────▼────────┐   ┌────────▼────────┐  ┌────────▼────────┐
+        │   📐 LEAD       │   │   📐 LEAD       │  │   📐 LEAD       │
+        │   (backend)     │   │   (frontend)    │  │   (docs)        │
+        │   persistent    │   │   persistent    │  │   persistent    │
+        └────────┬────────┘   └─────────────────┘  └─────────────────┘
+                 │
+    ┌────────────┼────────────┐
+    │            │            │
+┌───▼───┐  ┌────▼───┐  ┌────▼───┐       ┌──────────┐     ┌──────────────┐
+│📡SCOUT│  │🔨BUILD │  │🧪TEST  │       │📝REVIEWER│     │🔄 INTEGRATOR │
+│explore│  │ code   │  │verify  │  ───► │ approve/ │     │   promote    │
+│analyze│  │ docs   │  │report  │       │ revise/  │     │   to branch  │
+│       │  │        │  │        │       │ reject   │     │              │
+└───────┘  └────────┘  └────────┘       └──────────┘     └──────────────┘
+ephemeral   ephemeral   ephemeral        ephemeral          ephemeral
 ```
 
-**Step execution within a workflow:**
+### Workflow Handoffs
+
+Each role produces a **semantic handoff artifact** consumed by the next step:
 
 ```
-                ┌───────────────────────────────────────────┐
-  Step 1        │  Scout   ─── research & findings ───────► │
-  (scout)       └───────────────────────────────────────────┘
-                                    │
-                                    ▼
-                ┌───────────────────────────────────────────┐
-  Step 2        │  Builder ─── implement & document ──────► │
-  (builder)     └───────────────────────────────────────────┘
-                                    │
-                                    ▼
-                ┌───────────────────────────────────────────┐
-  Step 3        │  Tester  ─── validate & report ─────────► │
-  (tester)      └───────────────────────────────────────────┘
-                                    │
-                                    ▼
-                ┌───────────────────────────────────────────┐
-  Step 4        │  Reviewer ── approve / revise / reject ─► │
-  (reviewer)    └───────────────────────────────────────────┘
-                                    │
-                            ┌───────┼───────┐
-                            │       │       │
-                         approve  revise  reject
-                            │       │       │
-                            ▼       ▼       ▼
-                         proceed  retry   fail
+   Lead ─────────► task_brief ─────────────────────────────────────────►
+                                                                        │
+   Scout ────────► scout_findings ─────────────────────────────────────►│
+                                                                        │
+   Builder ──────► implementation_summary + workspace_snapshot ────────►│
+                                                                        │
+   Tester ───────► verification_summary ──────────────────────────────►│
+                                                                        │
+   Reviewer ─────► review_summary ─────────────────────────────────────►│
+                                                                        ▼
+                                                              Proposal Artifact
 ```
 
-**Step watchdog:** soft timeout (20s) sends a steer message; hard timeout (45s) sends abort.
-
-### Seeded Workflow Templates
-
-| Workflow | Trigger | Role Sequence | Review Required | Max Retries |
-|---|---|---|---|---|
-| `feature-delivery` | manual | orchestrator -> lead -> scout -> builder -> tester -> reviewer | yes | 2 |
-| `bugfix` | manual | orchestrator -> lead -> builder -> tester -> reviewer | yes | 3 |
-| `research-spike` | manual | orchestrator -> lead -> scout -> reviewer | no | 1 |
-| `review-pass` | handoff | lead -> reviewer | yes | 1 |
+<br/>
 
 ---
 
-## System Layers
+<br/>
 
-### Layer 1: Knowledge & Governance
+## 🖥 Operator Surfaces
 
-The documentation operating system is the project's backbone. Every architectural change must produce a doc update. Decisions are tracked as ADRs. Knowledge is classified by type, domain, status, and owner.
+### Web Console `:8788`
 
-```
-docs/
-├── vision/            Product vision, principles, glossary
-├── architecture/      System overview, session/runtime/event/config/role/workflow models
-├── decisions/         Architecture Decision Records (ADR-XXXX-topic.md)
-├── research/          Reference study notes (overstory, gastown, mulch, beads, pi, book)
-├── specs/             Formal specifications
-├── plans/             Roadmap, backlog, implementation waves
-├── roadmap/           13-wave implementation roadmap across 5 phases
-├── operations/        Policies (decisions, docs, knowledge, sessions, workspace)
-├── runbooks/          Local dev, doc maintenance, reference sync, bootstrap
-├── domains/           9 domain scaffolds (frontend, backend, cli, agent-runtime, ...)
-├── templates/         Doc, profile, project, research, workflow templates
-└── index/             DOCS_INDEX.md + docs_manifest.yaml
-```
-
-**Docs KB** (`packages/docs-kb/`) provides local-first search:
-- SQLite-backed index with documents, chunks, and embeddings
-- Heading-aware markdown chunking (target 900 chars)
-- Blended keyword + semantic scoring (FNV-1a hash embeddings)
-- CLI: `docs-kb index | search "query" | status | rebuild`
-
-### Layer 2: Configuration
-
-All configuration is declarative YAML, validated against 12 JSON schemas.
+A TypeScript browser SPA providing full operator visibility:
 
 ```
-config/
-├── profiles/     6 role profiles (orchestrator, lead, builder, reviewer, scout, tester)
-├── workflows/    4 workflow templates (feature-delivery, bugfix, research-spike, review-pass)
-├── projects/     1 example project (multi-domain platform)
-├── domains/      4 domain configs (backend, frontend, cli, docs)
-├── teams/        2 team compositions (service-team, web-app-team)
-└── system/       4 system configs (defaults, runtime, observability, permissions)
+┌──────────────────────────────────────────────────────────────────────┐
+│  SPORE Operator Console                                     :8788   │
+├──────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│  ┌─────────────────────────────────────────┐  ┌───────────────────┐ │
+│  │  💬 Operator Chat                       │  │  📊 Self-Build    │ │
+│  │  ─────────────────                      │  │  Dashboard        │ │
+│  │  > "Run a docs maintenance pass"        │  │                   │ │
+│  │                                         │  │  Plans: 3 active  │ │
+│  │  🤖 I'll create a goal plan for docs    │  │  Items: 12 total  │ │
+│  │     maintenance. Here's what I suggest: │  │  Runs:  8 done    │ │
+│  │                                         │  │  Proposals: 2     │ │
+│  │  📋 Work Items:                         │  │                   │ │
+│  │  1. ADR index sync                      │  │  ⚠️ 1 needs review │ │
+│  │  2. Stale doc detection                 │  │  ✅ 7 validated    │ │
+│  │  3. Manifest alignment                  │  │                   │ │
+│  │                                         │  │  Workspace Health  │ │
+│  │  [Approve Plan] [Edit Items] [Cancel]   │  │  Active: 3        │ │
+│  └─────────────────────────────────────────┘  │  Stale:  0        │ │
+│                                                └───────────────────┘ │
+│  ┌──────────────────────────────────────────────────────────────────┐│
+│  │  Execution Tree                                                  ││
+│  │  ├── coordinator (completed)                                     ││
+│  │  │   ├── lead-backend (running) ► Step 3/4: builder              ││
+│  │  │   ├── lead-frontend (waiting_review)                          ││
+│  │  │   └── integrator (planned)                                    ││
+│  │  Event Timeline ─── SSE Live Stream ───────────────────────────  ││
+│  └──────────────────────────────────────────────────────────────────┘│
+└──────────────────────────────────────────────────────────────────────┘
 ```
-
-### Layer 3: Runtime & Orchestration
-
-**Runtime PI** translates SPORE profiles into PI session plans and manages tmux-backed execution with three launcher modes:
-
-| Launcher | Mode | Use Case |
-|---|---|---|
-| `pi-rpc` | `pi --mode rpc` | **Primary.** Full bidirectional RPC: steer, follow_up, prompt, abort, get_state |
-| `pi-json` | `pi --mode json` | Debug. One-shot JSON event streaming |
-| `stub` | no pi needed | Fallback. Simulates session for testing without PI |
-
-**Orchestrator** drives multi-step durable workflow executions with review/approval gates, step watchdogs, retry/rework branching, escalation records, and execution state persistence in SQLite.
-
-### Layer 4: Session & Observability
-
-**Session Manager** provides the lifecycle state machine, SQLite metadata store, NDJSON event log, follow-mode feed, and detached session reconciliation.
-
-**Event model** uses a shared metadata envelope:
-
-```json
-{
-  "id": "uuid",
-  "type": "session.active",
-  "timestamp": "ISO-8601",
-  "runId": "...",
-  "sessionId": "...",
-  "agentIdentityId": "...",
-  "payload": { ... }
-}
-```
-
-Currently emitted events:
-- Lifecycle: `session.planned`, `session.starting`, `session.active`, `session.completed`, `session.failed`, `session.stopped`
-- Control: `session.stop_requested`, `session.complete_requested`, `session.steer`
-- Workflow: `workflow.execution.created`, `workflow.step.planned|started|completed|review_pending|retry_scheduled|failed`, `workflow.review.*`, `workflow.approval.*`, `workflow.execution.completed|escalated`
-- Recovery: `workflow.execution.resumed`, `workflow.escalation.resolved`
-
-### Layer 5: Client Surfaces
-
-| Surface | Port | Technology | Status |
-|---|---|---|---|
-| **Package CLIs** | terminal | `tsx` + npm scripts | Implemented (runtime, session, workspace, orchestrator, docs) |
-| **TUI** | terminal | Node CLI | Implemented (dashboard, history, self-build triage) |
-| **Session Gateway** | 8787 | `node:http` | Implemented (REST + SSE) |
-| **Orchestrator Service** | 8789 | `node:http` | Implemented (planning, governance, self-build, promotion) |
-| **Web Console** | 8788 | Vanilla JS SPA | Implemented (gateway + orchestrator operator console + operator chat) |
-| **CLI App** | terminal | planned | `apps/cli/` scaffold only |
-
----
-
-## Package Map
-
-```
-packages/
-├── docs-kb/            Local documentation indexing & search (SQLite)
-├── config-schema/      YAML parsing & JSON schema validation
-├── runtime-pi/         PI runtime integration (plan, launch, steer)
-├── session-manager/    Session lifecycle, metadata store, event log
-├── orchestrator/       Workflow planning, execution, review gates
-├── workspace-manager/  Git worktree provisioning, inspection, cleanup
-├── tui/                Terminal operator dashboard & session inspector
-├── core/               Shared orchestration helpers and repo path utilities
-├── shared-types/       Shared JSON and envelope types
-├── test-support/       Shared integration harnesses and fixtures
-├── shared/             [reserved] Future shared utilities
-├── shared-config/      [reserved] Future shared config helpers
-└── web-ui/             [reserved] Future reusable browser primitives
-
-services/
-├── session-gateway/    HTTP API: sessions, events, artifacts, SSE, control
-├── orchestrator/       HTTP API: workflow, governance, self-build, promotion
-└── indexer/            [reserved] Future indexing service
-
-apps/
-├── web/                Browser operator console (SPA + proxy server)
-└── cli/                [reserved] Future dedicated CLI app shell
-```
-
-### Internal Dependency Graph
-
-```
-config-schema ─────────────────────────────────── (standalone)
-docs-kb ───────────────────────────────────────── (standalone)
-
-runtime-pi ──────┬── config-schema (YAML parsing)
-                 ├── docs-kb (context retrieval)
-                 └── session-manager (session records)
-
-session-manager ─┬── runtime-pi (tmux ops for reconcile)
-                 └── (SQLite stores)
-
-orchestrator ────┬── config-schema (YAML parsing)
-                 ├── runtime-pi (session launch + control queue)
-                 └── session-manager (session state queries)
-
-tui ─────────────┬── session-manager (store + events)
-                 └── runtime-pi (tmux pane capture)
-
-session-gateway ─┬── session-manager (store + events + actions)
-                 └── runtime-pi (tmux + control queue)
-
-web ─────────────┬── proxies to session-gateway (:8787)
-                 └── proxies to orchestrator-service (:8789)
-```
-
-**Dependency posture:** first-party runtime and service code stays intentionally light, leaning on Node built-ins plus the local toolchain (`tsx`, TypeScript, Biome) and the optional external `pi` CLI.
-
----
-
-## Configuration Model
-
-Configuration is no longer only descriptive. Domain and project config now affect live execution behavior.
-
-Profiles are the central abstraction. A profile defines **what an agent is, what it can do, and how it behaves**:
-
-```yaml
-# config/profiles/builder.yaml
-id: builder
-name: Builder
-role: builder
-description: Implementation-focused agent producing code and documentation
-domain: any
-runtime: pi
-systemPromptRef: .pi/prompts/builder.md
-skills:
-  - code-generation
-  - refactoring
-  - documentation-update
-tools:
-  - editor
-  - terminal
-  - docs-search
-permissions:
-  - workspace-write
-  - run-tests
-sessionMode: ephemeral
-reviewPolicy: required
-handoffPolicy: artifact-plus-summary
-docsPolicy: update-with-changes
-telemetryPolicy: standard
-```
-
-**Projects** compose domains, teams, profiles, and workflows into a deployable unit:
-
-```yaml
-# config/projects/example-project.yaml
-id: example-platform
-name: Example Platform Project
-type: multi-domain-platform
-activeDomains: [frontend, backend, cli]
-attachedTeams: [service-team, web-app-team]
-workflowDefaults:
-  defaultWorkflow: feature-delivery
-  reviewRequired: true
-```
-
-**Policy-carrying domains** can now supply executable defaults:
-
-```yaml
-# config/domains/backend.yaml
-workflowPolicy:
-  defaultRoles: [lead, builder, tester, reviewer]
-  stepSoftTimeoutMs: 30000
-  stepHardTimeoutMs: 90000
-  defaultMaxAttempts: 3
-  maxAttemptsByRole:
-    builder: 4
-runtimePolicy:
-  sessionModeByRole:
-    lead: persistent
-    builder: ephemeral
-docsKbPolicy:
-  resultLimit: 6
-  queryTerms: [backend, service, api, integration]
-```
-
----
-
-## Data Architecture
-
-All runtime state is local-first, using SQLite with WAL mode for concurrent reads.
-
-```
-data/
-├── docs-index/
-│   └── spore-docs.sqlite       Docs KB: documents, chunks, embeddings
-├── state/
-│   ├── spore-sessions.sqlite   Session metadata (23 columns)
-│   ├── spore-orchestrator.sqlite  Workflow executions, steps, reviews, approvals, events, escalations
-│   └── events.ndjson           Session lifecycle event log
-├── embeddings/                 Embedding storage (future)
-└── cache/                      Runtime cache (future)
-
-tmp/
-├── sessions/                   Per-session artifacts (plans, prompts, transcripts, ...)
-└── orchestrator/               Per-execution step briefs
-```
-
----
-
-## Operator Surfaces
-
-### Session Gateway API (port 8787)
-
-| Method | Route | Purpose |
-|---|---|---|
-| `GET` | `/health` | Health check |
-| `GET` | `/status` | Aggregate status (counts by state, active sessions) |
-| `GET` | `/sessions` | List all sessions |
-| `GET` | `/sessions/:id` | Session detail + events + artifact summary |
-| `GET` | `/sessions/:id/artifacts` | Artifact file metadata |
-| `GET` | `/sessions/:id/artifacts/:name` | Read artifact content |
-| `GET` | `/events` | Filtered event log (`?session=`, `?run=`, `?type=`, `?since=`, `?limit=`) |
-| `GET` | `/stream/events` | **SSE** live event stream with heartbeats |
-| `POST` | `/sessions/:id/actions/stop` | Stop a session |
-| `POST` | `/sessions/:id/actions/mark-complete` | Mark session completed |
-| `POST` | `/sessions/:id/actions/steer` | Send steer/follow-up message |
-
-### Orchestrator Service API (port 8789)
-
-| Method | Route | Purpose |
-|---|---|---|
-| `GET` | `/health` | Health check |
-| `GET` | `/executions` | List all workflow executions |
-| `GET` | `/executions/:id` | Execution detail (steps, reviews, approvals, events, escalations) |
-| `GET` | `/executions/:id/children` | Child execution list for lineage-aware clients |
-| `GET` | `/coordination-groups` | Coordination-group summaries |
-| `GET` | `/coordination-groups/:id` | Coordination-group detail and grouped execution state |
-| `GET` | `/executions/:id/events` | Workflow event history for one execution |
-| `GET` | `/executions/:id/escalations` | Escalation records for one execution |
-| `GET` | `/stream/executions?execution=:id` | **SSE** live workflow event stream for one execution |
-| `POST` | `/workflows/plan` | Plan a workflow invocation |
-| `POST` | `/workflows/invoke` | Create and drive a workflow execution |
-| `POST` | `/executions/:id/drive` | Drive execution forward |
-| `POST` | `/coordination-groups/:id/drive` | Drive a grouped execution family forward |
-| `POST` | `/executions/:id/pause` | Pause execution without treating it as failure |
-| `POST` | `/executions/:id/hold` | Hold execution for coordination/dependency waiting |
-| `POST` | `/executions/:id/resume` | Resume a paused or held execution |
-| `POST` | `/executions/:id/review` | Submit review decision |
-| `POST` | `/executions/:id/approval` | Submit approval decision |
-| `POST` | `/executions/:id/escalations/:escalationId/resolve` | Resolve escalation and optionally resume execution |
-
-### Web Console (port 8788)
-
-A TypeScript-authored browser surface compiled into `apps/web/public/` that proxies to both services, providing:
-- Status dashboard with session counts by state
-- Coordination-group aware execution list with root/child grouping and branch cues
-- Execution detail view (coordination/lineage board, step/session tree, event timeline, decision log, escalation history)
-- Execution lifecycle management (drive execution, drive group, pause, hold, resume, review, approve)
-- Escalation recovery actions (resolve, resolve + resume)
-- Session detail view (events, transcript, PI events, artifacts)
-- Session control actions (stop, mark-complete, steer)
-- Workflow invocation form
-- Live SSE event streaming
-
-The generated files under `apps/web/public/*.js` are build output from `npm run web:build`, not hand-authored source. The source of truth for the browser app lives under `apps/web/src/`.
 
 ### Terminal UI
 
 ```bash
-npm run ops:dashboard              # Status overview with session table & recent events
-npm run ops:dashboard -- --watch   # Continuous refresh
-npm run ops:inspect -- --session <id>  # Deep session inspection with tmux pane capture
+npm run ops:dashboard              # Live status overview
+npm run ops:dashboard -- --watch   # Continuous refresh mode
+npm run ops:inspect -- --session <id>  # Deep session inspection with tmux capture
 ```
+
+### HTTP APIs
+
+| Service | Port | Endpoints | Purpose |
+|---------|------|-----------|---------|
+| **Session Gateway** | 8787 | 15+ | Session lifecycle, events, artifacts, SSE, control |
+| **Orchestrator** | 8789 | 145+ | Workflows, governance, self-build, scenarios, promotion |
+
+### Package CLIs
+
+Over **100 operator commands** through npm scripts covering orchestration, sessions, workspaces, scenarios, regressions, self-build, goal plans, proposals, governance, and more.
+
+<br/>
 
 ---
 
-## End-to-End Flow
+<br/>
 
-### Single Session Launch
-
-```
- Profile YAML                        docs-kb
- + Project YAML                      (SQLite)
-       │                                │
-       ▼                                │
- ┌─────────────┐    query context  ┌────▼──────┐
- │  Plan Build  │ ────────────────►│  Context   │
- │  (runtime-pi)│                  │  Builder   │
- └──────┬──────┘                   └────┬───────┘
-        │                               │
-        │ plan.json + context.json      │
-        │ + prompt.md + launch.sh       │
-        ▼                               │
- ┌──────────────┐    create record ┌────▼───────┐
- │ Session      │ ────────────────►│  Session   │
- │ Launcher     │                  │  Manager   │
- │ (tmux-backed)│                  │  (SQLite)  │
- └──────┬───────┘                  └────────────┘
-        │
-        │ tmux new-session
-        ▼
- ┌──────────────┐    events.ndjson
- │ PI RPC Runner│ ──────────────────► event log
- │ (pi --mode   │    transcript.md
- │  rpc)        │ ──────────────────► artifacts
- └──────┬───────┘    control.ndjson
-        │          ◄──────────────── operator steer
-        │
-        ▼
- exit.json ──► reconciler ──► state transition
-```
-
-### Orchestrated Workflow
+## 📦 Package Architecture
 
 ```
- Workflow YAML              Profile + Project
- + Domain + Roles               configs
-       │                          │
-       ▼                          ▼
- ┌──────────────────────────────────────┐
- │       Orchestrator: Plan             │
- │  Resolve profiles per domain/role    │
- │  Build multi-step invocation plan    │
- └──────────────────┬───────────────────┘
-                    │
-                    ▼
- ┌──────────────────────────────────────┐
- │       Orchestrator: Invoke           │
- │  Create durable execution record     │
- │  Create step records in SQLite       │
- └──────────────────┬───────────────────┘
-                    │
-          ┌─────────▼─────────┐
-          │  Drive Execution  │◄──── step watchdog
-          │  (step by step)   │      (soft 20s, hard 45s)
-          └─────────┬─────────┘
-                    │
-    ┌───────────────┼───────────────┐
-    │               │               │
-    ▼               ▼               ▼
- Step 1          Step 2          Step N
- (scout)         (builder)       (reviewer)
- launch ──►      launch ──►      launch ──►
- session         session         session
- wait ◄──        wait ◄──        wait ◄──
- complete        complete        complete
-                                    │
-                              ┌─────▼──────┐
-                              │  Review    │
-                              │  Gate      │
-                              ├────────────┤
-                              │  approve   │──► execution completed
-                              │  revise    │──► retry step
-                              │  reject    │──► execution failed
-                              └────────────┘
+ ┌─────────────────────────────────────────────────────────────────────┐
+ │                        SPORE Monorepo                               │
+ │                     npm workspaces · ESM · TypeScript               │
+ │                                                                     │
+ │  packages/                                                          │
+ │  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐  │
+ │  │  orchestrator    │  │  runtime-pi      │  │  session-manager │  │
+ │  │  ═══════════════ │  │  ═══════════════ │  │  ═══════════════ │  │
+ │  │  ~30K lines      │  │  PI integration  │  │  Lifecycle FSM   │  │
+ │  │  Workflow engine  │  │  tmux launcher   │  │  SQLite store    │  │
+ │  │  Self-build core  │  │  3 launcher modes│  │  Event log       │  │
+ │  │  Governance       │  │  RPC control     │  │  Reconciliation  │  │
+ │  └──────────────────┘  └──────────────────┘  └──────────────────┘  │
+ │  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐  │
+ │  │  workspace-mgr   │  │  docs-kb         │  │  config-schema   │  │
+ │  │  ═══════════════ │  │  ═══════════════ │  │  ═══════════════ │  │
+ │  │  Git worktree    │  │  Doc indexing    │  │  YAML + JSON     │  │
+ │  │  Snapshot handoff│  │  Semantic search │  │  Schema validate │  │
+ │  │  Gov-aware clean │  │  SQLite store    │  │  15 schema defs  │  │
+ │  └──────────────────┘  └──────────────────┘  └──────────────────┘  │
+ │  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐  │
+ │  │  tui             │  │  core            │  │  shared-types    │  │
+ │  │  ═══════════════ │  │  ═══════════════ │  │  ═══════════════ │  │
+ │  │  100+ commands   │  │  Repo root       │  │  Cross-package   │  │
+ │  │  Terminal ops    │  │  Path utilities  │  │  type contracts  │  │
+ │  │  HTTP consumer   │  │  Base types      │  │  API envelopes   │  │
+ │  └──────────────────┘  └──────────────────┘  └──────────────────┘  │
+ │                                                                     │
+ │  services/                                apps/                     │
+ │  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐  │
+ │  │  orchestrator    │  │  session-gateway │  │  web             │  │
+ │  │  HTTP :8789      │  │  HTTP :8787      │  │  SPA :8788       │  │
+ │  │  145+ endpoints  │  │  REST + SSE      │  │  Proxy server    │  │
+ │  └──────────────────┘  └──────────────────┘  └──────────────────┘  │
+ └─────────────────────────────────────────────────────────────────────┘
 ```
+
+### Internal Dependencies
+
+```
+  orchestrator ───────┬── runtime-pi (session launch + control)
+                      ├── session-manager (session state queries)
+                      └── config-schema (YAML parsing)
+
+  runtime-pi ─────────┬── session-manager (session records)
+                      ├── config-schema (YAML parsing)
+                      └── docs-kb (context retrieval)
+
+  session-manager ────┬── runtime-pi (tmux ops for reconcile)
+
+  session-gateway ────┬── session-manager (store + events)
+                      └── runtime-pi (tmux + control queue)
+
+  web ────────────────┬── proxies to session-gateway (:8787)
+                      └── proxies to orchestrator-service (:8789)
+
+  tui ────────────────── consumes orchestrator HTTP API
+
+  config-schema ──────── standalone
+  docs-kb ────────────── standalone
+  core ───────────────── standalone (repo root anchor)
+  shared-types ───────── standalone (cross-package contracts)
+```
+
+<br/>
 
 ---
 
-## Current Stage
+<br/>
 
-This repository is in the **bootstrap-plus-executable-foundation** phase.
-
-### What is implemented
-
-| Area | Status | Details |
-|---|---|---|
-| Documentation OS | **Working** | Canonical docs index, current-state handoff, roadmap, runbooks, ADR trail |
-| Configuration | **Working** | Profiles, workflows, projects, domains, policy packs, CLI validator |
-| Docs KB | **Working** | SQLite index, keyword + semantic search, incremental reindex |
-| Runtime PI | **Working** | Session planning, tmux launch, pi-rpc/pi-json/stub launchers |
-| Session Manager | **Working** | SQLite store, lifecycle FSM, event log, feed, reconciliation |
-| Orchestrator | **Working** | Workflow plan/invoke/drive, tree governance, self-build, promotion, durable execution history |
-| Workspace Manager | **Working** | Git worktree provisioning, reconcile, cleanup, snapshot-aware verification support |
-| TUI / Package CLIs | **Working** | Dashboard, execution inspection, run-center, self-build triage, package-level operator commands |
-| Session Gateway | **Working** | REST API, SSE streaming, control actions (stop/complete/steer) |
-| Web Console | **Working** | SPA over gateway + orchestrator proxies with run-center, lineage, self-build views, and operator chat |
-| Reference Analysis | **Complete** | Reference synthesis and comparative analysis documented |
-
-### What is not yet implemented
-
-- Production orchestrator scheduler
-- Durable queueing / message broker
-- Deeper autonomous planner and scheduler quality
-- Richer validation / promotion readiness discipline
-- Stronger integration-branch diagnostics
-- Production-grade dedicated CLI app in `apps/cli/`
-- Broader autonomy over protected repo scopes
-
----
-
-## Getting Started
+## 🚀 Quick Start
 
 ### Prerequisites
 
-| Tool | Version | Purpose |
-|---|---|---|
-| `node` | >= 24 | Runtime (built-in SQLite, ESM) |
-| `npm` | latest | Script runner |
-| `tmux` | any | Session backing |
-| `pi` | `@mariozechner/pi-coding-agent` | Agent runtime (optional -- stub fallback) |
-| `jq` | any | JSON processing |
-| `sqlite3` | any | Database inspection |
-| `python3` | any | Utility scripts |
-| `git` | any | Version control |
-| `rg` | any | Fast search |
-
-### Quick Start
-
-```bash
-# Clone and enter repository
-git clone <repo-url> && cd SPORE
-
-# Optional: install PI agent runtime
-npm install -g @mariozechner/pi-coding-agent
-pi          # authenticate with /login
-
-# If the current shell does not expose the global PI binary, export it explicitly
-export SPORE_PI_BIN="${SPORE_PI_BIN:-$(npm prefix -g)/bin/pi}"
-
-# Build docs search index
-npm run docs-kb:index
-
-# Validate all configuration
-npm run config:validate
-
-# Plan and run a session
-npm run runtime-pi:plan -- --profile config/profiles/lead.yaml \
-  --project config/projects/example-project.yaml
-npm run runtime-pi:run -- --profile config/profiles/lead.yaml \
-  --project config/projects/example-project.yaml \
-  --session-id smoke-001 --run-id smoke-001
-
-# Check session status
-npm run session:status
-
-# Start operator surfaces
-npm run gateway:start          # HTTP API on :8787
-npm run orchestrator:start     # Workflow API on :8789
-npm run web:start              # Browser console on :8788
-npm run ops:dashboard          # Terminal dashboard
+```
+node >= 24    npm    tmux    git    rg    jq    sqlite3
 ```
 
-### Smoke Test
+Optional: `pi` agent runtime (`npm install -g @mariozechner/pi-coding-agent`)
+
+### Install & Verify
 
 ```bash
-npm run typecheck
-npm run lint
-npm run format:check
-npm run docs-kb:index
-npm run config:validate
-npm run runtime-pi:plan -- --profile config/profiles/lead.yaml \
-  --project config/projects/example-project.yaml
-npm run runtime-pi:run -- --profile config/profiles/lead.yaml \
-  --project config/projects/example-project.yaml \
-  --session-id smoke-001 --run-id smoke-001
-npm run session:status
-npm run gateway:start
-npm run orchestrator:plan -- --domain backend --roles lead
+git clone <repo-url> && cd SPORE-3
+npm install
+
+# Verify everything works
+npm run typecheck          # TypeScript across all workspaces
+npm run lint               # Biome linter
+npm run docs-kb:index      # Build docs search index
+npm run config:validate    # Validate all 64 YAML configs
+npm run test:all-local     # Run all local test suites
+```
+
+### Launch Operator Stack
+
+```bash
+# Terminal 1: Session gateway
+npm run gateway:start              # :8787
+
+# Terminal 2: Orchestrator service
+npm run orchestrator:start         # :8789
+
+# Terminal 3: Web console
+npm run web:start                  # :8788
+
+# Terminal 4: TUI dashboard
+npm run ops:dashboard -- --watch
+```
+
+### Run a Workflow
+
+```bash
+# Plan a backend feature delivery
 npm run orchestrator:plan -- --domain backend --roles lead,builder,tester,reviewer
+
+# Invoke with a real objective
 npm run orchestrator:invoke -- --domain backend --roles lead,reviewer \
-  --objective "Lead should produce one sentence; reviewer should return approve, revise, or reject." \
-  --wait
-SPORE_RUN_PI_E2E=1 npm run test:e2e:pi
-SPORE_RUN_PI_E2E=1 SPORE_RUN_PI_CONTROL_E2E=1 npm run test:e2e:gateway-control
-```
+  --objective "Implement a health check endpoint" --wait
 
-If `pi` is not installed, the runtime falls back to the stub launcher automatically. The default real launcher is `pi-rpc`, which maintains tmux inspectability while routing operator control through PI RPC.
-
-For isolated local runs, you can redirect durable state with `SPORE_ORCHESTRATOR_DB_PATH`, `SPORE_SESSION_DB_PATH`, and `SPORE_EVENT_LOG_PATH`.
-
-See [docs/runbooks/local-dev.md](docs/runbooks/local-dev.md) for the full setup and smoke test guide.
-See [docs/runbooks/scenario-library.md](docs/runbooks/scenario-library.md) for canonical named scenarios.
-Executable scenario and regression catalogs live in `config/scenarios/` and `config/regressions/`.
-Generated browser assets and `*.tsbuildinfo` files are local build output and should not be treated as hand-edited source.
-
----
-
-## Working Commands
-
-### Documentation & Configuration
-
-```bash
-npm run typecheck                           # TypeScript graph check across apps/packages/services
-npm run lint                                # Biome check for code, docs, and config
-npm run format:check                        # Formatting verification
-npm run docs-kb -- index                   # Build/refresh docs search index
-npm run docs-kb -- search "session model"  # Search documentation
-npm run docs-kb -- status                  # Index metadata
-npm run docs-kb -- rebuild                 # Full index rebuild
-npm run config:validate                    # Validate all YAML against schemas
-```
-
-### Runtime & Sessions
-
-```bash
-npm run runtime-pi:plan -- --profile <profile.yaml> --project <project.yaml>
-npm run runtime-pi:run -- --profile <profile.yaml> --project <project.yaml>
-npm run session:list                       # List all sessions
-npm run session:status                     # Aggregate status overview
-npm run session:events -- --session <id>   # Session event history
-npm run session:feed                       # Live event feed (follow mode)
-npm run session:reconcile                  # Reconcile detached sessions
-npm run session:reconcile:watch -- --stop-on-settled  # Continuous reconciliation
-npm run gateway:start                      # Shared session HTTP surface
-```
-
-### Orchestration
-
-```bash
-npm run orchestrator:plan -- --domain backend --roles lead
-npm run orchestrator:plan -- --domain backend --roles lead,builder,tester,reviewer
-npm run orchestrator:project-plan -- --project config/projects/example-project.yaml --domains backend,frontend
-npm run orchestrator:project-invoke -- --project config/projects/example-project.yaml --domains backend,frontend \
-  --objective "Coordinate backend and frontend work for one project." --wait --stub --timeout 25000
-npm run orchestrator:promotion-plan -- --execution <coordinator-root-execution-id> --target-branch main
-npm run orchestrator:promotion-invoke -- --execution <coordinator-root-execution-id> --target-branch main \
-  --wait --stub --timeout 25000
-npm run orchestrator:invoke -- --domain backend --roles lead --objective "..."
-npm run orchestrator:invoke -- --domain backend --roles lead,reviewer \
-  --objective "..." --wait
-npm run orchestrator:drive -- --execution <id>
-npm run orchestrator:review -- --execution <id> --status approved
-npm run orchestrator:approve -- --execution <id> --status approved
-npm run orchestrator:tree -- --execution <id>
-npm run orchestrator:drive-tree -- --execution <id> --wait
-npm run orchestrator:review-tree -- --execution <id> --status approved
-npm run orchestrator:approve-tree -- --execution <id> --status approved
-npm run orchestrator:audit -- --execution <id>
-npm run orchestrator:policy-diff -- --execution <id>
-npm run test:policy
-npm run test:http
-npm run test:web-proxy
-npm run test:tui
-npm run test:all-local
-npm run test:e2e:pi                      # opt-in real PI smoke; set SPORE_RUN_PI_E2E=1
-npm run test:e2e:gateway-control         # opt-in real gateway control E2E
-```
-
-### Operator Surfaces
-
-```bash
-npm run ops:dashboard                      # Terminal dashboard
-npm run ops:dashboard -- --watch           # Continuous refresh
-npm run ops:inspect -- --session <id>      # Deep session inspection
-npx tsx packages/tui/src/cli/spore-ops.ts family --execution <id> --api http://127.0.0.1:8789
-npm run gateway:start                      # HTTP gateway on :8787
-npm run orchestrator:start                 # Orchestrator service on :8789
-npm run web:build                          # Compile browser TS into apps/web/public/
-npm run web:start                          # Web console on :8788 (build + serve)
-npm run orchestrator:groups                # Coordination-group summaries
-npm run orchestrator:group -- --group <id> # One coordination-group detail
-npm run orchestrator:pause -- --execution <id> --reason "Operator pause"
-npm run orchestrator:hold -- --execution <id> --reason "Dependency wait"
-npm run orchestrator:resume -- --execution <id> --comments "Resume after hold"
-npm run orchestrator:history -- --execution <id>
-npm run orchestrator:scenario-list
-npm run orchestrator:scenario-show -- --scenario backend-service-delivery
-npm run orchestrator:scenario-run -- --scenario cli-verification-pass --stub
-npm run orchestrator:scenario-run-show -- --run <run-id>
-npm run orchestrator:scenario-run-artifacts -- --run <run-id>
-npm run orchestrator:scenario-rerun -- --run <run-id>
-npm run orchestrator:scenario-trends -- --scenario backend-service-delivery
-npm run orchestrator:run-center
-npm run orchestrator:self-build-summary
-npm run orchestrator:self-build-dashboard
-npm run orchestrator:regression-list
-npm run orchestrator:regression-show -- --regression local-fast
-npm run orchestrator:regression-run -- --regression local-fast --stub
-npm run orchestrator:regression-run-show -- --run <run-id>
-npm run orchestrator:regression-report -- --run <run-id>
-npm run orchestrator:regression-latest-report -- --regression local-fast
-npm run orchestrator:regression-rerun -- --run <run-id>
-npm run orchestrator:regression-trends -- --regression local-fast
-npm run orchestrator:work-item-template-list
-npm run orchestrator:work-item-template-show -- --template operator-ui-pass
+# Self-build: create a goal plan
 npm run orchestrator:goal-plan-create -- --goal "Stabilize CLI verification and docs follow-up"
-npm run orchestrator:goal-plan-list
-npm run orchestrator:goal-plan-show -- --plan <goal-plan-id>
-npm run orchestrator:goal-plan-materialize -- --plan <goal-plan-id>
-npm run orchestrator:work-item-group-list
-npm run orchestrator:work-item-group-show -- --group <group-id>
-npm run orchestrator:work-item-group-run -- --group <group-id> --stub
-npm run orchestrator:work-item-create -- --template operator-ui-pass
-npm run orchestrator:work-item-list
-npm run orchestrator:work-item-show -- --item <work-item-id>
-npm run orchestrator:work-item-runs -- --item <work-item-id>
-npm run orchestrator:work-item-run -- --item <work-item-id> --stub
-npm run orchestrator:work-item-run-show -- --run <work-item-run-id>
-npm run orchestrator:work-item-run-rerun -- --run <work-item-run-id>
-npm run orchestrator:workspace-show -- --run <work-item-run-id>
-npm run orchestrator:workspace-reconcile -- --workspace <workspace-id>
-npm run orchestrator:workspace-cleanup -- --workspace <workspace-id> --force
-npm run orchestrator:execution-workspaces -- --execution <execution-id>
-npm run orchestrator:work-item-validate -- --run <work-item-run-id> --stub
-npm run orchestrator:work-item-doc-suggestions -- --run <work-item-run-id>
-npm run orchestrator:proposal-show -- --run <work-item-run-id>
-npm run workspace:list
-npm run orchestrator:proposal-review -- --proposal <proposal-id> --status reviewed
-npm run orchestrator:proposal-approve -- --proposal <proposal-id> --status approved
 ```
 
-### Shared HTTP Surfaces
+> See [docs/runbooks/local-dev.md](docs/runbooks/local-dev.md) for the full setup guide.
 
-| Method | Route | Purpose |
-|---|---|---|
-| `GET` | `/executions/:id/history` | Combined ordered execution history with governance, audit, waves, and policy diff |
-| `GET` | `/run-center/summary` | Aggregate operator summary for scenarios, regressions, and recent runs |
-| `GET` | `/self-build/dashboard` | Dedicated self-build dashboard aggregate with queue, attention, recent runs, and workspace health |
-| `GET` | `/self-build/summary` | Aggregate self-build state across plans, groups, work items, runs, and proposals |
-| `GET` | `/scenarios` | Scenario catalog with latest run summary |
-| `GET` | `/scenarios/:id` | One scenario definition with latest run |
-| `GET` | `/scenarios/:id/runs` | Durable scenario run history |
-| `GET` | `/scenario-runs/:runId` | One durable scenario run by run id, including explicit failure and suggested actions |
-| `GET` | `/scenario-runs/:runId/artifacts` | Artifact summary for one durable scenario run |
-| `GET` | `/scenarios/:id/runs/:runId/artifacts` | Artifact summary for one scenario run |
-| `GET` | `/scenarios/:id/trends` | Trend summary for one scenario |
-| `POST` | `/scenarios/:id/run` | Launch one named scenario |
-| `POST` | `/scenario-runs/:runId/rerun` | Rerun one prior scenario run with optional overrides |
-| `GET` | `/regressions` | Regression catalog with latest run summary |
-| `GET` | `/regressions/:id` | One regression profile with latest run |
-| `GET` | `/regressions/:id/runs` | Durable regression run history |
-| `GET` | `/regression-runs/:runId` | One durable regression run by run id, including explicit failure and suggested actions |
-| `GET` | `/regression-runs/:runId/report` | Report metadata, top failure reasons, and suggested actions for one durable regression run |
-| `GET` | `/regressions/:id/latest-report` | Latest durable report pointer for one regression profile |
-| `GET` | `/regressions/scheduler/status` | Read-only scheduler status, retention summary, and latest scheduled-run pointers |
-| `GET` | `/regressions/:id/trends` | Trend summary for one regression profile |
-| `POST` | `/regressions/:id/run` | Launch one named regression profile |
-| `POST` | `/regression-runs/:runId/rerun` | Rerun one prior regression run with optional overrides |
-| `GET` | `/work-items` | Durable managed work-item list for supervised self-work |
-| `GET` | `/work-items/:id` | One durable work item with recent runs |
-| `GET` | `/work-items/:id/runs` | Durable run history for one work item |
-| `POST` | `/work-items` | Create one managed work item |
-| `POST` | `/work-items/:id/run` | Execute one managed work item through scenario, regression, or workflow paths |
-| `GET` | `/work-item-runs/:runId` | One durable work-item run result |
-| `POST` | `/work-item-runs/:runId/rerun` | Rerun one prior work-item run with durable lineage back to the original run |
-| `GET` | `/work-item-runs/:runId/workspace` | Workspace allocation linked to one work-item run |
-| `GET` | `/work-item-runs/:runId/proposal` | Proposal artifact summary linked to one work-item run |
-| `POST` | `/work-item-runs/:runId/validate` | Validation pass over one work-item run with durable evaluation output |
-| `GET` | `/work-item-runs/:runId/doc-suggestions` | Suggested documentation follow-up actions for one run |
-| `GET` | `/work-item-templates` | Work-item template catalog for repeatable self-build tasks |
-| `GET` | `/work-item-templates/:id` | One work-item template detail |
-| `GET` | `/goal-plans` | Durable goal-plan list for planning before execution |
-| `POST` | `/goals/plan` | Create one goal plan |
-| `GET` | `/goal-plans/:id` | One goal-plan detail |
-| `GET` | `/goal-plans/:id/history` | Durable goal-plan review, edit, and materialization lineage |
-| `POST` | `/goal-plans/:id/edit` | Persist operator edits to recommended work items before materialization |
-| `POST` | `/goal-plans/:id/review` | Record explicit goal-plan review before materialization or execution |
-| `POST` | `/goal-plans/:id/materialize` | Materialize a goal plan into a work-item group and managed items |
-| `POST` | `/goal-plans/:id/run` | Review, materialize, run, and validate a goal plan through one operator flow |
-| `POST` | `/self-build/intake/:id/review` | Record review state for one autonomous intake item |
-| `POST` | `/self-build/intake/:id/materialize` | Convert one reviewed intake item into a durable goal plan |
-| `GET` | `/work-item-groups` | Durable work-item group list |
-| `GET` | `/work-item-groups/:id` | One work-item group detail |
-| `POST` | `/work-item-groups/:id/run` | Execute one work-item group through managed child work items |
-| `POST` | `/work-item-groups/:id/unblock` | Clear a durable blocked state with explicit operator rationale |
-| `POST` | `/work-item-groups/:id/reroute` | Replace or split blocked work into new managed work items |
-| `POST` | `/work-item-groups/:id/retry-downstream` | Retry blocked downstream items after an upstream fix |
-| `POST` | `/work-item-groups/:id/requeue-item` | Return one child item to the runnable queue |
-| `POST` | `/work-item-groups/:id/skip-item` | Mark one child item skipped with durable rationale |
-| `POST` | `/work-item-groups/:id/validate-bundle` | Execute a named validation bundle across a whole work-item group |
-| `GET` | `/doc-suggestions/:id` | One durable documentation suggestion with lineage and follow-up hints |
-| `POST` | `/doc-suggestions/:id/review` | Accept or dismiss one durable documentation suggestion |
-| `POST` | `/doc-suggestions/:id/materialize` | Turn one documentation suggestion into managed self-work |
-| `GET` | `/proposal-artifacts/:id` | One proposal artifact with review/approval status |
-| `GET` | `/proposal-artifacts/:id/review-package` | Rich proposal drilldown including workspace, source run, promotion context, and suggested actions |
-| `POST` | `/proposal-artifacts/:id/review` | Review transition for one proposal artifact |
-| `POST` | `/proposal-artifacts/:id/approval` | Approval transition for one proposal artifact |
-| `POST` | `/proposal-artifacts/:id/rework` | Route one proposal back into managed self-work for explicit rework |
-| `POST` | `/proposal-artifacts/:id/promotion-plan` | Plan an explicit `coordinator -> integrator` promotion lane for one `promotion_ready` proposal |
-| `POST` | `/proposal-artifacts/:id/promotion-invoke` | Invoke that promotion lane and fail early when validation or durable promotion sources are missing |
-| `GET` | `/integration-branches` | Durable integration-branch inventory for promotion candidates and auto-landing lanes |
-| `GET` | `/integration-branches/:name` | One integration branch with linked proposals, promotions, and candidate state |
-| `GET` | `/self-build/decisions` | Durable autonomous and operator self-build decisions with policy evidence and blocked reasons |
-| `GET` | `/self-build/learnings` | Durable learning records extracted from self-build runs and reviews |
-| `GET` | `/self-build/learning-trends` | Aggregated learning trend buckets for repeated blockers, templates, and domains |
-| `GET` | `/self-build/policy-recommendations` | Policy tuning candidates derived from repeated learnings, blocked autonomy, and branch diagnostics |
-| `GET` | `/self-build/policy-recommendation-reviews` | Dedicated review queue for policy recommendations, operator decisions, and materialization status |
-| `GET` | `/self-build/policy-recommendations/:id` | One policy recommendation with review queue state, materialization links, and suggested actions |
-| `POST` | `/self-build/policy-recommendations/:id/review` | Accept, hold, or dismiss one policy recommendation |
-| `POST` | `/self-build/policy-recommendations/:id/materialize` | Convert one accepted recommendation into new managed self-build work |
-| `GET` | `/self-build/doc-suggestions` | Durable documentation follow-up queue derived from self-build outcomes |
-| `GET` | `/self-build/intake` | Durable autonomous intake queue derived from learnings, doc suggestions, and branch diagnostics |
-| `POST` | `/self-build/intake/refresh` | Rebuild autonomous intake from current learnings, suggestions, and integration issues |
-| `GET` | `/self-build/intake/:id` | One autonomous intake item with lineage and suggested actions |
-| `GET` | `/self-build/quarantine` | Active and released quarantine records for self-build targets |
-| `GET` | `/self-build/rollback` | Rollback history for integration-branch and self-build recovery actions |
-| `GET` | `/self-build/overrides` | Aggregate queue of protected-tier override requests awaiting review or release |
-| `GET` | `/self-build/overrides/:id` | One protected-tier override request with review state, release link, and target lineage |
-| `POST` | `/self-build/overrides/:id/review` | Approve, hold, or reject one protected-tier override request |
-| `POST` | `/self-build/overrides/:id/release` | Release one protected-tier override after human review or recovery |
-| `GET` | `/workspaces` | Durable workspace allocation list for mutating self-work |
-| `GET` | `/workspaces/:id` | One workspace allocation with worktree metadata |
-| `POST` | `/workspaces/:id/reconcile` | Compare allocation state with `git worktree list` and on-disk reality |
-| `POST` | `/workspaces/:id/cleanup` | Apply governance-aware workspace cleanup with optional force and branch retention |
-| `GET` | `/executions/:id/workspaces` | Workspace allocations linked to one workflow execution |
-| `POST` | `/work-item-runs/:runId/validate-bundle` | Execute a named validation bundle over one work-item run |
-| `GET` | `/self-build/loop/status` | Current autonomous self-build loop state, blockers, and last action |
-| `POST` | `/self-build/loop/start` | Start the managed self-build loop when policy allows it |
-| `POST` | `/self-build/loop/stop` | Stop the managed self-build loop while preserving durable state |
-| `POST` | `/goal-plans/:id/quarantine` | Quarantine one goal plan when autonomy or operator policy must stop further work |
-| `POST` | `/goal-plans/:id/protected-override` | Create a human-gated protected-tier override request for one goal plan |
-| `POST` | `/work-item-groups/:id/quarantine` | Quarantine one work-item group and block autonomous retries until release |
-| `POST` | `/work-item-groups/:id/protected-override` | Create a human-gated protected-tier override request for one work-item group |
-| `POST` | `/proposal-artifacts/:id/quarantine` | Quarantine one proposal artifact before further promotion attempts |
-| `POST` | `/proposal-artifacts/:id/protected-override` | Create a human-gated protected-tier override request for one proposal |
-| `POST` | `/integration-branches/:name/quarantine` | Quarantine one integration branch candidate |
-| `POST` | `/integration-branches/:name/protected-override` | Create a human-gated protected-tier override request for one integration branch |
-| `POST` | `/integration-branches/:name/rollback` | Record and apply one integration-branch rollback action |
-| `POST` | `/self-build/quarantine/:id/release` | Release one quarantine record with explicit rationale |
-| `GET` | `/sessions/:id/live` | Combined live session metadata, events, artifacts, workspace linkage, control history, diagnostics, and operator suggestions |
-| `GET` | `/sessions/:id/control-history` | Durable control request history for one session |
-| `GET` | `/sessions/:id/control-status/:requestId` | One durable control request with ack/result status |
+<br/>
 
-Recent operator payloads also expose additive drilldown helpers where available:
+---
 
-- `links.*` for report, trend, run, artifacts, and execution drilldowns
-- `trendSnapshot`
-- `latestReports[]`
-- `recentRuns[]`
-- `failureBreakdown`
+<br/>
 
-SPORE now also ships a first-class managed project profile in [spore.yaml](/home/antman/projects/SPORE/config/projects/spore.yaml), so new supervised self-work items can target the repository itself instead of the generic example project.
+## ⚙️ Configuration Model
 
-Recent self-build gating rules to keep in mind:
+All configuration is **declarative YAML** validated against **15 JSON schemas**. Configuration is not just descriptive -- it **directly affects live execution behavior**.
 
-- editable goal-plan review can change effective work-item order before materialization
-- work-item groups can be blocked, rerouted, retried downstream, requeued, skipped, and revalidated through explicit group controls
-- `approved` proposals are not automatically `promotion_ready`
-- named validation bundles can gate both proposal readiness and promotion planning
-- promotion lands to a durable integration branch before any later `main` decision
-- autonomous self-build decisions, quarantine, and rollback are durable operator surfaces rather than implicit loop side effects
-- autonomous intake is priority-scored rather than FIFO; repeated learnings, policy recommendations, and integration diagnostics can outrank lower-value follow-up work
-- protected-scope guardrails and rollout tiers are evaluated before autonomous execution or promotion planning, and blocked scopes surface through policy evidence instead of silent no-ops
+```
+config/
+├── profiles/           8 agent role profiles (orchestrator, coordinator, lead, ...)
+├── workflows/         12 workflow templates (feature-delivery, bugfix, self-build, ...)
+├── projects/           2 project definitions (example + spore self-reference)
+├── domains/            4 domain configs with executable policy defaults
+├── teams/              2 team compositions
+├── policy-packs/       7 reusable policy presets
+├── scenarios/         11 test scenarios (including 7 self-build scenarios)
+├── regressions/        6 regression test suites
+├── validation-bundles/ 4 validation bundle presets
+├── work-item-templates/4 work-item templates for self-build
+└── system/             4 system configs (defaults, runtime, observability, permissions)
+```
 
-### Canonical Scenario Invocations
+**Policy merge precedence:**
+```
+  Policy Packs ──► Domain Defaults ──► Project Overrides ──► Invocation Args
+  (reusable)       (per domain)        (per project)         (per call)
+```
+
+<br/>
+
+---
+
+<br/>
+
+## 🧪 Testing
 
 ```bash
-npm run orchestrator:plan -- --workflow config/workflows/backend-service-delivery.yaml --domain backend --roles lead,builder,tester,reviewer
-npm run orchestrator:plan -- --workflow config/workflows/frontend-ui-pass.yaml --domain frontend --roles lead,scout,builder,tester,reviewer
-npm run orchestrator:plan -- --workflow config/workflows/cli-verification-pass.yaml --domain cli --roles lead,builder,tester,reviewer
-npm run orchestrator:plan -- --workflow config/workflows/docs-adr-pass.yaml --domain docs --roles lead,scout,reviewer
+npm run test:policy        # Policy unit tests
+npm run test:http          # HTTP/service integration tests
+npm run test:web           # Web app tests
+npm run test:web-proxy     # Web proxy tests
+npm run test:tui           # TUI parity tests
+npm run test:workspace     # Workspace manager tests
+npm run test:all-local     # All local tests combined
+
+# Opt-in real PI tests
+SPORE_RUN_PI_E2E=1 npm run test:e2e:pi
+SPORE_RUN_PI_E2E=1 npm run test:e2e:gateway-control
+
+# Single test file
+node --import=tsx --test path/to/file.test.ts
 ```
 
-### Gateway Control Examples
+34 test files across the monorepo using `node:test` and `node:assert/strict`.
 
-```bash
-# Stop a session
-curl -X POST http://127.0.0.1:8787/sessions/<id>/actions/stop \
-  -H 'content-type: application/json' \
-  -d '{"reason":"operator stop","force":true}'
-
-# Mark complete
-curl -X POST http://127.0.0.1:8787/sessions/<id>/actions/mark-complete \
-  -H 'content-type: application/json' \
-  -d '{"reason":"operator override"}'
-
-# Steer an active session
-curl -X POST http://127.0.0.1:8787/sessions/<id>/actions/steer \
-  -H 'content-type: application/json' \
-  -d '{"message":"Report status","enter":true}'
-
-# Read durable control request history
-curl http://127.0.0.1:8787/sessions/<id>/control-history
-
-# Read one durable control request
-curl http://127.0.0.1:8787/sessions/<id>/control-status/<request-id>
-
-# Read artifacts
-curl http://127.0.0.1:8787/sessions/<id>/artifacts
-
-# Stream events (SSE)
-curl -N http://127.0.0.1:8787/stream/events?session=<id>
-```
+<br/>
 
 ---
 
-## Repository Structure
+<br/>
+
+## 🗺 Roadmap
 
 ```
-SPORE/
-├── docs/                   Documentation operating system (111 markdown files)
-│   ├── vision/             Product vision, principles, glossary
-│   ├── architecture/       System, session, runtime, event, config, role, workflow models
-│   ├── decisions/          ADRs (Architecture Decision Records)
-│   ├── research/           Reference study notes
-│   ├── specs/              Specifications
-│   ├── plans/              Roadmap, backlog, waves
-│   ├── roadmap/            13-wave implementation roadmap
-│   ├── operations/         Governance policies
-│   ├── runbooks/           Operational procedures
-│   ├── domains/            9 domain scaffolds
-│   ├── templates/          Doc, profile, project, research, workflow templates
-│   └── index/              DOCS_INDEX.md + docs_manifest.yaml
-│
-├── config/                 Declarative YAML configuration (21 files)
-│   ├── profiles/           6 agent role profiles
-│   ├── workflows/          4 workflow templates
-│   ├── projects/           Project assembly configs
-│   ├── domains/            4 domain configs
-│   ├── teams/              2 team compositions
-│   └── system/             System defaults, runtime, observability, permissions
-│
-├── schemas/                JSON schemas for validation (12 schemas)
-├── workspace/              Extended profiles, workflows, teams, templates
-│
-├── packages/               Core modules
-│   ├── docs-kb/            Documentation indexing & search
-│   ├── config-schema/      YAML parsing & schema validation
-│   ├── runtime-pi/         PI runtime integration
-│   ├── session-manager/    Session lifecycle & metadata
-│   ├── orchestrator/       Workflow execution engine
-│   └── tui/                Terminal operator surface
-│
-├── services/               HTTP services
-│   ├── session-gateway/    Session/event/artifact API + SSE + control
-│   └── orchestrator/       Workflow plan/invoke/drive/review API
-│
-├── apps/                   Client applications
-│   └── web/                Browser operator console
-│
-├── tools/                  Tooling documentation
-├── references/             Upstream study repositories (read-only)
-├── data/                   SQLite databases, event logs, embeddings
-├── tmp/                    Session artifacts, execution briefs
-├── scripts/                Repository-level helper scripts
-├── .pi/                    PI agent context (system prompt, settings, role overlays)
-├── AGENTS.md               Agent work rules and governance contract
-├── README.md               This file
-└── package.json            Root scripts (expanded operator command surface), zero dependencies
+  ══════════════════════════════════════════════════════════════════════
+   NOW                        NEXT                       LATER
+  ══════════════════════════════════════════════════════════════════════
+
+   Planner &                  Learning-to-             Dedicated
+   Scheduler ────────────►    Planning ───────────►    CLI App
+   Quality                    Feedback                  (apps/cli/)
+
+   Validation &               Autonomy                 Broader
+   Promotion ────────────►    Rollout ────────────►    Autonomous
+   Discipline                 Tiers                     Operation
+
+   Integration                Broader                  Release-Quality
+   Branch ───────────────►    Template ───────────►    Operator
+   Diagnostics                Catalog                   Experiences
+
+   Dashboard                  Reference                Packaging
+   as Mission ───────────►    End-to-End ─────────►    & Onboarding
+   Control                    Demo Flow
+
+   Self-Build
+   Scenario ─────────────►
+   Expansion
+
+  ══════════════════════════════════════════════════════════════════════
 ```
 
----
+### Current Focus
 
-## Design Influences
+The foundation is executable across all layers. The question has shifted from "can SPORE run?" to **"how far can SPORE safely improve itself while preserving operator trust?"**
 
-SPORE synthesizes concepts from six reference projects, adapting (never cloning) their best ideas:
+| Priority | Area | Goal |
+|----------|------|------|
+| 1 | **Planner Quality** | Better prioritization, deeper planning, learning feedback |
+| 2 | **Validation Discipline** | Broader bundles, rework lineage, clearer readiness states |
+| 3 | **Integration Diagnostics** | Stale detection, health summaries, conflict history |
+| 4 | **Mission Control** | Backlog views, review queues, deeper drilldowns |
+| 5 | **Scenario Expansion** | More failure modes, protected-scope, autonomous-loop coverage |
 
-| Reference | Key Concept Borrowed | SPORE Adaptation |
-|---|---|---|
-| **Overstory** | Hierarchical delegation, isolated execution, mail-style coordination | Orchestrator -> Lead -> Worker role hierarchy with profile-driven behavior |
-| **Gastown** | Durable sessions, tmux-first operation, persistent agent identity | tmux-backed sessions with SQLite metadata and operator control actions |
-| **Mulch** | Structured knowledge capture, typed records, execution/knowledge separation | Local-first docs KB with classification policy and semantic search |
-| **Beads** | Dependency-aware task graphs, durable state with event history | Durable workflow executions with step-by-step drive and review gates |
-| **PI Mono** | Extensible runtime packages, model/provider abstraction, web+terminal UI | PI-first runtime with RPC launcher, event capture, and session artifacts |
-| **Agentic Engineering Book** | Disciplined plan-build-review loops, context-as-code, governance patterns | Documentation-first operating model, 12 principles, phased delivery |
+### Vision
 
----
+SPORE aims to become a platform where **multi-agent teams deliver software with the same governance, traceability, and quality controls that the best human teams use** -- but faster, more consistently, and with full observability into every decision.
 
-## Documentation
+The long-term trajectory:
 
-| Document | Description |
-|---|---|
-| [docs/INDEX.md](docs/INDEX.md) | Documentation navigation hub |
-| [docs/vision/product-vision.md](docs/vision/product-vision.md) | Product vision and north star outcomes |
-| [docs/vision/principles.md](docs/vision/principles.md) | 12 core design principles |
-| [docs/architecture/system-overview.md](docs/architecture/system-overview.md) | Five-layer architecture overview |
-| [docs/architecture/session-model.md](docs/architecture/session-model.md) | Session lifecycle and inspectability model |
-| [docs/architecture/runtime-model.md](docs/architecture/runtime-model.md) | PI-first runtime strategy |
-| [docs/architecture/workflow-model.md](docs/architecture/workflow-model.md) | Workflow template system |
-| [docs/architecture/event-model.md](docs/architecture/event-model.md) | Event envelope and observability |
-| [docs/architecture/config-model.md](docs/architecture/config-model.md) | Configuration split-by-concern |
-| [docs/architecture/role-model.md](docs/architecture/role-model.md) | Current role hierarchy and governance boundaries |
-| [docs/architecture/knowledge-model.md](docs/architecture/knowledge-model.md) | Knowledge layer design |
-| [docs/architecture/embeddings-search.md](docs/architecture/embeddings-search.md) | Docs KB search strategy |
-| [docs/architecture/clients-and-surfaces.md](docs/architecture/clients-and-surfaces.md) | Client surface boundaries |
-| [docs/architecture/observability-model.md](docs/architecture/observability-model.md) | Observability design |
-| [docs/plans/project-state-and-direction-handoff.md](docs/plans/project-state-and-direction-handoff.md) | Current project state, maturity, and direction |
-| [docs/plans/self-build-status-and-next-steps.md](docs/plans/self-build-status-and-next-steps.md) | Tactical self-build status and next work |
-| [docs/plans/roadmap.md](docs/plans/roadmap.md) | Current roadmap and priorities |
-| [docs/plans/operator-chat-surface-plan.md](docs/plans/operator-chat-surface-plan.md) | Operator-chat implementation plan |
-| [docs/decisions/ADR-0001-repo-foundation.md](docs/decisions/ADR-0001-repo-foundation.md) | ADR: Repository foundation |
-| [docs/decisions/ADR-0002-runtime-pi-first.md](docs/decisions/ADR-0002-runtime-pi-first.md) | ADR: PI-first runtime |
-| [docs/decisions/ADR-0012-operator-chat-surface.md](docs/decisions/ADR-0012-operator-chat-surface.md) | ADR: Conversation-first operator chat |
-| [docs/roadmap/IMPLEMENTATION_ROADMAP.md](docs/roadmap/IMPLEMENTATION_ROADMAP.md) | Historical bootstrap roadmap |
-| [docs/plans/bootstrap-completion-summary.md](docs/plans/bootstrap-completion-summary.md) | Historical bootstrap completion summary |
-| [docs/operations/BOOTSTRAP_STATUS.md](docs/operations/BOOTSTRAP_STATUS.md) | Historical bootstrap status snapshot |
-| [docs/runbooks/local-dev.md](docs/runbooks/local-dev.md) | Local development setup and smoke tests |
-| [docs/references/reference-synthesis.md](docs/references/reference-synthesis.md) | Reference project synthesis |
-| [AGENTS.md](AGENTS.md) | Agent work rules and governance contract |
+```
+   Supervised              Guarded                Autonomous
+   Self-Build    ────►     Autonomy     ────►     Self-Improvement
+   (current)               (next)                  (future)
+
+   Human approves          System proposes,        System improves
+   every transition        human validates         with policy-based
+                           at key gates            trust boundaries
+```
+
+<br/>
 
 ---
 
-## License
+<br/>
 
-MIT
+## 🛠 Tech Stack
+
+| Layer | Technology | Why |
+|-------|-----------|-----|
+| **Language** | TypeScript 5.9 | Type-safe, ESM-first, strong tooling |
+| **Runtime** | Node.js 24+ | Built-in SQLite, ESM support, stable |
+| **Storage** | SQLite (WAL mode) | Zero-ops, local-first, concurrent reads |
+| **Sessions** | tmux | Durable, inspectable, operator-accessible |
+| **Agent Runtime** | PI (`pi-rpc`) | Bidirectional RPC, event capture, extensible |
+| **HTTP** | `node:http` | Zero dependencies, full control |
+| **Formatting** | Biome 2.4 | Fast, opinionated, single tool |
+| **Testing** | `node:test` + `node:assert` | Built-in, no test framework dependency |
+| **Modules** | ESM + NodeNext | Modern, explicit, tree-shakeable |
+| **Search** | FNV-1a hash embeddings | Local-first, no external API needed |
+
+**Zero external runtime dependencies.** The entire platform runs on Node.js built-ins plus an optional `pi` CLI.
+
+<br/>
+
+---
+
+<br/>
+
+## 📚 Documentation
+
+### Start Here
+
+| Document | Purpose |
+|----------|---------|
+| [Project State & Direction](docs/plans/project-state-and-direction-handoff.md) | Where the project is and where it's going |
+| [Self-Build Status](docs/plans/self-build-status-and-next-steps.md) | Tactical status of the self-build system |
+| [Roadmap](docs/plans/roadmap.md) | Strategic priorities: Now / Next / Later |
+| [Local Dev Runbook](docs/runbooks/local-dev.md) | Setup, smoke tests, development workflow |
+
+### Architecture
+
+| Document | Scope |
+|----------|-------|
+| [System Overview](docs/architecture/system-overview.md) | Five-layer architecture |
+| [Role Model](docs/architecture/role-model.md) | 8 roles, handoff contracts, topology |
+| [Workflow Model](docs/architecture/workflow-model.md) | Templates, waves, governance states |
+| [Session Model](docs/architecture/session-model.md) | Lifecycle, artifacts, diagnostics |
+| [Runtime Model](docs/architecture/runtime-model.md) | PI-first strategy, launcher modes |
+| [Config Model](docs/architecture/config-model.md) | Policy merge, domain defaults |
+| [Client Surfaces](docs/architecture/clients-and-surfaces.md) | API routes, thin-client rules |
+| [Event Model](docs/architecture/event-model.md) | Event envelope, observability |
+
+### Decisions
+
+14 Architecture Decision Records in [docs/decisions/](docs/decisions/), including:
+- [ADR-0002: PI-First Runtime](docs/decisions/ADR-0002-runtime-pi-first.md)
+- [ADR-0005: Builder-Tester Verification Workspaces](docs/decisions/ADR-0005-builder-tester-verification-workspaces.md)
+- [ADR-0006: Project Coordinator Role](docs/decisions/ADR-0006-project-coordinator-role.md)
+- [ADR-0007: Feature Integrator Promotion Boundary](docs/decisions/ADR-0007-feature-integrator-promotion-boundary.md)
+- [ADR-0012: Operator Chat Surface](docs/decisions/ADR-0012-operator-chat-surface.md)
+- [ADR-0013: Workflow Handoffs](docs/decisions/ADR-0013-workflow-handoffs-and-runtime-role-inputs.md)
+
+### Full Index
+
+[docs/INDEX.md](docs/INDEX.md) -- canonical navigation hub for all documentation.
+
+<br/>
+
+---
+
+<br/>
+
+## 🎨 Design Influences
+
+SPORE synthesizes concepts from six reference projects -- adapting the best ideas, never cloning code:
+
+| Reference | Key Concept | SPORE Adaptation |
+|-----------|------------|------------------|
+| **Overstory** | Hierarchical delegation, isolation | Orchestrator → Lead → Worker hierarchy |
+| **Gastown** | Durable sessions, tmux-first | tmux-backed sessions with SQLite metadata |
+| **Mulch** | Structured knowledge capture | Local-first docs KB with semantic search |
+| **Beads** | Dependency-aware task graphs | Durable workflow executions with review gates |
+| **PI Mono** | Extensible runtime, model abstraction | PI-first runtime with RPC launcher |
+| **Agentic Eng. Book** | Plan-build-review loops, governance | Documentation-first, 12 principles, phased delivery |
+
+<br/>
+
+---
+
+<br/>
+
+<div align="center">
+
+### Core Principles
+
+```
+ ┌─────────────────────────────────────────────────────────────┐
+ │                                                             │
+ │   1. Documentation-first        7. Observability first      │
+ │   2. Local-first by default     8. Live inspectability      │
+ │   3. Composable over monolith   9. Human-steerable          │
+ │   4. Profiles over hardcoded   10. Clear boundaries         │
+ │   5. Templates over ad hoc     11. Safe incrementalism      │
+ │   6. PI-first runtime          12. Reference, don't clone   │
+ │                                                             │
+ └─────────────────────────────────────────────────────────────┘
+```
+
+<br/>
+
+**Built with discipline. Governed by design. Improving itself.**
+
+<br/>
+
+[![MIT License](https://img.shields.io/badge/License-MIT-A855F7?style=flat-square)](LICENSE)
+
+</div>

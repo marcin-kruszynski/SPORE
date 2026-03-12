@@ -44,6 +44,7 @@ export function createSessionRecordFromPlan(
     endedAt: null,
     createdAt: now,
     updatedAt: now,
+    artifactRecovery: null,
   };
 }
 
@@ -63,6 +64,7 @@ export function transitionSessionRecord(
         ? now
         : sessionRecord.endedAt,
     updatedAt: now,
+    artifactRecovery: sessionRecord.artifactRecovery ?? null,
   };
 }
 

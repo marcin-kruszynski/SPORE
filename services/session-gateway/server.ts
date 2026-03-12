@@ -1141,6 +1141,9 @@ async function createServer(options: ServerOptions = {}) {
             )
           : null;
         const plan = await readPlanArtifact(session, artifacts);
+        const handoff = artifacts.handoff?.exists
+          ? (await readArtifactContent<JsonObject>(session, "handoff")).content
+          : null;
         const workspaceMetadata = plan?.metadata?.workspace ?? null;
         const workspace =
           workspaceMetadata || launchContext
@@ -1180,6 +1183,7 @@ async function createServer(options: ServerOptions = {}) {
           artifacts,
           controlHistory,
           diagnostics,
+          handoff,
           workspace,
           launchContext,
           launcher: {

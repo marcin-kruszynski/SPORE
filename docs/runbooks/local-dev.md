@@ -114,6 +114,12 @@ Runtime artifacts from a real PI-backed run should appear under `tmp/sessions/`,
 - `*.rpc-status.json`
 - `*.control.ndjson`
 
+When inspecting `*.handoff.json`, check both the semantic payload and the validation envelope:
+
+- `validation.valid`
+- `validation.mode`
+- `validation.issues[]`
+
 ## Gateway Smoke Test
 
 Start the shared read surface:
@@ -307,6 +313,14 @@ curl http://127.0.0.1:8789/executions/e2e-review-002
 ## Real PI Self-Build Trace Loop
 
 Use this flow when you need to understand why a live self-build mission picked a proposal, chose a pending action, selected validation bundles, kept or failed a workspace allocation, or blocked promotion.
+
+For the opt-in dashboard/webui Real PI smoke suite, run:
+
+```bash
+SPORE_RUN_PI_E2E=1 npm run test:http:self-build-smoke
+```
+
+That smoke command is intentionally excluded from `npm run test:http`. It starts its own isolated Real PI stack through `scripts/run-self-build-real-pi.sh` on an automatically selected non-default port base, so it does not collide with the usual local stack on `8787-8789` or with a manually launched `scripts/run-self-build-real-pi.sh` default run.
 
 1. Start the orchestrator with isolated state and a real PI runtime:
 
@@ -630,6 +644,7 @@ For dependency-aware self-build verification, also confirm that:
 - Use the runtime `launch-context` artifact or `/sessions/:id/live` `launcherMetadata.cwd` when you need proof that a mutating run launched inside its provisioned workspace rather than the canonical repo root.
 - Use `tmp/sessions/<sessionId>.handoff.json` when you need the normalized durable handoff captured from one completed step.
 - Use `/executions/:id/handoffs` when you need the execution-wide handoff chain rather than one session artifact.
+- Use the execution handoff read surfaces to inspect `consumerCount`, `validation.mode`, and `validation.issues` before approving a degraded step.
 - Prefer `session-manager reconcile` for detached-session cleanup.
 - Prefer `services/session-gateway/` as the shared read API for clients instead of reading local state files directly.
 - Prefer orchestrator execution reads and workflow event streams over inferring workflow state from runtime artifacts alone.

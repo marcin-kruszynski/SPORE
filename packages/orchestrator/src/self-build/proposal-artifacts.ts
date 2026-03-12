@@ -209,6 +209,7 @@ export function buildWorkflowHandoffRefs(handoffs = []) {
     id: handoff.id,
     kind: handoff.kind,
     status: handoff.status,
+    deliveryStatus: handoff.deliveryStatus ?? handoff.status,
     sourceRole: handoff.sourceRole,
     targetRole: handoff.targetRole ?? null,
     fromStepId: handoff.fromStepId,
@@ -217,10 +218,17 @@ export function buildWorkflowHandoffRefs(handoffs = []) {
       handoff.summary && typeof handoff.summary === "object"
         ? handoff.summary
         : {},
+    validation:
+      handoff.validation && typeof handoff.validation === "object"
+        ? handoff.validation
+        : {},
     artifacts:
       handoff.artifacts && typeof handoff.artifacts === "object"
         ? handoff.artifacts
         : {},
+    consumerCount:
+      typeof handoff.consumerCount === "number" ? handoff.consumerCount : 0,
+    consumerRoles: Array.isArray(handoff.consumerRoles) ? handoff.consumerRoles : [],
     updatedAt: handoff.updatedAt ?? null,
   }));
 }

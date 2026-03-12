@@ -26,4 +26,14 @@ For the current orchestrator slice, that means:
 - workflow execution detail, event history, and escalation history should remain the primary observability source for grouped work,
 - parent/child lineage should be visible independently from runtime-session trees,
 - coordination groups should be inspectable as an operator-facing summary rather than reconstructed from timestamps,
-- hold and pause transitions should remain explicit in the workflow event history.
+- hold and pause transitions should remain explicit in the workflow event history,
+- artifact-based session recovery should be visible as first-class telemetry instead of inferred from a later `completed` or `failed` state.
+
+## Artifact Recovery Signals
+
+When a tmux-backed or detached PI session stops updating its session row, SPORE now treats artifact recovery as an explicit observability path instead of a hidden implementation detail.
+
+- Session reconciliation records `signalSource` (`exit-file` or `rpc-status`), the runtime terminal-signal origin when available, and a fallback reason when `rpc-status.json` had to substitute for a missing or invalid exit artifact.
+- Orchestrator reconciliation emits `workflow.step.artifact_recovered` before the step's terminal workflow event and carries explicit `artifactRecoveryCount` plus the recovery payload so execution history timelines show exactly when auto-heal happened.
+- Execution detail and execution history expose an `artifactRecovery` summary with counts, per-source totals, and the concrete recovery events.
+- Self-build operator surfaces that already point at execution state, such as work-item run detail and proposal review packages, preserve the same `artifactRecovery` summary so operators can distinguish clean completion from artifact-assisted recovery.

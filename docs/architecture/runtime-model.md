@@ -32,10 +32,18 @@ SPORE standardizes on PI ecosystem as the initial runtime foundation.
 - raw PI event capture and PI session file persistence in `tmp/sessions/`,
 - stub fallback when `pi` is unavailable,
 - detached session monitoring via `session-manager reconcile --watch`,
+- artifact-based auto-heal that terminalizes stale sessions from `.exit.json` first and final `rpc-status.json` second,
 - deterministic RPC runner shutdown after `agent_end` plus idle grace,
 - orchestrator step watchdog steering and abort control for long-running steps,
 - per-role `sessionMode` overrides passed from merged domain runtime policy,
 - docs-kb retrieval query and result limit passed from merged domain docs-kb policy.
+
+Artifact-driven session recovery now follows an explicit signal chain:
+
+- `packages/runtime-pi/` writes terminal artifacts (`*.exit.json` and final `*.rpc-status.json`) with reusable terminal signal fields,
+- `packages/session-manager` treats those artifacts as the shared auto-heal boundary and records `signalSource`, terminal-signal origin, and fallback reason when it reconciles a stale session,
+- `packages/orchestrator` emits `workflow.step.artifact_recovered` before the usual step terminal event so execution detail and history preserve when an operator-visible recovery happened,
+- self-build read models reuse that execution summary so work-item runs and proposal review packages surface artifact recovery counts without forcing operators to inspect raw session files.
 
 When a workflow is launched through the orchestrator, runtime defaults now come from merged domain policy:
 

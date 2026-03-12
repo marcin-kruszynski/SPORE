@@ -2,6 +2,8 @@ import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
 
+import { resolveTsxImportPath } from "@spore/core";
+
 import { PROJECT_ROOT } from "../metadata/constants.js";
 import type {
   LaunchAssets,
@@ -89,6 +91,21 @@ function buildStubHandoffJson(plan: SessionPlan): string | null {
   };
   for (const section of expected.requiredSections ?? []) {
     if (section === "summary") {
+      continue;
+    }
+    if (
+      [
+        "verdict",
+        "target_branch",
+        "integration_branch",
+        "next_role",
+      ].includes(section)
+    ) {
+      payload[section] = `stub ${section} for ${role}`;
+      continue;
+    }
+    if (section === "scope") {
+      payload[section] = [`stub ${section} for ${role}`];
       continue;
     }
     payload[section] = [`stub ${section} for ${role}`];
@@ -252,12 +269,13 @@ export async function writeLaunchScript({
     PROJECT_ROOT,
     "packages/runtime-pi/src/launchers/pi-json-runner.ts",
   );
+  const tsxImportPath = resolveTsxImportPath();
   const launchBody =
     launcherType === "pi-rpc" && piBinary
       ? [
           'echo "Launching pi in RPC mode..." | tee -a ' +
             shellEscape(transcriptPath),
-          `node --import=tsx ${shellEscape(rpcRunnerPath)} ` +
+          `node --import=${shellEscape(tsxImportPath)} ${shellEscape(rpcRunnerPath)} ` +
             `--pi-bin ${shellEscape(piBinary)} ` +
             `--prompt ${shellEscape(promptPath)} ` +
             `--transcript ${shellEscape(transcriptPath)} ` +
@@ -272,7 +290,7 @@ export async function writeLaunchScript({
         ? [
             'echo "Launching pi in JSON event mode..." | tee -a ' +
               shellEscape(transcriptPath),
-            `node --import=tsx ${shellEscape(jsonRunnerPath)} ` +
+            `node --import=${shellEscape(tsxImportPath)} ${shellEscape(jsonRunnerPath)} ` +
               `--pi-bin ${shellEscape(piBinary)} ` +
               `--prompt ${shellEscape(promptPath)} ` +
               `--transcript ${shellEscape(transcriptPath)} ` +

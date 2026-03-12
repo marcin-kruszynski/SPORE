@@ -381,9 +381,10 @@ async function executionHandoffs(flags: CliFlags) {
   if (!flags.execution) {
     throw new Error("use handoffs --execution <id>");
   }
-  const payload = await orchestratorRequest(
-    flags,
-    `/executions/${encodeURIComponent(flags.execution)}/handoffs`,
+  const payload = await orchestratorRequest(flags,
+    flags.handoff
+      ? `/executions/${encodeURIComponent(flags.execution)}/handoffs/${encodeURIComponent(String(flags.handoff))}`
+      : `/executions/${encodeURIComponent(flags.execution)}/handoffs`,
   );
   console.log(formatJson(payload));
 }

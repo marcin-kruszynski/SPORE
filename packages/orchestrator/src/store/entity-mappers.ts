@@ -116,6 +116,15 @@ export function mapWorkflowHandoff(record) {
         summary: parseJsonField(record.summaryJson, {}),
         artifacts: parseJsonField(record.artifactsJson, {}),
         payload: parseJsonField(record.payloadJson, {}),
+        validation: parseJsonField(record.validationJson, {}),
+      }
+    : null;
+}
+
+export function mapWorkflowHandoffConsumer(record) {
+  return record
+    ? {
+        ...record,
       }
     : null;
 }

@@ -26,8 +26,14 @@ import {
   getSession,
   listSessions,
   openSessionDatabase,
+  upsertSessionInTransaction,
   upsertSession,
 } from "../store/session-store.js";
+import {
+  buildSessionArtifactRecoveryTelemetry,
+  isSessionReconcileCandidateState,
+  reconcileSessionFromArtifacts,
+} from "../reconcile/session-reconcile.js";
 import type {
   ParsedArgs,
   SessionEvent,
@@ -57,10 +63,6 @@ interface ReconcileResult {
   reconciledCount: number;
   reconciled: ReconciledSession[];
   pending: PendingSession[];
-}
-
-interface ExitInfo {
-  exitCode?: number;
 }
 
 function parseArgs(argv: string[]): ParsedArgs<CliFlags> {
@@ -130,10 +132,6 @@ function parseTimestamp(value: string | null | undefined): number {
   }
   const millis = Date.parse(value);
   return Number.isFinite(millis) ? millis : 0;
-}
-
-function isNodeError(error: unknown): error is NodeJS.ErrnoException {
-  return error instanceof Error;
 }
 
 function getErrorMessage(error: unknown): string {
@@ -323,16 +321,6 @@ async function status(flags: CliFlags): Promise<void> {
   }
 }
 
-function deriveExitPath(session: SessionRecord): string | null {
-  if (!session.launchCommand) {
-    return null;
-  }
-  if (session.launchCommand.endsWith(".launch.sh")) {
-    return session.launchCommand.replace(/\.launch\.sh$/, ".exit.json");
-  }
-  return null;
-}
-
 async function reconcileOnce(flags: CliFlags): Promise<ReconcileResult> {
   const dbPath = resolvePath(flags.db, DEFAULT_SESSION_DB_PATH);
   const eventLogPath = resolvePath(flags.events, DEFAULT_EVENT_LOG_PATH);
@@ -352,50 +340,84 @@ async function reconcileOnce(flags: CliFlags): Promise<ReconcileResult> {
       if (!session) {
         continue;
       }
-      const exitPath = deriveExitPath(session);
-      let exitInfo: ExitInfo | null = null;
-      if (exitPath) {
-        try {
-          exitInfo = JSON.parse(
-            await fs.readFile(resolvePath(exitPath, exitPath), "utf8"),
-          ) as ExitInfo;
-        } catch (error: unknown) {
-          if (!isNodeError(error) || error.code !== "ENOENT") {
-            throw error;
-          }
-        }
+      const artifactReconcile = await reconcileSessionFromArtifacts({
+        dbPath,
+        sessionId: session.id,
+      });
+      const currentSession = artifactReconcile.session ?? getSession(db, session.id);
+
+      if (currentSession && artifactReconcile.reconciled && artifactReconcile.signal) {
+        const artifactRecovery = buildSessionArtifactRecoveryTelemetry(
+          artifactReconcile.signal,
+        );
+        const event = createLifecycleEvent(
+          currentSession,
+          `session.${currentSession.state}`,
+          {
+            source: "session-manager.reconcile",
+            reason: artifactRecovery.signalSource,
+            signalSource: artifactRecovery.signalSource,
+            terminalSignalSource: artifactRecovery.terminalSignalSource,
+            fallbackReason: artifactRecovery.fallbackReason,
+            artifactRecoveryCount: artifactRecovery.artifactRecoveryCount,
+            artifactRecovery,
+            exitCode: artifactRecovery.exitCode,
+            artifactPath: artifactRecovery.artifactPath,
+            transcriptPath: currentSession.transcriptPath ?? null,
+          },
+        );
+        await appendEvent(eventLogPath, event);
+        reconciled.push({ session: currentSession, event });
+        continue;
       }
 
-      const hasTmux = session.tmuxSession
-        ? await tmuxSessionExists(session.tmuxSession)
+      if (!currentSession || !isSessionReconcileCandidateState(currentSession.state)) {
+        continue;
+      }
+
+      const hasTmux = currentSession.tmuxSession
+        ? await tmuxSessionExists(currentSession.tmuxSession)
         : false;
-      if (!exitInfo && hasTmux) {
+      if (hasTmux) {
         pending.push({
-          sessionId: session.id,
-          state: session.state,
+          sessionId: currentSession.id,
+          state: currentSession.state,
           reason: "tmux-active",
         });
         continue;
       }
-      if (!exitInfo && !hasTmux) {
+      if (!hasTmux) {
         const ageMs =
           Date.now() -
           Math.max(
-            parseTimestamp(session.updatedAt),
-            parseTimestamp(session.createdAt),
+            parseTimestamp(currentSession.updatedAt),
+            parseTimestamp(currentSession.createdAt),
           );
         if (ageMs < graceMs) {
           pending.push({
-            sessionId: session.id,
-            state: session.state,
+            sessionId: currentSession.id,
+            state: currentSession.state,
             reason: "waiting-for-exit-file",
             ageMs,
           });
           continue;
         }
 
-        const updated = transitionSessionRecord(session, "failed");
-        upsertSession(db, updated);
+        let updated = currentSession;
+        db.exec("BEGIN IMMEDIATE");
+        try {
+          const latest = getSession(db, currentSession.id);
+          if (!latest || !isSessionReconcileCandidateState(latest.state)) {
+            db.exec("COMMIT");
+            continue;
+          }
+          updated = transitionSessionRecord(latest, "failed");
+          upsertSessionInTransaction(db, updated);
+          db.exec("COMMIT");
+        } catch (error) {
+          db.exec("ROLLBACK");
+          throw error;
+        }
         const event = createLifecycleEvent(updated, "session.failed", {
           source: "session-manager.reconcile",
           reason: "tmux-missing-no-exit-file",
@@ -406,18 +428,6 @@ async function reconcileOnce(flags: CliFlags): Promise<ReconcileResult> {
         reconciled.push({ session: updated, event });
         continue;
       }
-
-      const nextState = exitInfo?.exitCode === 0 ? "completed" : "failed";
-      const updated = transitionSessionRecord(session, nextState);
-      upsertSession(db, updated);
-      const event = createLifecycleEvent(updated, `session.${nextState}`, {
-        source: "session-manager.reconcile",
-        reason: "exit-file",
-        exitCode: exitInfo?.exitCode ?? null,
-        transcriptPath: updated.transcriptPath ?? null,
-      });
-      await appendEvent(eventLogPath, event);
-      reconciled.push({ session: updated, event });
     }
 
     return {
