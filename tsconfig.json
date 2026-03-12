@@ -1,9 +1,17 @@
 {
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
+    "jsx": "react-jsx",
     "noEmit": true
   },
-  "include": ["apps/**/*.ts", "packages/**/*.ts", "services/**/*.ts"],
+  "include": [
+    "apps/**/*.ts",
+    "apps/**/*.tsx",
+    "packages/**/*.ts",
+    "packages/**/*.tsx",
+    "services/**/*.ts",
+    "services/**/*.tsx"
+  ],
   "exclude": [
     "node_modules",
     "references",
