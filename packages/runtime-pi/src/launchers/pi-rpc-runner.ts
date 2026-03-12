@@ -6,6 +6,7 @@ import { StringDecoder } from "node:string_decoder";
 import type { JsonObject, JsonValue } from "@spore/config-schema";
 
 import { readControlMessagesFromOffset } from "../control/session-control-queue.js";
+import { ensureFileParent, writeJsonFileAtomically } from "./json-file.js";
 import { PROJECT_ROOT } from "../metadata/constants.js";
 import type { CliFlags } from "../types.js";
 
@@ -86,6 +87,12 @@ type RunnerState = {
   abortRequested: boolean;
   idleSince: string | null;
   rpcState: JsonValue | null;
+  terminalSignal: {
+    settled: boolean;
+    exitCode: number;
+    finishedAt: string | null;
+    source: string;
+  } | null;
 };
 
 function isJsonObject(value: JsonValue | unknown): value is JsonObject {
@@ -129,18 +136,13 @@ function resolvePath(filePath: string): string {
     : path.join(PROJECT_ROOT, filePath);
 }
 
-async function ensureFileParent(filePath: string): Promise<void> {
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-}
-
 async function appendText(filePath: string, text: string): Promise<void> {
   await ensureFileParent(filePath);
   await fs.appendFile(filePath, text, "utf8");
 }
 
 async function writeJsonFile(filePath: string, value: unknown): Promise<void> {
-  await ensureFileParent(filePath);
-  await fs.writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+  await writeJsonFileAtomically(filePath, value);
 }
 
 async function appendJsonLine(filePath: string, value: unknown): Promise<void> {
@@ -343,6 +345,7 @@ async function main() {
     abortRequested: false,
     idleSince: null,
     rpcState: null,
+    terminalSignal: null,
   };
 
   async function flushStatus() {
@@ -540,10 +543,17 @@ async function main() {
       );
     }
     await stopChild();
-    state.status = syntheticExitCode === 0 ? "completed" : "aborted";
+    const finalizedExitCode = childExitCode ?? syntheticExitCode;
+    state.status = finalizedExitCode === 0 ? "completed" : "aborted";
     state.finishedAt = new Date().toISOString();
+    state.terminalSignal = {
+      settled: true,
+      exitCode: finalizedExitCode,
+      finishedAt: state.finishedAt,
+      source: "runner-finalize",
+    };
     await flushStatus();
-    process.exitCode = childExitCode ?? syntheticExitCode;
+    process.exitCode = finalizedExitCode;
   }
 
   async function dispatchControlEntry(

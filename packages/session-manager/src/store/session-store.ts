@@ -4,6 +4,7 @@ import type { SQLInputValue } from "node:sqlite";
 import { DatabaseSync } from "node:sqlite";
 
 import type {
+  SessionArtifactRecoveryTelemetry,
   SessionControlRequestInput,
   SessionControlRequestRecord,
   SessionRecord,
@@ -39,6 +40,7 @@ interface SessionRecordRow {
   endedAt: string | null;
   createdAt: string;
   updatedAt: string;
+  artifactRecoveryJson: string | null;
 }
 
 interface SessionSummaryRow {
@@ -110,7 +112,17 @@ function toSessionRecord(row: SessionRecordRow): SessionRecord {
     endedAt: row.endedAt,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
+    artifactRecovery: parseArtifactRecoveryJson(row.artifactRecoveryJson),
   };
+}
+
+function parseArtifactRecoveryJson(
+  raw: string | null,
+): SessionArtifactRecoveryTelemetry | null {
+  if (!raw) {
+    return null;
+  }
+  return JSON.parse(raw) as SessionArtifactRecoveryTelemetry;
 }
 
 function toSessionSummary(row: SessionSummaryRow): SessionSummary {
@@ -162,7 +174,8 @@ export function openSessionDatabase(dbPath: string): DatabaseSync {
       started_at TEXT,
       ended_at TEXT,
       created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
+      updated_at TEXT NOT NULL,
+      artifact_recovery_json TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_sessions_run_id ON sessions(run_id);
     CREATE INDEX IF NOT EXISTS idx_sessions_state ON sessions(state);
@@ -189,6 +202,7 @@ export function openSessionDatabase(dbPath: string): DatabaseSync {
     ["launcher_type", "TEXT"],
     ["launch_command", "TEXT"],
     ["tmux_session", "TEXT"],
+    ["artifact_recovery_json", "TEXT"],
   ]);
   return db;
 }
@@ -219,7 +233,7 @@ function runTransaction(db: DatabaseSync, fn: () => void): void {
   }
 }
 
-export function upsertSession(
+export function upsertSessionInTransaction(
   db: DatabaseSync,
   sessionRecord: SessionRecord,
 ): void {
@@ -246,10 +260,11 @@ export function upsertSession(
       launch_command,
       tmux_session,
       started_at,
-      ended_at,
-      created_at,
-      updated_at
-    ) VALUES (
+       ended_at,
+       created_at,
+       updated_at,
+       artifact_recovery_json
+     ) VALUES (
       @id,
       @runId,
       @agentIdentityId,
@@ -271,10 +286,11 @@ export function upsertSession(
       @launchCommand,
       @tmuxSession,
       @startedAt,
-      @endedAt,
-      @createdAt,
-      @updatedAt
-    )
+       @endedAt,
+       @createdAt,
+       @updatedAt,
+       @artifactRecoveryJson
+     )
     ON CONFLICT(id) DO UPDATE SET
       run_id = excluded.run_id,
       agent_identity_id = excluded.agent_identity_id,
@@ -294,16 +310,31 @@ export function upsertSession(
       transcript_path = excluded.transcript_path,
       launcher_type = excluded.launcher_type,
       launch_command = excluded.launch_command,
-      tmux_session = excluded.tmux_session,
-      started_at = excluded.started_at,
-      ended_at = excluded.ended_at,
-      updated_at = excluded.updated_at
-  `);
+       tmux_session = excluded.tmux_session,
+       started_at = excluded.started_at,
+       ended_at = excluded.ended_at,
+       updated_at = excluded.updated_at,
+       artifact_recovery_json = excluded.artifact_recovery_json
+   `);
 
+  const { artifactRecovery: _artifactRecovery, ...sessionParameters } =
+    sessionRecord;
+  statement.run(
+    asSqlParameters({
+      ...(sessionParameters as unknown as Record<string, unknown>),
+      artifactRecoveryJson: sessionRecord.artifactRecovery
+        ? JSON.stringify(sessionRecord.artifactRecovery)
+        : null,
+    }),
+  );
+}
+
+export function upsertSession(
+  db: DatabaseSync,
+  sessionRecord: SessionRecord,
+): void {
   runTransaction(db, () => {
-    statement.run(
-      asSqlParameters(sessionRecord as unknown as Record<string, unknown>),
-    );
+    upsertSessionInTransaction(db, sessionRecord);
   });
 }
 
@@ -338,7 +369,8 @@ export function getSession(
           started_at AS startedAt,
           ended_at AS endedAt,
           created_at AS createdAt,
-          updated_at AS updatedAt
+          updated_at AS updatedAt,
+          artifact_recovery_json AS artifactRecoveryJson
         FROM sessions
         WHERE id = ?
       `)

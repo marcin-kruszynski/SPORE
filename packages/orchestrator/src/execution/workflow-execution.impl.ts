@@ -9,9 +9,11 @@ import {
   readControlMessagesFromOffset,
 } from "@spore/runtime-pi";
 import {
+  buildSessionArtifactRecoveryTelemetry,
   DEFAULT_SESSION_DB_PATH,
   getSession,
   openSessionDatabase,
+  reconcileSessionFromArtifacts,
   transitionSessionRecord,
   upsertSession,
 } from "@spore/session-manager";
@@ -132,6 +134,7 @@ import {
   summarizeStepStates as summarizeWaveStepStates,
 } from "./wave-state.js";
 import { publishWorkflowStepHandoffs } from "./workflow-handoffs.js";
+import type { ArtifactRecoverySummary } from "../types/contracts.js";
 
 type LooseRecord = any;
 
@@ -233,10 +236,16 @@ async function readSessionWithRetry(
   let lastError = null;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     try {
-      const session = withSessionDatabase(dbPath, (db) =>
-        getSession(db, sessionId),
-      );
-      return await reconcileSessionFromArtifacts(dbPath, session);
+      const result = await reconcileSessionFromArtifacts({
+        dbPath,
+        sessionId,
+      });
+      return {
+        session: result.session,
+        artifactRecovery: result.signal
+          ? buildSessionArtifactRecoveryTelemetry(result.signal)
+          : null,
+      };
     } catch (error) {
       if (!isSessionDatabaseLocked(error)) {
         throw error;
@@ -253,57 +262,17 @@ async function readSessionWithRetry(
   );
 }
 
-async function readJsonFileIfExists(filePath) {
-  if (!filePath) {
-    return null;
+function buildArtifactRecoveryPayload(artifactRecovery, artifactRecoveryCount) {
+  if (!artifactRecovery) {
+    return {};
   }
-  try {
-    return JSON.parse(await fs.readFile(filePath, "utf8"));
-  } catch (error) {
-    if (error && typeof error === "object" && "code" in error) {
-      if (error.code === "ENOENT") {
-        return null;
-      }
-    }
-    throw error;
-  }
-}
-
-function deriveSessionExitPath(session) {
-  if (!session?.launchCommand) {
-    return null;
-  }
-  const launchCommand = path.isAbsolute(session.launchCommand)
-    ? session.launchCommand
-    : path.join(PROJECT_ROOT, session.launchCommand);
-  if (!launchCommand.endsWith(".launch.sh")) {
-    return null;
-  }
-  return launchCommand.replace(/\.launch\.sh$/, ".exit.json");
-}
-
-async function reconcileSessionFromArtifacts(sessionDbPath, session) {
-  if (!session || !["planned", "starting", "active"].includes(session.state)) {
-    return session;
-  }
-  const exitPath = deriveSessionExitPath(session);
-  const exitInfo = await readJsonFileIfExists(exitPath);
-  if (!Number.isInteger(exitInfo?.exitCode)) {
-    return session;
-  }
-  const nextState = exitInfo.exitCode === 0 ? "completed" : "failed";
-  return withSessionDatabase(sessionDbPath, (db) => {
-    const current = getSession(db, session.id);
-    if (
-      !current ||
-      !["planned", "starting", "active"].includes(current.state)
-    ) {
-      return current ?? session;
-    }
-    const updated = transitionSessionRecord(current, nextState);
-    upsertSession(db, updated);
-    return updated;
-  });
+  return {
+    artifactRecovery,
+    artifactRecoveryCount,
+    signalSource: artifactRecovery.signalSource,
+    terminalSignalSource: artifactRecovery.terminalSignalSource,
+    fallbackReason: artifactRecovery.fallbackReason,
+  };
 }
 
 function buildRetriedSessionId(execution, step, nextAttempt) {
@@ -1666,6 +1635,7 @@ export function getExecutionDetail(
     );
     const escalations = listEscalations(db, executionId);
     const audit = listAuditRecords(db, executionId);
+    const artifactRecovery = buildArtifactRecoverySummary(events);
     const childExecutions = listChildExecutions(db, executionId);
     const coordinationGroup = execution.coordinationGroupId
       ? listExecutionGroup(db, execution.coordinationGroupId)
@@ -1678,6 +1648,10 @@ export function getExecutionDetail(
           .map((step) => ({
             sessionId: step.sessionId,
             session: getSession(sessionDb, step.sessionId),
+            artifactRecovery:
+              artifactRecovery.events.find(
+                (entry) => entry.sessionId === step.sessionId,
+              ) ?? null,
           }))
           .filter((item) => item.session),
       );
@@ -1695,6 +1669,7 @@ export function getExecutionDetail(
       handoffs,
       escalations,
       audit,
+      artifactRecovery,
       childExecutions: childExecutions.map(decorateExecution),
       coordinationGroup: coordinationGroup.map(decorateExecution),
       sessions,
@@ -1934,6 +1909,49 @@ function orderedTimeline(items) {
   });
 }
 
+function buildArtifactRecoverySummary(events = []): ArtifactRecoverySummary {
+  const recoveredEvents = events
+    .filter((event) => event.type === "workflow.step.artifact_recovered")
+    .map((event) => {
+      const payload = event.payload ?? {};
+      const artifactRecovery = payload.artifactRecovery ?? {};
+      return {
+        eventId: event.id,
+        executionId: event.executionId,
+        stepId: event.stepId,
+        sessionId: event.sessionId,
+        recoveredAt: event.createdAt ?? null,
+        signalSource:
+          payload.signalSource ?? artifactRecovery.signalSource ?? null,
+        terminalSignalSource:
+          payload.terminalSignalSource ??
+          artifactRecovery.terminalSignalSource ??
+          null,
+        fallbackReason:
+          payload.fallbackReason ?? artifactRecovery.fallbackReason ?? null,
+        artifactPath: artifactRecovery.artifactPath ?? null,
+        exitCode: artifactRecovery.exitCode ?? null,
+        finalState: artifactRecovery.nextState ?? null,
+        artifactRecoveryCount:
+          payload.artifactRecoveryCount ??
+          artifactRecovery.artifactRecoveryCount ??
+          null,
+      };
+    });
+  const bySignalSource = recoveredEvents.reduce((accumulator, entry) => {
+    const key = String(entry.signalSource ?? "unknown");
+    accumulator[key] = (accumulator[key] ?? 0) + 1;
+    return accumulator;
+  }, {});
+  return {
+    count: recoveredEvents.length,
+    bySignalSource,
+    lastRecoveredAt:
+      recoveredEvents[recoveredEvents.length - 1]?.recoveredAt ?? null,
+    events: recoveredEvents,
+  };
+}
+
 function buildExecutionHistoryItems(detail, policyDiff) {
   const items = [];
   if (detail.execution?.promotion) {
@@ -2046,6 +2064,7 @@ export async function getExecutionHistory(
     approvals: detail.approvals,
     escalations: detail.escalations,
     audit: detail.audit,
+    artifactRecovery: detail.artifactRecovery,
     policyDiff,
     timeline: buildExecutionHistoryItems(detail, policyDiff),
     sessions: detail.sessions,
@@ -3925,20 +3944,21 @@ export async function reconcileExecution(
   if (activeSteps.length > 0) {
     const observations = [];
     for (const activeStep of activeSteps) {
-      const session = await readSessionWithRetry(
+      const sessionObservation = await readSessionWithRetry(
         sessionDbPath,
         activeStep.sessionId,
       );
       await applyActiveStepWatchdog(
         detail.execution,
         activeStep,
-        session,
+        sessionObservation.session,
         options,
       );
       observations.push({
         activeStep,
-        session,
-        settledStep: settleStepFromSession(activeStep, session),
+        session: sessionObservation.session,
+        artifactRecovery: sessionObservation.artifactRecovery,
+        settledStep: settleStepFromSession(activeStep, sessionObservation.session),
       });
     }
 
@@ -3956,6 +3976,32 @@ export async function reconcileExecution(
 
           const { activeStep } = observation;
           let settledStep = observation.settledStep;
+          const priorArtifactRecoveryCount = listWorkflowEvents(
+            db,
+            executionId,
+          ).filter(
+            (event) => event.type === "workflow.step.artifact_recovered",
+          ).length;
+          const artifactRecoveryCount = observation.artifactRecovery
+            ? priorArtifactRecoveryCount + 1
+            : null;
+          if (observation.artifactRecovery && artifactRecoveryCount) {
+            emitWorkflowEvent(db, {
+              executionId,
+              stepId: activeStep.id,
+              sessionId: activeStep.sessionId,
+              type: "workflow.step.artifact_recovered",
+              payload: {
+                sequence: activeStep.sequence,
+                wave: activeStep.wave ?? activeStep.sequence,
+                role: activeStep.role,
+                ...buildArtifactRecoveryPayload(
+                  observation.artifactRecovery,
+                  artifactRecoveryCount,
+                ),
+              },
+            });
+          }
           if (["failed", "stopped"].includes(settledStep.state)) {
             const retryAllowed =
               activeStep.attemptCount < activeStep.maxAttempts;
@@ -3976,6 +4022,10 @@ export async function reconcileExecution(
                   nextAttempt: retriedStep.attemptCount,
                   maxAttempts: retriedStep.maxAttempts,
                   nextSessionId: retriedStep.sessionId,
+                  ...buildArtifactRecoveryPayload(
+                    observation.artifactRecovery,
+                    artifactRecoveryCount,
+                  ),
                 },
               });
               continue;
@@ -4025,6 +4075,10 @@ export async function reconcileExecution(
                 finalState: settledStep.state,
                 attemptCount: settledStep.attemptCount,
                 maxAttempts: settledStep.maxAttempts,
+                ...buildArtifactRecoveryPayload(
+                  observation.artifactRecovery,
+                  artifactRecoveryCount,
+                ),
               },
             });
             if (failureAction === "hold_execution") {
@@ -4146,6 +4200,10 @@ export async function reconcileExecution(
                 wave: settledStep.wave ?? settledStep.sequence,
                 role: settledStep.role,
                 dispatchBlocked,
+                ...buildArtifactRecoveryPayload(
+                  observation.artifactRecovery,
+                  artifactRecoveryCount,
+                ),
               },
             });
             continue;
@@ -4156,13 +4214,17 @@ export async function reconcileExecution(
             stepId: settledStep.id,
             sessionId: settledStep.sessionId,
             type: "workflow.step.completed",
-            payload: {
-              sequence: settledStep.sequence,
-              wave: settledStep.wave ?? settledStep.sequence,
-              role: settledStep.role,
-              attemptCount: settledStep.attemptCount,
-            },
-          });
+              payload: {
+                sequence: settledStep.sequence,
+                wave: settledStep.wave ?? settledStep.sequence,
+                role: settledStep.role,
+                attemptCount: settledStep.attemptCount,
+                ...buildArtifactRecoveryPayload(
+                  observation.artifactRecovery,
+                  artifactRecoveryCount,
+                ),
+              },
+            });
         }
 
         const activeWaves = [

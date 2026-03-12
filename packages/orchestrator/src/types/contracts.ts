@@ -23,6 +23,28 @@ export interface SuggestedAction {
   httpHint: string | null;
 }
 
+export interface ArtifactRecoveryEntry extends JsonObject {
+  eventId?: string;
+  executionId?: string;
+  stepId?: string | null;
+  sessionId?: string | null;
+  recoveredAt?: string | null;
+  signalSource?: string | null;
+  terminalSignalSource?: string | null;
+  fallbackReason?: string | null;
+  artifactPath?: string | null;
+  exitCode?: number | null;
+  finalState?: string | null;
+  artifactRecoveryCount?: number | null;
+}
+
+export interface ArtifactRecoverySummary extends JsonObject {
+  count: number;
+  bySignalSource: Record<string, number>;
+  lastRecoveredAt: string | null;
+  events: ArtifactRecoveryEntry[];
+}
+
 export interface DependencyBlocker extends JsonObject {
   id?: string;
   reasonCode?: string | null;

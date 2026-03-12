@@ -92,6 +92,7 @@ import {
   upsertSelfBuildLoopState,
 } from "../store/execution-store.js";
 import type {
+  ArtifactRecoverySummary,
   DocSuggestionRecordListOptions,
   PolicyRecommendationReviewListOptions,
   QuarantineRecordListOptions,
@@ -4975,6 +4976,56 @@ export function getSelfBuildWorkItem(
   };
 }
 
+function buildEmptyArtifactRecoverySummary(): ArtifactRecoverySummary {
+  return {
+    count: 0,
+    bySignalSource: {},
+    lastRecoveredAt: null,
+    events: [],
+  };
+}
+
+function buildExecutionObservabilitySummary(
+  executionDetail,
+  executionId,
+) {
+  if (!executionId) {
+    return null;
+  }
+  if (!executionDetail?.execution) {
+    return {
+      id: executionId,
+      artifactRecovery: buildEmptyArtifactRecoverySummary(),
+      links: {
+        self: `/executions/${encodeURIComponent(executionId)}`,
+        history: `/executions/${encodeURIComponent(executionId)}/history`,
+      },
+    };
+  }
+  return compactObject({
+    id: executionDetail.execution.id ?? executionId,
+    state: executionDetail.execution.state ?? null,
+    status:
+      executionDetail.execution.status ?? executionDetail.execution.state ?? null,
+    role: executionDetail.execution.role ?? null,
+    workflowId: executionDetail.execution.workflowId ?? null,
+    projectId: executionDetail.execution.projectId ?? null,
+    coordinationGroupId: executionDetail.execution.coordinationGroupId ?? null,
+    childExecutionIds:
+      executionDetail.childExecutions?.map((child) => child.id) ?? [],
+    artifactRecovery:
+      executionDetail.artifactRecovery ?? buildEmptyArtifactRecoverySummary(),
+    links: {
+      self: `/executions/${encodeURIComponent(
+        executionDetail.execution.id ?? executionId,
+      )}`,
+      history: `/executions/${encodeURIComponent(
+        executionDetail.execution.id ?? executionId,
+      )}/history`,
+    },
+  });
+}
+
 export function getSelfBuildWorkItemRun(
   runId,
   dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
@@ -5011,6 +5062,9 @@ export function getSelfBuildWorkItemRun(
     : null;
   const goalPlan = item?.metadata?.goalPlanId
     ? withDatabase(dbPath, (db) => getGoalPlan(db, item.metadata.goalPlanId))
+    : null;
+  const executionDetail = run.result?.executionId
+    ? getExecutionDetail(run.result.executionId, dbPath)
     : null;
   const failure =
     run.status === "failed"
@@ -5132,6 +5186,10 @@ export function getSelfBuildWorkItemRun(
         ? { id: goalPlan.id, title: goalPlan.title, goal: goalPlan.goal }
         : null,
     },
+    execution: buildExecutionObservabilitySummary(
+      executionDetail,
+      run.result?.executionId ?? null,
+    ),
     links: {
       ...buildWorkItemRunLinks(run),
       self: `/work-item-runs/${encodeURIComponent(runId)}`,
@@ -6959,6 +7017,12 @@ function buildProposalReviewPackage(
   const executionDetail = promotion.sourceExecutionId
     ? getExecutionDetail(promotion.sourceExecutionId, dbPath)
     : null;
+  const executionSummary = executionDetail
+    ? buildExecutionObservabilitySummary(
+        executionDetail,
+        promotion.sourceExecutionId,
+      )
+    : null;
   const effectiveProposalStatus = governance.ready
     ? String(proposal.status)
     : "rework_required";
@@ -6973,27 +7037,13 @@ function buildProposalReviewPackage(
     workItemRun: run,
     workItem,
     workspace,
-    execution: executionDetail
-      ? compactObject({
-          id: executionDetail.execution?.id ?? promotion.sourceExecutionId,
-          status: executionDetail.execution?.status ?? null,
-          role: executionDetail.execution?.role ?? null,
-          workflowId: executionDetail.execution?.workflowId ?? null,
-          projectId: executionDetail.execution?.projectId ?? null,
-          coordinationGroupId:
-            executionDetail.execution?.coordinationGroupId ?? null,
-          childExecutionIds:
-            executionDetail.childExecutions?.map((child) => child.id) ?? [],
+    execution: executionDetail && executionSummary
+      ? Object.assign({}, executionSummary, {
           links: {
-            self: `/executions/${encodeURIComponent(
-              executionDetail.execution?.id ?? promotion.sourceExecutionId,
-            )}`,
+            ...asJsonObject(executionSummary.links),
             tree: `/executions/${encodeURIComponent(
               executionDetail.execution?.id ?? promotion.sourceExecutionId,
             )}/tree`,
-            history: `/executions/${encodeURIComponent(
-              executionDetail.execution?.id ?? promotion.sourceExecutionId,
-            )}/history`,
           },
         })
       : null,

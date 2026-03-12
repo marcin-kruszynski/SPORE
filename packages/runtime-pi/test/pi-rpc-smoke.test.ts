@@ -131,4 +131,8 @@ test("pi-rpc smoke run completes and writes runtime artifacts", async (t) => {
   );
   assert.ok(eventsRaw.trim().length > 0);
   assert.ok(["completed", "finished"].includes(status.status));
+  assert.equal(status.terminalSignal?.settled, true);
+  assert.equal(status.terminalSignal?.exitCode, 0);
+  assert.equal(typeof status.terminalSignal?.finishedAt, "string");
+  assert.equal(status.terminalSignal?.source, "runner-finalize");
 });

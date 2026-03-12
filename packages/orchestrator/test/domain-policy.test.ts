@@ -761,3 +761,253 @@ test("exit artifacts can reconcile stale active sessions and unblock the next wa
   assert.equal(detail.execution.holdReason, null);
   assert.equal(builder.state, "active");
 });
+
+test("final rpc-status artifacts can reconcile stale active sessions and unblock the next wave", async () => {
+  const { root, dbPath, sessionDbPath } = await makeTempPaths();
+  const invocationId = `artifact-rpc-status-reconcile-${Date.now()}`;
+  const invocation = await planWorkflowInvocation({
+    workflowPath: "config/workflows/frontend-ui-pass.yaml",
+    projectPath: "config/projects/spore.yaml",
+    domainId: "frontend",
+    roles: ["lead", "scout", "builder", "tester", "reviewer"],
+    invocationId,
+    objective:
+      "Recover a held execution from stale session state using rpc-status artifacts.",
+  });
+
+  createExecution(invocation, dbPath);
+
+  const initial = getExecutionDetail(
+    invocation.invocationId,
+    dbPath,
+    sessionDbPath,
+  );
+  const lead = initial.steps.find((step) => step.role === "lead");
+  const scout = initial.steps.find((step) => step.role === "scout");
+
+  assert.ok(lead);
+  assert.ok(scout);
+
+  const timestamp = new Date().toISOString();
+  const db = openOrchestratorDatabase(dbPath);
+  try {
+    updateStep(
+      db,
+      transitionStepRecord(lead, "completed", {
+        launchedAt: timestamp,
+        settledAt: timestamp,
+      }),
+    );
+    updateStep(
+      db,
+      transitionStepRecord(scout, "active", {
+        launchedAt: timestamp,
+      }),
+    );
+    updateExecution(
+      db,
+      transitionExecutionRecord(initial.execution, "held", {
+        heldFromState: "running",
+        holdReason: "wave-0-blocked",
+        heldAt: timestamp,
+      }),
+    );
+  } finally {
+    db.close();
+  }
+
+  const launchScriptPath = path.join(root, `${scout.sessionId}.launch.sh`);
+  const rpcStatusPath = launchScriptPath.replace(
+    /\.launch\.sh$/,
+    ".rpc-status.json",
+  );
+  await fs.writeFile(launchScriptPath, "#!/usr/bin/env bash\n", "utf8");
+  await fs.writeFile(
+    rpcStatusPath,
+    `${JSON.stringify(
+      {
+        runner: "pi-rpc-runner",
+        status: "completed",
+        terminalSignal: {
+          settled: true,
+          exitCode: 0,
+          finishedAt: timestamp,
+          source: "runner-finalize",
+        },
+      },
+      null,
+      2,
+    )}\n`,
+    "utf8",
+  );
+
+  const sessionDb = openSessionDatabase(sessionDbPath);
+  try {
+    upsertSession(sessionDb, {
+      id: scout.sessionId,
+      runId: `${invocation.invocationId}-2`,
+      agentIdentityId: "scout:scout",
+      profileId: "scout",
+      role: "scout",
+      state: "active",
+      runtimeAdapter: "pi",
+      transportMode: "rpc",
+      sessionMode: "ephemeral",
+      projectId: "spore",
+      projectName: "SPORE",
+      projectType: "application",
+      domainId: "frontend",
+      workflowId: "frontend-ui-pass",
+      parentSessionId: lead.sessionId,
+      contextPath: null,
+      transcriptPath: path.join(root, `${scout.sessionId}.transcript.md`),
+      launcherType: "pi-rpc",
+      launchCommand: launchScriptPath,
+      tmuxSession: `tmux-${scout.sessionId}`,
+      startedAt: timestamp,
+      endedAt: null,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+  } finally {
+    sessionDb.close();
+  }
+
+  const detail = await reconcileExecution(invocation.invocationId, {
+    dbPath,
+    sessionDbPath,
+    stub: true,
+    launcher: "stub",
+    noMonitor: true,
+  });
+
+  const refreshedScout = detail.steps.find((step) => step.role === "scout");
+  const builder = detail.steps.find((step) => step.role === "builder");
+
+  assert.equal(refreshedScout.state, "completed");
+  assert.equal(detail.execution.state, "running");
+  assert.equal(detail.execution.holdReason, null);
+  assert.equal(builder.state, "active");
+});
+
+test("persisted artifact recovery remains visible when session-manager settles before orchestrator reconcile", async () => {
+  const { root, dbPath, sessionDbPath } = await makeTempPaths();
+  const invocationId = `persisted-artifact-recovery-${Date.now()}`;
+  const invocation = await planWorkflowInvocation({
+    workflowPath: "config/workflows/frontend-ui-pass.yaml",
+    projectPath: "config/projects/spore.yaml",
+    domainId: "frontend",
+    roles: ["lead", "scout", "builder", "tester", "reviewer"],
+    invocationId,
+    objective:
+      "Keep artifact recovery visible when the session manager heals before orchestrator reconcile.",
+  });
+
+  createExecution(invocation, dbPath);
+
+  const initial = getExecutionDetail(
+    invocation.invocationId,
+    dbPath,
+    sessionDbPath,
+  );
+  const lead = initial.steps.find((step) => step.role === "lead");
+  const scout = initial.steps.find((step) => step.role === "scout");
+
+  assert.ok(lead);
+  assert.ok(scout);
+
+  const timestamp = new Date().toISOString();
+  const rpcStatusPath = path.join(root, `${scout.sessionId}.rpc-status.json`);
+  const db = openOrchestratorDatabase(dbPath);
+  try {
+    updateStep(
+      db,
+      transitionStepRecord(lead, "completed", {
+        launchedAt: timestamp,
+        settledAt: timestamp,
+      }),
+    );
+    updateStep(
+      db,
+      transitionStepRecord(scout, "active", {
+        launchedAt: timestamp,
+      }),
+    );
+    updateExecution(
+      db,
+      transitionExecutionRecord(initial.execution, "held", {
+        heldFromState: "running",
+        holdReason: "wave-0-blocked",
+        heldAt: timestamp,
+      }),
+    );
+  } finally {
+    db.close();
+  }
+
+  const sessionDb = openSessionDatabase(sessionDbPath);
+  try {
+    upsertSession(sessionDb, {
+      id: scout.sessionId,
+      runId: `${invocation.invocationId}-2`,
+      agentIdentityId: "scout:scout",
+      profileId: "scout",
+      role: "scout",
+      state: "completed",
+      runtimeAdapter: "pi",
+      transportMode: "rpc",
+      sessionMode: "ephemeral",
+      projectId: "spore",
+      projectName: "SPORE",
+      projectType: "application",
+      domainId: "frontend",
+      workflowId: "frontend-ui-pass",
+      parentSessionId: lead.sessionId,
+      contextPath: null,
+      transcriptPath: path.join(root, `${scout.sessionId}.transcript.md`),
+      launcherType: "pi-rpc",
+      launchCommand: path.join(root, `${scout.sessionId}.launch.sh`),
+      tmuxSession: `tmux-${scout.sessionId}`,
+      startedAt: timestamp,
+      endedAt: timestamp,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      artifactRecovery: {
+        recovered: true,
+        signalSource: "rpc-status",
+        terminalSignalSource: "runner-finalize",
+        fallbackReason: "exit-file-missing",
+        artifactPath: rpcStatusPath,
+        exitCode: 0,
+        nextState: "completed",
+        finishedAt: timestamp,
+        status: "completed",
+        artifactRecoveryCount: 1,
+      },
+    });
+  } finally {
+    sessionDb.close();
+  }
+
+  const detail = await reconcileExecution(invocation.invocationId, {
+    dbPath,
+    sessionDbPath,
+    stub: true,
+    launcher: "stub",
+    noMonitor: true,
+  });
+
+  const refreshedScout = detail.steps.find((step) => step.role === "scout");
+  const builder = detail.steps.find((step) => step.role === "builder");
+
+  assert.equal(refreshedScout.state, "completed");
+  assert.equal(detail.execution.state, "running");
+  assert.equal(detail.execution.holdReason, null);
+  assert.equal(builder.state, "active");
+  assert.equal(detail.artifactRecovery.count, 1);
+  assert.equal(detail.artifactRecovery.events[0].signalSource, "rpc-status");
+  assert.equal(
+    detail.artifactRecovery.events[0].fallbackReason,
+    "exit-file-missing",
+  );
+});

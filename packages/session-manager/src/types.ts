@@ -33,6 +33,7 @@ export interface SessionRecord {
   endedAt: string | null;
   createdAt: string;
   updatedAt: string;
+  artifactRecovery?: SessionArtifactRecoveryTelemetry | null;
 }
 
 export interface SessionSummary {
@@ -50,6 +51,25 @@ export interface SessionSummary {
 }
 
 export type SessionEventPayload = Record<string, unknown>;
+
+export type SessionArtifactSignalSource = "exit-file" | "rpc-status";
+
+export type SessionArtifactFallbackReason =
+  | "exit-file-missing"
+  | "exit-file-invalid";
+
+export interface SessionArtifactRecoveryTelemetry {
+  recovered: true;
+  signalSource: SessionArtifactSignalSource;
+  terminalSignalSource: string | null;
+  fallbackReason: SessionArtifactFallbackReason | null;
+  artifactPath: string;
+  exitCode: number;
+  nextState: "completed" | "failed";
+  finishedAt: string | null;
+  status: string | null;
+  artifactRecoveryCount: number;
+}
 
 export interface SessionEvent<
   TPayload extends SessionEventPayload = SessionEventPayload,

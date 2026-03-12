@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 
 const CORE_ROOT = path.resolve(
@@ -8,6 +9,7 @@ const CORE_ROOT = path.resolve(
 );
 
 export const PROJECT_ROOT = CORE_ROOT;
+const require = createRequire(import.meta.url);
 export type SporeIdentifier = string;
 export type IsoTimestamp = string;
 export interface TimestampedRecord {
@@ -34,9 +36,17 @@ export function resolveRepoScriptPath(scriptPath: string): string {
   return absolutePath;
 }
 
+export function resolveTsxImportPath(): string {
+  return require.resolve("tsx");
+}
+
 export function buildTsxEntrypointArgs(
   scriptPath: string,
   args: string[] = [],
 ): string[] {
-  return ["--import=tsx", resolveRepoScriptPath(scriptPath), ...args];
+  return [
+    `--import=${resolveTsxImportPath()}`,
+    resolveRepoScriptPath(scriptPath),
+    ...args,
+  ];
 }

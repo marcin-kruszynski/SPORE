@@ -314,6 +314,14 @@ curl http://127.0.0.1:8789/executions/e2e-review-002
 
 Use this flow when you need to understand why a live self-build mission picked a proposal, chose a pending action, selected validation bundles, kept or failed a workspace allocation, or blocked promotion.
 
+For the opt-in dashboard/webui Real PI smoke suite, run:
+
+```bash
+SPORE_RUN_PI_E2E=1 npm run test:http:self-build-smoke
+```
+
+That smoke command is intentionally excluded from `npm run test:http`. It starts its own isolated Real PI stack through `scripts/run-self-build-real-pi.sh` on an automatically selected non-default port base, so it does not collide with the usual local stack on `8787-8789` or with a manually launched `scripts/run-self-build-real-pi.sh` default run.
+
 1. Start the orchestrator with isolated state and a real PI runtime:
 
 ```bash
