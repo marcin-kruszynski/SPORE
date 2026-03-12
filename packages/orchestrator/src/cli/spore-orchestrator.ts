@@ -2097,7 +2097,7 @@ async function main() {
     if (!flags.proposal) {
       throw new Error("use proposal-promotion-plan --proposal <id>");
     }
-    const detail = planProposalPromotion(flags.proposal, {
+    const detail = await planProposalPromotion(flags.proposal, {
       invocationId: flags["invocation-id"] ?? null,
       targetBranch: flags["target-branch"] ?? null,
       objective: flags.objective ?? null,

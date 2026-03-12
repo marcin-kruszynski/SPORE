@@ -7,6 +7,7 @@ import path from "node:path";
 import test from "node:test";
 
 import {
+  createExecution,
   createWorkItem,
   getProposalArtifact,
   getWorkspaceAllocation,
@@ -16,6 +17,7 @@ import {
   listOperatorThreadMessages,
   listWorkItemRuns,
   openOrchestratorDatabase,
+  planWorkflowInvocation,
   updateProposalArtifact,
   updateWorkspaceAllocation,
 } from "@spore/orchestrator";
@@ -828,6 +830,210 @@ function setProposalProjectionState(
   }
 }
 
+async function seedStandalonePromotionReadyProposal(
+  dbPath: string,
+  overrides: {
+    targetBranch?: string;
+  } = {},
+) {
+  const executionId = `standalone-self-build-${Date.now()}`;
+  const invocation = await planWorkflowInvocation({
+    workflowPath: "config/workflows/frontend-ui-pass.yaml",
+    projectPath: "config/projects/spore.yaml",
+    domainId: "frontend",
+    invocationId: executionId,
+    objective: "Prepare a standalone self-build proposal for promotion.",
+  });
+  createExecution(invocation, dbPath);
+
+  const item = createWorkItem(
+    {
+      title: "Promote standalone frontend proposal",
+      kind: "workflow",
+      goal: "Promote a reviewed standalone self-build proposal without a coordinator root.",
+      metadata: {
+        workflowPath: "config/workflows/frontend-ui-pass.yaml",
+        projectPath: "config/projects/spore.yaml",
+        domainId: "frontend",
+        mutationScope: ["apps/web"],
+        safeMode: true,
+      },
+    },
+    dbPath,
+  );
+
+  const timestamp = new Date().toISOString();
+  const runId = `work-item-run-standalone-${Date.now()}`;
+  const workspaceId = `workspace-standalone-${Date.now()}`;
+  const proposalId = `proposal-standalone-${Date.now()}`;
+  const targetBranch = overrides.targetBranch ?? "main";
+  const integrationBranch = `spore/test/integration/${proposalId}`;
+  const branchName = `spore/test/${workspaceId}`;
+  const worktreePath = path.join(dbPath, workspaceId);
+  const db = openOrchestratorDatabase(dbPath);
+
+  try {
+    db.prepare(
+      `UPDATE workflow_executions
+       SET state = @state,
+           updated_at = @updatedAt,
+           started_at = COALESCE(started_at, @startedAt)
+       WHERE id = @id`,
+    ).run({
+      id: executionId,
+      state: "waiting_review",
+      updatedAt: timestamp,
+      startedAt: timestamp,
+    });
+
+    insertWorkItemRunFixture(db, {
+      runId,
+      itemId: item.id,
+      status: "completed",
+      triggerSource: "standalone-promotion-test",
+      requestedBy: "test-runner",
+      result: {
+        executionId,
+      },
+      metadata: {
+        itemKind: item.kind,
+        itemStatusBeforeRun: "pending",
+      },
+      timestamp,
+    });
+
+    insertWorkspaceAllocation(db, {
+      id: workspaceId,
+      projectId: "spore",
+      ownerType: "work-item-run",
+      ownerId: runId,
+      executionId,
+      stepId: null,
+      workItemId: item.id,
+      workItemRunId: runId,
+      proposalArtifactId: proposalId,
+      worktreePath,
+      branchName,
+      baseRef: "HEAD",
+      integrationBranch: null,
+      mode: "git-worktree",
+      safeMode: true,
+      mutationScope: ["apps/web"],
+      status: "settled",
+      metadata: {
+        source: "standalone-promotion-test",
+      },
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      cleanedAt: null,
+    });
+
+    insertProposalArtifact(db, {
+      id: proposalId,
+      workItemRunId: runId,
+      workItemId: item.id,
+      status: "promotion_ready",
+      kind: "workflow",
+      summary: {
+        title: `${item.title} proposal`,
+        goal: item.goal,
+        runStatus: "completed",
+        safeMode: true,
+        domainId: "frontend",
+        mutationScope: ["apps/web"],
+        taskClass: "workflow",
+        projectId: "spore",
+      },
+      artifacts: {
+        changeSummary: item.goal,
+        proposedFiles: [],
+        diffSummary: {
+          fileCount: 0,
+          trackedFileCount: 0,
+          untrackedFileCount: 0,
+          addedCount: 0,
+          modifiedCount: 0,
+          deletedCount: 0,
+          renamedCount: 0,
+          conflictedCount: 0,
+          insertionCount: 0,
+          deletionCount: 0,
+        },
+        changedFilesByScope: [],
+        patchArtifact: {
+          path: `artifacts/proposals/${proposalId}.patch`,
+          byteLength: 0,
+          preview: "",
+        },
+        workspace: {
+          id: workspaceId,
+          workspaceId,
+          worktreePath,
+          branchName,
+          baseRef: "HEAD",
+          status: "settled",
+          mutationScope: ["apps/web"],
+        },
+        reviewNotes: {
+          requiredReview: true,
+          requiredApproval: true,
+          safeMode: true,
+        },
+        testSummary: {
+          validationStatus: "completed",
+          scenarioRunIds: [],
+          regressionRunIds: [],
+        },
+        docImpact: {
+          relatedDocs: [],
+          relatedScenarios: [],
+          relatedRegressions: [],
+        },
+      },
+      metadata: {
+        source: "standalone-promotion-test",
+        workspaceId,
+        projectId: "spore",
+        validation: {
+          status: "completed",
+          summary: "Required validation bundles completed for standalone promotion coverage.",
+          bundleResults: [
+            {
+              bundleId: "integration-ready-core",
+              label: "Integration Ready Core",
+              status: "completed",
+              requiredForProposalReadiness: true,
+              requiredForPromotionReadiness: true,
+              completedAt: timestamp,
+            },
+          ],
+        },
+        promotion: {
+          status: "promotion_ready",
+          sourceExecutionId: executionId,
+          targetBranch,
+          integrationBranch,
+          blockers: [],
+          updatedAt: timestamp,
+        },
+      },
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      reviewedAt: timestamp,
+      approvedAt: timestamp,
+    });
+  } finally {
+    db.close();
+  }
+
+  return {
+    executionId,
+    itemId: item.id,
+    proposalId,
+    targetBranch,
+  };
+}
+
 test("self-build summary and lineage routes expose operator-first visibility", async (t) => {
   const ORCHESTRATOR_PORT = await findFreePort();
   const WEB_PORT = await findFreePort();
@@ -1360,7 +1566,7 @@ test("self-build summary and lineage routes expose operator-first visibility", a
       runDetail.json.detail.proposal.id,
     );
     assert.equal(
-      promotionInvoke.json.detail.detail.execution.role,
+      promotionInvoke.json.detail.detail.detail.execution.role,
       "integrator",
     );
 
@@ -1971,6 +2177,73 @@ test("self-build summary and lineage routes expose operator-first visibility", a
   );
   assert.equal(webIntegrationBranches.status, 200);
   assert.ok(webIntegrationBranches.json.ok);
+});
+
+test("standalone self-build promotion-ready proposals plan and invoke integrator lanes", async (t) => {
+  const { ORCHESTRATOR_PORT, dbPath } = await startOperatorChatServer(
+    t,
+    "spore-http-standalone-promotion-",
+  );
+  const seeded = await seedStandalonePromotionReadyProposal(dbPath);
+
+  const promotionPlan = await postJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/proposal-artifacts/${encodeURIComponent(seeded.proposalId)}/promotion-plan`,
+    {
+      targetBranch: seeded.targetBranch,
+      by: "test-runner",
+    },
+  );
+  assert.equal(promotionPlan.status, 200);
+  assert.ok(promotionPlan.json.ok);
+  assert.equal(promotionPlan.json.detail.proposal.id, seeded.proposalId);
+  assert.equal(
+    promotionPlan.json.detail.promotion.sourceExecutionId,
+    seeded.executionId,
+  );
+  assert.equal(promotionPlan.json.detail.plan.rootExecution.id, seeded.executionId);
+  assert.equal(
+    promotionPlan.json.detail.plan.invocation.metadata.invocationMetadata
+      .projectRole,
+    "integrator",
+  );
+  assert.deepEqual(
+    promotionPlan.json.detail.plan.invocation.metadata.invocationMetadata
+      .promotionSourceExecutionIds,
+    [seeded.executionId],
+  );
+
+  const promotionInvoke = await postJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/proposal-artifacts/${encodeURIComponent(seeded.proposalId)}/promotion-invoke`,
+    {
+      targetBranch: seeded.targetBranch,
+      by: "test-runner",
+    },
+  );
+  assert.equal(promotionInvoke.status, 200);
+  assert.ok(promotionInvoke.json.ok);
+  assert.equal(promotionInvoke.json.detail.proposal.id, seeded.proposalId);
+  const integratorExecutionId =
+    promotionInvoke.json.detail.detail.created?.execution?.id ??
+    promotionInvoke.json.detail.detail.plan?.invocation?.invocationId;
+  assert.ok(integratorExecutionId);
+
+  const integratorExecution = await getJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/executions/${encodeURIComponent(integratorExecutionId)}`,
+  );
+  assert.equal(integratorExecution.status, 200);
+  assert.ok(integratorExecution.json.ok);
+  assert.equal(
+    integratorExecution.json.detail.execution.projectRole,
+    "integrator",
+  );
+  assert.equal(
+    integratorExecution.json.detail.execution.parentExecutionId,
+    seeded.executionId,
+  );
+  assert.equal(
+    integratorExecution.json.detail.execution.topology?.kind,
+    "promotion-lane",
+  );
 });
 
 test("blocked self-build runs do not expose reviewable proposals over HTTP", async (t) => {

@@ -2255,6 +2255,12 @@ function executionSupportsProjectCoordination(execution) {
   );
 }
 
+function proposalSourceSupportsStandalonePromotion(source) {
+  return ["promotion_ready", "promotion_candidate"].includes(
+    String(source?.proposalStatus ?? ""),
+  );
+}
+
 function isExecutionGovernanceReadyForPromotion(execution) {
   if (execution.state === "completed") {
     return true;
@@ -2375,6 +2381,40 @@ function summarizePromotionSources(rootExecution, executions, db) {
   };
 }
 
+function summarizeStandalonePromotionSources(execution, db) {
+  const proposalsById = new Map(
+    listProposalArtifacts(db, null, 500).map((artifact) => [
+      artifact.id,
+      artifact,
+    ]),
+  );
+  const blockers = [];
+
+  const sources = collectExecutionWorkspaceSources(
+    db,
+    execution,
+    proposalsById,
+  ).filter(proposalSourceSupportsStandalonePromotion);
+
+  if (sources.length === 0) {
+    blockers.push({
+      code: "missing_promotion_ready_proposal_source",
+      executionId: execution.id,
+      domainId: execution.domainId ?? null,
+      message:
+        `standalone execution ${execution.id} has no promotion-ready proposal sources`,
+    });
+  }
+
+  return {
+    rootExecutionId: execution.id,
+    laneCount: 1,
+    count: sources.length,
+    sources,
+    blockers,
+  };
+}
+
 export async function buildProjectCoordinationPlan(options: LooseRecord = {}) {
   const rootInvocation = await planProjectCoordination(options);
   const selectedDomains = asArray(
@@ -2413,33 +2453,34 @@ export async function planPromotionForExecution(
       throw new Error(`execution not found: ${executionId}`);
     }
     const root = resolveExecutionRoot(db, selected);
-    if (!executionSupportsProjectCoordination(root)) {
-      throw new Error(
-        `promotion flow requires a coordinator-root execution family: ${root.id}`,
-      );
-    }
-    const groupId = root.coordinationGroupId ?? root.id;
-    const executions = listExecutionGroup(db, groupId);
-    const sourceSummary = summarizePromotionSources(root, executions, db);
+    const promotionRoot = executionSupportsProjectCoordination(root)
+      ? root
+      : selected;
+    const groupId = promotionRoot.coordinationGroupId ?? promotionRoot.id;
+    const sourceSummary = executionSupportsProjectCoordination(root)
+      ? summarizePromotionSources(promotionRoot, listExecutionGroup(db, groupId), db)
+      : summarizeStandalonePromotionSources(promotionRoot, db);
     if (sourceSummary.blockers.length > 0 || sourceSummary.count === 0) {
       const primary = sourceSummary.blockers[0] ?? {
         code: "missing_promotion_source",
-        message: `execution family ${root.id} has no promotion-ready sources`,
+        message: `execution family ${promotionRoot.id} has no promotion-ready sources`,
       };
       throw new Error(`promotion blocked: ${primary.code}: ${primary.message}`);
     }
     const plan = await planFeaturePromotion({
-      projectPath: root.projectPath,
-      objective: options.objective ?? root.objective,
+      projectPath: promotionRoot.projectPath,
+      objective: options.objective ?? promotionRoot.objective,
       invocationId:
-        options.invocationId ?? `promotion-${root.id}-${Date.now()}`,
+        options.invocationId ?? `promotion-${promotionRoot.id}-${Date.now()}`,
       coordinationGroupId: groupId,
-      parentExecutionId: root.id,
-      branchKey: buildPromotionBranchKey(options.featureKey ?? root.id),
+      parentExecutionId: promotionRoot.id,
+      branchKey: buildPromotionBranchKey(
+        options.featureKey ?? promotionRoot.id,
+      ),
       targetBranch: options.targetBranch ?? null,
       sourceSummary,
       metadata: {
-        projectRootExecutionId: root.id,
+        projectRootExecutionId: promotionRoot.id,
         promotionSourceExecutionIds: unique(
           sourceSummary.sources.map((source) => source.executionId),
         ),
@@ -2447,7 +2488,7 @@ export async function planPromotionForExecution(
       },
     });
     return {
-      rootExecution: decorateExecution(root),
+      rootExecution: decorateExecution(promotionRoot),
       sourceSummary,
       invocation: plan,
     };

@@ -2387,7 +2387,7 @@ const server = http.createServer(async (request, response) => {
     ) {
       const body = await readJsonBody(request);
       try {
-        const detail = planProposalPromotion(parts[1], body);
+        const detail = await planProposalPromotion(parts[1], body);
         if (!detail) {
           json(response, 404, {
             ok: false,

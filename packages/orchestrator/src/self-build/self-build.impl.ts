@@ -7093,7 +7093,7 @@ export function getProposalReviewPackage(
   return buildProposalReviewPackage(artifact, dbPath);
 }
 
-export function planProposalPromotion(
+export async function planProposalPromotion(
   artifactId,
   options: LooseRecord = {},
   dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
@@ -7125,7 +7125,7 @@ export function planProposalPromotion(
     (error as LooseRecord).detail = reviewPackage;
     throw error;
   }
-  const plan = planPromotionForExecution(promotion.sourceExecutionId, {
+  const plan = await planPromotionForExecution(promotion.sourceExecutionId, {
     invocationId: options.invocationId ?? null,
     targetBranch: promotion.targetBranch,
     objective:
@@ -7151,7 +7151,7 @@ export async function invokeProposalPromotion(
   dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
   sessionDbPath = process.env.SPORE_SESSION_DB_PATH,
 ) {
-  const planned = planProposalPromotion(artifactId, options, dbPath);
+  const planned = await planProposalPromotion(artifactId, options, dbPath);
   if (!planned) {
     return null;
   }
