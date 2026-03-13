@@ -16,7 +16,14 @@ import type {
   AttentionItemViewModel,
   RecentArtifactViewModel,
 } from "../types/agent-cockpit.js";
-import type { MissionMapApiExecutionDetail, MissionMapApiSessionLive, MissionMapApiThreadDetail, MissionMapApiThreadSummary } from "../types/mission-map.js";
+import type {
+  MissionMapApiExecutionDetail,
+  MissionMapApiExecutionTree,
+  MissionMapApiSessionListEntry,
+  MissionMapApiSessionLive,
+  MissionMapApiThreadDetail,
+  MissionMapApiThreadSummary,
+} from "../types/mission-map.js";
 import type { OperatorApiAction, OperatorApiArtifact, OperatorApiMessage } from "../types/operator-chat.js";
 import type {
   SelfBuildApiDashboard,
@@ -25,13 +32,20 @@ import type {
   SelfBuildApiRecentRunSummary,
   SelfBuildApiSummary,
   SelfBuildApiWorkspaceSummary,
+  WorkspaceApiDetail,
+  WorkItemRunApiDetail,
 } from "../types/self-build.js";
 
 export interface AgentCockpitAdapterInput {
   threads?: MissionMapApiThreadSummary[] | null;
   threadDetails?: Record<string, MissionMapApiThreadDetail | null>;
   actions?: OperatorApiAction[] | null;
+  workItemRuns?: Record<string, WorkItemRunApiDetail | null>;
+  runWorkspaces?: Record<string, WorkspaceApiDetail | null>;
+  workspaces?: WorkspaceApiDetail[] | null;
   executionDetails?: Record<string, MissionMapApiExecutionDetail | null>;
+  executionTrees?: Record<string, MissionMapApiExecutionTree | null>;
+  sessionList?: MissionMapApiSessionListEntry[] | null;
   sessionLives?: Record<string, MissionMapApiSessionLive | null>;
   selfBuildSummary?: SelfBuildApiSummary | null;
   selfBuildDashboard?: SelfBuildApiDashboard | null;
@@ -86,6 +100,97 @@ interface LaneDraft {
   lastActivityAt: string | null;
   state: AgentLaneState;
   degraded: boolean;
+}
+
+function collectExecutionIdsFromTree(tree: MissionMapApiExecutionTree | null | undefined) {
+  const executionIds = new Set<string>();
+
+  function visit(node: MissionMapApiExecutionTree["root"]) {
+    if (!node) {
+      return;
+    }
+    const executionId = toText(node.execution?.id, "");
+    if (executionId) {
+      executionIds.add(executionId);
+    }
+    for (const child of node.children ?? []) {
+      visit(child);
+    }
+  }
+
+  visit(tree?.root ?? null);
+  return executionIds;
+}
+
+function resolveThreadExecutionIds(input: {
+  detail: MissionMapApiThreadDetail | null;
+  workItemRuns?: Record<string, WorkItemRunApiDetail | null>;
+  runWorkspaces?: Record<string, WorkspaceApiDetail | null>;
+  executionTrees?: Record<string, MissionMapApiExecutionTree | null>;
+}) {
+  const directExecutionId = toText(
+    input.detail?.metadata?.execution?.executionId,
+    toText(
+      input.detail?.metadata?.execution?.selectedExecutionId,
+      toText(input.detail?.metadata?.execution?.rootExecutionId, ""),
+    ),
+  );
+  const runId = toText(input.detail?.metadata?.linkage?.activeRunId, "");
+  const run = runId ? input.workItemRuns?.[runId] ?? null : null;
+  const runWorkspace = runId ? input.runWorkspaces?.[runId] ?? null : null;
+  const runExecutionId = toText(
+    run?.result?.executionId,
+    toText(
+      run?.relationSummary?.executionId,
+      toText(runWorkspace?.executionId, ""),
+    ),
+  );
+  const rootExecutionId = directExecutionId || runExecutionId;
+  if (!rootExecutionId) {
+    return [];
+  }
+
+  const executionIds = new Set<string>([rootExecutionId]);
+  const tree = input.executionTrees?.[rootExecutionId] ?? null;
+  for (const executionId of collectExecutionIdsFromTree(tree)) {
+    executionIds.add(executionId);
+  }
+
+  return Array.from(executionIds);
+}
+
+function collectWorkspaceLaneEntries(input: {
+  executionId: string | null;
+  threadWorkItemRunId: string | null;
+  workspaces?: WorkspaceApiDetail[] | null;
+}) {
+  if (!input.workspaces || (!input.executionId && !input.threadWorkItemRunId)) {
+    return [] as Array<{ sessionId: string; role: string | null }>;
+  }
+
+  return input.workspaces
+    .filter(
+      (workspace) =>
+        (input.executionId && toText(workspace.executionId, "") === input.executionId) ||
+        (input.threadWorkItemRunId && toText(workspace.workItemRunId, "") === input.threadWorkItemRunId),
+    )
+    .map((workspace) => ({
+      sessionId: toText(workspace.metadata?.sessionId, ""),
+      role: toText(workspace.metadata?.sourceStepId, "").split(":step:")[1] ?? null,
+    }))
+    .filter((entry) => entry.sessionId);
+}
+
+function collectSessionListEntries(input: {
+  executionId: string | null;
+  sessionList?: MissionMapApiSessionListEntry[] | null;
+}) {
+  if (!input.executionId || !input.sessionList) {
+    return [] as MissionMapApiSessionListEntry[];
+  }
+  return input.sessionList.filter((session) =>
+    toText(session.id, "").startsWith(`${input.executionId}-`),
+  );
 }
 
 function mapRawState(value: unknown): AgentLaneState | null {
@@ -311,7 +416,7 @@ function buildAttentionFromMessage(input: {
     return null;
   }
 
-  const artifacts = asArray(input.message.payload?.artifacts);
+  const artifacts = asArray(input.message.payload?.artifacts).filter(Boolean);
   const proposalArtifact = artifacts.find(
     (artifact) => normalizeArtifactType(artifact.itemType) === "proposal",
   );
@@ -579,7 +684,7 @@ export function adaptAgentCockpit(input: AgentCockpitAdapterInput): AgentCockpit
         );
       }
 
-      for (const artifact of asArray(message.payload?.artifacts)) {
+      for (const artifact of asArray(message.payload?.artifacts).filter(Boolean)) {
         pushThreadArtifact(
           threadId,
           toArtifactRecordFromOperatorArtifact({
@@ -591,7 +696,7 @@ export function adaptAgentCockpit(input: AgentCockpitAdapterInput): AgentCockpit
       }
     }
 
-    for (const artifact of asArray(detail?.context?.linkedArtifacts)) {
+    for (const artifact of asArray(detail?.context?.linkedArtifacts).filter(Boolean)) {
       pushThreadArtifact(
         threadId,
         toArtifactRecordFromOperatorArtifact({
@@ -732,45 +837,104 @@ export function adaptAgentCockpit(input: AgentCockpitAdapterInput): AgentCockpit
     }
 
     const detail = threadDetails[threadId] ?? null;
-    const executionId = toText(
-      detail?.metadata?.execution?.executionId,
-      toText(detail?.metadata?.execution?.selectedExecutionId, toText(detail?.metadata?.execution?.rootExecutionId, "")),
-    );
-    const executionDetail = executionId ? executionDetails[executionId] ?? null : null;
-    const execution = executionDetail?.execution ?? null;
-    const executionSessionEntries = asArray(executionDetail?.sessions).filter(
-      (entry) => toText(entry.sessionId, toText(entry.session?.id, "")) || executionId,
-    );
-    const metadataSessionEntries = asArray(detail?.metadata?.execution?.sessionIds)
-      .map((sessionId) => toText(sessionId, ""))
-      .filter(Boolean)
-      .filter(
-        (sessionId) =>
-          !executionSessionEntries.some(
-            (entry) => toText(entry.sessionId, toText(entry.session?.id, "")) === sessionId,
-          ),
-      )
-      .map((sessionId) => ({
-        sessionId,
-        session: null,
-      }));
-    const sessionEntries = [...executionSessionEntries, ...metadataSessionEntries];
-    const laneSources =
-      sessionEntries.length > 0
-        ? sessionEntries
-        : [
-            {
-              sessionId: null,
-              session: null,
-            },
-          ];
+    const threadRunId = toText(detail?.metadata?.linkage?.activeRunId, "") || null;
+    const threadExecutionIds = resolveThreadExecutionIds({
+      detail,
+      workItemRuns: input.workItemRuns,
+      runWorkspaces: input.runWorkspaces,
+      executionTrees: input.executionTrees,
+    });
+    const executionIds = threadExecutionIds.length > 0 ? threadExecutionIds : [null];
 
-    for (const source of laneSources) {
+    for (const executionId of executionIds) {
+      const executionDetail = executionId ? executionDetails[executionId] ?? null : null;
+      const execution = executionDetail?.execution ?? null;
+      const executionSessionEntries = asArray(executionDetail?.sessions).filter(
+        (entry) => toText(entry.sessionId, toText(entry.session?.id, "")) || executionId,
+      );
+      const metadataSessionEntries =
+        executionId === threadExecutionIds[0]
+          ? asArray(detail?.metadata?.execution?.sessionIds)
+              .map((sessionId) => toText(sessionId, ""))
+              .filter(Boolean)
+              .filter(
+                (sessionId) =>
+                  !executionSessionEntries.some(
+                    (entry) => toText(entry.sessionId, toText(entry.session?.id, "")) === sessionId,
+                  ),
+              )
+              .map((sessionId) => ({
+                sessionId,
+                session: null,
+              }))
+          : [];
+      const workspaceSessionEntries = collectWorkspaceLaneEntries({
+        executionId,
+        threadWorkItemRunId: threadRunId,
+        workspaces: input.workspaces,
+      })
+        .filter(
+          (entry) =>
+            !executionSessionEntries.some(
+              (candidate) =>
+                toText(candidate.sessionId, toText(candidate.session?.id, "")) === entry.sessionId,
+            ) &&
+            !metadataSessionEntries.some((candidate) => candidate.sessionId === entry.sessionId),
+        )
+        .map((entry) => ({
+          sessionId: entry.sessionId,
+          session: null,
+        }));
+      const gatewaySessionEntries = collectSessionListEntries({
+        executionId,
+        sessionList: input.sessionList,
+      })
+        .filter(
+          (entry) =>
+            !executionSessionEntries.some(
+              (candidate) =>
+                toText(candidate.sessionId, toText(candidate.session?.id, "")) === entry.id,
+            ) &&
+            !metadataSessionEntries.some((candidate) => candidate.sessionId === entry.id) &&
+            !workspaceSessionEntries.some((candidate) => candidate.sessionId === entry.id),
+        )
+        .map((entry) => ({
+          sessionId: toText(entry.id, ""),
+          session: {
+            id: toText(entry.id, "") || null,
+            role: toText(entry.role, "") || null,
+            state: toText(entry.state, "") || null,
+            updatedAt: toText(entry.updatedAt, "") || null,
+          },
+        }));
+      const sessionEntries = [
+        ...executionSessionEntries,
+        ...metadataSessionEntries,
+        ...workspaceSessionEntries,
+        ...gatewaySessionEntries,
+      ];
+      const laneSources =
+        sessionEntries.length > 0
+          ? sessionEntries
+          : [
+              {
+                sessionId: null,
+                session: null,
+              },
+            ];
+
+      for (const source of laneSources) {
       const sessionId = toText(source.sessionId, toText(source.session?.id, "")) || null;
       const sessionLive = sessionId ? sessionLives[sessionId] ?? null : null;
+      const matchedStep = asArray(executionDetail?.steps).find(
+        (step) => toText(step.sessionId, "") === sessionId,
+      );
       const roleLabel = humanize(
         source.session?.role,
-        humanize(execution?.projectRole, humanize(detail?.progress?.currentStage, "Agent")),
+        humanize(
+          matchedStep?.role,
+          humanize(execution?.projectRole, humanize(detail?.progress?.currentStage, "Agent")),
+        ),
       );
       const stableRoleKey = resolveStableRoleKey({
         sessionRole: toText(source.session?.role, "") || toText(sessionLive?.session?.role, "") || null,
@@ -794,6 +958,7 @@ export function adaptAgentCockpit(input: AgentCockpitAdapterInput): AgentCockpit
       });
 
       const state = normalizeLaneState([
+        matchedStep?.state,
         sessionLive?.diagnostics?.status,
         sessionLive?.session?.state,
         source.session?.state,
@@ -836,14 +1001,23 @@ export function adaptAgentCockpit(input: AgentCockpitAdapterInput): AgentCockpit
         missionTitle: toText(thread.title, "Mission"),
         executionId: executionId || null,
         threadId,
-        stageLabel: toText(detail?.progress?.currentStage, toText(detail?.hero?.phase, ""))
-          ? humanize(toText(detail?.progress?.currentStage, toText(detail?.hero?.phase, "")))
+        stageLabel: toText(
+          matchedStep?.waveName,
+          toText(matchedStep?.state, toText(detail?.progress?.currentStage, toText(detail?.hero?.phase, ""))),
+        )
+          ? humanize(
+              toText(
+                matchedStep?.waveName,
+                toText(matchedStep?.state, toText(detail?.progress?.currentStage, toText(detail?.hero?.phase, ""))),
+              ),
+            )
           : null,
         latestSummary: latestSummaryByThreadId.get(threadId) ?? null,
         lastActivityAt,
         state,
         degraded,
       });
+    }
     }
   }
 

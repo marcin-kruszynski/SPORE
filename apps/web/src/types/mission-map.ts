@@ -94,6 +94,11 @@ export interface MissionMapApiThreadDetail
   extends Omit<OperatorApiThreadDetail, "metadata" | "context"> {
   metadata?: {
     execution?: MissionMapApiThreadExecutionMetadata | null;
+    linkage?: {
+      activeRunId?: string | null;
+      activeProposalId?: string | null;
+      activeWorkItemId?: string | null;
+    } | null;
   } | null;
   context?: MissionMapApiThreadContext | null;
 }
@@ -214,6 +219,20 @@ export interface MissionMapApiCoordinationGroupSummary {
   executions?: MissionMapApiExecutionRecord[] | null;
 }
 
+export interface MissionMapApiSessionListEntry {
+  id?: string | null;
+  runId?: string | null;
+  profileId?: string | null;
+  role?: string | null;
+  state?: string | null;
+  projectId?: string | null;
+  domainId?: string | null;
+  workflowId?: string | null;
+  parentSessionId?: string | null;
+  tmuxSession?: string | null;
+  updatedAt?: string | null;
+}
+
 export interface MissionMapApiSessionLive {
   ok?: boolean;
   session?: MissionMapApiSessionRecord | null;
@@ -257,6 +276,7 @@ export interface MissionMapApiSessionLive {
     mode?: string | null;
     rpcStatus?: Record<string, unknown> | null;
   } | null;
+  handoff?: Record<string, unknown> | null;
   controlHistory?: Array<Record<string, unknown>> | null;
   controlAck?: Record<string, unknown> | null;
 }

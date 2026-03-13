@@ -180,6 +180,67 @@ function buildTranscriptPreview(input: {
   };
 }
 
+function stringifyValue(value: unknown) {
+  if (typeof value === "string") {
+    return value.trim() || null;
+  }
+  if (value && typeof value === "object") {
+    return JSON.stringify(value, null, 2);
+  }
+  return null;
+}
+
+function buildRequestPrompt(input: {
+  lane: AgentLaneCardViewModel;
+  threadDetail: MissionMapApiThreadDetail | null;
+  context: {
+    content?: string | Record<string, unknown> | Array<Record<string, unknown>>;
+  } | null;
+}) {
+  const parsedContext = asRecord(input.context?.content);
+  const inboundList = Array.isArray(asRecord(parsedContext.handoffs).inbound)
+    ? (asRecord(parsedContext.handoffs).inbound as unknown[])
+    : [];
+  const inbound = asRecord(inboundList[0]);
+  const inboundSummary = asRecord(inbound.summary);
+  const source =
+    toText(inbound.sourceRole, "") ||
+    toText(asRecord(parsedContext.session).role, "") ||
+    input.lane.roleLabel;
+  return {
+    title: `Input sent to ${input.lane.roleLabel}`,
+    content:
+      stringifyValue(parsedContext) ||
+      toText(inboundSummary.outcome, "") ||
+      toText(input.threadDetail?.summary?.objective, "") ||
+      input.lane.latestSummary ||
+      null,
+    source,
+  };
+}
+
+function buildReturnedHandoff(input: {
+  handoff: Record<string, unknown> | null;
+  transcriptPreview: { content: string | null };
+}) {
+  const primary = asRecord(input.handoff?.primary);
+  const validation = asRecord(primary.validation);
+  const issues = asArray(Array.isArray(validation.issues) ? validation.issues : [])
+    .map((issue) => toText(asRecord(issue).message, ""))
+    .filter(Boolean);
+
+  return {
+    title: `Returned ${toText(primary.kind, "handoff") || "handoff"}`,
+    content:
+      stringifyValue(primary.payload) ||
+      input.transcriptPreview.content ||
+      null,
+    valid:
+      typeof validation.valid === "boolean" ? Boolean(validation.valid) : null,
+    issues,
+  };
+}
+
 function dedupeUpdates(
   updates: Array<{
     id: string;
@@ -384,6 +445,17 @@ function buildUnavailableDetail(
     latestSummary: previous?.latestSummary ?? null,
     lastActivityAt: previous?.lastActivityAt ?? null,
     freshnessLabel: formatRelativeTimestamp(previous?.lastActivityAt ?? null),
+    requestPrompt: previous?.requestPrompt ?? {
+      title: "Input sent to agent",
+      content: null,
+      source: null,
+    },
+    returnedHandoff: previous?.returnedHandoff ?? {
+      title: "Returned handoff",
+      content: null,
+      valid: null,
+      issues: [],
+    },
     mission: previous?.mission ?? {
       kind: "unknown",
       title: null,
@@ -447,6 +519,10 @@ function buildDetailModel(input: {
     content?: string | Record<string, unknown> | Array<Record<string, unknown>>;
     path?: string | null;
   } | null;
+  context: {
+    content?: string | Record<string, unknown> | Array<Record<string, unknown>>;
+    path?: string | null;
+  } | null;
   sessionError: unknown;
   previous: AgentSessionDetailViewModel | null;
   degraded: boolean;
@@ -469,6 +545,12 @@ function buildDetailModel(input: {
     input.previous?.lastActivityAt ??
     null;
 
+  const transcriptPreview = buildTranscriptPreview({
+    transcript: input.transcript,
+    sessionLive: input.sessionLive,
+    previous: input.previous,
+  });
+
   return {
     laneId: input.lane.id,
     label: input.lane.label,
@@ -479,6 +561,15 @@ function buildDetailModel(input: {
     latestSummary,
     lastActivityAt,
     freshnessLabel: formatRelativeTimestamp(lastActivityAt),
+    requestPrompt: buildRequestPrompt({
+      lane: input.lane,
+      threadDetail: input.threadDetail,
+      context: input.context,
+    }),
+    returnedHandoff: buildReturnedHandoff({
+      handoff: asRecord(input.sessionLive?.handoff),
+      transcriptPreview,
+    }),
     mission: buildMissionContext(input.lane, input.previous),
     execution: buildExecutionContext(input.lane, input.executionDetail, input.previous),
     sessionHealth: buildSessionHealth({
@@ -495,11 +586,7 @@ function buildDetailModel(input: {
         ? input.previous.lastVisibleOutputs
         : recentUpdates.slice(0, 3),
     sessionEvents: buildSessionEvents(input.sessionLive),
-    transcriptPreview: buildTranscriptPreview({
-      transcript: input.transcript,
-      sessionLive: input.sessionLive,
-      previous: input.previous,
-    }),
+    transcriptPreview,
     inspection: buildInspection({
       sessionLive: input.sessionLive,
       lane: input.lane,
@@ -541,9 +628,12 @@ async function loadAgentLaneDetailModel(input: {
     sessionResult.status === "fulfilled"
       ? (sessionResult.value as MissionMapApiSessionLive | null)
       : null;
-  const transcriptResult = await Promise.allSettled([
+  const artifactResults = await Promise.allSettled([
     lane.sessionId && sessionLive?.artifacts?.transcript?.exists
       ? getSessionArtifact(lane.sessionId, "transcript")
+      : Promise.resolve(null),
+    lane.sessionId && sessionLive?.artifacts?.context?.exists
+      ? getSessionArtifact(lane.sessionId, "context")
       : Promise.resolve(null),
   ]);
 
@@ -556,8 +646,12 @@ async function loadAgentLaneDetailModel(input: {
         : null,
     sessionLive,
     transcript:
-      transcriptResult[0]?.status === "fulfilled"
-        ? transcriptResult[0].value
+      artifactResults[0]?.status === "fulfilled"
+        ? artifactResults[0].value
+        : null,
+    context:
+      artifactResults[1]?.status === "fulfilled"
+        ? artifactResults[1].value
         : null,
     sessionError: sessionResult.status === "rejected" ? sessionResult.reason : null,
     previous: input.previous,

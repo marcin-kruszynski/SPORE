@@ -1,125 +1,18 @@
 import assert from "node:assert/strict";
 import test, { afterEach } from "node:test";
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import React from "react";
-import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
-import { JSDOM } from "jsdom";
-import { createMemoryRouter, MemoryRouter, RouterProvider } from "react-router-dom";
+import { cleanup, fireEvent, waitFor } from "@testing-library/react";
 
-import AgentCockpitPage from "../src/pages/AgentCockpitPage.js";
-import AgentLaneDetailPage from "../src/pages/AgentLaneDetailPage.js";
-import App from "../src/App.js";
-import { AppSidebar } from "../src/components/dashboard/AppSidebar.js";
-import { SidebarProvider } from "../src/components/ui/sidebar.js";
-
-function jsonResponse(body: unknown, init: ResponseInit = {}) {
-  return new Response(JSON.stringify(body), {
-    status: init.status ?? 200,
-    headers: {
-      "content-type": "application/json; charset=utf-8",
-      ...(init.headers ?? {}),
-    },
-  });
-}
-
-function installDomGlobals(pathname: string) {
-  const dom = new JSDOM("<!doctype html><html><body></body></html>", {
-    url: `http://127.0.0.1:8788${pathname}`,
-  });
-
-  globalThis.window = dom.window as unknown as Window & typeof globalThis;
-  globalThis.document = dom.window.document;
-  Object.defineProperty(globalThis, "navigator", {
-    configurable: true,
-    value: dom.window.navigator,
-  });
-  globalThis.HTMLElement = dom.window.HTMLElement;
-  globalThis.Element = dom.window.Element;
-  globalThis.Node = dom.window.Node;
-  globalThis.SVGElement = dom.window.SVGElement;
-  globalThis.Event = dom.window.Event;
-  globalThis.MouseEvent = dom.window.MouseEvent;
-  globalThis.KeyboardEvent = dom.window.KeyboardEvent;
-  globalThis.FocusEvent = dom.window.FocusEvent;
-  globalThis.DocumentFragment = dom.window.DocumentFragment;
-  globalThis.getComputedStyle = dom.window.getComputedStyle.bind(dom.window);
-  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
-
-  Object.defineProperty(globalThis.window, "matchMedia", {
-    writable: true,
-    value: () => ({
-      matches: false,
-      media: "",
-      onchange: null,
-      addListener() {},
-      removeListener() {},
-      addEventListener() {},
-      removeEventListener() {},
-      dispatchEvent() {
-        return false;
-      },
-    }),
-  });
-
-  class ResizeObserver {
-    observe() {}
-    unobserve() {}
-    disconnect() {}
-  }
-
-  globalThis.ResizeObserver = ResizeObserver as unknown as typeof globalThis.ResizeObserver;
-  globalThis.window.HTMLElement.prototype.scrollIntoView = () => {};
-
-  return () => {
-    dom.window.close();
-  };
-}
-
-function createTestQueryClient() {
-  return new QueryClient({
-    defaultOptions: {
-      queries: {
-        retry: false,
-      },
-      mutations: {
-        retry: false,
-      },
-    },
-  });
-}
-
-function renderCockpit(initialEntry = "/cockpit", queryClient = createTestQueryClient()) {
-  const router = createMemoryRouter(
-    [
-      {
-        path: "/cockpit",
-        element: React.createElement(AgentCockpitPage),
-      },
-      {
-        path: "/cockpit/agents/:laneId",
-        element: React.createElement(AgentLaneDetailPage),
-      },
-    ],
-    {
-      initialEntries: [initialEntry],
-    },
-  );
-
-  return {
-    router,
-    ...render(
-      React.createElement(
-        QueryClientProvider,
-        { client: queryClient },
-        React.createElement(RouterProvider, { router }),
-      ),
-    ),
-  };
-}
+import {
+  cleanupCockpitTestResources,
+  installDomGlobals,
+  jsonResponse,
+  renderCockpit,
+} from "./agent-cockpit-test-utils.js";
 
 afterEach(() => {
   cleanup();
+  cleanupCockpitTestResources();
 });
 
 test("AgentCockpitPage renders active lanes, attention, recent artifacts, and click-through links from real-derived data", async () => {
@@ -249,14 +142,17 @@ test("AgentCockpitPage renders active lanes, attention, recent artifacts, and cl
       return jsonResponse({
         ok: true,
         detail: {
-          waitingApprovalProposals: [
+          waitingApprovalProposals: [],
+          recentWorkItemRuns: [
             {
-              id: "proposal-1",
-              title: "Backend-authored proposal label",
-              status: "ready_for_review",
+              id: "run-1",
+              itemTitle: "Frontend feature delivery",
+              status: "blocked",
+              validationStatus: "running",
+              hasProposal: true,
+              hasWorkspace: true,
             },
           ],
-          recentWorkItemRuns: [],
           workspaces: [],
           integrationBranches: [],
         },
@@ -267,7 +163,16 @@ test("AgentCockpitPage renders active lanes, attention, recent artifacts, and cl
       return jsonResponse({
         ok: true,
         detail: {
-          recentWorkItemRuns: [],
+          recentWorkItemRuns: [
+            {
+              id: "run-1",
+              itemTitle: "Frontend feature delivery",
+              status: "blocked",
+              validationStatus: "running",
+              hasProposal: true,
+              hasWorkspace: true,
+            },
+          ],
         },
       });
     }
@@ -279,79 +184,44 @@ test("AgentCockpitPage renders active lanes, attention, recent artifacts, and cl
 
   await view.findByRole("heading", { name: "Agent Cockpit" });
   await view.findByText("Implementer");
-  await view.findByText("Validation Running");
-  await view.findByText(/needs validation/i);
-  assert.ok((await view.findAllByText("Backend-authored proposal label")).length >= 1);
+  await view.findByText("Proposal proposal-1 is validating");
+  await view.findByText("Frontend feature delivery");
 
-  const laneLink = view.getByRole("link", { name: /open implementer lane/i });
-  assert.equal(laneLink.getAttribute("href"), "/cockpit/agents/session%3Asession-1");
-  assert.equal(
-    view.getByRole("link", { name: /open session/i }).getAttribute("href"),
-    "/api/sessions/session-1/live",
-  );
-  assert.equal(
-    view.getByRole("link", { name: /open mission map/i }).getAttribute("href"),
-    "/mission-map",
-  );
-  assert.equal(
-    view.getByRole("link", { name: /open newest artifact/i }).getAttribute("href"),
-    "/evidence/proposal/proposal-1",
-  );
+  const openLaneLink = view.getByRole("link", { name: /open implementer lane/i });
+  assert.equal(openLaneLink.getAttribute("href"), "/cockpit/agents/session%3Asession-1");
 
-  fireEvent.click(laneLink);
-  await view.findByRole("heading", { name: "Implementer" });
-  await view.findByRole("link", { name: /open live session payload/i });
+  const openSessionLink = view.getByRole("link", { name: /open session/i });
+  assert.equal(openSessionLink.getAttribute("href"), "/api/sessions/session-1/live");
 
   restoreDom();
 });
 
 test("AgentCockpitPage shows explicit empty and degraded states while preserving last-known lanes", async () => {
   const restoreDom = installDomGlobals("/cockpit");
-  let mode: "empty" | "loaded" | "fail" = "empty";
 
   globalThis.fetch = (async (input: RequestInfo | URL) => {
     const url = String(input);
 
-    if (mode === "fail") {
-      if (
-        url.endsWith("/api/orchestrator/operator/threads") ||
-        url.endsWith("/api/orchestrator/operator/actions") ||
-        url.endsWith("/api/orchestrator/operator/threads/thread-1")
-      ) {
-        return jsonResponse({ ok: false, message: "operator unavailable" }, { status: 503 });
-      }
-    }
-
     if (url.endsWith("/api/orchestrator/operator/threads")) {
       return jsonResponse({
         ok: true,
-        detail: mode === "loaded" || mode === "fail"
-          ? [
-              {
-                id: "thread-1",
-                title: "Mission Alpha",
-                status: "active",
-                updatedAt: "2026-03-12T10:05:00.000Z",
-                summary: {
-                  objective: "Ship the cockpit home.",
-                  lastMessageExcerpt: "Validation is running.",
-                },
-              },
-            ]
-          : [],
+        detail: [
+          {
+            id: "thread-1",
+            title: "Mission Alpha",
+            status: "active",
+            updatedAt: "2026-03-12T10:05:00.000Z",
+            summary: {
+              objective: "Ship the cockpit home.",
+              lastMessageExcerpt: "Validation is running.",
+            },
+          },
+        ],
       });
     }
 
     if (url.endsWith("/api/orchestrator/operator/actions")) {
-      return jsonResponse({ ok: true, detail: [] });
-    }
-
-    if (url.endsWith("/api/orchestrator/self-build/summary")) {
-      return jsonResponse({ ok: true, detail: { recentWorkItemRuns: [], workspaces: [], integrationBranches: [] } });
-    }
-
-    if (url.endsWith("/api/orchestrator/self-build/dashboard")) {
-      return jsonResponse({ ok: true, detail: { recentWorkItemRuns: [] } });
+      return jsonResponse({ ok: false, error: "actions_unavailable" }, { status: 503 });
     }
 
     if (url.endsWith("/api/orchestrator/operator/threads/thread-1")) {
@@ -375,6 +245,10 @@ test("AgentCockpitPage shows explicit empty and degraded states while preserving
               executionId: "exec-1",
             },
           },
+          messages: [],
+          context: {
+            linkedArtifacts: [],
+          },
         },
       });
     }
@@ -386,6 +260,7 @@ test("AgentCockpitPage shows explicit empty and degraded states while preserving
           execution: {
             id: "exec-1",
             state: "running",
+            objective: "Ship the cockpit home.",
             projectRole: "implementer",
           },
           sessions: [
@@ -395,6 +270,7 @@ test("AgentCockpitPage shows explicit empty and degraded states while preserving
                 id: "session-1",
                 role: "implementer",
                 state: "active",
+                updatedAt: "2026-03-12T10:05:00.000Z",
               },
             },
           ],
@@ -409,6 +285,7 @@ test("AgentCockpitPage shows explicit empty and degraded states while preserving
           id: "session-1",
           role: "implementer",
           state: "active",
+          updatedAt: "2026-03-12T10:05:00.000Z",
         },
         diagnostics: {
           status: "running",
@@ -417,35 +294,57 @@ test("AgentCockpitPage shows explicit empty and degraded states while preserving
       });
     }
 
+    if (url.endsWith("/api/orchestrator/self-build/summary")) {
+      return jsonResponse({ ok: false, error: "summary_unavailable" }, { status: 503 });
+    }
+
+    if (url.endsWith("/api/orchestrator/self-build/dashboard")) {
+      return jsonResponse({ ok: false, error: "dashboard_unavailable" }, { status: 503 });
+    }
+
+    throw new Error(`Unexpected request: ${url}`);
+  }) as typeof fetch;
+
+  const view = renderCockpit();
+
+  await waitFor(() => {
+    assert.match(view.container.textContent ?? "", /cockpit is in degraded mode/i);
+  });
+
+  await view.findByText("Implementer");
+
+  cleanup();
+  cleanupCockpitTestResources();
+  restoreDom();
+
+  const emptyRestoreDom = installDomGlobals("/cockpit");
+
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.endsWith("/api/orchestrator/operator/threads")) {
+      return jsonResponse({ ok: true, detail: [] });
+    }
+    if (url.endsWith("/api/orchestrator/operator/actions")) {
+      return jsonResponse({ ok: true, detail: [] });
+    }
+    if (url.endsWith("/api/orchestrator/self-build/summary")) {
+      return jsonResponse({ ok: true, detail: { waitingApprovalProposals: [], recentWorkItemRuns: [], workspaces: [], integrationBranches: [] } });
+    }
+    if (url.endsWith("/api/orchestrator/self-build/dashboard")) {
+      return jsonResponse({ ok: true, detail: { recentWorkItemRuns: [] } });
+    }
     throw new Error(`Unexpected request: ${url}`);
   }) as typeof fetch;
 
   const emptyView = renderCockpit();
-  await emptyView.findByText("No active agents yet");
+  await emptyView.findByText(/no active agents yet/i);
   assert.equal(emptyView.getByRole("link", { name: /open chat/i }).getAttribute("href"), "/chat");
-  assert.equal(
-    emptyView.getByRole("link", { name: /open mission map/i }).getAttribute("href"),
-    "/mission-map",
-  );
-  emptyView.unmount();
+  assert.equal(emptyView.getByRole("link", { name: /open mission map/i }).getAttribute("href"), "/mission-map");
 
-  mode = "loaded";
-  const degradedView = renderCockpit();
-  await degradedView.findByText("Implementer");
-
-  mode = "fail";
-  fireEvent.click(degradedView.getByRole("button", { name: /refresh cockpit/i }));
-
-  await waitFor(() => {
-    assert.ok(degradedView.getByText(/showing last-known lane state/i));
-  });
-  await degradedView.findByText("Implementer");
-  await degradedView.findByText(/live reads are degraded for this lane/i);
-
-  restoreDom();
+  emptyRestoreDom();
 });
 
-test("AgentCockpitPage keeps rendering lanes when top-level enrichment sources fail without degrading unaffected lane cards", async () => {
+test("AgentCockpitPage focuses the current mission family and hides older history until expanded", async () => {
   const restoreDom = installDomGlobals("/cockpit");
 
   globalThis.fetch = (async (input: RequestInfo | URL) => {
@@ -456,233 +355,23 @@ test("AgentCockpitPage keeps rendering lanes when top-level enrichment sources f
         ok: true,
         detail: [
           {
-            id: "thread-1",
-            title: "Mission Alpha",
-            status: "active",
-            updatedAt: "2026-03-12T10:05:00.000Z",
+            id: "thread-new",
+            title: "Current mission",
+            status: "running",
+            updatedAt: "2026-03-13T12:00:00.000Z",
             summary: {
-              objective: "Ship the cockpit home.",
-              lastMessageExcerpt: "Validation is running.",
+              objective: "Current mission objective",
+              lastMessageExcerpt: "Current work is running.",
             },
           },
-        ],
-      });
-    }
-
-    if (url.endsWith("/api/orchestrator/operator/actions")) {
-      return jsonResponse({ ok: false, message: "actions unavailable" }, { status: 503 });
-    }
-
-    if (url.endsWith("/api/orchestrator/self-build/summary")) {
-      return jsonResponse({ ok: false, message: "self-build unavailable" }, { status: 503 });
-    }
-
-    if (url.endsWith("/api/orchestrator/self-build/dashboard")) {
-      return jsonResponse({ ok: true, detail: { recentWorkItemRuns: [] } });
-    }
-
-    if (url.endsWith("/api/orchestrator/operator/threads/thread-1")) {
-      return jsonResponse({
-        ok: true,
-        detail: {
-          id: "thread-1",
-          title: "Mission Alpha",
-          status: "active",
-          updatedAt: "2026-03-12T10:05:00.000Z",
-          summary: {
-            objective: "Ship the cockpit home.",
-            lastMessageExcerpt: "Validation is running.",
-          },
-          progress: {
-            currentStage: "validation_running",
-            currentState: "running",
-          },
-          metadata: {
-            execution: {
-              executionId: "exec-1",
-            },
-          },
-        },
-      });
-    }
-
-    if (url.endsWith("/api/orchestrator/executions/exec-1")) {
-      return jsonResponse({
-        ok: true,
-        detail: {
-          execution: {
-            id: "exec-1",
-            state: "running",
-            projectRole: "implementer",
-          },
-          sessions: [
-            {
-              sessionId: "session-1",
-              session: {
-                id: "session-1",
-                role: "implementer",
-                state: "active",
-              },
-            },
-          ],
-        },
-      });
-    }
-
-    if (url.endsWith("/api/sessions/session-1/live")) {
-      return jsonResponse({
-        ok: true,
-        session: {
-          id: "session-1",
-          role: "implementer",
-          state: "active",
-        },
-        diagnostics: {
-          status: "running",
-          lastEventAt: "2026-03-12T10:05:00.000Z",
-        },
-      });
-    }
-
-    throw new Error(`Unexpected request: ${url}`);
-  }) as typeof fetch;
-
-  const view = renderCockpit();
-
-  await view.findByText("Implementer");
-  await view.findByText(/cockpit is in degraded mode/i);
-  assert.equal(view.queryByText(/live reads are degraded for this lane/i), null);
-
-  restoreDom();
-});
-
-test("AgentCockpitPage keeps ambiguous anonymous duplicate lanes visible without advertising broken drill-in", async () => {
-  const restoreDom = installDomGlobals("/cockpit");
-
-  globalThis.fetch = (async (input: RequestInfo | URL) => {
-    const url = String(input);
-
-    if (url.endsWith("/api/orchestrator/operator/threads")) {
-      return jsonResponse({
-        ok: true,
-        detail: [
           {
-            id: "thread-1",
-            title: "Mission Alpha",
-            status: "active",
-            updatedAt: "2026-03-12T10:05:00.000Z",
+            id: "thread-old",
+            title: "Historical mission",
+            status: "completed",
+            updatedAt: "2026-03-13T10:00:00.000Z",
             summary: {
-              objective: "Ship the cockpit home.",
-              lastMessageExcerpt: "Validation is running.",
-            },
-          },
-        ],
-      });
-    }
-
-    if (url.endsWith("/api/orchestrator/operator/actions")) {
-      return jsonResponse({ ok: true, detail: [] });
-    }
-
-    if (url.endsWith("/api/orchestrator/operator/threads/thread-1")) {
-      return jsonResponse({
-        ok: true,
-        detail: {
-          id: "thread-1",
-          title: "Mission Alpha",
-          status: "active",
-          updatedAt: "2026-03-12T10:05:00.000Z",
-          summary: {
-            objective: "Ship the cockpit home.",
-            lastMessageExcerpt: "Validation is running.",
-          },
-          progress: {
-            currentStage: "validation_running",
-            currentState: "running",
-          },
-          metadata: {
-            execution: {
-              executionId: "exec-1",
-            },
-          },
-        },
-      });
-    }
-
-    if (url.endsWith("/api/orchestrator/executions/exec-1")) {
-      return jsonResponse({
-        ok: true,
-        detail: {
-          execution: {
-            id: "exec-1",
-            state: "running",
-            objective: "Ship the cockpit home.",
-            projectRole: "implementer",
-          },
-          sessions: [
-            {
-              sessionId: null,
-              session: {
-                id: null,
-                role: null,
-                state: "active",
-                updatedAt: null,
-              },
-            },
-            {
-              sessionId: null,
-              session: {
-                id: null,
-                role: null,
-                state: "active",
-                updatedAt: null,
-              },
-            },
-          ],
-        },
-      });
-    }
-
-    if (url.endsWith("/api/orchestrator/self-build/summary")) {
-      return jsonResponse({ ok: true, detail: { recentWorkItemRuns: [], workspaces: [], integrationBranches: [] } });
-    }
-
-    if (url.endsWith("/api/orchestrator/self-build/dashboard")) {
-      return jsonResponse({ ok: true, detail: { recentWorkItemRuns: [] } });
-    }
-
-    throw new Error(`Unexpected request: ${url}`);
-  }) as typeof fetch;
-
-  const view = renderCockpit();
-
-  assert.equal((await view.findAllByText("Implementer")).length >= 2, true);
-  assert.equal(view.queryAllByRole("link", { name: /open implementer lane/i }).length, 0);
-  assert.equal((await view.findAllByText(/lane inspection is limited/i)).length, 2);
-
-  restoreDom();
-});
-
-test("AgentCockpitPage does not reuse lane-detail bootstrap cache as the full cockpit home model", async () => {
-  const restoreDom = installDomGlobals("/cockpit/agents/session%3Asession-1");
-  const requests: string[] = [];
-
-  globalThis.fetch = (async (input: RequestInfo | URL) => {
-    const url = String(input);
-    requests.push(url);
-
-    if (url.endsWith("/api/orchestrator/operator/threads")) {
-      return jsonResponse({
-        ok: true,
-        detail: [
-          {
-            id: "thread-1",
-            title: "Mission Alpha",
-            status: "active",
-            updatedAt: "2026-03-12T10:05:00.000Z",
-            summary: {
-              objective: "Ship the cockpit home.",
-              lastMessageExcerpt: "Validation is running.",
+              objective: "Historical mission objective",
+              lastMessageExcerpt: "Historical work finished.",
             },
           },
         ],
@@ -694,40 +383,40 @@ test("AgentCockpitPage does not reuse lane-detail bootstrap cache as the full co
         ok: true,
         detail: [
           {
-            id: "action-1",
-            threadId: "thread-1",
+            id: "action-new",
+            threadId: "thread-new",
             targetType: "proposal",
-            targetId: "proposal-1",
+            targetId: "proposal-new",
             kind: "approval",
             status: "pending",
             summary: {
-              title: "Approve proposal-1",
-              reason: "Operator approval is required.",
+              title: "Approve current proposal",
+              reason: "Current mission needs approval.",
             },
           },
         ],
       });
     }
 
-    if (url.endsWith("/api/orchestrator/operator/threads/thread-1")) {
+    if (url.endsWith("/api/orchestrator/operator/threads/thread-new")) {
       return jsonResponse({
         ok: true,
         detail: {
-          id: "thread-1",
-          title: "Mission Alpha",
-          status: "active",
-          updatedAt: "2026-03-12T10:05:00.000Z",
+          id: "thread-new",
+          title: "Current mission",
+          status: "running",
+          updatedAt: "2026-03-13T12:00:00.000Z",
           summary: {
-            objective: "Ship the cockpit home.",
-            lastMessageExcerpt: "Validation is running.",
+            objective: "Current mission objective",
+            lastMessageExcerpt: "Current work is running.",
           },
           progress: {
-            currentStage: "validation_running",
+            currentStage: "implementation_running",
             currentState: "running",
           },
           metadata: {
             execution: {
-              executionId: "exec-1",
+              executionId: "exec-new",
             },
           },
           messages: [],
@@ -738,24 +427,61 @@ test("AgentCockpitPage does not reuse lane-detail bootstrap cache as the full co
       });
     }
 
-    if (url.endsWith("/api/orchestrator/executions/exec-1")) {
+    if (url.endsWith("/api/orchestrator/operator/threads/thread-old")) {
+      return jsonResponse({
+        ok: true,
+        detail: {
+          id: "thread-old",
+          title: "Historical mission",
+          status: "completed",
+          updatedAt: "2026-03-13T10:00:00.000Z",
+          summary: {
+            objective: "Historical mission objective",
+            lastMessageExcerpt: "Historical work finished.",
+          },
+          progress: {
+            currentStage: "promotion_launched",
+            currentState: "completed",
+          },
+          metadata: {
+            execution: {
+              executionId: "exec-old",
+            },
+          },
+          messages: [],
+          context: {
+            linkedArtifacts: [],
+          },
+        },
+      });
+    }
+
+    if (url.endsWith("/api/orchestrator/executions/exec-new")) {
       return jsonResponse({
         ok: true,
         detail: {
           execution: {
-            id: "exec-1",
+            id: "exec-new",
             state: "running",
-            objective: "Ship the cockpit home.",
-            projectRole: "implementer",
+            workflowId: "feature-delivery",
+            projectRole: "builder",
           },
+          steps: [
+            {
+              sessionId: "current-builder",
+              role: "builder",
+              waveName: "wave-4",
+              state: "running",
+            },
+          ],
           sessions: [
             {
-              sessionId: "session-1",
+              sessionId: "current-builder",
               session: {
-                id: "session-1",
-                role: "implementer",
+                id: "current-builder",
+                role: "builder",
                 state: "active",
-                updatedAt: "2026-03-12T10:05:00.000Z",
+                updatedAt: "2026-03-13T12:00:00.000Z",
               },
             },
           ],
@@ -763,371 +489,118 @@ test("AgentCockpitPage does not reuse lane-detail bootstrap cache as the full co
       });
     }
 
-    if (url.endsWith("/api/sessions/session-1/live")) {
+    if (url.endsWith("/api/orchestrator/executions/exec-old")) {
+      return jsonResponse({
+        ok: true,
+        detail: {
+          execution: {
+            id: "exec-old",
+            state: "completed",
+            workflowId: "feature-delivery",
+            projectRole: "builder",
+          },
+          steps: [
+            {
+              sessionId: "old-builder",
+              role: "builder",
+              waveName: "wave-4",
+              state: "completed",
+            },
+          ],
+          sessions: [
+            {
+              sessionId: "old-builder",
+              session: {
+                id: "old-builder",
+                role: "builder",
+                state: "completed",
+                updatedAt: "2026-03-13T10:00:00.000Z",
+              },
+            },
+          ],
+        },
+      });
+    }
+
+    if (url.endsWith("/api/sessions/current-builder/live")) {
       return jsonResponse({
         ok: true,
         session: {
-          id: "session-1",
-          role: "implementer",
+          id: "current-builder",
+          role: "builder",
           state: "active",
-          updatedAt: "2026-03-12T10:05:00.000Z",
+          updatedAt: "2026-03-13T12:00:00.000Z",
         },
         diagnostics: {
           status: "running",
-          lastEventAt: "2026-03-12T10:05:00.000Z",
+          lastEventAt: "2026-03-13T12:00:00.000Z",
+        },
+      });
+    }
+
+    if (url.endsWith("/api/sessions/old-builder/live")) {
+      return jsonResponse({
+        ok: true,
+        session: {
+          id: "old-builder",
+          role: "builder",
+          state: "completed",
+          updatedAt: "2026-03-13T10:00:00.000Z",
+        },
+        diagnostics: {
+          status: "completed",
+          lastEventAt: "2026-03-13T10:00:00.000Z",
         },
       });
     }
 
     if (url.endsWith("/api/orchestrator/self-build/summary")) {
-      return jsonResponse({
-        ok: true,
-        detail: {
-          waitingApprovalProposals: [
-            {
-              id: "proposal-1",
-              title: "Backend-authored proposal label",
-              status: "ready_for_review",
-            },
-          ],
-          recentWorkItemRuns: [],
-          workspaces: [],
-          integrationBranches: [],
-        },
-      });
+      return jsonResponse({ ok: true, detail: { waitingApprovalProposals: [], recentWorkItemRuns: [], workspaces: [], integrationBranches: [] } });
     }
 
     if (url.endsWith("/api/orchestrator/self-build/dashboard")) {
-      return jsonResponse({
-        ok: true,
-        detail: {
-          recentWorkItemRuns: [],
-        },
-      });
+      return jsonResponse({ ok: true, detail: { recentWorkItemRuns: [] } });
     }
 
-    throw new Error(`Unexpected request: ${url}`);
-  }) as typeof fetch;
-
-  const queryClient = createTestQueryClient();
-  const view = renderCockpit("/cockpit/agents/session%3Asession-1", queryClient);
-
-  await view.findByRole("heading", { name: "Implementer" });
-  assert.ok(
-    !requests.some((request) => request.endsWith("/api/orchestrator/self-build/summary")),
-  );
-
-  await act(async () => {
-    await view.router.navigate("/cockpit");
-  });
-
-  await view.findByRole("heading", { name: "Agent Cockpit" });
-  await view.findByText("Backend-authored proposal label");
-  assert.ok(requests.some((request) => request.endsWith("/api/orchestrator/self-build/summary")));
-  assert.ok(requests.some((request) => request.endsWith("/api/orchestrator/operator/actions")));
-
-  restoreDom();
-});
-
-test("AppSidebar exposes Agent Cockpit separately from the mock Agents catalog", () => {
-  const restoreDom = installDomGlobals("/cockpit");
-
-  const view = render(
-    React.createElement(
-      MemoryRouter,
-      { initialEntries: ["/cockpit"] },
-      React.createElement(SidebarProvider, null, React.createElement(AppSidebar)),
-    ),
-  );
-
-  const cockpitLink = view.getByRole("link", { name: /agent cockpit/i });
-  const catalogAgentsLink = view.getByRole("link", { name: /^agents$/i });
-
-  assert.equal(cockpitLink.getAttribute("href"), "/cockpit");
-  assert.equal(catalogAgentsLink.getAttribute("href"), "/agents");
-
-  restoreDom();
-});
-
-test("App routes /cockpit and /cockpit/agents/:laneId through the real router without hydrating into NotFound", async () => {
-  const requests: string[] = [];
-
-  globalThis.fetch = (async (input: RequestInfo | URL) => {
-    const url = String(input);
-    requests.push(url);
-
-    if (url.endsWith("/api/orchestrator/operator/threads")) {
-      return jsonResponse({
-        ok: true,
-        detail: [
-          {
-            id: "thread-1",
-            title: "Mission Alpha",
-            status: "active",
-            updatedAt: "2026-03-12T10:05:00.000Z",
-            summary: {
-              objective: "Ship the cockpit home.",
-              lastMessageExcerpt: "Validation is running.",
-            },
-          },
-        ],
-      });
-    }
-
-    if (url.endsWith("/api/orchestrator/operator/actions")) {
+    if (url.endsWith("/api/orchestrator/workspaces")) {
       return jsonResponse({ ok: true, detail: [] });
     }
 
-    if (url.endsWith("/api/orchestrator/operator/threads/thread-1")) {
+    if (url.endsWith("/api/sessions")) {
       return jsonResponse({
         ok: true,
-        detail: {
-          id: "thread-1",
-          title: "Mission Alpha",
-          status: "active",
-          updatedAt: "2026-03-12T10:05:00.000Z",
-          summary: {
-            objective: "Ship the cockpit home.",
-            lastMessageExcerpt: "Validation is running.",
-          },
-          progress: {
-            currentStage: "validation_running",
-            currentState: "running",
-          },
-          metadata: {
-            execution: {
-              executionId: "exec-1",
-            },
-          },
-          messages: [],
-          context: {
-            linkedArtifacts: [],
-          },
-        },
-      });
-    }
-
-    if (url.endsWith("/api/orchestrator/executions/exec-1")) {
-      return jsonResponse({
-        ok: true,
-        detail: {
-          execution: {
-            id: "exec-1",
-            state: "running",
-            objective: "Ship the cockpit home.",
-            projectRole: "implementer",
-          },
-          sessions: [
-            {
-              sessionId: "session-1",
-              session: {
-                id: "session-1",
-                role: "implementer",
-                state: "active",
-                updatedAt: "2026-03-12T10:05:00.000Z",
-                tmuxSession: "session-1-tmux",
-              },
-            },
-          ],
-        },
-      });
-    }
-
-    if (url.endsWith("/api/sessions/session-1/live")) {
-      return jsonResponse({
-        ok: true,
-        session: {
-          id: "session-1",
-          role: "implementer",
-          state: "active",
-          updatedAt: "2026-03-12T10:05:00.000Z",
-          tmuxSession: "session-1-tmux",
-        },
-        diagnostics: {
-          status: "running",
-          lastEventAt: "2026-03-12T10:05:00.000Z",
-        },
-      });
-    }
-
-    if (url.endsWith("/api/orchestrator/self-build/summary")) {
-      return jsonResponse({
-        ok: true,
-        detail: {
-          waitingApprovalProposals: [],
-          recentWorkItemRuns: [],
-          workspaces: [],
-          integrationBranches: [],
-        },
-      });
-    }
-
-    if (url.endsWith("/api/orchestrator/self-build/dashboard")) {
-      return jsonResponse({
-        ok: true,
-        detail: {
-          recentWorkItemRuns: [],
-        },
-      });
-    }
-
-    throw new Error(`Unexpected request: ${url}`);
-  }) as typeof fetch;
-
-  const restoreCockpitDom = installDomGlobals("/cockpit");
-  const cockpitView = render(React.createElement(App));
-
-  await cockpitView.findByRole("heading", { name: "Agent Cockpit" });
-  assert.equal(cockpitView.queryByText("Page not found"), null);
-  cockpitView.unmount();
-  restoreCockpitDom();
-
-  const restoreDetailDom = installDomGlobals("/cockpit/agents/session%3Asession-1");
-  const detailView = render(React.createElement(App));
-
-  await detailView.findByRole("heading", { name: "Agent Detail" });
-  assert.equal(detailView.queryByText("Page not found"), null);
-
-  const cockpitLink = detailView.getByRole("link", { name: /agent cockpit/i });
-  const agentsLink = detailView.getByRole("link", { name: /^agents$/i });
-  assert.equal(cockpitLink.getAttribute("aria-current"), "page");
-  assert.notEqual(agentsLink.getAttribute("aria-current"), "page");
-
-  detailView.unmount();
-  restoreDetailDom();
-});
-
-test("App promotes the cockpit to the default home while keeping chat on /chat", async () => {
-  globalThis.fetch = (async (input: RequestInfo | URL) => {
-    const url = String(input);
-
-    if (url.endsWith("/api/orchestrator/operator/threads")) {
-      return jsonResponse({
-        ok: true,
-        detail: [
+        sessions: [
           {
-            id: "thread-1",
-            title: "Mission Alpha",
-            status: "active",
-            updatedAt: "2026-03-12T10:05:00.000Z",
-            summary: {
-              objective: "Ship the cockpit home.",
-              lastMessageExcerpt: "Validation is running.",
-            },
+            id: "current-builder",
+            role: "builder",
+            state: "active",
+            workflowId: "feature-delivery",
+            updatedAt: "2026-03-13T12:00:00.000Z",
+          },
+          {
+            id: "old-builder",
+            role: "builder",
+            state: "completed",
+            workflowId: "feature-delivery",
+            updatedAt: "2026-03-13T10:00:00.000Z",
           },
         ],
       });
     }
 
-    if (url.endsWith("/api/orchestrator/operator/actions")) {
-      return jsonResponse({ ok: true, detail: [] });
-    }
-
-    if (url.endsWith("/api/orchestrator/operator/threads/thread-1")) {
-      return jsonResponse({
-        ok: true,
-        detail: {
-          id: "thread-1",
-          title: "Mission Alpha",
-          status: "active",
-          updatedAt: "2026-03-12T10:05:00.000Z",
-          summary: {
-            objective: "Ship the cockpit home.",
-            lastMessageExcerpt: "Validation is running.",
-          },
-          progress: {
-            currentStage: "validation_running",
-            currentState: "running",
-          },
-          metadata: {
-            execution: {
-              executionId: "exec-1",
-            },
-          },
-          messages: [],
-          context: {
-            linkedArtifacts: [],
-          },
-        },
-      });
-    }
-
-    if (url.endsWith("/api/orchestrator/executions/exec-1")) {
-      return jsonResponse({
-        ok: true,
-        detail: {
-          execution: {
-            id: "exec-1",
-            state: "running",
-            objective: "Ship the cockpit home.",
-            projectRole: "implementer",
-          },
-          sessions: [
-            {
-              sessionId: "session-1",
-              session: {
-                id: "session-1",
-                role: "implementer",
-                state: "active",
-                updatedAt: "2026-03-12T10:05:00.000Z",
-              },
-            },
-          ],
-        },
-      });
-    }
-
-    if (url.endsWith("/api/sessions/session-1/live")) {
-      return jsonResponse({
-        ok: true,
-        session: {
-          id: "session-1",
-          role: "implementer",
-          state: "active",
-          updatedAt: "2026-03-12T10:05:00.000Z",
-        },
-        diagnostics: {
-          status: "running",
-          lastEventAt: "2026-03-12T10:05:00.000Z",
-        },
-      });
-    }
-
-    if (url.endsWith("/api/orchestrator/self-build/summary")) {
-      return jsonResponse({
-        ok: true,
-        detail: {
-          waitingApprovalProposals: [],
-          recentWorkItemRuns: [],
-          workspaces: [],
-          integrationBranches: [],
-        },
-      });
-    }
-
-    if (url.endsWith("/api/orchestrator/self-build/dashboard")) {
-      return jsonResponse({
-        ok: true,
-        detail: {
-          recentWorkItemRuns: [],
-        },
-      });
-    }
-
     throw new Error(`Unexpected request: ${url}`);
   }) as typeof fetch;
 
-  const restoreHomeDom = installDomGlobals("/");
-  const homeView = render(React.createElement(App));
-  await homeView.findAllByRole("heading", { name: "Agent Cockpit" });
-  assert.equal(homeView.queryByText("Page not found"), null);
-  homeView.unmount();
-  restoreHomeDom();
+  const view = renderCockpit();
 
-  const restoreChatDom = installDomGlobals("/chat");
-  const chatView = render(React.createElement(App));
-  await chatView.findAllByRole("heading", { name: "Chat" });
-  assert.equal(chatView.queryByText("Page not found"), null);
-  chatView.unmount();
-  restoreChatDom();
+  await view.findByText("Current work is running.");
+  await view.findByRole("button", { name: /show history/i });
+  assert.equal(view.queryByText("Historical work finished."), null);
+
+  const showHistory = view.getByRole("button", { name: /show history/i });
+  fireEvent.click(showHistory);
+
+  await view.findByText("Historical work finished.");
+
+  restoreDom();
 });

@@ -148,6 +148,10 @@ export interface ValidationTraceDetail {
 export interface WorkItemRunApiDetail {
   id?: string | null;
   status?: string | null;
+  result?: {
+    executionId?: string | null;
+    status?: string | null;
+  } | null;
   validationStatus?: string | null;
   comparisonToPrevious?: {
     summary?: string | null;
@@ -172,6 +176,7 @@ export interface WorkItemRunApiDetail {
     regressionRun?: string | null;
   } | null;
   relationSummary?: {
+    executionId?: string | null;
     scenarioRunId?: string | null;
     regressionRunId?: string | null;
   } | null;
@@ -222,6 +227,7 @@ export interface ProposalReviewPackageApiDetail {
 
 export interface WorkspaceApiDetail {
   id?: string | null;
+  executionId?: string | null;
   status?: string | null;
   branchName?: string | null;
   baseRef?: string | null;
@@ -235,6 +241,11 @@ export interface WorkspaceApiDetail {
       summary?: string | null;
       reasons?: string[] | null;
     } | null;
+  } | null;
+  metadata?: {
+    sessionId?: string | null;
+    sourceStepId?: string | null;
+    workspacePurpose?: string | null;
   } | null;
 }
 

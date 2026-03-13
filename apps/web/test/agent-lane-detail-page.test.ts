@@ -163,6 +163,25 @@ function installLaneDetailFetch(modeRef: { current: FetchMode }, requests: strin
       });
     }
 
+    if (url.endsWith("/api/orchestrator/workspaces")) {
+      return jsonResponse({ ok: true, detail: [] });
+    }
+
+    if (url.endsWith("/api/sessions")) {
+      return jsonResponse({
+        ok: true,
+        sessions: [
+          {
+            id: "session-1",
+            role: "implementer",
+            state: "active",
+            workflowId: "feature-delivery",
+            updatedAt: "2026-03-12T10:05:00.000Z",
+          },
+        ],
+      });
+    }
+
     if (url.endsWith("/api/orchestrator/operator/threads/thread-1")) {
       return jsonResponse({
         ok: true,
@@ -303,6 +322,20 @@ function installLaneDetailFetch(modeRef: { current: FetchMode }, requests: strin
           transportMode: "tmux",
           cwd: ".spore/worktrees/ws-1",
         },
+        handoff: {
+          primary: {
+            kind: "implementation_summary",
+            validation: {
+              valid: true,
+              issues: [],
+            },
+            payload: {
+              summary: "Implemented the requested dashboard change.",
+              changed_paths: ["apps/web/src/pages/ChatPage.tsx"],
+              tests_run: ["npm run test:web"],
+            },
+          },
+        },
         artifacts: {
           transcript: {
             name: "transcript",
@@ -318,6 +351,13 @@ function installLaneDetailFetch(modeRef: { current: FetchMode }, requests: strin
             size: 42,
             updatedAt: "2026-03-12T10:05:00.000Z",
           },
+          context: {
+            name: "context",
+            path: "tmp/sessions/session-1.context.json",
+            exists: true,
+            size: 42,
+            updatedAt: "2026-03-12T10:05:00.000Z",
+          },
         },
       });
     }
@@ -328,6 +368,33 @@ function installLaneDetailFetch(modeRef: { current: FetchMode }, requests: strin
         artifact: "transcript",
         path: "tmp/sessions/session-1.transcript.md",
         content: "builder transcript\nline 2\nline 3",
+      });
+    }
+
+    if (url.endsWith("/api/sessions/session-1/artifacts/context")) {
+      return jsonResponse({
+        ok: true,
+        artifact: "context",
+        path: "tmp/sessions/session-1.context.json",
+        content: {
+          session: {
+            role: "implementer",
+          },
+          handoffs: {
+            inbound: [
+              {
+                sourceRole: "lead",
+                summary: {
+                  title: "Lead request",
+                  outcome: "Add the day/night mode switch in the dashboard shell.",
+                },
+              },
+            ],
+            expected: {
+              kind: "implementation_summary",
+            },
+          },
+        },
       });
     }
 
@@ -351,9 +418,12 @@ test("AgentLaneDetailPage opens a lane detail route with session status, linkage
   await view.findByText("Mission Alpha");
   await view.findByText("Proposal 1");
   await view.findByText("session-1-tmux");
+  await view.findByText("Input sent to Implementer");
+  await view.findByText("Latest visible session output");
+  await view.findByText("Returned implementation_summary");
   await view.findByText("Live session feed");
   await view.findByText("Transcript preview");
-  await view.findByText(/builder transcript/);
+  assert.ok((await view.findAllByText(/builder transcript/)).length >= 1);
   assert.equal(
     view.getByRole("link", { name: /open live session payload/i }).getAttribute("href"),
     "/api/sessions/session-1/live",

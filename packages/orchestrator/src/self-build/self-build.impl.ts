@@ -2613,6 +2613,37 @@ function extractGoalDomain(goal = "", explicitDomain = null) {
   return "backend";
 }
 
+function isImplementationStyleFrontendGoal(goal = "") {
+  const normalized = String(goal).toLowerCase();
+  const implementationVerbs = [
+    "add",
+    "build",
+    "create",
+    "implement",
+    "change",
+    "update",
+    "modify",
+    "fix",
+    "remove",
+    "refactor",
+    "ship",
+    "toggle",
+    "switch",
+  ];
+  const auditHints = [
+    "pass",
+    "audit",
+    "review",
+    "inspect",
+    "check",
+    "accessibility review",
+  ];
+  return (
+    implementationVerbs.some((verb) => normalized.includes(verb)) &&
+    !auditHints.some((hint) => normalized.includes(hint))
+  );
+}
+
 function buildGoalRecommendations({
   goal,
   domainId,
@@ -2703,33 +2734,63 @@ function buildGoalRecommendations({
       domainId === "frontend") &&
     hasDomain("frontend")
   ) {
-    recommendations.push({
-      title: "Operator UI pass",
-      kind: "workflow",
-      goal,
-      acceptanceCriteria: [
-        "Produce a proposal for UI-facing work.",
-        "Validate with frontend-ui-pass.",
-      ],
-      relatedScenarios: ["frontend-ui-pass"],
-      relatedRegressions: [],
-      metadata: {
-        templateId: "operator-ui-pass",
-        workflowPath: "config/workflows/frontend-ui-pass.yaml",
-        domainId: "frontend",
-        projectPath,
-        roles: ["lead", "scout", "builder", "tester", "reviewer"],
-        safeMode,
-        mutationScope: safeMode ? ["docs", "config", "apps/web"] : ["apps/web"],
-        targetPaths: safeMode ? ["apps/web", "docs", "config"] : ["apps/web"],
-        taskClass: "operator-surface",
-        requiresProposal: true,
-        codeOriented: true,
-        recommendedScenarios: ["frontend-ui-pass"],
-        recommendedRegressions: [],
-        recommendedValidationBundles: ["frontend-ui-pass"],
-      },
-    });
+    if (isImplementationStyleFrontendGoal(goal)) {
+      recommendations.push({
+        title: "Frontend feature delivery",
+        kind: "workflow",
+        goal,
+        acceptanceCriteria: [
+          "Implement the requested UI-facing change.",
+          "Produce validation evidence and a reviewable verdict.",
+        ],
+        relatedScenarios: ["frontend-ui-pass"],
+        relatedRegressions: [],
+        metadata: {
+          templateId: "frontend-feature-delivery",
+          workflowPath: "config/workflows/feature-delivery.yaml",
+          domainId: "frontend",
+          projectPath,
+          roles: ["orchestrator", "lead", "scout", "builder", "tester", "reviewer"],
+          safeMode,
+          mutationScope: safeMode ? ["docs", "config", "apps/web"] : ["apps/web"],
+          targetPaths: safeMode ? ["apps/web", "docs", "config"] : ["apps/web"],
+          taskClass: "operator-surface",
+          requiresProposal: true,
+          codeOriented: true,
+          recommendedScenarios: ["frontend-ui-pass"],
+          recommendedRegressions: [],
+          recommendedValidationBundles: ["frontend-ui-pass"],
+        },
+      });
+    } else {
+      recommendations.push({
+        title: "Operator UI pass",
+        kind: "workflow",
+        goal,
+        acceptanceCriteria: [
+          "Produce a proposal for UI-facing work.",
+          "Validate with frontend-ui-pass.",
+        ],
+        relatedScenarios: ["frontend-ui-pass"],
+        relatedRegressions: [],
+        metadata: {
+          templateId: "operator-ui-pass",
+          workflowPath: "config/workflows/frontend-ui-pass.yaml",
+          domainId: "frontend",
+          projectPath,
+          roles: ["lead", "scout", "builder", "tester", "reviewer"],
+          safeMode,
+          mutationScope: safeMode ? ["docs", "config", "apps/web"] : ["apps/web"],
+          targetPaths: safeMode ? ["apps/web", "docs", "config"] : ["apps/web"],
+          taskClass: "operator-surface",
+          requiresProposal: true,
+          codeOriented: true,
+          recommendedScenarios: ["frontend-ui-pass"],
+          recommendedRegressions: [],
+          recommendedValidationBundles: ["frontend-ui-pass"],
+        },
+      });
+    }
   }
 
   if (
@@ -6910,6 +6971,28 @@ function buildProposalGovernanceContext(
       reason:
         "Proposal cannot be promoted because the originating work-item run has no durable executionId.",
     });
+  }
+  if (proposal.kind === "workflow" && sourceExecutionId) {
+    const handoffs = listExecutionHandoffs(sourceExecutionId, dbPath) ?? [];
+    const invalidHandoff = handoffs.find((handoff) => {
+      const validation = asJsonObject(handoff.validation);
+      return validation.valid === false;
+    });
+    if (invalidHandoff) {
+      const validation = asJsonObject(invalidHandoff.validation);
+      const issues = asArray(validation.issues)
+        .map((issue) => asJsonObject(issue))
+        .filter(Boolean);
+      blockers.push({
+        code: "invalid_workflow_handoff",
+        reason:
+          issues[0]?.message ??
+          `Workflow handoff ${toText(invalidHandoff.id, "unknown") || "unknown"} is invalid and must be reworked before governance can continue.`,
+        handoffId: toText(invalidHandoff.id, "") || null,
+        sourceRole: toText(invalidHandoff.sourceRole, "") || null,
+        targetRole: toText(invalidHandoff.targetRole, "") || null,
+      });
+    }
   }
   return {
     run,

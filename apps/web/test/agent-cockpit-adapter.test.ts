@@ -750,3 +750,425 @@ test("adaptAgentCockpit only marks affected lanes degraded when enrichment failu
   assert.equal(laneByExecutionId.get("exec-1")?.degraded, false);
   assert.equal(laneByExecutionId.get("exec-2")?.degraded, true);
 });
+
+test("adaptAgentCockpit tolerates null artifacts in thread messages and linked artifact arrays", () => {
+  const model = adaptAgentCockpit({
+    threads: [makeThreadSummary()],
+    threadDetails: {
+      "thread-1": makeThreadDetail({
+        messages: [
+          {
+            id: "message-1",
+            role: "assistant",
+            kind: "message",
+            content: "Proposal proposal-1 needs validation. I am running the configured validation flow now.",
+            createdAt: "2026-03-12T10:05:00.000Z",
+            payload: {
+              artifacts: [
+                null,
+                {
+                  itemType: "proposal",
+                  itemId: "proposal-1",
+                  title: "Fallback proposal title",
+                  status: "validation_required",
+                },
+              ],
+            },
+          },
+        ],
+        context: {
+          linkedArtifacts: [
+            null,
+            {
+              itemType: "proposal",
+              itemId: "proposal-1",
+              title: "Fallback proposal title",
+              status: "validation_required",
+            },
+          ],
+        },
+      }),
+    },
+    executionDetails: {
+      "exec-1": makeExecutionDetail(),
+    },
+    sessionLives: {
+      "session-1": makeSessionLive("session-1"),
+    },
+  });
+
+  assert.equal(model.lanes.length, 1);
+  assert.equal(model.attention.length, 1);
+  assert.equal(model.recentArtifacts.length, 1);
+});
+
+test("adaptAgentCockpit prefers lane-specific step state and wave labels over thread-level promotion status", () => {
+  const model = adaptAgentCockpit({
+    threads: [makeThreadSummary()],
+    threadDetails: {
+      "thread-1": makeThreadDetail({
+        progress: {
+          currentStage: "promotion_launched",
+          currentState: "completed",
+        },
+      }),
+    },
+    executionDetails: {
+      "exec-1": {
+        execution: {
+          id: "exec-1",
+          state: "held",
+          workflowId: "feature-delivery",
+        },
+        steps: [
+          {
+            sessionId: "builder-session",
+            role: "builder",
+            waveName: "ui-build",
+            state: "completed",
+          },
+          {
+            sessionId: "reviewer-session",
+            role: "reviewer",
+            waveName: "ui-review",
+            state: "review_pending",
+          },
+        ],
+        sessions: [
+          {
+            sessionId: "builder-session",
+            session: {
+              id: "builder-session",
+              role: "builder",
+              state: "completed",
+            },
+          },
+          {
+            sessionId: "reviewer-session",
+            session: {
+              id: "reviewer-session",
+              role: "reviewer",
+              state: "completed",
+            },
+          },
+        ],
+      },
+    },
+    sessionLives: {
+      "builder-session": makeSessionLive("builder-session", "completed"),
+      "reviewer-session": makeSessionLive("reviewer-session", "completed"),
+    },
+  });
+
+  const laneByRole = new Map(model.lanes.map((lane) => [lane.roleLabel, lane] as const));
+  assert.equal(laneByRole.get("Builder")?.stageLabel, "Ui Build");
+  assert.equal(laneByRole.get("Builder")?.state, "completed");
+  assert.equal(laneByRole.get("Reviewer")?.stageLabel, "Ui Review");
+  assert.equal(laneByRole.get("Reviewer")?.state, "waiting");
+});
+
+test("adaptAgentCockpit derives real lanes from active work-item runs and child promotion executions", () => {
+  const model = adaptAgentCockpit({
+    threads: [
+      {
+        id: "thread-1",
+        title: "Day/night toggle mission",
+        status: "completed",
+        updatedAt: "2026-03-12T10:05:00.000Z",
+        summary: {
+          objective: "Add button to switch between day/night mode in spore mission control dashboard",
+          lastMessageExcerpt: "Promotion launched for proposal proposal-1.",
+        },
+      },
+    ],
+    threadDetails: {
+      "thread-1": makeThreadDetail({
+        title: "Day/night toggle mission",
+        status: "completed",
+        progress: {
+          currentStage: "promotion_launched",
+          currentState: "completed",
+        },
+        metadata: {
+          linkage: {
+            activeRunId: "run-1",
+          },
+        },
+      }),
+    },
+    workItemRuns: {
+      "run-1": {
+        id: "run-1",
+        status: "blocked",
+        result: {
+          executionId: "exec-root",
+        },
+        relationSummary: {
+          executionId: "exec-root",
+        },
+      },
+    },
+    executionDetails: {
+      "exec-root": {
+        execution: {
+          id: "exec-root",
+          state: "held",
+          workflowId: "feature-delivery",
+        },
+        steps: [
+          {
+            sessionId: "lead-session",
+            role: "lead",
+            waveName: "wave-2",
+            state: "completed",
+          },
+          {
+            sessionId: "scout-session",
+            role: "scout",
+            waveName: "wave-3",
+            state: "completed",
+          },
+        ],
+        sessions: [
+          {
+            sessionId: "lead-session",
+            session: {
+              id: "lead-session",
+              role: "lead",
+              state: "completed",
+            },
+          },
+          {
+            sessionId: "scout-session",
+            session: {
+              id: "scout-session",
+              role: "scout",
+              state: "completed",
+            },
+          },
+        ],
+      },
+      "promotion-exec": {
+        execution: {
+          id: "promotion-exec",
+          state: "completed",
+          workflowId: "feature-promotion",
+          projectRole: "integrator",
+        },
+        steps: [
+          {
+            sessionId: "integrator-session",
+            role: "integrator",
+            waveName: "promotion-framing",
+            state: "completed",
+          },
+        ],
+        sessions: [
+          {
+            sessionId: "integrator-session",
+            session: {
+              id: "integrator-session",
+              role: "integrator",
+              state: "completed",
+            },
+          },
+        ],
+      },
+    },
+    executionTrees: {
+      "exec-root": {
+        selectedExecutionId: "exec-root",
+        rootExecutionId: "exec-root",
+        root: {
+          execution: {
+            id: "exec-root",
+            state: "held",
+          },
+          children: [
+            {
+              execution: {
+                id: "promotion-exec",
+                parentExecutionId: "exec-root",
+                state: "completed",
+                workflowId: "feature-promotion",
+                projectRole: "integrator",
+              },
+              children: [],
+            },
+          ],
+        },
+      },
+    },
+    sessionLives: {
+      "lead-session": makeSessionLive("lead-session", "completed"),
+      "scout-session": makeSessionLive("scout-session", "completed"),
+      "integrator-session": makeSessionLive("integrator-session", "completed"),
+    },
+  });
+
+  const laneByRole = new Map(model.lanes.map((lane) => [lane.roleLabel, lane] as const));
+  assert.equal(model.lanes.length, 3);
+  assert.equal(laneByRole.get("Lead")?.detailHref, "/cockpit/agents/session%3Alead-session");
+  assert.equal(laneByRole.get("Scout")?.detailHref, "/cockpit/agents/session%3Ascout-session");
+  assert.equal(
+    laneByRole.get("Integrator")?.detailHref,
+    "/cockpit/agents/session%3Aintegrator-session",
+  );
+  assert.equal(laneByRole.get("Lead")?.stageLabel, "Wave 2");
+  assert.equal(laneByRole.get("Scout")?.stageLabel, "Wave 3");
+  assert.equal(laneByRole.get("Integrator")?.stageLabel, "Promotion Framing");
+});
+
+test("adaptAgentCockpit derives execution lineage from active work-item run workspace details when the run payload omits executionId", () => {
+  const model = adaptAgentCockpit({
+    threads: [makeThreadSummary()],
+    threadDetails: {
+      "thread-1": makeThreadDetail({
+        metadata: {
+          linkage: {
+            activeRunId: "run-1",
+          },
+        },
+      }),
+    },
+    workItemRuns: {
+      "run-1": {
+        id: "run-1",
+        status: "running",
+        result: {},
+        relationSummary: {},
+      },
+    },
+    runWorkspaces: {
+      "run-1": {
+        id: "workspace-1",
+        executionId: "exec-root",
+        workItemRunId: "run-1",
+      },
+    },
+    executionDetails: {
+      "exec-root": {
+        execution: {
+          id: "exec-root",
+          state: "running",
+          workflowId: "feature-delivery",
+        },
+        steps: [
+          {
+            sessionId: "builder-session",
+            role: "builder",
+            waveName: "wave-4",
+            state: "running",
+          },
+        ],
+        sessions: [
+          {
+            sessionId: "builder-session",
+            session: {
+              id: "builder-session",
+              role: "builder",
+              state: "active",
+            },
+          },
+        ],
+      },
+    },
+    sessionLives: {
+      "builder-session": makeSessionLive("builder-session", "running"),
+    },
+  });
+
+  assert.equal(model.lanes.length, 1);
+  assert.equal(model.lanes[0]?.roleLabel, "Builder");
+  assert.equal(model.lanes[0]?.executionId, "exec-root");
+  assert.equal(model.lanes[0]?.detailHref, "/cockpit/agents/session%3Abuilder-session");
+});
+
+test("adaptAgentCockpit derives early in-flight lanes from workspace metadata and gateway session list when execution sessions lag", () => {
+  const model = adaptAgentCockpit({
+    threads: [makeThreadSummary()],
+    threadDetails: {
+      "thread-1": makeThreadDetail({
+        metadata: {
+          linkage: {
+            activeRunId: "run-1",
+          },
+        },
+      }),
+    },
+    workItemRuns: {
+      "run-1": {
+        id: "run-1",
+        status: "running",
+        result: {},
+        relationSummary: {},
+      },
+    },
+    runWorkspaces: {
+      "run-1": {
+        id: "workspace-root",
+        executionId: "exec-root",
+        workItemRunId: "run-1",
+      },
+    },
+    workspaces: [
+      {
+        id: "workspace-step-2",
+        executionId: "exec-root",
+        workItemRunId: "run-1",
+        metadata: {
+          sessionId: "lead-session",
+          sourceStepId: "exec-root:step:2",
+        },
+      },
+    ],
+    executionDetails: {
+      "exec-root": {
+        execution: {
+          id: "exec-root",
+          state: "running",
+          workflowId: "feature-delivery",
+        },
+        steps: [
+          {
+            sessionId: "lead-session",
+            role: "lead",
+            waveName: "wave-2",
+            state: "active",
+          },
+        ],
+        sessions: [],
+      },
+    },
+    sessionList: [
+      {
+        id: "exec-root-frontend-orchestrator-1",
+        role: "orchestrator",
+        state: "completed",
+        workflowId: "feature-delivery",
+        updatedAt: "2026-03-12T10:04:00.000Z",
+      },
+      {
+        id: "lead-session",
+        role: "lead",
+        state: "active",
+        workflowId: "feature-delivery",
+        updatedAt: "2026-03-12T10:05:00.000Z",
+      },
+    ],
+    sessionLives: {
+      "lead-session": makeSessionLive("lead-session", "running"),
+      "exec-root-frontend-orchestrator-1": makeSessionLive(
+        "exec-root-frontend-orchestrator-1",
+        "completed",
+      ),
+    },
+  });
+
+  const laneByRole = new Map(model.lanes.map((lane) => [lane.roleLabel, lane] as const));
+  assert.equal(laneByRole.get("Lead")?.sessionId, "lead-session");
+  assert.equal(
+    laneByRole.get("Orchestrator")?.sessionId,
+    "exec-root-frontend-orchestrator-1",
+  );
+});

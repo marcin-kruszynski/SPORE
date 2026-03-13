@@ -77,6 +77,17 @@ export interface AgentSessionDetailViewModel {
   latestSummary: string | null;
   lastActivityAt: string | null;
   freshnessLabel: string;
+  requestPrompt: {
+    title: string;
+    content: string | null;
+    source: string | null;
+  };
+  returnedHandoff: {
+    title: string;
+    content: string | null;
+    valid: boolean | null;
+    issues: string[];
+  };
   mission: {
     kind: "confirmed" | "partial" | "unknown";
     title: string | null;

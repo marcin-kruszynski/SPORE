@@ -10,6 +10,17 @@ const VALID_ENFORCEMENT_MODES = new Set([
   "blocked",
 ]);
 
+const SECTION_ALIASES: Record<string, string[]> = {
+  risks: ["risks", "risk", "ris"],
+  next_role: ["next_role", "nextRole", "next-role"],
+  changed_paths: ["changed_paths", "changedPaths"],
+  tests_run: ["tests_run", "testsRun"],
+  open_risks: ["open_risks", "openRisks"],
+  next_actions: ["next_actions", "nextActions"],
+  target_branch: ["target_branch", "targetBranch"],
+  integration_branch: ["integration_branch", "integrationBranch"],
+};
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
@@ -35,12 +46,20 @@ function hasRequiredSection(
   payload: Record<string, unknown> | null,
   section: string,
 ) {
-  if (!payload || !Object.hasOwn(payload, section)) {
+  if (!payload) {
     return false;
   }
-  const value = payload[section];
+  const candidateKeys = SECTION_ALIASES[section] ?? [section];
+  const key = candidateKeys.find((candidate) => Object.hasOwn(payload, candidate));
+  if (!key) {
+    return false;
+  }
+  const value = payload[key];
   if (section === "summary") {
-    return isRecord(value);
+    return (
+      isRecord(value) ||
+      (typeof value === "string" && value.trim().length > 0)
+    );
   }
   if (
     [
@@ -56,7 +75,10 @@ function hasRequiredSection(
       "next_actions",
     ].includes(section)
   ) {
-    return Array.isArray(value);
+    return (
+      Array.isArray(value) ||
+      (typeof value === "string" && value.trim().length > 0)
+    );
   }
   if (
     [

@@ -176,7 +176,8 @@ function actionLinks(actionId: string) {
 function normalizeExecutionSettings(
   payload: LooseRecord = {},
 ): OperatorThreadExecutionSettings {
-  const defaultTimeout = payload.stub === false ? 600000 : 180000;
+  const explicitStub = payload.stub === true;
+  const defaultTimeout = explicitStub ? 180000 : 600000;
   const timeout =
     Number.parseInt(String(payload.timeout ?? String(defaultTimeout)), 10) ||
     defaultTimeout;
@@ -186,7 +187,7 @@ function normalizeExecutionSettings(
     projectId: toText(payload.projectId ?? payload.project, "spore"),
     safeMode: payload.safeMode !== false,
     mode: toText(payload.mode, "supervised"),
-    stub: payload.stub !== false,
+    stub: explicitStub,
     launcher: payload.launcher ? String(payload.launcher) : null,
     wait: payload.wait !== false,
     timeout,

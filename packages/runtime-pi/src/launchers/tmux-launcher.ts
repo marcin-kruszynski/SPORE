@@ -239,6 +239,7 @@ export async function writeLaunchScript({
   stubDurationSeconds = 2,
   cwd = PROJECT_ROOT,
   workspace = null,
+  piBinaryOverride,
 }: {
   launcherType: string;
   assets: LaunchAssets;
@@ -246,10 +247,13 @@ export async function writeLaunchScript({
   stubDurationSeconds?: number;
   cwd?: string;
   workspace?: SessionWorkspace | null;
+  piBinaryOverride?: string | null;
 }): Promise<void> {
   const piBinary =
     launcherType === "pi-json" || launcherType === "pi-rpc"
-      ? await resolveCommandBinary("pi")
+      ? (piBinaryOverride !== undefined
+          ? piBinaryOverride
+          : await resolveCommandBinary("pi"))
       : null;
   const effectiveCwd = path.resolve(cwd);
   const promptPath = path.resolve(assets.promptPath);
@@ -299,7 +303,8 @@ export async function writeLaunchScript({
               `--session-file ${shellEscape(sessionFilePath)} ` +
               `--cwd ${shellEscape(effectiveCwd)}`,
           ].join("\n")
-        : [
+        : launcherType === "stub"
+          ? [
             'echo "pi CLI not found. Running bootstrap stub launcher." | tee -a ' +
               shellEscape(transcriptPath),
             workspace?.id
@@ -322,8 +327,15 @@ export async function writeLaunchScript({
             'echo "Stub session finished." | tee -a ' +
               shellEscape(transcriptPath),
           ]
-            .filter(Boolean)
-            .join("\n");
+              .filter(Boolean)
+              .join("\n")
+          : [
+              'echo "pi CLI is required for runtime launch but was not found. Failing session instead of falling back to stub." | tee -a ' +
+                shellEscape(transcriptPath),
+              'echo "Set SPORE_PI_BIN or install pi, or pass --stub only for explicit test runs." | tee -a ' +
+                shellEscape(transcriptPath),
+              'exit 1',
+            ].join("\n");
 
   const script = `#!/usr/bin/env bash
 set +e

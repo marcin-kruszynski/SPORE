@@ -20,6 +20,28 @@ function DetailRow(props: { label: string; value: string | null }) {
   );
 }
 
+function ContentPanel(props: {
+  eyebrow: string;
+  title: string;
+  content: string | null;
+  footer?: string | null;
+}) {
+  return (
+    <section className="rounded-2xl border border-border/70 bg-background/60 p-4">
+      <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{props.eyebrow}</p>
+      <h3 className="mt-1 text-sm font-semibold text-foreground">{props.title}</h3>
+      {props.content ? (
+        <pre className="mt-3 overflow-x-auto whitespace-pre-wrap rounded-xl border border-border/70 bg-card/70 p-4 font-mono text-xs text-foreground">
+          {props.content}
+        </pre>
+      ) : (
+        <p className="mt-3 text-sm text-muted-foreground">No content is available yet.</p>
+      )}
+      {props.footer && <p className="mt-3 text-xs text-muted-foreground">{props.footer}</p>}
+    </section>
+  );
+}
+
 export function AgentSessionSummary({ detail }: AgentSessionSummaryProps) {
   return (
     <section className="rounded-2xl border border-border bg-card/60 p-5 shadow-sm">
@@ -54,6 +76,33 @@ export function AgentSessionSummary({ detail }: AgentSessionSummaryProps) {
         </div>
       </div>
 
+      <div className="mt-5 grid gap-3 xl:grid-cols-3">
+        <ContentPanel
+          eyebrow="Input"
+          title={detail.requestPrompt.title}
+          content={detail.requestPrompt.content}
+          footer={detail.requestPrompt.source ? `Source: ${detail.requestPrompt.source}` : null}
+        />
+        <ContentPanel
+          eyebrow="Live output"
+          title="Latest visible session output"
+          content={detail.transcriptPreview.content}
+          footer={detail.transcriptPreview.path ?? detail.inspection.transcriptPath}
+        />
+        <ContentPanel
+          eyebrow="Returned output"
+          title={detail.returnedHandoff.title}
+          content={detail.returnedHandoff.content}
+          footer={
+            detail.returnedHandoff.valid === null
+              ? null
+              : detail.returnedHandoff.valid
+                ? "Structured handoff is valid."
+                : `Structured handoff is invalid.${detail.returnedHandoff.issues.length ? ` ${detail.returnedHandoff.issues[0]}` : ""}`
+          }
+        />
+      </div>
+
       <div className="mt-5 grid gap-3 xl:grid-cols-2">
         <div className="rounded-2xl border border-border/70 bg-background/60 p-4">
           <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Mission linkage</p>
@@ -83,8 +132,6 @@ export function AgentSessionSummary({ detail }: AgentSessionSummaryProps) {
           <DetailRow label="Workspace purpose" value={detail.inspection.workspacePurpose} />
           <DetailRow label="Branch" value={detail.inspection.branchName} />
           <DetailRow label="Cwd" value={detail.inspection.cwd} />
-          <DetailRow label="Transcript" value={detail.inspection.transcriptPath} />
-          <DetailRow label="Launch command" value={detail.inspection.launchCommand} />
           <DetailRow label="Runtime" value={detail.inspection.runtimeAdapter} />
           <DetailRow label="Transport" value={detail.inspection.transportMode} />
           <DetailRow label="Launcher" value={detail.inspection.launcherType} />
