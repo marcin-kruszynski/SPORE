@@ -43,6 +43,15 @@ function ContentPanel(props: {
 }
 
 export function AgentSessionSummary({ detail }: AgentSessionSummaryProps) {
+  const requestFooter = [
+    detail.requestPrompt.source ? `Source: ${detail.requestPrompt.source}` : null,
+    detail.requestPrompt.expectedKind
+      ? `Expected return: ${detail.requestPrompt.expectedKind}`
+      : null,
+  ]
+    .filter(Boolean)
+    .join(" - ");
+
   return (
     <section className="rounded-2xl border border-border bg-card/60 p-5 shadow-sm">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -81,7 +90,7 @@ export function AgentSessionSummary({ detail }: AgentSessionSummaryProps) {
           eyebrow="Input"
           title={detail.requestPrompt.title}
           content={detail.requestPrompt.content}
-          footer={detail.requestPrompt.source ? `Source: ${detail.requestPrompt.source}` : null}
+          footer={requestFooter || null}
         />
         <ContentPanel
           eyebrow="Live output"

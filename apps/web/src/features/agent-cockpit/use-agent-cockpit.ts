@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 
-import { toText } from "../../adapters/adapter-utils.js";
+import { parseTimestamp, toText } from "../../adapters/adapter-utils.js";
 import { adaptAgentCockpit } from "../../adapters/agent-cockpit.js";
 import { getExecutionDetail, getExecutionTree } from "../../lib/api/executions.js";
 import { getOperatorThreadDetail, listOperatorActions, listOperatorThreads } from "../../lib/api/operator.js";
@@ -18,6 +18,7 @@ import type {
 import type { WorkItemRunApiDetail, WorkspaceApiDetail } from "../../types/self-build.js";
 
 export const AGENT_COCKPIT_QUERY_KEY = ["agent-cockpit", "page"] as const;
+export const AGENT_COCKPIT_CURRENT_QUERY_KEY = ["agent-cockpit", "current-family"] as const;
 export const AGENT_COCKPIT_BOOTSTRAP_QUERY_KEY = ["agent-cockpit", "bootstrap"] as const;
 
 export function getAgentCockpitErrorMessage(error: unknown) {
@@ -47,7 +48,20 @@ function collectExecutionIdsFromTree(tree: MissionMapApiExecutionTree | null | u
 type AgentCockpitLoadOptions = {
   includeActions: boolean;
   includeSelfBuild: boolean;
+  scope: "all" | "current-family";
+  includeWorkspaceAndSessionIndexes?: boolean;
+  includeSessionLive?: boolean;
 };
+
+function sortThreadsByRecent<T extends { updatedAt?: string | null }>(threads: T[]) {
+  return [...threads].sort((left, right) => {
+    return parseTimestamp(toText(right.updatedAt, "") || null) - parseTimestamp(toText(left.updatedAt, "") || null);
+  });
+}
+
+function pickCurrentFamilyThreadId(threads: Array<{ id?: string | null }>) {
+  return toText(threads[0]?.id, "") || null;
+}
 
 function applyDegradedOverlay(
   model: AgentCockpitViewModel,
@@ -86,7 +100,13 @@ async function loadAgentCockpitData(options: AgentCockpitLoadOptions) {
     throw threadsResult.reason;
   }
 
-  const threads = threadsResult.value;
+  const allThreads = sortThreadsByRecent(threadsResult.value);
+  const focusThreadId =
+    options.scope === "current-family" ? pickCurrentFamilyThreadId(allThreads) : null;
+  const threads = focusThreadId
+    ? allThreads.filter((thread) => toText(thread.id, "") === focusThreadId)
+    : allThreads;
+  const knownThreadIds = allThreads.map((thread) => toText(thread.id, "")).filter(Boolean);
   const actions = actionsResult.status === "fulfilled" ? actionsResult.value : [];
   const selfBuildSummary =
     selfBuildSummaryResult.status === "fulfilled" ? selfBuildSummaryResult.value : null;
@@ -109,16 +129,18 @@ async function loadAgentCockpitData(options: AgentCockpitLoadOptions) {
     );
   }
 
-  try {
-    workspaces = await listWorkspaces();
-  } catch (error) {
-    degradedReasons.push(`Workspaces: ${getAgentCockpitErrorMessage(error)}`);
-  }
+  if (options.includeWorkspaceAndSessionIndexes !== false) {
+    try {
+      workspaces = await listWorkspaces();
+    } catch (error) {
+      degradedReasons.push(`Workspaces: ${getAgentCockpitErrorMessage(error)}`);
+    }
 
-  try {
-    sessionList = await listSessions();
-  } catch (error) {
-    degradedReasons.push(`Sessions: ${getAgentCockpitErrorMessage(error)}`);
+    try {
+      sessionList = await listSessions();
+    } catch (error) {
+      degradedReasons.push(`Sessions: ${getAgentCockpitErrorMessage(error)}`);
+    }
   }
 
   const threadDetails: Record<string, MissionMapApiThreadDetail | null> = {};
@@ -251,27 +273,35 @@ async function loadAgentCockpitData(options: AgentCockpitLoadOptions) {
         ...Object.values(executionDetails)
           .flatMap((detail) => detail?.sessions ?? [])
           .map((entry) => toText(entry.sessionId, toText(entry.session?.id, ""))),
-        ...workspaces.map((workspace) => toText(workspace.metadata?.sessionId, "")),
-        ...sessionList.map((session) => toText(session.id, "")),
+        ...(options.includeWorkspaceAndSessionIndexes !== false
+          ? workspaces.map((workspace) => toText(workspace.metadata?.sessionId, ""))
+          : []),
+        ...(options.includeWorkspaceAndSessionIndexes !== false
+          ? sessionList.map((session) => toText(session.id, ""))
+          : []),
       ].filter(Boolean),
     ),
   );
 
   const sessionLives: Record<string, Awaited<ReturnType<typeof getSessionLive>> | null> = {};
-  await Promise.all(
-    sessionIds.map(async (sessionId) => {
-      try {
-        sessionLives[sessionId] = await getSessionLive(sessionId);
-      } catch (error) {
-        sessionLives[sessionId] = null;
-        degradedSessionIds.add(sessionId);
-        degradedReasons.push(`Session ${sessionId}: ${getAgentCockpitErrorMessage(error)}`);
-      }
-    }),
-  );
+  if (options.includeSessionLive !== false) {
+    await Promise.all(
+      sessionIds.map(async (sessionId) => {
+        try {
+          sessionLives[sessionId] = await getSessionLive(sessionId);
+        } catch (error) {
+          sessionLives[sessionId] = null;
+          degradedSessionIds.add(sessionId);
+          degradedReasons.push(`Session ${sessionId}: ${getAgentCockpitErrorMessage(error)}`);
+        }
+      }),
+    );
+  }
 
   return {
     threads,
+    knownThreadIds,
+    focusThreadId,
     threadDetails,
     actions,
     workItemRuns,
@@ -294,6 +324,9 @@ export async function loadAgentCockpitModel() {
   const data = await loadAgentCockpitData({
     includeActions: true,
     includeSelfBuild: true,
+    scope: "all",
+    includeWorkspaceAndSessionIndexes: true,
+    includeSessionLive: true,
   });
 
   return adaptAgentCockpit({
@@ -305,6 +338,9 @@ export async function loadAgentCockpitBootstrapModel() {
   const data = await loadAgentCockpitData({
     includeActions: false,
     includeSelfBuild: false,
+    scope: "all",
+    includeWorkspaceAndSessionIndexes: true,
+    includeSessionLive: false,
   });
 
   return adaptAgentCockpit({
@@ -312,38 +348,87 @@ export async function loadAgentCockpitBootstrapModel() {
   });
 }
 
-export function useAgentCockpit() {
+export async function loadAgentCockpitCurrentFamilyModel() {
+  const data = await loadAgentCockpitData({
+    includeActions: true,
+    includeSelfBuild: false,
+    scope: "current-family",
+    includeWorkspaceAndSessionIndexes: false,
+    includeSessionLive: false,
+  });
+
+  return adaptAgentCockpit({
+    ...data,
+  });
+}
+
+export function useAgentCockpit(showHistory = false) {
+  const currentQuery = useQuery({
+    queryKey: AGENT_COCKPIT_CURRENT_QUERY_KEY,
+    queryFn: loadAgentCockpitCurrentFamilyModel,
+    refetchInterval: 15000,
+  });
   const query = useQuery({
     queryKey: AGENT_COCKPIT_QUERY_KEY,
     queryFn: loadAgentCockpitModel,
+    enabled: Boolean(currentQuery.data) && showHistory,
     refetchInterval: 15000,
   });
 
   const model = useMemo(() => {
-    if (!query.data) {
+    const baseModel = showHistory
+      ? query.data ?? currentQuery.data
+      : currentQuery.data ?? query.data;
+    if (!baseModel) {
       return null;
     }
 
     if (!query.error) {
-      return query.data;
+      if (!currentQuery.error || query.data) {
+        return baseModel;
+      }
     }
 
-    return applyDegradedOverlay(query.data, getAgentCockpitErrorMessage(query.error));
-  }, [query.data, query.error]);
+    if (query.error && query.data) {
+      return applyDegradedOverlay(query.data, getAgentCockpitErrorMessage(query.error));
+    }
+
+    if (currentQuery.error && currentQuery.data) {
+      return applyDegradedOverlay(currentQuery.data, getAgentCockpitErrorMessage(currentQuery.error));
+    }
+
+    return baseModel;
+  }, [showHistory, currentQuery.data, currentQuery.error, query.data, query.error]);
   const hasCachedState = Boolean(model);
 
   return {
     model,
-    isInitialLoading: query.isLoading && !model,
-    hasLoadedEmpty: !query.isLoading && !query.error && Boolean(model) && model.lanes.length === 0,
+    isInitialLoading: currentQuery.isLoading && !model,
+    hasLoadedEmpty: !currentQuery.isLoading && !currentQuery.error && Boolean(model) && model.lanes.length === 0,
     loadErrorMessage:
-      query.error && !hasCachedState ? getAgentCockpitErrorMessage(query.error) : null,
+      !hasCachedState
+        ? query.error
+          ? getAgentCockpitErrorMessage(query.error)
+          : currentQuery.error
+            ? getAgentCockpitErrorMessage(currentQuery.error)
+            : null
+        : null,
     degradedMessage:
       query.error && hasCachedState
         ? getAgentCockpitErrorMessage(query.error)
+        : currentQuery.error && hasCachedState
+          ? getAgentCockpitErrorMessage(currentQuery.error)
         : model?.isDegraded
           ? model.degradedReasons[0] ?? "Some live reads are degraded."
           : null,
-    retry: () => query.refetch(),
+    isHydratingHistory:
+      showHistory &&
+      Boolean(currentQuery.data) &&
+      !query.data &&
+      (query.isLoading || query.isFetching),
+    retry: async () => {
+      await currentQuery.refetch();
+      return query.refetch();
+    },
   };
 }

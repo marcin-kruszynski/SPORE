@@ -185,7 +185,6 @@ test("AgentCockpitPage renders active lanes, attention, recent artifacts, and cl
   await view.findByRole("heading", { name: "Agent Cockpit" });
   await view.findByText("Implementer");
   await view.findByText("Proposal proposal-1 is validating");
-  await view.findByText("Frontend feature delivery");
 
   const openLaneLink = view.getByRole("link", { name: /open implementer lane/i });
   assert.equal(openLaneLink.getAttribute("href"), "/cockpit/agents/session%3Asession-1");
@@ -489,6 +488,23 @@ test("AgentCockpitPage focuses the current mission family and hides older histor
       });
     }
 
+    if (url.endsWith("/api/orchestrator/executions/exec-new/tree")) {
+      return jsonResponse({
+        ok: true,
+        tree: {
+          selectedExecutionId: "exec-new",
+          rootExecutionId: "exec-new",
+          root: {
+            execution: {
+              id: "exec-new",
+              state: "running",
+            },
+            children: [],
+          },
+        },
+      });
+    }
+
     if (url.endsWith("/api/orchestrator/executions/exec-old")) {
       return jsonResponse({
         ok: true,
@@ -534,6 +550,72 @@ test("AgentCockpitPage focuses the current mission family and hides older histor
         diagnostics: {
           status: "running",
           lastEventAt: "2026-03-13T12:00:00.000Z",
+        },
+      });
+    }
+
+    if (url.endsWith("/api/orchestrator/executions/exec-old")) {
+      return jsonResponse({
+        ok: true,
+        detail: {
+          execution: {
+            id: "exec-old",
+            state: "completed",
+            workflowId: "feature-delivery",
+            projectRole: "builder",
+          },
+          steps: [
+            {
+              sessionId: "old-builder",
+              role: "builder",
+              waveName: "wave-4",
+              state: "completed",
+            },
+          ],
+          sessions: [
+            {
+              sessionId: "old-builder",
+              session: {
+                id: "old-builder",
+                role: "builder",
+                state: "completed",
+                updatedAt: "2026-03-13T10:00:00.000Z",
+              },
+            },
+          ],
+        },
+      });
+    }
+
+    if (url.endsWith("/api/orchestrator/executions/exec-old/tree")) {
+      return jsonResponse({
+        ok: true,
+        tree: {
+          selectedExecutionId: "exec-old",
+          rootExecutionId: "exec-old",
+          root: {
+            execution: {
+              id: "exec-old",
+              state: "completed",
+            },
+            children: [],
+          },
+        },
+      });
+    }
+
+    if (url.endsWith("/api/sessions/old-builder/live")) {
+      return jsonResponse({
+        ok: true,
+        session: {
+          id: "old-builder",
+          role: "builder",
+          state: "completed",
+          updatedAt: "2026-03-13T10:00:00.000Z",
+        },
+        diagnostics: {
+          status: "completed",
+          lastEventAt: "2026-03-13T10:00:00.000Z",
         },
       });
     }
@@ -602,5 +684,205 @@ test("AgentCockpitPage focuses the current mission family and hides older histor
 
   await view.findByText("Historical work finished.");
 
+  restoreDom();
+});
+
+test("AgentCockpitPage renders the current mission family before slow history hydration finishes", async () => {
+  const restoreDom = installDomGlobals("/cockpit");
+  let releaseHistory = () => {};
+  const historyGate = new Promise<Response>((resolve) => {
+    releaseHistory = () => {
+      resolve(
+        jsonResponse({
+          ok: true,
+          detail: {
+            id: "thread-old",
+            title: "Historical mission",
+            status: "completed",
+            updatedAt: "2026-03-13T10:00:00.000Z",
+            summary: {
+              objective: "Historical mission objective",
+              lastMessageExcerpt: "Historical work finished.",
+            },
+            progress: {
+              currentStage: "promotion_launched",
+              currentState: "completed",
+            },
+            metadata: {
+              execution: {
+                executionId: "exec-old",
+              },
+            },
+            messages: [],
+            context: {
+              linkedArtifacts: [],
+            },
+          },
+        }),
+      );
+    };
+  });
+
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = String(input);
+
+    if (url.endsWith("/api/orchestrator/operator/threads")) {
+      return jsonResponse({
+        ok: true,
+        detail: [
+          {
+            id: "thread-new",
+            title: "Current mission",
+            status: "running",
+            updatedAt: "2026-03-13T12:00:00.000Z",
+            summary: {
+              objective: "Current mission objective",
+              lastMessageExcerpt: "Current work is running.",
+            },
+          },
+          {
+            id: "thread-old",
+            title: "Historical mission",
+            status: "completed",
+            updatedAt: "2026-03-13T10:00:00.000Z",
+            summary: {
+              objective: "Historical mission objective",
+              lastMessageExcerpt: "Historical work finished.",
+            },
+          },
+        ],
+      });
+    }
+
+    if (url.endsWith("/api/orchestrator/operator/actions")) {
+      return jsonResponse({ ok: true, detail: [] });
+    }
+
+    if (url.endsWith("/api/orchestrator/operator/threads/thread-new")) {
+      return jsonResponse({
+        ok: true,
+        detail: {
+          id: "thread-new",
+          title: "Current mission",
+          status: "running",
+          updatedAt: "2026-03-13T12:00:00.000Z",
+          summary: {
+            objective: "Current mission objective",
+            lastMessageExcerpt: "Current work is running.",
+          },
+          progress: {
+            currentStage: "implementation_running",
+            currentState: "running",
+          },
+          metadata: {
+            execution: {
+              executionId: "exec-new",
+            },
+          },
+          messages: [],
+          context: {
+            linkedArtifacts: [],
+          },
+        },
+      });
+    }
+
+    if (url.endsWith("/api/orchestrator/operator/threads/thread-old")) {
+      return historyGate;
+    }
+
+    if (url.endsWith("/api/orchestrator/executions/exec-new")) {
+      return jsonResponse({
+        ok: true,
+        detail: {
+          execution: {
+            id: "exec-new",
+            state: "running",
+            workflowId: "feature-delivery",
+            projectRole: "builder",
+          },
+          steps: [
+            {
+              sessionId: "current-builder",
+              role: "builder",
+              waveName: "wave-4",
+              state: "running",
+            },
+          ],
+          sessions: [
+            {
+              sessionId: "current-builder",
+              session: {
+                id: "current-builder",
+                role: "builder",
+                state: "active",
+                updatedAt: "2026-03-13T12:00:00.000Z",
+              },
+            },
+          ],
+        },
+      });
+    }
+
+    if (url.endsWith("/api/sessions/current-builder/live")) {
+      return jsonResponse({
+        ok: true,
+        session: {
+          id: "current-builder",
+          role: "builder",
+          state: "active",
+          updatedAt: "2026-03-13T12:00:00.000Z",
+        },
+        diagnostics: {
+          status: "running",
+          lastEventAt: "2026-03-13T12:00:00.000Z",
+        },
+      });
+    }
+
+    if (url.endsWith("/api/orchestrator/self-build/summary")) {
+      return jsonResponse({ ok: true, detail: { waitingApprovalProposals: [], recentWorkItemRuns: [], workspaces: [], integrationBranches: [] } });
+    }
+
+    if (url.endsWith("/api/orchestrator/self-build/dashboard")) {
+      return jsonResponse({ ok: true, detail: { recentWorkItemRuns: [] } });
+    }
+
+    if (url.endsWith("/api/orchestrator/workspaces")) {
+      return jsonResponse({ ok: true, detail: [] });
+    }
+
+    if (url.endsWith("/api/sessions")) {
+      return jsonResponse({
+        ok: true,
+        sessions: [
+          {
+            id: "current-builder",
+            role: "builder",
+            state: "active",
+            workflowId: "feature-delivery",
+            updatedAt: "2026-03-13T12:00:00.000Z",
+          },
+          {
+            id: "old-builder",
+            role: "builder",
+            state: "completed",
+            workflowId: "feature-delivery",
+            updatedAt: "2026-03-13T10:00:00.000Z",
+          },
+        ],
+      });
+    }
+
+    throw new Error(`Unexpected request: ${url}`);
+  }) as typeof fetch;
+
+  const view = renderCockpit();
+
+  await view.findByText("Current work is running.", {}, { timeout: 300 });
+  assert.equal(view.queryByText("Historical work finished."), null);
+  assert.equal(view.queryByText(/loading active lanes/i), null);
+
+  releaseHistory();
   restoreDom();
 });

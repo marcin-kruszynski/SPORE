@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { AlertTriangle, RefreshCw } from "lucide-react";
 import { Link } from "react-router-dom";
 
@@ -32,53 +32,22 @@ function EmptyState() {
 }
 
 const AgentCockpitPage = () => {
-  const cockpit = useAgentCockpit();
   const [showHistory, setShowHistory] = useState(false);
+  const cockpit = useAgentCockpit(showHistory);
   const model = cockpit.model;
 
-  const laneById = useMemo(
-    () => new Map((model?.lanes ?? []).map((lane) => [lane.id, lane] as const)),
-    [model?.lanes],
-  );
-
-  const primaryThreadId = useMemo(() => {
-    if (!model) {
-      return null;
-    }
-    const candidateThreadIds = model.attention
-      .map((item) => laneById.get(item.laneId ?? "")?.threadId ?? null)
-      .filter(Boolean) as string[];
-    const rankedThreadIds = candidateThreadIds.length > 0 ? candidateThreadIds : model.lanes.map((lane) => lane.threadId).filter(Boolean) as string[];
-    if (rankedThreadIds.length === 0) {
-      return null;
-    }
-
-    const threadScore = new Map<string, string>();
-    for (const threadId of rankedThreadIds) {
-      const latest = model.lanes
-        .filter((lane) => lane.threadId === threadId)
-        .map((lane) => lane.lastActivityAt ?? "")
-        .sort()
-        .at(-1) ?? "";
-      const current = threadScore.get(threadId) ?? "";
-      if (latest > current) {
-        threadScore.set(threadId, latest);
-      }
-    }
-
-    return [...threadScore.entries()].sort((left, right) => right[1].localeCompare(left[1]))[0]?.[0] ?? null;
-  }, [laneById, model]);
-
   const currentLanes = model
-    ? primaryThreadId
-      ? model.lanes.filter((lane) => lane.threadId === primaryThreadId)
+    ? model.focusThreadId
+      ? model.lanes.filter((lane) => lane.threadId === model.focusThreadId)
       : model.lanes
     : [];
-  const historyLanes = model && primaryThreadId
-    ? model.lanes.filter((lane) => lane.threadId !== primaryThreadId)
+  const historyLanes = model && model.focusThreadId
+    ? model.lanes.filter((lane) => lane.threadId !== model.focusThreadId)
     : [];
   const currentMissionTitle = currentLanes.find((lane) => lane.missionTitle)?.missionTitle ?? null;
-  const visibleLanes = showHistory && model ? model.lanes : currentLanes;
+  const visibleLanes = showHistory && model ? [...currentLanes, ...historyLanes] : currentLanes;
+  const hiddenHistoryCount = model?.historyThreadIds.length ?? 0;
+  const historyToggleVisible = hiddenHistoryCount > 0;
 
   if (cockpit.isInitialLoading) {
     return (
@@ -159,8 +128,8 @@ const AgentCockpitPage = () => {
               <div className="text-sm text-muted-foreground lg:text-right">
                 <p>{model.lanes.length} active lane{model.lanes.length === 1 ? "" : "s"}</p>
                 <p>{model.attention.length} attention item{model.attention.length === 1 ? "" : "s"}</p>
-                {historyLanes.length > 0 && (
-                  <p>{historyLanes.length} historical lane{historyLanes.length === 1 ? "" : "s"} hidden</p>
+                {historyToggleVisible && (
+                  <p>{hiddenHistoryCount} older mission {hiddenHistoryCount === 1 ? "family" : "families"} hidden</p>
                 )}
               </div>
             </div>
@@ -180,9 +149,9 @@ const AgentCockpitPage = () => {
             <div className="mb-4">
               <h2 className="text-sm font-semibold text-foreground">Active Agents</h2>
               <p className="mt-1 text-sm text-muted-foreground">
-                Each lane stays stable as updates arrive, so repeated events refresh context instead of creating duplicate rows.
+                Current mission-family lanes render first, and older families stay tucked behind an explicit reveal.
               </p>
-              {historyLanes.length > 0 && (
+              {historyToggleVisible && (
                 <div className="mt-3">
                   <Button
                     type="button"
@@ -190,7 +159,7 @@ const AgentCockpitPage = () => {
                     variant="outline"
                     onClick={() => setShowHistory((value) => !value)}
                   >
-                    {showHistory ? "Hide history" : `Show history (${historyLanes.length})`}
+                    {showHistory ? "Hide history" : `Show history${hiddenHistoryCount > 0 ? ` (${hiddenHistoryCount})` : ""}`}
                   </Button>
                 </div>
               )}
@@ -200,6 +169,9 @@ const AgentCockpitPage = () => {
                 <AgentLaneCard key={lane.id} lane={lane} />
               ))}
             </div>
+            {showHistory && historyLanes.length === 0 && hiddenHistoryCount > 0 && cockpit.isHydratingHistory && (
+              <p className="mt-4 text-sm text-muted-foreground">Loading older mission families...</p>
+            )}
           </section>
 
           <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">

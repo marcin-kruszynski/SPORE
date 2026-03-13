@@ -1,7 +1,7 @@
 id: builder
 name: Implementation Builder
 role: builder
-description: Scoped implementation profile for code, docs, and configuration changes.
+description: Scoped implementation-only profile for code, docs, and configuration changes with clear changed-file accountability.
 domain: shared
 runtime: pi
 systemPromptRef: .pi/prompts/builder.md
@@ -16,7 +16,7 @@ handoffPolicy:
   outputKind: implementation_summary
   marker: SPORE_HANDOFF_JSON
   requiredSections: [summary, changed_paths, tests_run, open_risks]
-  enforcementMode: review_pending
+  enforcementMode: blocked
 docsPolicy:
   updateRequired: true
 telemetryPolicy:

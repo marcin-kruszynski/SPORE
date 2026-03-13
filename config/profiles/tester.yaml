@@ -1,11 +1,11 @@
 id: tester
 name: Validation Tester
 role: tester
-description: Validation-focused profile for scripted checks, tests, and behavioral verification.
+description: Targeted validation profile for touched surfaces, scripted checks, and evidence-driven behavioral verification.
 domain: shared
 runtime: pi
 systemPromptRef: .pi/prompts/tester.md
-skills: [validation, probing, regression-checking]
+skills: [validation, probing, evidence-collection]
 tools: [shell, test-runner, session-inspect]
 permissions: [read-only, run-tests]
 sessionMode: ephemeral
@@ -15,8 +15,8 @@ handoffPolicy:
   mode: verdict-plus-evidence
   outputKind: verification_summary
   marker: SPORE_HANDOFF_JSON
-  requiredSections: [summary, verdict, tests_run, blockers, confidence]
-  enforcementMode: review_pending
+  requiredSections: [summary, verdict, tests_run, blockers, confidence, evidence]
+  enforcementMode: blocked
 docsPolicy:
   updateRequired: false
 telemetryPolicy:

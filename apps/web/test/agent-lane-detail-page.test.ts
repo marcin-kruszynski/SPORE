@@ -420,7 +420,7 @@ test("AgentLaneDetailPage opens a lane detail route with session status, linkage
   await view.findByText("session-1-tmux");
   await view.findByText("Input sent to Implementer");
   await view.findByText("Latest visible session output");
-  await view.findByText("Returned implementation_summary");
+  await view.findByText("Returned Implementation Summary");
   await view.findByText("Live session feed");
   await view.findByText("Transcript preview");
   assert.ok((await view.findAllByText(/builder transcript/)).length >= 1);
@@ -523,6 +523,33 @@ test("AgentLaneDetailPage does not leak lane A fallback context into a stale lan
   assert.equal(view.queryByText("Mission Alpha"), null);
   assert.equal(view.queryByText("Captured the last visible summary for the lane."), null);
   assert.equal(view.queryByText("session-1-tmux"), null);
+
+  restoreDom();
+});
+
+test("AgentLaneDetailPage foregrounds real input, live output, and returned output before secondary artifacts", async () => {
+  const restoreDom = installDomGlobals("/cockpit/agents/session%3Asession-1");
+  const modeRef = { current: "ready" as FetchMode };
+  installLaneDetailFetch(modeRef, []);
+
+  const view = renderLaneDetail();
+
+  await view.findByRole("heading", { name: "Implementer" });
+  await view.findByText("Add the day/night mode switch in the dashboard shell.");
+  assert.ok((await view.findAllByText(/builder transcript/i)).length >= 1);
+  await view.findByText(/Implemented the requested dashboard change/i);
+
+  const pageText = view.container.textContent ?? "";
+  const inputIndex = pageText.indexOf("Add the day/night mode switch in the dashboard shell.");
+  const liveOutputIndex = pageText.indexOf("builder transcript");
+  const returnedOutputIndex = pageText.indexOf("Implemented the requested dashboard change.");
+  const artifactsIndex = pageText.indexOf("Linked artifacts");
+
+  assert.ok(inputIndex >= 0);
+  assert.ok(liveOutputIndex > inputIndex);
+  assert.ok(returnedOutputIndex > liveOutputIndex);
+  assert.ok(artifactsIndex > returnedOutputIndex);
+  assert.equal(pageText.includes("sourceRole"), false);
 
   restoreDom();
 });
