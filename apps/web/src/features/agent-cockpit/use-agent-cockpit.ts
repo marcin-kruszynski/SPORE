@@ -3,18 +3,45 @@ import { useQuery } from "@tanstack/react-query";
 
 import { toText } from "../../adapters/adapter-utils.js";
 import { adaptAgentCockpit } from "../../adapters/agent-cockpit.js";
-import { getExecutionDetail } from "../../lib/api/executions.js";
+import { getExecutionDetail, getExecutionTree } from "../../lib/api/executions.js";
 import { getOperatorThreadDetail, listOperatorActions, listOperatorThreads } from "../../lib/api/operator.js";
-import { getSessionLive } from "../../lib/api/sessions.js";
+import { getSessionLive, listSessions } from "../../lib/api/sessions.js";
 import { getSelfBuildDashboard, getSelfBuildSummary } from "../../lib/api/self-build.js";
+import { getWorkItemRun, getWorkItemRunWorkspace } from "../../lib/api/validation-runs.js";
+import { listWorkspaces } from "../../lib/api/workspaces.js";
 import type { AgentCockpitViewModel } from "../../types/agent-cockpit.js";
-import type { MissionMapApiThreadDetail } from "../../types/mission-map.js";
+import type {
+  MissionMapApiExecutionTree,
+  MissionMapApiSessionListEntry,
+  MissionMapApiThreadDetail,
+} from "../../types/mission-map.js";
+import type { WorkItemRunApiDetail, WorkspaceApiDetail } from "../../types/self-build.js";
 
 export const AGENT_COCKPIT_QUERY_KEY = ["agent-cockpit", "page"] as const;
 export const AGENT_COCKPIT_BOOTSTRAP_QUERY_KEY = ["agent-cockpit", "bootstrap"] as const;
 
 export function getAgentCockpitErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Agent Cockpit is unavailable.";
+}
+
+function collectExecutionIdsFromTree(tree: MissionMapApiExecutionTree | null | undefined) {
+  const executionIds = new Set<string>();
+
+  function visit(node: MissionMapApiExecutionTree["root"]) {
+    if (!node) {
+      return;
+    }
+    const executionId = toText(node.execution?.id, "");
+    if (executionId) {
+      executionIds.add(executionId);
+    }
+    for (const child of node.children ?? []) {
+      visit(child);
+    }
+  }
+
+  visit(tree?.root ?? null);
+  return executionIds;
 }
 
 type AgentCockpitLoadOptions = {
@@ -46,6 +73,7 @@ async function loadAgentCockpitData(options: AgentCockpitLoadOptions) {
   const degradedThreadIds = new Set<string>();
   const degradedExecutionIds = new Set<string>();
   const degradedSessionIds = new Set<string>();
+  const degradedRunIds = new Set<string>();
   const [threadsResult, actionsResult, selfBuildSummaryResult, selfBuildDashboardResult] =
     await Promise.allSettled([
       listOperatorThreads(),
@@ -64,6 +92,8 @@ async function loadAgentCockpitData(options: AgentCockpitLoadOptions) {
     selfBuildSummaryResult.status === "fulfilled" ? selfBuildSummaryResult.value : null;
   const selfBuildDashboard =
     selfBuildDashboardResult.status === "fulfilled" ? selfBuildDashboardResult.value : null;
+  let workspaces: WorkspaceApiDetail[] = [];
+  let sessionList: MissionMapApiSessionListEntry[] = [];
 
   if (options.includeActions && actionsResult.status !== "fulfilled") {
     degradedReasons.push(`Actions: ${getAgentCockpitErrorMessage(actionsResult.reason)}`);
@@ -77,6 +107,18 @@ async function loadAgentCockpitData(options: AgentCockpitLoadOptions) {
     degradedReasons.push(
       `Self-build dashboard: ${getAgentCockpitErrorMessage(selfBuildDashboardResult.reason)}`,
     );
+  }
+
+  try {
+    workspaces = await listWorkspaces();
+  } catch (error) {
+    degradedReasons.push(`Workspaces: ${getAgentCockpitErrorMessage(error)}`);
+  }
+
+  try {
+    sessionList = await listSessions();
+  } catch (error) {
+    degradedReasons.push(`Sessions: ${getAgentCockpitErrorMessage(error)}`);
   }
 
   const threadDetails: Record<string, MissionMapApiThreadDetail | null> = {};
@@ -112,9 +154,82 @@ async function loadAgentCockpitData(options: AgentCockpitLoadOptions) {
     ),
   );
 
-  const executionDetails: Record<string, Awaited<ReturnType<typeof getExecutionDetail>> | null> = {};
+  const runIds = Array.from(
+    new Set(
+      Object.values(threadDetails)
+        .map((detail) => toText(detail?.metadata?.linkage?.activeRunId, ""))
+        .filter(Boolean),
+    ),
+  );
+
+  const workItemRuns: Record<string, WorkItemRunApiDetail | null> = {};
+  const runWorkspaces: Record<string, Awaited<ReturnType<typeof getWorkItemRunWorkspace>> | null> = {};
   await Promise.all(
-    executionIds.map(async (executionId) => {
+    runIds.map(async (runId) => {
+      try {
+        workItemRuns[runId] = await getWorkItemRun(runId);
+      } catch (error) {
+        workItemRuns[runId] = null;
+        degradedRunIds.add(runId);
+        degradedReasons.push(`Work-item run ${runId}: ${getAgentCockpitErrorMessage(error)}`);
+      }
+
+      try {
+        runWorkspaces[runId] = await getWorkItemRunWorkspace(runId);
+      } catch {
+        runWorkspaces[runId] = null;
+      }
+    }),
+  );
+
+  const executionIdsFromRuns = Array.from(
+    new Set(
+      Object.entries(workItemRuns)
+        .map(([runId, run]) =>
+          toText(
+            run?.result?.executionId,
+            toText(
+              run?.relationSummary?.executionId,
+              toText(runWorkspaces[runId]?.executionId, ""),
+            ),
+          ),
+        )
+        .filter(Boolean),
+    ),
+  );
+
+  const rootExecutionIds = Array.from(new Set([...executionIds, ...executionIdsFromRuns]));
+
+  const executionDetails: Record<string, Awaited<ReturnType<typeof getExecutionDetail>> | null> = {};
+  const executionTrees: Record<string, MissionMapApiExecutionTree | null> = {};
+  await Promise.all(
+    rootExecutionIds.map(async (executionId) => {
+      try {
+        executionDetails[executionId] = await getExecutionDetail(executionId);
+      } catch (error) {
+        executionDetails[executionId] = null;
+        degradedExecutionIds.add(executionId);
+        degradedReasons.push(`Execution ${executionId}: ${getAgentCockpitErrorMessage(error)}`);
+      }
+
+      try {
+        executionTrees[executionId] = await getExecutionTree(executionId);
+      } catch (error) {
+        executionTrees[executionId] = null;
+        degradedExecutionIds.add(executionId);
+        degradedReasons.push(`Execution tree ${executionId}: ${getAgentCockpitErrorMessage(error)}`);
+      }
+    }),
+  );
+
+  const childExecutionIds = Array.from(
+    new Set(
+      Object.values(executionTrees).flatMap((tree) => Array.from(collectExecutionIdsFromTree(tree))),
+    ),
+  ).filter((executionId) => !executionDetails[executionId]);
+
+  await Promise.all(
+    childExecutionIds.map(async (executionId) => {
       try {
         executionDetails[executionId] = await getExecutionDetail(executionId);
       } catch (error) {
@@ -136,6 +251,8 @@ async function loadAgentCockpitData(options: AgentCockpitLoadOptions) {
         ...Object.values(executionDetails)
           .flatMap((detail) => detail?.sessions ?? [])
           .map((entry) => toText(entry.sessionId, toText(entry.session?.id, ""))),
+        ...workspaces.map((workspace) => toText(workspace.metadata?.sessionId, "")),
+        ...sessionList.map((session) => toText(session.id, "")),
       ].filter(Boolean),
     ),
   );
@@ -157,7 +274,12 @@ async function loadAgentCockpitData(options: AgentCockpitLoadOptions) {
     threads,
     threadDetails,
     actions,
+    workItemRuns,
+    runWorkspaces,
+    workspaces,
     executionDetails,
+    executionTrees,
+    sessionList,
     sessionLives,
     selfBuildSummary,
     selfBuildDashboard,

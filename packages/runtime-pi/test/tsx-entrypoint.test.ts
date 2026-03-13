@@ -80,3 +80,44 @@ test("pi-rpc launch scripts embed a repository-resolved tsx import path", async 
   const launchScript = await fs.readFile(assets.launchScriptPath, "utf8");
   assert.match(launchScript, /node --import=['"]?\/.*tsx\/dist\/loader\.mjs['"]?/);
 });
+
+test("pi launch scripts fail loudly when PI is unavailable instead of falling back to stub", async () => {
+  const sessionId = `tsx-launch-script-missing-pi-${Date.now()}`;
+  const contextPath = path.join(PROJECT_ROOT, "tmp", "sessions", `${sessionId}.context.json`);
+  await fs.mkdir(path.dirname(contextPath), { recursive: true });
+  const plan = await buildSessionPlan({
+    profilePath: "config/profiles/lead.yaml",
+    projectPath: "config/projects/spore.yaml",
+    sessionId,
+    runId: `${sessionId}-run`,
+  });
+
+  await fs.writeFile(contextPath, "{}\n", "utf8");
+  const assets = await writeLaunchAssets({
+    sessionId,
+    plan,
+    contextPath,
+  });
+
+  const originalPiBin = process.env.SPORE_PI_BIN;
+  process.env.SPORE_PI_BIN = path.join(os.tmpdir(), `missing-pi-${Date.now()}`);
+  try {
+    await writeLaunchScript({
+      launcherType: "pi-rpc",
+      assets,
+      plan,
+      cwd: PROJECT_ROOT,
+      piBinaryOverride: null,
+    });
+  } finally {
+    if (originalPiBin === undefined) {
+      delete process.env.SPORE_PI_BIN;
+    } else {
+      process.env.SPORE_PI_BIN = originalPiBin;
+    }
+  }
+
+  const launchScript = await fs.readFile(assets.launchScriptPath, "utf8");
+  assert.doesNotMatch(launchScript, /bootstrap stub launcher/i);
+  assert.match(launchScript, /pi CLI is required for runtime launch/i);
+});

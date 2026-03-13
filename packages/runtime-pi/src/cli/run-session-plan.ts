@@ -23,6 +23,15 @@ import { PROJECT_ROOT } from "../metadata/constants.js";
 import { buildSessionPlan } from "../planner/build-session-plan.js";
 import type { CliFlags, ProcessResult, SessionPlan } from "../types.js";
 
+function isEntrypoint() {
+  const scriptPath = process.argv[1];
+  if (!scriptPath) {
+    return false;
+  }
+  const normalized = path.basename(path.resolve(scriptPath));
+  return normalized === "run-session-plan.ts" || normalized === "run-session-plan.js";
+}
+
 function parseArgs(argv: string[]): CliFlags {
   const flags: CliFlags = {};
   for (let index = 0; index < argv.length; index += 1) {
@@ -117,6 +126,25 @@ async function loadOrBuildPlan(flags: CliFlags): Promise<SessionPlan> {
   });
 }
 
+export async function resolveLauncherType(
+  flags: CliFlags,
+  piAvailable?: boolean,
+) {
+  const hasPi = piAvailable ?? (await commandExists("pi"));
+  if (flags.stub) {
+    return "stub";
+  }
+  if (flags.launcher) {
+    return String(flags.launcher);
+  }
+  if (!hasPi) {
+    throw new Error(
+      "pi CLI is required for runtime launch. Install/configure PI or explicitly pass --stub for test-only runs.",
+    );
+  }
+  return "pi-rpc";
+}
+
 function runCli(command: string, args: string[]): Promise<ProcessResult> {
   return new Promise((resolve, reject) => {
     const invocation =
@@ -203,13 +231,7 @@ async function main() {
     "utf8",
   );
 
-  const launcherType = flags.stub
-    ? "stub"
-    : flags.launcher
-      ? String(flags.launcher)
-      : (await commandExists("pi"))
-        ? "pi-rpc"
-        : "stub";
+  const launcherType = await resolveLauncherType(flags);
   const tmuxSession = sanitizeTmuxSessionName(plan.session.id);
   const assets = await writeLaunchAssets({
     sessionId: plan.session.id,
@@ -370,7 +392,9 @@ async function main() {
   );
 }
 
-main().catch((error) => {
-  console.error(`runtime-pi harness error: ${error.message}`);
-  process.exitCode = 1;
-});
+if (isEntrypoint()) {
+  main().catch((error) => {
+    console.error(`runtime-pi harness error: ${error.message}`);
+    process.exitCode = 1;
+  });
+}

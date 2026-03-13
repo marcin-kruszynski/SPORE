@@ -586,6 +586,121 @@ test("legacy blocked-run proposals are forced into recovery instead of review or
   }
 });
 
+test("workflow proposals with invalid source handoffs are forced into recovery instead of review or promotion", async () => {
+  const tempRoot = await fs.mkdtemp(
+    path.join(os.tmpdir(), "spore-invalid-handoff-proposal-"),
+  );
+  const dbPath = path.join(tempRoot, "orchestrator.sqlite");
+
+  try {
+    const item = createWorkItem(
+      {
+        title: "Invalid handoff proposal",
+        kind: "workflow",
+        goal: "Do not allow governance to continue from invalid handoffs.",
+      },
+      dbPath,
+    );
+    const invocation = await planWorkflowInvocation({
+      workflowPath: "config/workflows/feature-delivery.yaml",
+      projectPath: "config/projects/spore.yaml",
+      domainId: "frontend",
+      roles: ["orchestrator", "lead", "scout", "builder", "tester", "reviewer"],
+      objective: item.goal,
+      invocationId: `invalid-handoff-${Date.now()}`,
+    });
+    const created = createExecution(invocation, dbPath);
+    const leadStep = created.steps.find((step) => step.role === "lead");
+    assert.ok(leadStep?.id);
+
+    const db = openOrchestratorDatabase(dbPath);
+    try {
+      upsertWorkflowHandoff(db, {
+        id: "invalid-handoff-task-brief",
+        executionId: created.execution.id,
+        fromStepId: leadStep.id,
+        toStepId: created.steps.find((step) => step.role === "scout")?.id ?? "",
+        sourceRole: "lead",
+        targetRole: "scout",
+        kind: "task_brief",
+        status: "ready",
+        summary: {
+          title: "Lead task brief",
+          objective: item.goal,
+          outcome: "missing risks section",
+          confidence: "low",
+        },
+        validation: {
+          valid: false,
+          degraded: true,
+          issues: [
+            {
+              code: "missing_required_section",
+              section: "risks",
+              message: "The structured handoff is missing the required section 'risks'.",
+            },
+          ],
+          mode: "review_pending",
+        },
+        artifacts: {
+          sessionId: leadStep.sessionId,
+          transcriptPath: `tmp/sessions/${leadStep.sessionId}.transcript.md`,
+          briefPath: `tmp/orchestrator/${created.execution.id}/${leadStep.sessionId}.brief.md`,
+          handoffPath: `tmp/sessions/${leadStep.sessionId}.handoff.json`,
+          workspaceId: null,
+          proposalArtifactId: null,
+          snapshotRef: null,
+          snapshotCommit: null,
+        },
+        payload: {
+          summary: "bad handoff payload",
+        },
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        consumedAt: null,
+      });
+    } finally {
+      db.close();
+    }
+
+    const runId = `work-item-run-${Date.now()}`;
+    const { proposalId } = insertProposalFixture({
+      dbPath,
+      item,
+      runId,
+      runStatus: "waiting_review",
+      sourceExecutionId: created.execution.id,
+      proposalStatus: "ready_for_review",
+      runResult: {
+        executionId: created.execution.id,
+        status: "waiting_review",
+      },
+    });
+
+    const proposalSummary = getProposalSummary(proposalId, dbPath);
+    assert.ok(proposalSummary);
+    assert.equal(proposalSummary.status, "rework_required");
+    assert.equal(proposalSummary.links.review ?? null, null);
+    assert.equal(proposalSummary.links.approval ?? null, null);
+
+    const reviewPackage = getProposalReviewPackage(proposalId, dbPath);
+    assert.ok(reviewPackage);
+    assert.equal(reviewPackage.governance.ready, false);
+    assert.ok(
+      reviewPackage.governance.blockers.some(
+        (blocker) => blocker.code === "invalid_workflow_handoff",
+      ),
+    );
+    assert.ok(
+      reviewPackage.suggestedActions.every(
+        (action) => !["review-proposal", "approve-proposal", "plan-promotion"].includes(action.action),
+      ),
+    );
+  } finally {
+    await fs.rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test("proposal review package surfaces workflow handoff references from the source execution", async () => {
   const tempRoot = await fs.mkdtemp(
     path.join(os.tmpdir(), "spore-proposal-review-handoffs-"),

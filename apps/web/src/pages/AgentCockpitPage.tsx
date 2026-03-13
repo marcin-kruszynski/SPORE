@@ -1,3 +1,4 @@
+import { useMemo, useState } from "react";
 import { AlertTriangle, RefreshCw } from "lucide-react";
 import { Link } from "react-router-dom";
 
@@ -32,6 +33,52 @@ function EmptyState() {
 
 const AgentCockpitPage = () => {
   const cockpit = useAgentCockpit();
+  const [showHistory, setShowHistory] = useState(false);
+  const model = cockpit.model;
+
+  const laneById = useMemo(
+    () => new Map((model?.lanes ?? []).map((lane) => [lane.id, lane] as const)),
+    [model?.lanes],
+  );
+
+  const primaryThreadId = useMemo(() => {
+    if (!model) {
+      return null;
+    }
+    const candidateThreadIds = model.attention
+      .map((item) => laneById.get(item.laneId ?? "")?.threadId ?? null)
+      .filter(Boolean) as string[];
+    const rankedThreadIds = candidateThreadIds.length > 0 ? candidateThreadIds : model.lanes.map((lane) => lane.threadId).filter(Boolean) as string[];
+    if (rankedThreadIds.length === 0) {
+      return null;
+    }
+
+    const threadScore = new Map<string, string>();
+    for (const threadId of rankedThreadIds) {
+      const latest = model.lanes
+        .filter((lane) => lane.threadId === threadId)
+        .map((lane) => lane.lastActivityAt ?? "")
+        .sort()
+        .at(-1) ?? "";
+      const current = threadScore.get(threadId) ?? "";
+      if (latest > current) {
+        threadScore.set(threadId, latest);
+      }
+    }
+
+    return [...threadScore.entries()].sort((left, right) => right[1].localeCompare(left[1]))[0]?.[0] ?? null;
+  }, [laneById, model]);
+
+  const currentLanes = model
+    ? primaryThreadId
+      ? model.lanes.filter((lane) => lane.threadId === primaryThreadId)
+      : model.lanes
+    : [];
+  const historyLanes = model && primaryThreadId
+    ? model.lanes.filter((lane) => lane.threadId !== primaryThreadId)
+    : [];
+  const currentMissionTitle = currentLanes.find((lane) => lane.missionTitle)?.missionTitle ?? null;
+  const visibleLanes = showHistory && model ? model.lanes : currentLanes;
 
   if (cockpit.isInitialLoading) {
     return (
@@ -64,7 +111,6 @@ const AgentCockpitPage = () => {
     );
   }
 
-  const model = cockpit.model;
   if (!model || cockpit.hasLoadedEmpty) {
     return (
       <div className="flex h-screen flex-col">
@@ -104,10 +150,18 @@ const AgentCockpitPage = () => {
                 <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
                   Keep active lanes, blockers, and fresh artifacts visible without leaving the runtime home.
                 </p>
+                {currentMissionTitle && (
+                  <p className="mt-3 text-sm font-medium text-foreground">
+                    Current mission: {currentMissionTitle}
+                  </p>
+                )}
               </div>
               <div className="text-sm text-muted-foreground lg:text-right">
                 <p>{model.lanes.length} active lane{model.lanes.length === 1 ? "" : "s"}</p>
                 <p>{model.attention.length} attention item{model.attention.length === 1 ? "" : "s"}</p>
+                {historyLanes.length > 0 && (
+                  <p>{historyLanes.length} historical lane{historyLanes.length === 1 ? "" : "s"} hidden</p>
+                )}
               </div>
             </div>
           </section>
@@ -128,9 +182,21 @@ const AgentCockpitPage = () => {
               <p className="mt-1 text-sm text-muted-foreground">
                 Each lane stays stable as updates arrive, so repeated events refresh context instead of creating duplicate rows.
               </p>
+              {historyLanes.length > 0 && (
+                <div className="mt-3">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setShowHistory((value) => !value)}
+                  >
+                    {showHistory ? "Hide history" : `Show history (${historyLanes.length})`}
+                  </Button>
+                </div>
+              )}
             </div>
             <div className="grid gap-4 xl:grid-cols-2">
-              {model.lanes.map((lane) => (
+              {visibleLanes.map((lane) => (
                 <AgentLaneCard key={lane.id} lane={lane} />
               ))}
             </div>

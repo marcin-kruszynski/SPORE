@@ -1,7 +1,16 @@
 import { requestPayloadJson } from "./http.js";
-import type { MissionMapApiSessionLive } from "../../types/mission-map.js";
+import type {
+  MissionMapApiSessionListEntry,
+  MissionMapApiSessionLive,
+} from "../../types/mission-map.js";
 
 const API_PREFIX = "/api/sessions";
+
+export function listSessions() {
+  return requestPayloadJson<{ sessions?: MissionMapApiSessionListEntry[] }>(API_PREFIX).then(
+    (payload) => payload.sessions ?? [],
+  );
+}
 
 export function getSessionLive(sessionId: string) {
   return requestPayloadJson<MissionMapApiSessionLive>(

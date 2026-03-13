@@ -58,19 +58,35 @@ test("valid payload satisfies required sections", () => {
   assert.equal(result.issues.length, 0);
 });
 
-test("summary must be an object when required", () => {
+test("string summary and string blockers/risks satisfy human-facing handoff requirements", () => {
   const result = validateStructuredHandoff({
     markerFound: true,
     parsedBlock: {
       summary: "plain text summary",
-      findings: ["one"],
+      blockers: "none right now",
+      risks: "theme state propagation may need extra checks",
     },
-    requiredSections: ["summary", "findings"],
+    requiredSections: ["summary", "blockers", "risks"],
   });
 
-  assert.equal(result.valid, false);
-  assert.equal(result.issues[0]?.code, "missing_required_section");
-  assert.equal(result.issues[0]?.section, "summary");
+  assert.equal(result.valid, true);
+  assert.equal(result.issues.length, 0);
+});
+
+test("common near-miss handoff keys satisfy required sections", () => {
+  const result = validateStructuredHandoff({
+    markerFound: true,
+    parsedBlock: {
+      summary: "plain text summary",
+      blockers: "none right now",
+      ris: "theme state propagation may need extra checks",
+      nextRole: "builder",
+    },
+    requiredSections: ["summary", "blockers", "risks", "next_role"],
+  });
+
+  assert.equal(result.valid, true);
+  assert.equal(result.issues.length, 0);
 });
 
 test("contract fields with wrong types fail validation", () => {
@@ -81,7 +97,7 @@ test("contract fields with wrong types fail validation", () => {
       verdict: { state: "blocked" },
       target_branch: ["main"],
       integration_branch: 123,
-      blockers: "none",
+      blockers: null,
     },
     requiredSections: [
       "summary",
