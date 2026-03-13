@@ -76,6 +76,12 @@ function asArray(value) {
   return Array.isArray(value) ? value.filter(Boolean) : [];
 }
 
+function asStringArray(value) {
+  return asArray(value)
+    .map((entry) => String(entry ?? "").trim())
+    .filter(Boolean);
+}
+
 function unique(items) {
   return [...new Set(items.filter(Boolean))];
 }
@@ -342,22 +348,58 @@ function resolveMaxAttempts(role, workflow, policy) {
   );
 }
 
+function resolveWorkflowGovernance(workflow) {
+  const governance =
+    workflow?.governance &&
+    typeof workflow.governance === "object" &&
+    !Array.isArray(workflow.governance)
+      ? workflow.governance
+      : {};
+  return {
+    model: String(governance.model ?? "default").trim() || "default",
+    governorRole:
+      String(
+        governance.governorRole ?? governance.internalGovernorRole ?? "",
+      ).trim() || null,
+    governedRoles: unique(
+      asStringArray(governance.governedRoles ?? governance.internalRoles),
+    ),
+    operatorVisibleRoles: Object.hasOwn(governance, "operatorVisibleRoles")
+      ? unique(asStringArray(governance.operatorVisibleRoles))
+      : null,
+  };
+}
+
 function resolveGovernance(role, workflow, policy) {
+  const workflowGovernance = resolveWorkflowGovernance(workflow);
+  const leadGovernedRole = Boolean(
+    workflowGovernance.model === "lead-governed" &&
+      workflowGovernance.governorRole &&
+      workflowGovernance.governedRoles.includes(role),
+  );
+  const operatorVisible = Array.isArray(workflowGovernance.operatorVisibleRoles)
+    ? workflowGovernance.operatorVisibleRoles.includes(role)
+    : role === "reviewer";
   const workflowRequiresReview =
-    workflow.reviewStep?.required ?? role === "reviewer";
+    workflow.reviewStep?.required ?? operatorVisible;
   const workflowRequiresApproval =
     workflow.reviewStep?.approvalRequired ?? workflowRequiresReview;
-  const reviewRequired =
-    role === "reviewer"
-      ? (policy.workflowPolicy?.reviewRequired ?? workflowRequiresReview)
-      : false;
-  const approvalRequired =
-    role === "reviewer"
-      ? (policy.workflowPolicy?.approvalRequired ?? workflowRequiresApproval)
-      : false;
+  const operatorReviewRequired = operatorVisible
+    ? (policy.workflowPolicy?.reviewRequired ?? workflowRequiresReview)
+    : false;
+  const operatorApprovalRequired = operatorVisible
+    ? (policy.workflowPolicy?.approvalRequired ?? workflowRequiresApproval)
+    : false;
+  const reviewRequired = leadGovernedRole ? true : operatorReviewRequired;
+  const approvalRequired = leadGovernedRole ? false : operatorApprovalRequired;
   return {
+    model: workflowGovernance.model,
+    governedByRole: leadGovernedRole ? workflowGovernance.governorRole : null,
+    operatorVisible,
     reviewRequired,
     approvalRequired,
+    operatorReviewRequired,
+    operatorApprovalRequired,
   };
 }
 

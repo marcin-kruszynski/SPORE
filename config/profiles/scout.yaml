@@ -1,11 +1,11 @@
 id: scout
 name: Research Scout
 role: scout
-description: Read-heavy research profile for architecture, docs, API, and source discovery.
+description: Read-heavy planning profile for architecture, docs, API, source discovery, and implementation mapping without writing files.
 domain: shared
 runtime: pi
 systemPromptRef: .pi/prompts/scout.md
-skills: [research, synthesis, mapping]
+skills: [research, synthesis, planning]
 tools: [docs-kb, code-search, reference-inspect]
 permissions: [read-only]
 sessionMode: ephemeral
@@ -15,8 +15,8 @@ handoffPolicy:
   mode: findings-first
   outputKind: scout_findings
   marker: SPORE_HANDOFF_JSON
-  requiredSections: [summary, findings, recommendations, risks, evidence]
-  enforcementMode: review_pending
+  requiredSections: [summary, findings, recommendations, risks, evidence, scope, next_role]
+  enforcementMode: blocked
 docsPolicy:
   updateRequired: true
 telemetryPolicy:

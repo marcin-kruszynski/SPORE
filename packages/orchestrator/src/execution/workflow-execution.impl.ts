@@ -2425,6 +2425,60 @@ function asArray(value) {
   return Array.isArray(value) ? value.filter(Boolean) : [];
 }
 
+function asRecord(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+
+function getStepGovernance(step) {
+  return asRecord(getStepPolicy(step).governance);
+}
+
+function getInternalGovernorRole(step) {
+  const governedByRole = String(getStepGovernance(step).governedByRole ?? "").trim();
+  return governedByRole || null;
+}
+
+function isOperatorVisibleGovernance(step) {
+  return getStepGovernance(step).operatorVisible !== false;
+}
+
+function holdForInternalGovernance(db, execution, step) {
+  const timestamp = new Date().toISOString();
+  const holdOwner = getInternalGovernorRole(step);
+  const heldExecution = transitionExecutionRecord(execution, "held", {
+    currentStepIndex: step.sequence,
+    reviewStatus: step.reviewStatus ?? "pending",
+    approvalStatus: step.approvalRequired
+      ? (step.approvalStatus ?? "pending")
+      : null,
+    heldFromState:
+      execution.state === "held"
+        ? (execution.heldFromState ?? "running")
+        : execution.state,
+    holdReason: "internal-governance-pending",
+    holdOwner,
+    holdGuidance: holdOwner
+      ? `Await internal governance by ${holdOwner} before advancing ${step.role}.`
+      : `Await internal governance before advancing ${step.role}.`,
+    heldAt: execution.state === "held" ? (execution.heldAt ?? timestamp) : timestamp,
+    endedAt: null,
+  });
+  updateExecution(db, heldExecution);
+  emitWorkflowEvent(db, {
+    executionId: execution.id,
+    stepId: step.id,
+    sessionId: step.sessionId,
+    type: "workflow.execution.internal_governance_pending",
+    payload: {
+      stepId: step.id,
+      role: step.role,
+      governedByRole: holdOwner,
+      reason: "internal-governance-pending",
+    },
+  });
+  return heldExecution;
+}
+
 function unique(values) {
   return [...new Set(asArray(values))];
 }
@@ -3321,6 +3375,16 @@ export function resumeExecution(
     }
     if (!["paused", "held"].includes(execution.state)) {
       throw new Error(`execution is not paused or held: ${executionId}`);
+    }
+    const decidedBy = String(payload.decidedBy ?? payload.owner ?? "operator").trim() || "operator";
+    if (
+      execution.holdReason === "internal-governance-pending" &&
+      execution.holdOwner &&
+      decidedBy !== execution.holdOwner
+    ) {
+      throw new Error(
+        `execution ${executionId} is governed internally by ${execution.holdOwner} and cannot be resumed by ${decidedBy}`,
+      );
     }
     const steps = listSteps(db, executionId);
     assertNoActiveStep(steps, executionId, "resume");
@@ -4258,6 +4322,10 @@ export async function reconcileExecution(
           const pendingStep = reviewPendingSteps.sort(
             (left, right) => left.sequence - right.sequence,
           )[0];
+          if (!isOperatorVisibleGovernance(pendingStep)) {
+            holdForInternalGovernance(db, execution, pendingStep);
+            return getExecutionDetail(executionId, dbPath, sessionDbPath);
+          }
           const waitingReview = transitionExecutionAfterProgress(
             execution,
             dispatchBlocked ? execution.state : "waiting_review",
@@ -4481,6 +4549,15 @@ export async function recordReviewDecision(
       throw new Error(`no review-pending step for execution: ${executionId}`);
     }
     if (
+      execution.holdReason === "internal-governance-pending" &&
+      execution.holdOwner &&
+      payload.decidedBy !== execution.holdOwner
+    ) {
+      throw new Error(
+        `step ${reviewStep.id} is governed internally by ${execution.holdOwner} and cannot be reviewed by ${payload.decidedBy}`,
+      );
+    }
+    if (
       payload.status === "approved" &&
       hasBlockingInvalidHandoff(db, executionId, reviewStep.id)
     ) {
@@ -4527,6 +4604,9 @@ export async function recordReviewDecision(
     });
 
     if (payload.status === "approved") {
+      const remainingPlanned = steps.some(
+        (step) => step.id !== reviewStep.id && step.state === "planned",
+      );
       const nextStepState = reviewStep.approvalRequired
         ? "approval_pending"
         : "completed";
@@ -4541,8 +4621,10 @@ export async function recordReviewDecision(
       });
       const nextExecutionState = reviewStep.approvalRequired
         ? "waiting_approval"
-        : "running";
-      const updatedExecution = transitionExecutionRecord(
+        : remainingPlanned
+          ? "running"
+          : "completed";
+      const updatedExecution = transitionExecutionAfterProgress(
         execution,
         nextExecutionState,
         {
@@ -4550,6 +4632,10 @@ export async function recordReviewDecision(
           approvalStatus: reviewStep.approvalRequired
             ? "pending"
             : execution.approvalStatus,
+          currentStepIndex: remainingPlanned ? reviewStep.sequence + 1 : reviewStep.sequence,
+          holdReason: null,
+          holdOwner: null,
+          holdGuidance: null,
         },
       );
       updateExecution(db, updatedExecution);
@@ -4779,6 +4865,15 @@ export async function recordApprovalDecision(
     if (!approvalStep) {
       throw new Error(`no approval-pending step for execution: ${executionId}`);
     }
+    if (
+      execution.holdReason === "internal-governance-pending" &&
+      execution.holdOwner &&
+      payload.decidedBy !== execution.holdOwner
+    ) {
+      throw new Error(
+        `step ${approvalStep.id} is governed internally by ${execution.holdOwner} and cannot be approved by ${payload.decidedBy}`,
+      );
+    }
     const approval = createApprovalRecord({
       executionId,
       stepId: approvalStep.id,
@@ -4828,12 +4923,15 @@ export async function recordApprovalDecision(
       });
 
       const remainingPlanned = steps.some((step) => step.state === "planned");
-      const nextExecution = transitionExecutionRecord(
+      const nextExecution = transitionExecutionAfterProgress(
         execution,
         remainingPlanned ? "running" : "completed",
         {
           approvalStatus: payload.status,
           currentStepIndex: approvalStep.sequence + 1,
+          holdReason: null,
+          holdOwner: null,
+          holdGuidance: null,
         },
       );
       updateExecution(db, nextExecution);

@@ -38,6 +38,8 @@ import type {
 
 export interface AgentCockpitAdapterInput {
   threads?: MissionMapApiThreadSummary[] | null;
+  knownThreadIds?: string[] | null;
+  focusThreadId?: string | null;
   threadDetails?: Record<string, MissionMapApiThreadDetail | null>;
   actions?: OperatorApiAction[] | null;
   workItemRuns?: Record<string, WorkItemRunApiDetail | null>;
@@ -545,6 +547,53 @@ function sortLanesByRecent(left: AgentLaneCardViewModel, right: AgentLaneCardVie
   return parseTimestamp(right.lastActivityAt) - parseTimestamp(left.lastActivityAt);
 }
 
+function determineFocusThreadId(input: {
+  preferredThreadId: string | null;
+  knownThreadIds: string[];
+  lanes: AgentLaneCardViewModel[];
+  attention: AttentionItemViewModel[];
+}) {
+  if (input.preferredThreadId && input.knownThreadIds.includes(input.preferredThreadId)) {
+    return input.preferredThreadId;
+  }
+
+  const laneById = new Map(input.lanes.map((lane) => [lane.id, lane] as const));
+  const candidateThreadIds = input.attention
+    .map((item) => laneById.get(item.laneId ?? "")?.threadId ?? null)
+    .filter(Boolean) as string[];
+  const rankedThreadIds =
+    candidateThreadIds.length > 0
+      ? candidateThreadIds
+      : input.lanes.map((lane) => lane.threadId).filter(Boolean) as string[];
+
+  if (rankedThreadIds.length > 0) {
+    const threadScore = new Map<string, string>();
+    for (const threadId of rankedThreadIds) {
+      const latest = input.lanes
+        .filter((lane) => lane.threadId === threadId)
+        .map((lane) => lane.lastActivityAt ?? "")
+        .sort()
+        .at(-1) ?? "";
+      const current = threadScore.get(threadId) ?? "";
+      if (latest > current) {
+        threadScore.set(threadId, latest);
+      }
+    }
+
+    const focusedThreadId = [...threadScore.entries()].sort((left, right) => {
+      if (right[1] !== left[1]) {
+        return right[1].localeCompare(left[1]);
+      }
+      return input.knownThreadIds.indexOf(left[0]) - input.knownThreadIds.indexOf(right[0]);
+    })[0]?.[0];
+    if (focusedThreadId) {
+      return focusedThreadId;
+    }
+  }
+
+  return input.knownThreadIds[0] ?? null;
+}
+
 function hashIdentity(value: string) {
   let hash = 2166136261;
   for (let index = 0; index < value.length; index += 1) {
@@ -626,6 +675,14 @@ export function buildAgentLaneId(input: {
 
 export function adaptAgentCockpit(input: AgentCockpitAdapterInput): AgentCockpitViewModel {
   const threads = asArray(input.threads);
+  const knownThreadIds = Array.from(
+    new Set(
+      [
+        ...asArray(input.knownThreadIds).map((threadId) => toText(threadId, "")),
+        ...threads.map((thread) => toText(thread.id, "")),
+      ].filter(Boolean),
+    ),
+  );
   const threadDetails = input.threadDetails ?? {};
   const executionDetails = input.executionDetails ?? {};
   const sessionLives = input.sessionLives ?? {};
@@ -1185,10 +1242,19 @@ export function adaptAgentCockpit(input: AgentCockpitAdapterInput): AgentCockpit
     })
     .sort(sortLanesByRecent);
 
+  const focusThreadId = determineFocusThreadId({
+    preferredThreadId: toText(input.focusThreadId, "") || null,
+    knownThreadIds,
+    lanes: laneCards,
+    attention,
+  });
+
   return {
     lanes: laneCards,
     attention,
     recentArtifacts,
+    focusThreadId,
+    historyThreadIds: knownThreadIds.filter((threadId) => threadId !== focusThreadId),
     isDegraded: degradedReasons.length > 0,
     degradedReasons,
   };

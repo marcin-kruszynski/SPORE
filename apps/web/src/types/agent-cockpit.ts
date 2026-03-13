@@ -81,6 +81,7 @@ export interface AgentSessionDetailViewModel {
     title: string;
     content: string | null;
     source: string | null;
+    expectedKind: string | null;
   };
   returnedHandoff: {
     title: string;
@@ -163,6 +164,8 @@ export interface AgentCockpitViewModel {
   lanes: AgentLaneCardViewModel[];
   attention: AttentionItemViewModel[];
   recentArtifacts: RecentArtifactViewModel[];
+  focusThreadId: string | null;
+  historyThreadIds: string[];
   isDegraded: boolean;
   degradedReasons: string[];
 }

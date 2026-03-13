@@ -3,16 +3,23 @@ name: Feature Delivery
 triggerType: manual
 applicableProjectTypes: [application, platform]
 roleSequence: [orchestrator, lead, scout, builder, tester, reviewer]
+governance:
+  model: lead-governed
+  governorRole: lead
+  governedRoles: [scout, builder, tester, reviewer]
+  operatorVisibleRoles: []
 branchingConditions:
   - if: implementation-risk-high
     then: require-scout-pass
 reviewStep:
   required: true
+  approvalRequired: true
 retryPolicy:
   maxAttempts: 2
 documentationUpdatePolicy:
   required: true
 completionRequirements:
+  - lead-governance-complete
   - implementation-complete
   - validation-evidence-recorded
   - review-verdict-recorded

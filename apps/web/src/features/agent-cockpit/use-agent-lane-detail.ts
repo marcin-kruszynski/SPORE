@@ -162,11 +162,12 @@ function buildTranscriptPreview(input: {
   transcript: { content?: string | Record<string, unknown> | Array<Record<string, unknown>>; path?: string | null } | null;
   sessionLive: MissionMapApiSessionLive | null;
   previous: AgentSessionDetailViewModel | null;
+  recentUpdates: Array<{ summary: string }>;
 }) {
   const rawContent =
     typeof input.transcript?.content === "string"
       ? input.transcript.content
-      : input.previous?.transcriptPreview.content ?? null;
+      : input.recentUpdates[0]?.summary ?? input.previous?.transcriptPreview.content ?? null;
   const content = rawContent?.trim() ? rawContent.trim() : null;
   const preview = content ? content.split(/\r?\n/).slice(0, 12).join("\n") : null;
   return {
@@ -190,6 +191,76 @@ function stringifyValue(value: unknown) {
   return null;
 }
 
+function firstNonEmptyText(...values: unknown[]) {
+  for (const value of values) {
+    const text = toText(value, "").trim();
+    if (text) {
+      return text;
+    }
+  }
+  return null;
+}
+
+function toTextList(value: unknown) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((entry) => toText(entry, "").trim())
+    .filter(Boolean);
+}
+
+function appendListSection(lines: string[], title: string, items: string[]) {
+  if (items.length === 0) {
+    return;
+  }
+
+  if (lines.length > 0) {
+    lines.push("");
+  }
+  lines.push(`${title}:`);
+  lines.push(...items.map((item) => `- ${item}`));
+}
+
+function buildReadablePayloadContent(payload: Record<string, unknown> | null) {
+  if (!payload) {
+    return null;
+  }
+
+  const lines: string[] = [];
+  const primaryText = firstNonEmptyText(
+    payload.summary,
+    payload.outcome,
+    payload.message,
+    payload.request,
+    payload.instructions,
+    payload.objective,
+    payload.title,
+  );
+  if (primaryText) {
+    lines.push(primaryText);
+  }
+
+  appendListSection(
+    lines,
+    "Changed paths",
+    toTextList(payload.changed_paths ?? payload.changedPaths ?? payload.paths ?? payload.files),
+  );
+  appendListSection(
+    lines,
+    "Tests run",
+    toTextList(payload.tests_run ?? payload.testsRun ?? payload.commands ?? payload.checks),
+  );
+  appendListSection(lines, "Notes", toTextList(payload.notes ?? payload.risks ?? payload.followUps));
+
+  if (lines.length > 0) {
+    return lines.join("\n");
+  }
+
+  return stringifyValue(payload);
+}
+
 function buildRequestPrompt(input: {
   lane: AgentLaneCardViewModel;
   threadDetail: MissionMapApiThreadDetail | null;
@@ -203,6 +274,8 @@ function buildRequestPrompt(input: {
     : [];
   const inbound = asRecord(inboundList[0]);
   const inboundSummary = asRecord(inbound.summary);
+  const inboundPayload = asRecord(inbound.payload);
+  const expected = toText(asRecord(asRecord(parsedContext.handoffs).expected).kind, "") || null;
   const source =
     toText(inbound.sourceRole, "") ||
     toText(asRecord(parsedContext.session).role, "") ||
@@ -210,12 +283,23 @@ function buildRequestPrompt(input: {
   return {
     title: `Input sent to ${input.lane.roleLabel}`,
     content:
-      stringifyValue(parsedContext) ||
-      toText(inboundSummary.outcome, "") ||
+      firstNonEmptyText(
+        inboundSummary.outcome,
+        inboundSummary.summary,
+        inboundSummary.title,
+        buildReadablePayloadContent(inboundPayload),
+        toText(asRecord(asRecord(parsedContext.goalPlan).goal).task, ""),
+        toText(input.threadDetail?.summary?.objective, ""),
+        input.lane.latestSummary,
+      ) ||
+      buildReadablePayloadContent(asRecord(parsedContext.goalPlan)) ||
+      buildReadablePayloadContent(asRecord(parsedContext.session)) ||
       toText(input.threadDetail?.summary?.objective, "") ||
       input.lane.latestSummary ||
+      stringifyValue(inboundPayload) ||
       null,
-    source,
+    source: source ? humanize(source) : null,
+    expectedKind: expected ? humanize(expected) : null,
   };
 }
 
@@ -230,9 +314,9 @@ function buildReturnedHandoff(input: {
     .filter(Boolean);
 
   return {
-    title: `Returned ${toText(primary.kind, "handoff") || "handoff"}`,
+    title: `Returned ${humanize(toText(primary.kind, "handoff") || "handoff")}`,
     content:
-      stringifyValue(primary.payload) ||
+      buildReadablePayloadContent(asRecord(primary.payload)) ||
       input.transcriptPreview.content ||
       null,
     valid:
@@ -449,6 +533,7 @@ function buildUnavailableDetail(
       title: "Input sent to agent",
       content: null,
       source: null,
+      expectedKind: null,
     },
     returnedHandoff: previous?.returnedHandoff ?? {
       title: "Returned handoff",
@@ -549,6 +634,7 @@ function buildDetailModel(input: {
     transcript: input.transcript,
     sessionLive: input.sessionLive,
     previous: input.previous,
+    recentUpdates,
   });
 
   return {
