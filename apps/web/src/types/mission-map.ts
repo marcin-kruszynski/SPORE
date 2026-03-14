@@ -295,6 +295,7 @@ export interface MissionMapAdapterInput {
   coordinationGroupsError?: string | null;
   executionLink?: MissionMapExecutionLink | null;
   executionDetail?: MissionMapApiExecutionDetail | null;
+  executionDetailsById?: Record<string, MissionMapApiExecutionDetail> | null;
   executionError?: string | null;
   executionTree?: MissionMapApiExecutionTree | null;
   treeError?: string | null;

@@ -198,6 +198,267 @@ test("adapts explicit execution and session live data into a stable mission map 
   ]);
 });
 
+test("keeps the full execution family tree even when thread hero says Managed Work", () => {
+  const mission = adaptMissionMapMission({
+    threadSummary: {
+      id: "thread-family",
+      title: "Implement OAuth2 PKCE flow",
+      status: "waiting_operator",
+      updatedAt: "2026-03-14T10:00:00.000Z",
+      summary: {
+        objective: "Implement OAuth2 PKCE flow.",
+      },
+    },
+    threadDetail: {
+      id: "thread-family",
+      title: "Implement OAuth2 PKCE flow",
+      status: "waiting_operator",
+      summary: {
+        objective: "Implement OAuth2 PKCE flow.",
+      },
+      hero: {
+        phase: "Managed Work",
+        statusLine: "Managed work is running across architect, implementers, reviewer, and guardians.",
+      },
+      metadata: {
+        execution: {
+          projectId: "spore",
+          executionId: "exec-architect",
+        },
+      },
+    },
+    executionLink: {
+      executionId: "exec-architect",
+      coordinationGroupId: "cg-pkce",
+      strategy: "detail",
+      detail: "Linked execution from detail.",
+    },
+    executionDetail: {
+      execution: {
+        id: "exec-architect",
+        state: "running",
+        objective: "Design OAuth2 PKCE authentication module.",
+        projectId: "spore",
+        coordinationGroupId: "cg-pkce",
+        projectRole: "architect",
+      },
+      steps: [
+        { id: "step-arch", role: "architect", state: "running", sessionId: "session-architect" },
+        { id: "step-impl-a", role: "implementer", state: "running", sessionId: "session-implementer-a" },
+        { id: "step-impl-b", role: "implementer", state: "pending", sessionId: "session-implementer-b" },
+        { id: "step-review", role: "reviewer", state: "held", sessionId: "session-reviewer" },
+        { id: "step-guardian", role: "guardian", state: "completed", sessionId: "session-guardian-root" },
+        { id: "step-guardian-2", role: "guardian", state: "completed", sessionId: "session-guardian-child" },
+      ],
+      sessions: [
+        { sessionId: "session-architect", session: { id: "session-architect", role: "architect", state: "active", runtimeAdapter: "runtime-pi" } },
+      ],
+      childExecutions: [
+        {
+          id: "exec-implement-a",
+          state: "running",
+          objective: "Implement TokenService and AuthCodeStore",
+          parentExecutionId: "exec-architect",
+          projectId: "spore",
+          coordinationGroupId: "cg-pkce",
+          projectRole: "implementer",
+        },
+      ],
+    },
+    executionDetailsById: {
+      "exec-architect": {
+        execution: {
+          id: "exec-architect",
+          state: "running",
+          objective: "Design OAuth2 PKCE authentication module.",
+          projectId: "spore",
+          coordinationGroupId: "cg-pkce",
+          projectRole: "architect",
+        },
+        sessions: [
+          { sessionId: "session-architect", session: { id: "session-architect", role: "architect", state: "active", runtimeAdapter: "runtime-pi" } },
+        ],
+      },
+      "exec-implement-a": {
+        execution: {
+          id: "exec-implement-a",
+          state: "running",
+          objective: "Implement TokenService and AuthCodeStore",
+          projectId: "spore",
+          coordinationGroupId: "cg-pkce",
+          projectRole: "implementer",
+        },
+        sessions: [
+          { sessionId: "session-implementer-a", session: { id: "session-implementer-a", role: "implementer", state: "active", runtimeAdapter: "runtime-pi" } },
+        ],
+      },
+      "exec-implement-b": {
+        execution: {
+          id: "exec-implement-b",
+          state: "pending",
+          objective: "Implement session bridge for backward compatibility",
+          projectId: "spore",
+          coordinationGroupId: "cg-pkce",
+          projectRole: "implementer",
+        },
+        sessions: [
+          { sessionId: "session-implementer-b", session: { id: "session-implementer-b", role: "implementer", state: "pending", runtimeAdapter: "runtime-pi" } },
+        ],
+      },
+      "exec-reviewer": {
+        execution: {
+          id: "exec-reviewer",
+          state: "held",
+          objective: "Review auth module refactor PR #247",
+          projectId: "spore",
+          coordinationGroupId: "cg-pkce",
+          projectRole: "reviewer",
+        },
+        sessions: [
+          { sessionId: "session-reviewer", session: { id: "session-reviewer", role: "reviewer", state: "held", runtimeAdapter: "runtime-pi" } },
+        ],
+      },
+      "exec-guardian-root": {
+        execution: {
+          id: "exec-guardian-root",
+          state: "completed",
+          objective: "Security scan on auth changes",
+          projectId: "spore",
+          coordinationGroupId: "cg-pkce",
+          projectRole: "guardian",
+        },
+        sessions: [
+          { sessionId: "session-guardian-root", session: { id: "session-guardian-root", role: "guardian", state: "completed", runtimeAdapter: "runtime-pi" } },
+        ],
+      },
+      "exec-guardian-child": {
+        execution: {
+          id: "exec-guardian-child",
+          state: "completed",
+          objective: "Dependency audit for new OAuth libraries",
+          projectId: "spore",
+          coordinationGroupId: "cg-pkce",
+          projectRole: "guardian",
+        },
+        sessions: [
+          { sessionId: "session-guardian-child", session: { id: "session-guardian-child", role: "guardian", state: "completed", runtimeAdapter: "runtime-pi" } },
+        ],
+      },
+    },
+    executionTree: {
+      selectedExecutionId: "exec-architect",
+      rootExecutionId: "exec-architect",
+      coordinationGroupId: "cg-pkce",
+      executionCount: 6,
+      root: {
+        execution: {
+          id: "exec-architect",
+          state: "running",
+          objective: "Design OAuth2 PKCE authentication module.",
+          projectRole: "architect",
+          projectId: "spore",
+          coordinationGroupId: "cg-pkce",
+        },
+        stepSummary: { count: 4, byState: { completed: 1, running: 1, pending: 2 } },
+        children: [
+          {
+            execution: {
+              id: "exec-implement-a",
+              state: "running",
+              objective: "Implement TokenService and AuthCodeStore",
+              parentExecutionId: "exec-architect",
+              projectRole: "implementer",
+              projectId: "spore",
+              coordinationGroupId: "cg-pkce",
+            },
+            stepSummary: { count: 5, byState: { completed: 3, running: 1, pending: 1 } },
+            children: [
+              {
+                execution: {
+                  id: "exec-implement-b",
+                  state: "pending",
+                  objective: "Implement session bridge for backward compatibility",
+                  parentExecutionId: "exec-implement-a",
+                  projectRole: "implementer",
+                  projectId: "spore",
+                  coordinationGroupId: "cg-pkce",
+                },
+                stepSummary: { count: 4, byState: { completed: 2, pending: 2 } },
+                children: [],
+              },
+            ],
+          },
+          {
+            execution: {
+              id: "exec-reviewer",
+              state: "held",
+              objective: "Review auth module refactor PR #247",
+              parentExecutionId: "exec-architect",
+              projectRole: "reviewer",
+              projectId: "spore",
+              coordinationGroupId: "cg-pkce",
+            },
+            stepSummary: { count: 1, byState: { held: 1 } },
+            children: [],
+          },
+          {
+            execution: {
+              id: "exec-guardian-root",
+              state: "completed",
+              objective: "Security scan on auth changes",
+              parentExecutionId: "exec-architect",
+              projectRole: "guardian",
+              projectId: "spore",
+              coordinationGroupId: "cg-pkce",
+            },
+            stepSummary: { count: 1, byState: { completed: 1 } },
+            children: [
+              {
+                execution: {
+                  id: "exec-guardian-child",
+                  state: "completed",
+                  objective: "Dependency audit for new OAuth libraries",
+                  parentExecutionId: "exec-guardian-root",
+                  projectRole: "guardian",
+                  projectId: "spore",
+                  coordinationGroupId: "cg-pkce",
+                },
+                stepSummary: { count: 1, byState: { completed: 1 } },
+                children: [],
+              },
+            ],
+          },
+        ],
+      },
+    },
+    sessionLives: {
+      "session-architect": { ok: true, session: { id: "session-architect", role: "architect", state: "active", runtimeAdapter: "runtime-pi" }, diagnostics: { status: "active", operatorUrgency: "normal", staleSession: false } },
+      "session-implementer-a": { ok: true, session: { id: "session-implementer-a", role: "implementer", state: "active", runtimeAdapter: "runtime-pi" }, diagnostics: { status: "active", operatorUrgency: "normal", staleSession: false } },
+      "session-implementer-b": { ok: true, session: { id: "session-implementer-b", role: "implementer", state: "pending", runtimeAdapter: "runtime-pi" }, diagnostics: { status: "waiting_review", operatorUrgency: "normal", staleSession: false } },
+      "session-reviewer": { ok: true, session: { id: "session-reviewer", role: "reviewer", state: "held", runtimeAdapter: "runtime-pi" }, diagnostics: { status: "held", operatorUrgency: "high", staleSession: false } },
+      "session-guardian-root": { ok: true, session: { id: "session-guardian-root", role: "guardian", state: "completed", runtimeAdapter: "runtime-pi" }, diagnostics: { status: "completed", operatorUrgency: "normal", staleSession: false } },
+      "session-guardian-child": { ok: true, session: { id: "session-guardian-child", role: "guardian", state: "completed", runtimeAdapter: "runtime-pi" }, diagnostics: { status: "completed", operatorUrgency: "normal", staleSession: false } },
+    },
+    sessionErrors: {},
+  });
+
+  assert.deepEqual(flattenLabels(mission.rootNodes), [
+    "Implement OAuth2 PKCE flow",
+    "Implement OAuth2 PKCE flow execution",
+    "architect session",
+    "Implement TokenService and AuthCodeStore",
+    "implementer session",
+    "Implement session bridge for backward compatibility",
+    "implementer session",
+    "Review auth module refactor PR #247",
+    "reviewer session",
+    "Security scan on auth changes",
+    "guardian session",
+    "Dependency audit for new OAuth libraries",
+    "guardian session",
+  ]);
+});
+
 test("derives a mission topology from coordination groups when the thread has no explicit execution link", () => {
   const mission = adaptMissionMapMission({
     threadSummary: {

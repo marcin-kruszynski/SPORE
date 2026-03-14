@@ -99,6 +99,10 @@ const NODE_H = 112;
 const H_GAP = 70;
 const V_GAP = 84;
 
+function humanizeState(value: string) {
+  return value.replace(/[_-]+/g, " ").replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
 function measureSubtreeWidth(node: MissionMapNode): number {
   if (node.children.length === 0) {
     return NODE_W;
@@ -290,13 +294,21 @@ function CanvasNode(props: {
                   state.color,
                   isRunning && "animate-spin",
                 )}
-              />
+                />
+              </div>
+              <div className="mt-1 flex items-center gap-1.5">
+                <StatusBadge status={humanizeState(props.node.state)} />
+                {typeof props.node.progress === "number" && (
+                  <span className="font-mono text-[9px] text-muted-foreground">
+                    {props.node.progress}%
+                  </span>
+                )}
+              </div>
+              <p className="mt-0.5 line-clamp-2 text-[10px] leading-tight text-muted-foreground">
+                {props.node.task}
+              </p>
             </div>
-            <p className="mt-0.5 line-clamp-2 text-[10px] leading-tight text-muted-foreground">
-              {props.node.task}
-            </p>
           </div>
-        </div>
 
         {typeof props.node.progress === "number" && (
           <div className="mt-2 flex items-center gap-2">

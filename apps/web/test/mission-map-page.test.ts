@@ -306,6 +306,279 @@ function makeExecutionTree(stepCounts: { completed: number; running: number; pen
   };
 }
 
+function makeFamilyExecutionTree() {
+  return {
+    selectedExecutionId: "exec-architect",
+    rootExecutionId: "exec-architect",
+    coordinationGroupId: "cg-pkce",
+    executionCount: 5,
+    root: {
+      execution: {
+        id: "exec-architect",
+        state: "running",
+        objective: "Design OAuth2 PKCE authentication module.",
+        projectRole: "architect",
+        projectId: "spore",
+        coordinationGroupId: "cg-pkce",
+      },
+      stepSummary: {
+        count: 4,
+        byState: { completed: 1, running: 1, pending: 2 },
+      },
+      children: [
+        {
+          execution: {
+            id: "exec-implement-a",
+            state: "running",
+            objective: "Implement TokenService and AuthCodeStore",
+            parentExecutionId: "exec-architect",
+            projectRole: "implementer",
+            projectId: "spore",
+            coordinationGroupId: "cg-pkce",
+          },
+          stepSummary: { count: 5, byState: { completed: 3, running: 1, pending: 1 } },
+          children: [
+            {
+              execution: {
+                id: "exec-implement-b",
+                state: "pending",
+                objective: "Implement session bridge for backward compatibility",
+                parentExecutionId: "exec-implement-a",
+                projectRole: "implementer",
+                projectId: "spore",
+                coordinationGroupId: "cg-pkce",
+              },
+              stepSummary: { count: 4, byState: { completed: 2, pending: 2 } },
+              children: [],
+            },
+          ],
+        },
+        {
+          execution: {
+            id: "exec-reviewer",
+            state: "held",
+            objective: "Review auth module refactor PR #247",
+            parentExecutionId: "exec-architect",
+            projectRole: "reviewer",
+            projectId: "spore",
+            coordinationGroupId: "cg-pkce",
+          },
+          stepSummary: { count: 1, byState: { held: 1 } },
+          children: [],
+        },
+        {
+          execution: {
+            id: "exec-guardian-root",
+            state: "completed",
+            objective: "Security scan on auth changes",
+            parentExecutionId: "exec-architect",
+            projectRole: "guardian",
+            projectId: "spore",
+            coordinationGroupId: "cg-pkce",
+          },
+          stepSummary: { count: 1, byState: { completed: 1 } },
+          children: [
+            {
+              execution: {
+                id: "exec-guardian-child",
+                state: "completed",
+                objective: "Dependency audit for new OAuth libraries",
+                parentExecutionId: "exec-guardian-root",
+                projectRole: "guardian",
+                projectId: "spore",
+                coordinationGroupId: "cg-pkce",
+              },
+              stepSummary: { count: 1, byState: { completed: 1 } },
+              children: [],
+            },
+          ],
+        },
+      ],
+    },
+  };
+}
+
+function makeFamilyThreadSummary() {
+  return {
+    id: "thread-family",
+    title: "Implement OAuth2 PKCE flow",
+    status: "waiting_operator",
+    updatedAt: "2026-03-14T10:00:00.000Z",
+    summary: {
+      objective: "Implement OAuth2 PKCE flow.",
+      pendingActionCount: 1,
+      lastMessageExcerpt: "Waiting for review and security confirmation.",
+    },
+  };
+}
+
+function makeFamilyThreadDetail() {
+  return {
+    id: "thread-family",
+    title: "Implement OAuth2 PKCE flow",
+    status: "waiting_operator",
+    summary: {
+      objective: "Implement OAuth2 PKCE flow.",
+      pendingActionCount: 1,
+      lastMessageExcerpt: "Waiting for review and security confirmation.",
+    },
+    hero: {
+      phase: "Managed Work",
+      statusLine: "Managed work is running across the full PKCE family tree.",
+    },
+    metadata: {
+      execution: {
+        projectId: "spore",
+        executionId: "exec-architect",
+      },
+    },
+  };
+}
+
+function makeFamilyExecutionDetail(executionId: string) {
+  const details: Record<string, unknown> = {
+    "exec-architect": {
+      execution: {
+        id: "exec-architect",
+        state: "running",
+        objective: "Design OAuth2 PKCE authentication module.",
+        projectId: "spore",
+        coordinationGroupId: "cg-pkce",
+        projectRole: "architect",
+      },
+      sessions: [
+        {
+          sessionId: "session-architect",
+          session: {
+            id: "session-architect",
+            role: "architect",
+            state: "active",
+            runtimeAdapter: "runtime-pi",
+          },
+        },
+      ],
+    },
+    "exec-implement-a": {
+      execution: {
+        id: "exec-implement-a",
+        state: "running",
+        objective: "Implement TokenService and AuthCodeStore",
+        projectId: "spore",
+        coordinationGroupId: "cg-pkce",
+        projectRole: "implementer",
+      },
+      sessions: [
+        {
+          sessionId: "session-implementer-a",
+          session: {
+            id: "session-implementer-a",
+            role: "implementer",
+            state: "active",
+            runtimeAdapter: "runtime-pi",
+          },
+        },
+      ],
+    },
+    "exec-implement-b": {
+      execution: {
+        id: "exec-implement-b",
+        state: "pending",
+        objective: "Implement session bridge for backward compatibility",
+        projectId: "spore",
+        coordinationGroupId: "cg-pkce",
+        projectRole: "implementer",
+      },
+      sessions: [
+        {
+          sessionId: "session-implementer-b",
+          session: {
+            id: "session-implementer-b",
+            role: "implementer",
+            state: "pending",
+            runtimeAdapter: "runtime-pi",
+          },
+        },
+      ],
+    },
+    "exec-reviewer": {
+      execution: {
+        id: "exec-reviewer",
+        state: "held",
+        objective: "Review auth module refactor PR #247",
+        projectId: "spore",
+        coordinationGroupId: "cg-pkce",
+        projectRole: "reviewer",
+      },
+      sessions: [
+        {
+          sessionId: "session-reviewer",
+          session: {
+            id: "session-reviewer",
+            role: "reviewer",
+            state: "held",
+            runtimeAdapter: "runtime-pi",
+          },
+        },
+      ],
+    },
+    "exec-guardian-root": {
+      execution: {
+        id: "exec-guardian-root",
+        state: "completed",
+        objective: "Security scan on auth changes",
+        projectId: "spore",
+        coordinationGroupId: "cg-pkce",
+        projectRole: "guardian",
+      },
+      sessions: [
+        {
+          sessionId: "session-guardian-root",
+          session: {
+            id: "session-guardian-root",
+            role: "guardian",
+            state: "completed",
+            runtimeAdapter: "runtime-pi",
+          },
+        },
+      ],
+    },
+    "exec-guardian-child": {
+      execution: {
+        id: "exec-guardian-child",
+        state: "completed",
+        objective: "Dependency audit for new OAuth libraries",
+        projectId: "spore",
+        coordinationGroupId: "cg-pkce",
+        projectRole: "guardian",
+      },
+      sessions: [
+        {
+          sessionId: "session-guardian-child",
+          session: {
+            id: "session-guardian-child",
+            role: "guardian",
+            state: "completed",
+            runtimeAdapter: "runtime-pi",
+          },
+        },
+      ],
+    },
+  };
+  return details[executionId];
+}
+
+function makeFamilySessionLive(sessionId: string) {
+  const map: Record<string, unknown> = {
+    "session-architect": { ok: true, session: { id: "session-architect", role: "architect", state: "active", runtimeAdapter: "runtime-pi" }, diagnostics: { status: "active", operatorUrgency: "normal", staleSession: false } },
+    "session-implementer-a": { ok: true, session: { id: "session-implementer-a", role: "implementer", state: "active", runtimeAdapter: "runtime-pi" }, diagnostics: { status: "active", operatorUrgency: "normal", staleSession: false } },
+    "session-implementer-b": { ok: true, session: { id: "session-implementer-b", role: "implementer", state: "pending", runtimeAdapter: "runtime-pi" }, diagnostics: { status: "waiting_review", operatorUrgency: "normal", staleSession: false } },
+    "session-reviewer": { ok: true, session: { id: "session-reviewer", role: "reviewer", state: "held", runtimeAdapter: "runtime-pi" }, diagnostics: { status: "held", operatorUrgency: "high", staleSession: false } },
+    "session-guardian-root": { ok: true, session: { id: "session-guardian-root", role: "guardian", state: "completed", runtimeAdapter: "runtime-pi" }, diagnostics: { status: "completed", operatorUrgency: "normal", staleSession: false } },
+    "session-guardian-child": { ok: true, session: { id: "session-guardian-child", role: "guardian", state: "completed", runtimeAdapter: "runtime-pi" }, diagnostics: { status: "completed", operatorUrgency: "normal", staleSession: false } },
+  };
+  return map[sessionId];
+}
+
 function makeSessionLive(status: string) {
   return {
     ok: true,
@@ -491,6 +764,73 @@ test("MissionMapPage renders real-backed mission graphs and refreshes from the e
   await waitFor(() => {
     assert.match(inspector?.textContent ?? "", /4\/4 steps complete/);
   });
+
+  restoreDom();
+});
+
+test("MissionMapPage renders the full execution family tree instead of collapsing to Managed Work", async () => {
+  const restoreDom = installDomGlobals();
+
+  globalThis.EventSource = MockEventSource as unknown as typeof EventSource;
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = String(input);
+
+    if (url.endsWith("/api/orchestrator/operator/threads")) {
+      return jsonResponse({ ok: true, detail: [makeFamilyThreadSummary()] });
+    }
+    if (url.endsWith("/api/orchestrator/operator/threads/thread-family")) {
+      return jsonResponse({ ok: true, detail: makeFamilyThreadDetail() });
+    }
+    if (url.endsWith("/api/orchestrator/coordination-groups")) {
+      return jsonResponse({ ok: true, groups: [] });
+    }
+    if (url.endsWith("/api/orchestrator/executions/exec-architect")) {
+      return jsonResponse({ ok: true, detail: makeFamilyExecutionDetail("exec-architect") });
+    }
+    if (url.endsWith("/api/orchestrator/executions/exec-architect/tree")) {
+      return jsonResponse({ ok: true, tree: makeFamilyExecutionTree() });
+    }
+    if (url.endsWith("/api/orchestrator/executions/exec-implement-a")) {
+      return jsonResponse({ ok: true, detail: makeFamilyExecutionDetail("exec-implement-a") });
+    }
+    if (url.endsWith("/api/orchestrator/executions/exec-implement-b")) {
+      return jsonResponse({ ok: true, detail: makeFamilyExecutionDetail("exec-implement-b") });
+    }
+    if (url.endsWith("/api/orchestrator/executions/exec-reviewer")) {
+      return jsonResponse({ ok: true, detail: makeFamilyExecutionDetail("exec-reviewer") });
+    }
+    if (url.endsWith("/api/orchestrator/executions/exec-guardian-root")) {
+      return jsonResponse({ ok: true, detail: makeFamilyExecutionDetail("exec-guardian-root") });
+    }
+    if (url.endsWith("/api/orchestrator/executions/exec-guardian-child")) {
+      return jsonResponse({ ok: true, detail: makeFamilyExecutionDetail("exec-guardian-child") });
+    }
+    for (const sessionId of [
+      "session-architect",
+      "session-implementer-a",
+      "session-implementer-b",
+      "session-reviewer",
+      "session-guardian-root",
+      "session-guardian-child",
+    ]) {
+      if (url.endsWith(`/api/sessions/${sessionId}/live`)) {
+        return jsonResponse(makeFamilySessionLive(sessionId));
+      }
+    }
+
+    throw new Error(`Unexpected request: ${url}`);
+  }) as typeof fetch;
+
+  const view = renderMissionMapPage();
+
+  await view.findByText("Implement OAuth2 PKCE flow execution");
+  await view.findByText("architect session");
+  await view.findByText("Implement TokenService and AuthCodeStore");
+  await view.findByText("Implement session bridge for backward compatibility");
+  await view.findByText("reviewer session");
+  const guardianSessions = await view.findAllByText("guardian session");
+  assert.equal(guardianSessions.length, 2);
+  await view.findByText("Dependency audit for new OAuth libraries");
 
   restoreDom();
 });
