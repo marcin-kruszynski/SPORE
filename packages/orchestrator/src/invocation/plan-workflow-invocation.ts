@@ -35,6 +35,14 @@ const DOMAIN_ROLE_KEYS = {
   reviewer: "reviewerProfile",
 };
 
+export const SUPPORTED_COORDINATION_MODES = [
+  "delivery",
+  "project-breakdown",
+  "brownfield-intake",
+] as const;
+
+export type CoordinationMode = (typeof SUPPORTED_COORDINATION_MODES)[number];
+
 function resolvePath(inputPath) {
   return path.isAbsolute(inputPath)
     ? inputPath
@@ -80,6 +88,59 @@ function asStringArray(value) {
   return asArray(value)
     .map((entry) => String(entry ?? "").trim())
     .filter(Boolean);
+}
+
+function normalizeCoordinationMode(
+  value: unknown,
+  allowedModes: readonly string[],
+): CoordinationMode | null {
+  const mode = String(value ?? "").trim();
+  if (!mode) {
+    return null;
+  }
+  if (!allowedModes.includes(mode)) {
+    throw new Error(
+      `coordinationMode must be one of ${allowedModes.join(", ")}; received ${mode}`,
+    );
+  }
+  return mode as CoordinationMode;
+}
+
+function resolveAllowedCoordinationModes(
+  projectModes: readonly string[],
+  workflowModes: readonly string[],
+): CoordinationMode[] {
+  const supported = [...SUPPORTED_COORDINATION_MODES];
+  const normalizeConfiguredModes = (
+    modes: readonly string[],
+    source: string,
+  ): CoordinationMode[] => {
+    for (const mode of modes) {
+      if (!supported.includes(mode as CoordinationMode)) {
+        throw new Error(
+          `${source} must use only supported coordination modes: ${supported.join(", ")}; received ${mode}`,
+        );
+      }
+    }
+    return [...modes] as CoordinationMode[];
+  };
+
+  const projectAllowed = normalizeConfiguredModes(projectModes, "project supportedModes");
+  const workflowAllowed = normalizeConfiguredModes(
+    workflowModes,
+    "workflow supportedCoordinationModes",
+  );
+
+  if (projectAllowed.length === 0 && workflowAllowed.length === 0) {
+    return supported;
+  }
+  if (projectAllowed.length === 0) {
+    return workflowAllowed as CoordinationMode[];
+  }
+  if (workflowAllowed.length === 0) {
+    return projectAllowed as CoordinationMode[];
+  }
+  return projectAllowed.filter((mode) => workflowAllowed.includes(mode)) as CoordinationMode[];
 }
 
 function unique(items) {
@@ -674,6 +735,22 @@ export async function planProjectCoordination({
   const workflowPath = coordinationPolicy.workflow
     ? normalizeWorkflowInput(coordinationPolicy.workflow)
     : "config/workflows/project-coordination-root.yaml";
+  const resolvedWorkflowPath = resolvePath(workflowPath);
+  const workflow = (await readYaml(resolvedWorkflowPath)) as LooseRecord;
+  const allowedCoordinationModes = resolveAllowedCoordinationModes(
+    asStringArray(coordinationPolicy.supportedModes),
+    asStringArray(workflow.supportedCoordinationModes),
+  );
+  const explicitCoordinationMode = normalizeCoordinationMode(
+    metadata?.coordinationMode,
+    allowedCoordinationModes,
+  );
+  const configuredCoordinationMode = normalizeCoordinationMode(
+    coordinationPolicy.coordinationMode ?? workflow.coordinationMode,
+    allowedCoordinationModes,
+  );
+  const coordinationMode =
+    explicitCoordinationMode ?? configuredCoordinationMode ?? "delivery";
   return planWorkflowInvocation({
     workflowPath,
     projectPath,
@@ -689,11 +766,12 @@ export async function planProjectCoordination({
     policyPackIds: asArray(coordinationPolicy.policyPacks),
     policyOverrides: coordinationPolicy,
     metadata: {
+      ...(metadata ?? {}),
       topologyKind: "project-root",
       projectRole: "coordinator",
       projectLaneType: "coordinator",
+      coordinationMode,
       selectedDomains,
-      ...(metadata ?? {}),
     },
   });
 }

@@ -4,5 +4,6 @@ export {
   driveCoordinationGroup,
   driveExecutionTree,
   forkExecution,
+  getCoordinatorFamilySummary,
   spawnExecutionBranches,
 } from "./workflow-execution.impl.js";

@@ -1,4 +1,6 @@
 export {
+  getCoordinatorFamilySummary,
+  getCoordinatorFamilySummaryByRootExecutionId,
   getExecutionHandoff,
   getCoordinationGroupDetail,
   getExecutionDetail,

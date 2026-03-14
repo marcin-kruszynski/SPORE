@@ -94,6 +94,10 @@ import {
 } from "../store/execution-store.js";
 import { writeExecutionBrief } from "./brief.js";
 import {
+  buildCoordinatorSummary,
+  type CoordinatorFamilyState,
+} from "./coordination-summary.js";
+import {
   type AuditEventOptions,
   asEventPayload,
   buildAuditContext,
@@ -106,6 +110,7 @@ import {
   decorateExecution,
   defaultEscalationTargetRole,
   deriveParentHoldReason,
+  getExecutionRootExecutionId,
   getExecutionProjectRole,
   getExecutionTopologyKind,
   getPromotionSummary,
@@ -1622,58 +1627,7 @@ export function getExecutionDetail(
     if (!execution) {
       return null;
     }
-    const steps = listSteps(db, executionId);
-    const reviews = listReviews(db, executionId);
-    const approvals = listApprovals(db, executionId);
-    const events = listWorkflowEvents(db, executionId);
-    const handoffs = enrichWorkflowHandoffs(
-      db,
-      listWorkflowHandoffs(db, {
-        executionId,
-        limit: 200,
-      }),
-    );
-    const escalations = listEscalations(db, executionId);
-    const audit = listAuditRecords(db, executionId);
-    const artifactRecovery = buildArtifactRecoverySummary(events);
-    const childExecutions = listChildExecutions(db, executionId);
-    const coordinationGroup = execution.coordinationGroupId
-      ? listExecutionGroup(db, execution.coordinationGroupId)
-      : [execution];
-    let sessions = [];
-    try {
-      sessions = withSessionDatabase(sessionDbPath, (sessionDb) =>
-        steps
-          .filter((step) => step.sessionId)
-          .map((step) => ({
-            sessionId: step.sessionId,
-            session: getSession(sessionDb, step.sessionId),
-            artifactRecovery:
-              artifactRecovery.events.find(
-                (entry) => entry.sessionId === step.sessionId,
-              ) ?? null,
-          }))
-          .filter((item) => item.session),
-      );
-    } catch (error) {
-      if (!isSessionDatabaseLocked(error)) {
-        throw error;
-      }
-    }
-    return {
-      execution: decorateExecution(execution),
-      steps,
-      reviews,
-      approvals,
-      events,
-      handoffs,
-      escalations,
-      audit,
-      artifactRecovery,
-      childExecutions: childExecutions.map(decorateExecution),
-      coordinationGroup: coordinationGroup.map(decorateExecution),
-      sessions,
-    };
+    return getExecutionDetailFromRecords(db, execution, sessionDbPath);
   });
 }
 
@@ -2245,6 +2199,158 @@ function summarizeStepStates(steps) {
   return summarizeWaveStepStates(steps, WAVE_SUCCESS_STEP_STATES);
 }
 
+function getCoordinatorFamilyRootExecution(db, execution) {
+  const explicitRootExecutionId = getExecutionRootExecutionId(execution);
+  if (explicitRootExecutionId) {
+    const explicitRoot = getExecution(db, explicitRootExecutionId);
+    if (explicitRoot) {
+      return explicitRoot;
+    }
+  }
+  return resolveExecutionRoot(db, execution);
+}
+
+function getCoordinatorFamilyState(
+  db,
+  rootExecution,
+): CoordinatorFamilyState | null {
+  if (!rootExecution) {
+    return null;
+  }
+  if (
+    getExecutionProjectRole(rootExecution) !== "coordinator" &&
+    getExecutionTopologyKind(rootExecution) !== "project-root"
+  ) {
+    return null;
+  }
+  const groupId = rootExecution.coordinationGroupId ?? rootExecution.id;
+  const familyExecutions = listExecutionGroup(db, groupId)
+    .map((execution) => getExecution(db, execution.id) ?? execution)
+    .map((execution) => decorateExecution(execution))
+    .filter((execution): execution is NonNullable<typeof execution> =>
+      Boolean(execution),
+    );
+  const executionsById = new Map<string, (typeof familyExecutions)[number]>();
+  for (const execution of familyExecutions) {
+    executionsById.set(execution.id, execution);
+  }
+  const decoratedRoot = decorateExecution(rootExecution);
+  if (!decoratedRoot) {
+    return null;
+  }
+  executionsById.set(rootExecution.id, decoratedRoot);
+  return {
+    rootExecution: executionsById.get(rootExecution.id),
+    familyExecutions: Array.from(executionsById.values()),
+    familyEscalations: Array.from(executionsById.values()).flatMap((execution) =>
+      listEscalations(db, execution.id),
+    ),
+    familyHandoffs: listWorkflowHandoffs(db, {
+      executionId: rootExecution.id,
+      kind: "routing_summary",
+      limit: 50,
+    }),
+  };
+}
+
+function getCoordinatorFamilySummaryFromRecords(
+  db,
+  execution,
+  summaryCache = null,
+) {
+  const rootExecution = getCoordinatorFamilyRootExecution(db, execution);
+  const cacheKey = rootExecution?.id ?? null;
+  if (cacheKey && summaryCache?.has(cacheKey)) {
+    return summaryCache.get(cacheKey);
+  }
+  const familyState = getCoordinatorFamilyState(db, rootExecution);
+  const summary = familyState ? buildCoordinatorSummary(familyState) : null;
+  if (cacheKey && summaryCache) {
+    summaryCache.set(cacheKey, summary);
+  }
+  return summary;
+}
+
+function decorateCoordinatorSummary(summary) {
+  if (!summary) {
+    return null;
+  }
+  return {
+    ...summary,
+    links: {
+      family: `/coordination-families/${encodeURIComponent(summary.rootExecutionId)}`,
+      lanes: `/coordination-families/${encodeURIComponent(summary.rootExecutionId)}/lanes`,
+      readiness: `/coordination-families/${encodeURIComponent(summary.rootExecutionId)}/readiness`,
+    },
+  };
+}
+
+function getExecutionDetailFromRecords(
+  db,
+  execution,
+  sessionDbPath,
+  coordinationSummaryCache = null,
+) {
+  const executionId = execution.id;
+  const steps = listSteps(db, executionId);
+  const reviews = listReviews(db, executionId);
+  const approvals = listApprovals(db, executionId);
+  const events = listWorkflowEvents(db, executionId);
+  const handoffs = enrichWorkflowHandoffs(
+    db,
+    listWorkflowHandoffs(db, {
+      executionId,
+      limit: 200,
+    }),
+  );
+  const escalations = listEscalations(db, executionId);
+  const audit = listAuditRecords(db, executionId);
+  const artifactRecovery = buildArtifactRecoverySummary(events);
+  const childExecutions = listChildExecutions(db, executionId);
+  const coordinationGroup = execution.coordinationGroupId
+    ? listExecutionGroup(db, execution.coordinationGroupId)
+    : [execution];
+  let sessions = [];
+  try {
+    sessions = withSessionDatabase(sessionDbPath, (sessionDb) =>
+      steps
+        .filter((step) => step.sessionId)
+        .map((step) => ({
+          sessionId: step.sessionId,
+          session: getSession(sessionDb, step.sessionId),
+          artifactRecovery:
+            artifactRecovery.events.find((entry) => entry.sessionId === step.sessionId) ??
+            null,
+        }))
+        .filter((item) => item.session),
+    );
+  } catch (error) {
+    if (!isSessionDatabaseLocked(error)) {
+      throw error;
+    }
+  }
+  const coordination = getCoordinatorFamilySummaryFromRecords(
+    db,
+    execution,
+    coordinationSummaryCache,
+  );
+  return {
+    execution: decorateExecution(execution),
+    steps,
+    reviews,
+    approvals,
+    events,
+    handoffs,
+    escalations,
+    audit,
+    artifactRecovery,
+    childExecutions: childExecutions.map(decorateExecution),
+    coordinationGroup: coordinationGroup.map(decorateExecution),
+    coordination: decorateCoordinatorSummary(coordination),
+    sessions,
+  };
+}
+
 function resolveExecutionRoot(db, execution) {
   let current = execution;
   while (current?.parentExecutionId) {
@@ -2331,8 +2437,14 @@ export function getCoordinationGroupDetail(
     if (executions.length === 0) {
       return null;
     }
+    const coordinationSummaryCache = new Map();
     const details = executions.map((execution) =>
-      getExecutionDetail(execution.id, dbPath, sessionDbPath),
+      getExecutionDetailFromRecords(
+        db,
+        execution,
+        sessionDbPath,
+        coordinationSummaryCache,
+      ),
     );
     return {
       summary: summarizeCoordinationGroupExecutions(groupId, executions),
@@ -2404,6 +2516,40 @@ export async function driveExecutionTree(
     dbPath,
     sessionDbPath,
   );
+}
+
+export function getCoordinatorFamilySummary(
+  executionId,
+  dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
+) {
+  return withOrchestratorDatabase(dbPath, (db) => {
+    const execution = getExecution(db, executionId);
+    if (!execution) {
+      return null;
+    }
+    return decorateCoordinatorSummary(
+      getCoordinatorFamilySummaryFromRecords(db, execution),
+    );
+  });
+}
+
+export function getCoordinatorFamilySummaryByRootExecutionId(
+  rootExecutionId,
+  dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
+) {
+  return withOrchestratorDatabase(dbPath, (db) => {
+    const execution = getExecution(db, rootExecutionId);
+    if (!execution) {
+      return null;
+    }
+    const summary = decorateCoordinatorSummary(
+      getCoordinatorFamilySummaryFromRecords(db, execution),
+    );
+    if (!summary || summary.rootExecutionId !== rootExecutionId) {
+      return null;
+    }
+    return summary;
+  });
 }
 
 function flattenExecutionTree(node, items = [], depth = 0) {
@@ -2491,21 +2637,27 @@ function buildPromotionBranchKey(featureKey) {
   return `promotion:${featureKey}`;
 }
 
-function buildProjectLaneMetadata(rootExecutionId, domainId) {
+function buildProjectLaneMetadata(rootExecutionId, domainId, coordinationMode = null) {
   return {
     topologyKind: "project-child",
     projectLaneType: "lead",
     projectRootExecutionId: rootExecutionId,
+    coordinationMode,
     selectedDomainId: domainId,
   };
 }
 
-function _buildPromotionLaneMetadata(rootExecutionId, promotion) {
+function _buildPromotionLaneMetadata(
+  rootExecutionId,
+  promotion,
+  coordinationMode = null,
+) {
   return {
     topologyKind: "promotion-lane",
     projectRole: "integrator",
     projectLaneType: "integrator",
     projectRootExecutionId: rootExecutionId,
+    coordinationMode,
     promotion,
   };
 }
@@ -2678,6 +2830,8 @@ function summarizeStandalonePromotionSources(execution, db) {
 
 export async function buildProjectCoordinationPlan(options: LooseRecord = {}) {
   const rootInvocation = await planProjectCoordination(options);
+  const coordinationMode =
+    rootInvocation.metadata?.invocationMetadata?.coordinationMode ?? null;
   const selectedDomains = asArray(
     rootInvocation.metadata?.invocationMetadata?.selectedDomains,
   );
@@ -2692,7 +2846,11 @@ export async function buildProjectCoordinationPlan(options: LooseRecord = {}) {
       coordinationGroupId: rootInvocation.invocationId,
       parentExecutionId: rootInvocation.invocationId,
       branchKey: buildCoordinatorBranchKey(domainId),
-      metadata: buildProjectLaneMetadata(rootInvocation.invocationId, domainId),
+      metadata: buildProjectLaneMetadata(
+        rootInvocation.invocationId,
+        domainId,
+        coordinationMode,
+      ),
     });
     childInvocations.push(childPlan);
   }
@@ -2746,6 +2904,10 @@ export async function planPromotionForExecution(
       sourceSummary,
       metadata: {
         projectRootExecutionId: promotionRoot.id,
+        coordinationMode:
+          promotionRoot.metadata?.coordinationMode ??
+          promotionRoot.metadata?.invocationMetadata?.coordinationMode ??
+          null,
         promotionSourceExecutionIds: unique(
           sourceSummary.sources.map((source) => source.executionId),
         ),

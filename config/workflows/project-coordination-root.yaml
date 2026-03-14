@@ -2,6 +2,8 @@ id: project-coordination-root
 name: Project Coordination Root
 triggerType: manual
 applicableProjectTypes: [application, platform, service, orchestration-platform]
+coordinationMode: delivery
+supportedCoordinationModes: [delivery, project-breakdown, brownfield-intake]
 roleSequence: [coordinator]
 stepSets:
   - name: project-framing

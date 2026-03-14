@@ -42,16 +42,59 @@ export function getExecutionProjectRootId(
     metadata?: JsonObject;
     parentExecutionId?: string | null;
     id?: string | null;
+    coordinationGroupId?: string | null;
+  } | null,
+) {
+  return getExecutionRootExecutionId(execution);
+}
+
+export function getExecutionRootExecutionId(
+  execution: {
+    metadata?: JsonObject;
+    parentExecutionId?: string | null;
+    id?: string | null;
+    coordinationGroupId?: string | null;
   } | null,
 ) {
   const metadata = getExecutionMetadata(execution);
-  const explicit = String(metadata.projectRootExecutionId ?? "").trim();
+  const explicit = String(
+    metadata.rootExecutionId ?? metadata.projectRootExecutionId ?? "",
+  ).trim();
   if (explicit) {
     return explicit;
   }
   return getExecutionTopologyKind(execution) === "project-root"
     ? (execution?.id ?? null)
     : null;
+}
+
+export function getExecutionFamilyKey(
+  execution: {
+    metadata?: JsonObject;
+    coordinationGroupId?: string | null;
+    parentExecutionId?: string | null;
+    id?: string | null;
+  } | null,
+) {
+  const metadata = getExecutionMetadata(execution);
+  const explicit = String(metadata.familyKey ?? "").trim();
+  if (explicit) {
+    return explicit;
+  }
+  const coordinationGroupId = String(execution?.coordinationGroupId ?? "").trim();
+  if (!coordinationGroupId) {
+    return null;
+  }
+  return coordinationGroupId === getExecutionRootExecutionId(execution)
+    ? null
+    : coordinationGroupId;
+}
+
+export function getExecutionCoordinationMode(
+  execution: { metadata?: JsonObject } | null,
+) {
+  const metadata = getExecutionMetadata(execution);
+  return String(metadata.coordinationMode ?? "").trim() || null;
 }
 
 export function getPromotionSummary(
@@ -68,6 +111,7 @@ export function decorateExecution<
     metadata?: JsonObject;
     parentExecutionId?: string | null;
     id?: string | null;
+    coordinationGroupId?: string | null;
   },
 >(
   execution: T | null,
@@ -79,7 +123,10 @@ export function decorateExecution<
         kind: string;
         rootRole: string | null;
         projectRootExecutionId: string | null;
+        rootExecutionId: string | null;
         projectLaneType: string | null;
+        familyKey: string | null;
+        coordinationMode: string | null;
       };
       promotion: JsonObject | null;
       promotionStatus: JsonValue | null;
@@ -99,8 +146,11 @@ export function decorateExecution<
       kind: getExecutionTopologyKind(execution),
       rootRole: projectRole,
       projectRootExecutionId: getExecutionProjectRootId(execution),
+      rootExecutionId: getExecutionRootExecutionId(execution),
       projectLaneType:
         String(metadata.projectLaneType ?? "").trim() || projectRole || null,
+      familyKey: getExecutionFamilyKey(execution),
+      coordinationMode: getExecutionCoordinationMode(execution),
     },
     promotion,
     promotionStatus: promotion?.status ?? null,

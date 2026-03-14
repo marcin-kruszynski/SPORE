@@ -7,6 +7,7 @@ import path from "node:path";
 import test from "node:test";
 
 import {
+  buildProjectCoordinationPlan,
   createExecution,
   createWorkItem,
   getExecutionDetail,
@@ -18,6 +19,7 @@ import {
   listOperatorThreadMessages,
   listWorkItemRuns,
   openOrchestratorDatabase,
+  planFeaturePromotion,
   planWorkflowInvocation,
   updateProposalArtifact,
   updateWorkspaceAllocation,
@@ -4258,6 +4260,130 @@ test("operator chat auto-advances proposal governance when human proposal review
     expectDistinctTitle: true,
   });
   assert.equal(refreshedThread.status, "running");
+});
+
+test("operator thread detail exposes coordinator family context", async (t) => {
+  const { ORCHESTRATOR_PORT, dbPath } = await startOperatorChatServer(
+    t,
+    "spore-http-operator-chat-coordination-",
+  );
+
+  const thread = await createStubOperatorThread(
+    ORCHESTRATOR_PORT,
+    "Coordinate a governed frontend and backend delivery push in safe mode.",
+    { wait: false },
+  );
+  const approvedThread = await replyInOperatorThread(
+    ORCHESTRATOR_PORT,
+    thread.id,
+    "approve",
+  );
+  const group = asObject(asObject(approvedThread.context).group);
+  const seededItem = asArray<JsonRecord>(group.items)[0];
+  assert.ok(seededItem);
+
+  const rootExecutionId = `coord-thread-${Date.now()}`;
+  const coordinationPlan = await buildProjectCoordinationPlan({
+    projectPath: "config/projects/spore.yaml",
+    domains: ["backend", "frontend"],
+    invocationId: rootExecutionId,
+    objective: "Coordinate backend and frontend work for operator visibility.",
+    metadata: {
+      coordinationMode: "brownfield-intake",
+    },
+  });
+  createExecution(coordinationPlan.rootInvocation, dbPath);
+  for (const childPlan of coordinationPlan.childInvocations) {
+    createExecution(childPlan, dbPath);
+  }
+  const promotionPlan = await planFeaturePromotion({
+    projectPath: "config/projects/spore.yaml",
+    invocationId: `${rootExecutionId}-integrator`,
+    coordinationGroupId: rootExecutionId,
+    parentExecutionId: rootExecutionId,
+    objective: "Prepare an integration lane for the coordinated project.",
+    metadata: {
+      projectRootExecutionId: rootExecutionId,
+      rootExecutionId,
+      coordinationMode: "brownfield-intake",
+      promotion: {
+        status: "blocked",
+        blockers: [
+          {
+            code: "awaiting-coordinator",
+            reason: "Integrator should wait for coordinator unblock.",
+          },
+        ],
+      },
+    },
+  });
+  createExecution(promotionPlan, dbPath);
+
+  const db = openOrchestratorDatabase(dbPath);
+  try {
+    const backendExecution = getExecutionDetail(
+      `${rootExecutionId}-backend-lead`,
+      dbPath,
+    )?.execution;
+    const frontendExecution = getExecutionDetail(
+      `${rootExecutionId}-frontend-lead`,
+      dbPath,
+    )?.execution;
+    assert.ok(backendExecution);
+    assert.ok(frontendExecution);
+    updateExecution(
+      db,
+      transitionExecutionRecord(backendExecution, "waiting_review", {
+        reviewStatus: "pending",
+      }),
+    );
+    updateExecution(
+      db,
+      transitionExecutionRecord(frontendExecution, "running", {}),
+    );
+  } finally {
+    db.close();
+  }
+
+  const seededProposal = insertProposalArtifactForWorkItem({
+    dbPath,
+    itemId: String(seededItem.id ?? ""),
+    itemTitle: String(seededItem.title ?? "Work item"),
+    itemGoal: String(seededItem.goal ?? ""),
+    proposalStatus: "ready_for_review",
+    metadataOverrides: {
+      promotion: {
+        status: "planned",
+        sourceExecutionId: rootExecutionId,
+      },
+    },
+  });
+  assert.ok(seededProposal.proposalId);
+
+  const detail = await getOperatorThreadDetail(ORCHESTRATOR_PORT, thread.id);
+  const coordination = asObject(asObject(detail.context).coordination);
+  assert.equal(coordination.rootExecutionId, rootExecutionId);
+  assert.equal(coordination.coordinationMode, "brownfield-intake");
+  assert.equal(
+    asObject(asObject(coordination.links).family).href,
+    `/coordination-families/${encodeURIComponent(rootExecutionId)}`,
+  );
+  assert.equal(asArray<JsonRecord>(coordination.leadLanes).length, 2);
+  assert.equal(
+    asObject(coordination.integratorLane).executionId,
+    `${rootExecutionId}-integrator`,
+  );
+  assert.equal(
+    asObject(coordination.readiness).state,
+    "blocked",
+  );
+  assert.ok(asArray<JsonRecord>(coordination.blockers).length >= 1);
+  assert.deepEqual(
+    asArray<JsonRecord>(coordination.pendingDecisions).map(
+      (entry) => entry.kind,
+    ),
+    ["review"],
+  );
 });
 
 test("operator chat does not treat docs waiting_review runs as managed-run recovery failures", async (t) => {

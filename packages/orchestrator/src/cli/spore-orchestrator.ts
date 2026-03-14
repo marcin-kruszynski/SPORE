@@ -250,6 +250,9 @@ async function main() {
       domains: parseCsv(flags.domains),
       objective: flags.objective ?? "",
       invocationId: flags["invocation-id"] ?? null,
+      metadata: flags["coordination-mode"]
+        ? { coordinationMode: flags["coordination-mode"] }
+        : null,
     });
     console.log(JSON.stringify({ ok: true, detail }, null, 2));
     return;
@@ -261,6 +264,9 @@ async function main() {
       domains: parseCsv(flags.domains),
       objective: flags.objective ?? "",
       invocationId: flags["invocation-id"] ?? null,
+      metadata: flags["coordination-mode"]
+        ? { coordinationMode: flags["coordination-mode"] }
+        : null,
       wait: flags.wait === true,
       timeout: flags.timeout ?? "180000",
       interval: flags.interval ?? "1500",

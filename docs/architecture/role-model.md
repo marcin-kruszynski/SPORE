@@ -13,11 +13,14 @@
 ### Coordinator
 
 - owns one project-root execution family,
+- uses `rootExecutionId` as the canonical family identifier, with optional `familyKey` metadata for grouping surfaces,
 - routes one project objective across multiple domain lead lanes,
+- carries explicit `coordinationMode` metadata such as `delivery`, `project-breakdown`, or `brownfield-intake`,
 - remains read-mostly by default,
 - receives project-level escalations and promotion blockers,
 - does not receive a mutating workspace unless policy explicitly opts in,
-- emits a durable `routing_summary` handoff for downstream project lanes and operator inspection.
+- emits a durable `routing_summary` handoff for downstream project lanes and operator inspection,
+- is exposed to operators through execution detail `coordination` links, coordinator-family read routes, and operator-thread coordination context.
 
 ### Lead
 
@@ -65,6 +68,7 @@
 - uses a dedicated integration workspace and integration branch metadata,
 - may resolve clearly mechanical conflicts when policy allows it,
 - escalates semantic or ambiguous blockers back to the coordinator,
+- remains the promotion owner even when the coordinator family is operator-visible,
 - emits a durable `integration_summary` handoff for promotion state and integration evidence.
 
 ## Runtime Input And Output Contract
@@ -86,6 +90,7 @@ Project-scoped roles are configured through project config rather than domain co
 
 - `coordinatorProfile`
 - `integratorProfile`
+- `projectCoordinationPolicy.coordinationMode`
 
 The intended topology is now:
 
@@ -102,4 +107,5 @@ Backward compatibility rule:
 
 - existing domain workflows remain lead-first,
 - `coordinator` and `integrator` are explicit planner/invoker paths,
-- they are not silently prepended to domain `roleSequence` lists.
+- they are not silently prepended to domain `roleSequence` lists,
+- operator-visible family summaries describe coordinator-owned lead and integrator lanes without changing the lead-local or integrator-local execution contracts.

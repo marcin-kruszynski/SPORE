@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { DEFAULT_ORCHESTRATOR_DB_PATH } from "../metadata/constants.js";
+import { getCoordinatorFamilySummary } from "../execution/workflow-execution.js";
 import {
   type openOrchestratorDatabase,
   withRetriedOrchestratorDatabase,
@@ -395,7 +396,48 @@ function summarizeRun(run: LooseRecord | null) {
     createdAt: run.createdAt ?? null,
     startedAt: run.startedAt ?? null,
     endedAt: run.endedAt ?? null,
+    executionId:
+      toText(asObject(run.result).executionId, "") ||
+      toText(asObject(run.execution).id, "") ||
+      null,
   };
+}
+
+function coordinationLinks(rootExecutionId: string) {
+  return {
+    family: {
+      href: `/coordination-families/${encodeURIComponent(rootExecutionId)}`,
+    },
+    lanes: {
+      href: `/coordination-families/${encodeURIComponent(rootExecutionId)}/lanes`,
+    },
+    readiness: {
+      href: `/coordination-families/${encodeURIComponent(rootExecutionId)}/readiness`,
+    },
+  };
+}
+
+function resolveThreadCoordinationSummary(
+  proposal: LooseRecord | null,
+  latestRun: LooseRecord | null,
+  dbPath: string,
+) {
+  const promotion = asObject(asObject(asObject(proposal).metadata).promotion);
+  const sourceExecutionId =
+    toText(promotion.sourceExecutionId, "") ||
+    toText(asObject(asObject(latestRun).execution).id, "") ||
+    toText(asObject(asObject(latestRun).result).executionId, "") ||
+    null;
+  if (!sourceExecutionId) {
+    return null;
+  }
+  const summary = getCoordinatorFamilySummary(sourceExecutionId, dbPath);
+  return summary
+    ? {
+        ...summary,
+        links: coordinationLinks(String(summary.rootExecutionId)),
+      }
+    : null;
 }
 
 function proposalValidationStatus(
@@ -1729,6 +1771,7 @@ function summarizeThreadContext(
   group: LooseRecord | null,
   proposal: LooseRecord | null,
   latestRun: LooseRecord | null,
+  coordination: LooseRecord | null,
 ) {
   const dashboard = getSelfBuildDashboard();
   return {
@@ -1737,6 +1780,7 @@ function summarizeThreadContext(
     group,
     proposal,
     latestRun: summarizeRun(latestRun),
+    coordination,
     linkedArtifacts: [
       artifactRef(
         "goal-plan",
@@ -2408,6 +2452,11 @@ async function syncThreadState(threadId: string, dbPath: string) {
   proposal = proposalSelection.proposal;
   let latestRun = resolveLatestThreadRun(group, linkage, proposal, dbPath);
   let needsRunRecovery = latestRunNeedsRecovery(latestRun, proposal);
+  const coordination = resolveThreadCoordinationSummary(
+    proposal,
+    latestRun,
+    dbPath,
+  );
 
   let integrationBranch =
     getProposalIntegrationBranch(proposal) || linkage.integrationBranch || null;
@@ -2711,7 +2760,14 @@ async function syncThreadState(threadId: string, dbPath: string) {
     dbPath,
   );
   const context = {
-    ...summarizeThreadContext(thread, goalPlan, group, proposal, latestRun),
+    ...summarizeThreadContext(
+      thread,
+      goalPlan,
+      group,
+      proposal,
+      latestRun,
+      coordination,
+    ),
     activeQuarantine,
   };
   const actionHistory = withDatabase(dbPath, (db) =>

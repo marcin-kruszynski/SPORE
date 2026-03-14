@@ -1,5 +1,7 @@
 declare module "@spore/orchestrator" {
   export {
+    getCoordinatorFamilySummary,
+    getCoordinatorFamilySummaryByRootExecutionId,
     createExecution,
     getExecutionDetail,
     getExecutionHandoff,
@@ -8,7 +10,12 @@ declare module "@spore/orchestrator" {
     spawnExecutionBranches,
   } from "./execution/workflow-execution.js";
 
-  export { planWorkflowInvocation } from "./invocation/plan-workflow-invocation.js";
+  export {
+    buildProjectCoordinationPlan,
+    planFeaturePromotion,
+    planProjectCoordination,
+    planWorkflowInvocation,
+  } from "./invocation/plan-workflow-invocation.js";
 
   export { transitionStepRecord } from "./lifecycle/execution-lifecycle.js";
 

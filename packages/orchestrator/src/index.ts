@@ -1,4 +1,5 @@
 export * from "./execution/brief.js";
+export * from "./execution/coordination-summary.js";
 export * from "./execution/policy-diff.js";
 export * from "./execution/workflow-execution.js";
 export * from "./invocation/plan-workflow-invocation.js";

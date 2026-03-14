@@ -51,6 +51,7 @@ The bootstrap execution path now supports:
 - domain-aware workflow policy defaults from `config/domains/*.yaml` plus project `activeDomains[]` overrides,
 - execution records that can carry lineage metadata such as `parentExecutionId` and `coordinationGroupId`,
 - execution records that can carry branch metadata such as `branchKey`,
+- coordinator-family summaries keyed by canonical `rootExecutionId` with optional `familyKey` grouping metadata,
 - coordination-group list and detail views for related executions,
 - child-execution reads for lineage-aware operator surfaces,
 - rooted execution-tree reads for lineage-aware clients,
@@ -63,6 +64,7 @@ The bootstrap execution path now supports:
 - operator resolution of open escalations with optional execution resume,
 - operator fork, pause, hold, resume, and coordination-group drive controls,
 - operator tree-drive, tree-review, tree-approval, and multi-branch spawn controls for execution families,
+- coordinator-family read routes for family detail, lane detail, and readiness detail,
 - paused and held execution states for operator-controlled interruption without treating the execution as failed,
 - completion, failure, rejection, and cancellation as execution end states.
 
@@ -85,16 +87,26 @@ Rules:
 - `coordinator` is a project-root, read-mostly role and is not prepended to existing domain workflow role lists.
 - `integrator` is a project-scoped promotion lane and is not prepended to domain workflow role lists.
 - existing lead-first child workflows keep their current semantics.
+- `coordinationMode` is explicit project-root metadata; the seeded supported values are `delivery`, `project-breakdown`, and `brownfield-intake`.
 - proposal approval is not treated as merge completion.
 - the default terminal promotion outcome is `promotion_candidate`, not automatic merge to `main`.
 
 Promotion lanes reuse existing execution-family primitives:
 
-- `coordinationGroupId`
+- `rootExecutionId` as the canonical family route key
+- optional `familyKey` grouping metadata
 - `parentExecutionId`
 - `branchKey`
 
 The coordinator root owns the family and domain child lanes. Integrator executions are explicit children under that root and inherit project-level coordination metadata rather than mutating the role lists of domain workflows.
+
+The reusable coordinator-family summary currently projects:
+
+- the coordinator root identity and selected `coordinationMode`,
+- lead lane summaries and the optional integrator lane,
+- readiness state for lead completion vs pending review or approval,
+- family blockers from open escalations and promotion blockers,
+- the latest durable `routing_summary` handoff for operator inspection.
 
 ## Domain Policy Integration
 
@@ -265,12 +277,14 @@ Those concerns should remain separate.
 
 Lineage fields:
 
+- `rootExecutionId`: identifies the canonical coordinator-family root and is the stable key for family routes and links.
 - `parentExecutionId`: identifies the immediate ancestor execution when an execution is branched or forked from another execution.
 - `childExecutionIds`: identifies known descendants when the execution detail payload includes them.
 - `branchKey`: identifies the logical branch name or retry/rework lane when the workflow creates divergent paths.
 
 Coordination fields:
 
+- `familyKey`: optional grouping metadata exposed from `coordinationGroupId`-style lineage without replacing `rootExecutionId`.
 - `coordinationGroupId`: identifies a shared execution group that may contain multiple related executions.
 
 An execution may have:

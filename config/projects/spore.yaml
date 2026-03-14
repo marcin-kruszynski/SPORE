@@ -84,6 +84,8 @@ workflowDefaults: [backend-service-delivery, frontend-ui-pass, cli-verification-
 policyPacks: [self-build-safe, self-build-proposals]
 projectCoordinationPolicy:
   workflow: project-coordination-root
+  coordinationMode: delivery
+  supportedModes: [delivery, project-breakdown, brownfield-intake]
   workflowPolicy:
     defaultRoles: [coordinator]
     stepSoftTimeoutMs: 30000

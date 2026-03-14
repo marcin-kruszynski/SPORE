@@ -41,10 +41,14 @@ The decision includes these architectural rules:
 - Existing lead-first child workflows remain structurally unchanged inside their own executions.
 - Project-root coordination is an explicit planner and invoker path; existing workflow `plan` and `invoke` behavior must not be silently repurposed.
 - One coordinator root execution owns one project execution family for one active project run.
+- `rootExecutionId` is the canonical family identifier; `familyKey` is optional grouping metadata only.
+- Coordinator-root planning carries explicit `coordinationMode` metadata.
 - Lead child executions sit under that coordinator root using the existing lineage and coordination primitives.
 - The coordinator remains read-mostly by default and does not receive a mutating workspace unless a future policy explicitly allows it.
 - Domain review, approval, retry, and rework loops remain lead-owned by default.
 - Project-wide blockers, cross-domain conflicts, and exhausted lead-level recovery may escalate to the coordinator.
+- The integrator remains the explicit promotion owner for the coordinator family.
+- Operator surfaces should expose a reusable coordinator-family summary rather than reconstructing project state from transcripts or proposal records.
 
 Recommended topology:
 
@@ -64,9 +68,12 @@ orchestrator
 - Multi-project execution becomes easier to model using one coordinator-root family per project.
 - Project-level escalations gain a natural target role without globally changing lead-local recovery defaults.
 - Project config and schema must grow project-scoped coordinator settings such as `coordinatorProfile` and a project coordination policy block.
+- Project config and workflow config now carry an explicit `coordinationMode` default and supported mode set.
 - Planner and invocation logic must add explicit project-root entrypoints instead of mutating old direct workflow behavior.
 - Web, TUI, CLI, and HTTP surfaces must learn to recognize coordinator-root families while preserving backward compatibility for older trees.
+- Operator-facing coordination surfaces should use family detail, lane, and readiness reads keyed by `rootExecutionId`.
 - Workspace rules stay stricter because the coordinator remains outside normal mutation worktrees.
 - Future project-scoped roles such as an `integrator` promotion lane have a natural parent boundary under the coordinator.
+- The integrator boundary remains preserved: coordinator visibility and blocker aggregation do not collapse promotion work back into the coordinator lane.
 
 This ADR has since been implemented. `docs/plans/project-coordinator-role-plan.md` remains as historical implementation context, while the current ground truth now lives in `docs/architecture/role-model.md`, `docs/architecture/workflow-model.md`, and the active orchestrator/operator surfaces.

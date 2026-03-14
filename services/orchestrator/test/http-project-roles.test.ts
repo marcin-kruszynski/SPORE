@@ -85,6 +85,7 @@ test("project coordination and promotion routes expose coordinator and integrato
       project: "config/projects/example-project.yaml",
       domains: ["backend", "frontend"],
       objective: "Coordinate backend and frontend work for one project.",
+      coordinationMode: "brownfield-intake",
     },
   );
   assert.equal(projectPlan.status, 200);
@@ -103,6 +104,11 @@ test("project coordination and promotion routes expose coordinator and integrato
     "backend",
     "frontend",
   ]);
+  assert.equal(
+    projectPlan.json.detail.rootInvocation.metadata.invocationMetadata
+      .coordinationMode,
+    "brownfield-intake",
+  );
   assert.equal(projectPlan.json.detail.childInvocations.length, 2);
 
   const projectPlanProxy = await postJson(
@@ -111,6 +117,7 @@ test("project coordination and promotion routes expose coordinator and integrato
       project: "config/projects/example-project.yaml",
       domains: ["backend", "frontend"],
       objective: "Coordinate backend and frontend work for one project.",
+      coordinationMode: "brownfield-intake",
     },
   );
   assert.equal(projectPlanProxy.status, 200);
@@ -122,6 +129,7 @@ test("project coordination and promotion routes expose coordinator and integrato
       project: "config/projects/example-project.yaml",
       domains: ["backend", "frontend"],
       objective: "Coordinate backend and frontend work for one project.",
+      coordinationMode: "brownfield-intake",
       wait: true,
       stub: true,
       timeout: 20000,
@@ -145,6 +153,14 @@ test("project coordination and promotion routes expose coordinator and integrato
   assert.equal(
     rootExecution.json.detail.execution.topology?.kind,
     "project-root",
+  );
+  assert.equal(
+    rootExecution.json.detail.coordination?.rootExecutionId,
+    rootExecutionId,
+  );
+  assert.equal(
+    rootExecution.json.detail.coordination?.coordinationMode,
+    "brownfield-intake",
   );
 
   const treeReview = await postJson(
@@ -231,6 +247,10 @@ test("project coordination and promotion routes expose coordinator and integrato
     "integrator",
   );
   assert.equal(
+    integratorExecution.json.detail.execution.topology?.coordinationMode,
+    "brownfield-intake",
+  );
+  assert.equal(
     integratorExecution.json.detail.execution.topology?.kind,
     "promotion-lane",
   );
@@ -242,6 +262,64 @@ test("project coordination and promotion routes expose coordinator and integrato
   assert.equal(
     integratorExecution.json.detail.execution.promotion?.targetBranch,
     "main",
+  );
+
+  const coordinationFamily = await getJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/coordination-families/${encodeURIComponent(rootExecutionId)}`,
+  );
+  assert.equal(coordinationFamily.status, 200);
+  assert.ok(coordinationFamily.json.ok);
+  assert.equal(coordinationFamily.json.detail.rootExecutionId, rootExecutionId);
+  assert.equal(
+    coordinationFamily.json.detail.coordinationMode,
+    "brownfield-intake",
+  );
+  assert.ok(Array.isArray(coordinationFamily.json.detail.leadLanes));
+  assert.equal(
+    coordinationFamily.json.detail.integratorLane?.executionId,
+    integratorExecutionId,
+  );
+
+  const nonRootCoordinationFamily = await getJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/coordination-families/${encodeURIComponent(integratorExecutionId)}`,
+  );
+  assert.equal(nonRootCoordinationFamily.status, 404);
+  assert.equal(nonRootCoordinationFamily.json.ok, false);
+
+  const coordinationLanes = await getJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/coordination-families/${encodeURIComponent(rootExecutionId)}/lanes`,
+  );
+  assert.equal(coordinationLanes.status, 200);
+  assert.ok(coordinationLanes.json.ok);
+  assert.deepEqual(
+    coordinationLanes.json.detail.leadLanes.map((lane) => lane.role),
+    ["lead", "lead"],
+  );
+  assert.equal(
+    coordinationLanes.json.detail.integratorLane?.executionId,
+    integratorExecutionId,
+  );
+
+  const coordinationReadiness = await getJson(
+    `http://127.0.0.1:${ORCHESTRATOR_PORT}/coordination-families/${encodeURIComponent(rootExecutionId)}/readiness`,
+  );
+  assert.equal(coordinationReadiness.status, 200);
+  assert.ok(coordinationReadiness.json.ok);
+  assert.equal(
+    coordinationReadiness.json.detail.rootExecutionId,
+    rootExecutionId,
+  );
+  assert.equal(
+    coordinationReadiness.json.detail.coordinationMode,
+    "brownfield-intake",
+  );
+  assert.equal(
+    typeof coordinationReadiness.json.detail.readiness.state,
+    "string",
+  );
+  assert.equal(
+    coordinationReadiness.json.detail.readiness.readyForIntegratorPlanning,
+    true,
   );
 
   const integratorWorkspaces = await getJson(

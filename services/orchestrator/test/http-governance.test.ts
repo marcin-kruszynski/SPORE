@@ -42,7 +42,7 @@ test("family governance, audit, and policy diff routes work through HTTP and web
         objective: "Child branch A",
       },
       {
-        roles: ["tester", "reviewer"],
+        roles: ["builder", "tester", "reviewer"],
         invocationId: `${executionId}-child-b`,
         objective: "Child branch B",
       },

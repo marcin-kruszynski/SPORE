@@ -13,6 +13,8 @@ import {
   getExecutionHandoff,
   getDocSuggestionSummary,
   getDocSuggestionsForRun,
+  getCoordinatorFamilySummary,
+  getCoordinatorFamilySummaryByRootExecutionId,
   getGoalPlanHistory,
   getGoalPlanSummary,
   getIntegrationBranchSummary,
@@ -202,6 +204,8 @@ function buildProjectPlanArgs(body) {
   if (body.domains?.length) args.push("--domains", body.domains.join(","));
   if (body.objective) args.push("--objective", body.objective);
   if (body.invocationId) args.push("--invocation-id", body.invocationId);
+  if (body.coordinationMode)
+    args.push("--coordination-mode", body.coordinationMode);
   return args;
 }
 
@@ -215,6 +219,8 @@ function buildProjectInvokeArgs(body) {
   if (body.domains?.length) args.push("--domains", body.domains.join(","));
   if (body.objective) args.push("--objective", body.objective);
   if (body.invocationId) args.push("--invocation-id", body.invocationId);
+  if (body.coordinationMode)
+    args.push("--coordination-mode", body.coordinationMode);
   if (body.wait) args.push("--wait");
   if (body.timeout) args.push("--timeout", String(body.timeout));
   if (body.interval) args.push("--interval", String(body.interval));
@@ -868,6 +874,71 @@ const server = http.createServer(async (request, response) => {
         if (!response.writableEnded) {
           response.end();
         }
+      });
+      return;
+    }
+
+    if (
+      request.method === "GET" &&
+      parts.length === 2 &&
+      parts[0] === "coordination-families"
+    ) {
+      const detail = getCoordinatorFamilySummaryByRootExecutionId(parts[1]);
+      if (!detail) {
+        notFound(response, `coordination family not found: ${parts[1]}`);
+        return;
+      }
+      json(response, 200, { ok: true, detail });
+      return;
+    }
+
+    if (
+      request.method === "GET" &&
+      parts.length === 3 &&
+      parts[0] === "coordination-families" &&
+      parts[2] === "lanes"
+    ) {
+      const detail = getCoordinatorFamilySummaryByRootExecutionId(parts[1]);
+      if (!detail) {
+        notFound(response, `coordination family not found: ${parts[1]}`);
+        return;
+      }
+      json(response, 200, {
+        ok: true,
+        detail: {
+          rootExecutionId: detail.rootExecutionId,
+          familyKey: detail.familyKey,
+          coordinationMode: detail.coordinationMode,
+          leadLanes: detail.leadLanes,
+          integratorLane: detail.integratorLane,
+          links: detail.links,
+        },
+      });
+      return;
+    }
+
+    if (
+      request.method === "GET" &&
+      parts.length === 3 &&
+      parts[0] === "coordination-families" &&
+      parts[2] === "readiness"
+    ) {
+      const detail = getCoordinatorFamilySummaryByRootExecutionId(parts[1]);
+      if (!detail) {
+        notFound(response, `coordination family not found: ${parts[1]}`);
+        return;
+      }
+      json(response, 200, {
+        ok: true,
+        detail: {
+          rootExecutionId: detail.rootExecutionId,
+          familyKey: detail.familyKey,
+          coordinationMode: detail.coordinationMode,
+          readiness: detail.readiness,
+          blockers: detail.blockers,
+          pendingDecisions: detail.pendingDecisions,
+          links: detail.links,
+        },
       });
       return;
     }
