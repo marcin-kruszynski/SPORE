@@ -11,6 +11,8 @@ import { Button } from "../components/ui/button.js";
 import { Skeleton } from "../components/ui/skeleton.js";
 import { useOperatorChat } from "../features/operator-chat/use-operator-chat.js";
 
+const CHAT_SUBTITLE = "Operator Console";
+
 const ChatPage = () => {
   const [showCreate, setShowCreate] = useState(false);
   const chat = useOperatorChat();
@@ -18,7 +20,7 @@ const ChatPage = () => {
   if (chat.isInitialLoading) {
     return (
       <div className="flex h-screen flex-col">
-        <PageHeader title="Chat" subtitle="Mission Control" pendingCount={0} />
+        <PageHeader title="Chat" subtitle={CHAT_SUBTITLE} pendingCount={0} />
         <div className="flex flex-1 items-center justify-center px-6 text-sm text-muted-foreground">
           Loading mission control...
         </div>
@@ -29,7 +31,7 @@ const ChatPage = () => {
   if (chat.loadErrorMessage) {
     return (
       <div className="flex h-screen flex-col">
-        <PageHeader title="Chat" subtitle="Mission Control" pendingCount={chat.pendingCount} />
+        <PageHeader title="Chat" subtitle={CHAT_SUBTITLE} pendingCount={chat.pendingCount} />
         <div className="flex flex-1 items-center justify-center px-6">
           <Alert className="max-w-xl border-destructive/30 bg-destructive/5">
             <AlertTriangle className="h-4 w-4" />
@@ -100,7 +102,7 @@ const ChatPage = () => {
     <div className="flex h-screen flex-col">
       <PageHeader
         title="Chat"
-        subtitle="Mission Control"
+        subtitle={CHAT_SUBTITLE}
         pendingCount={chat.pendingCount}
         actions={actions}
       />

@@ -320,3 +320,97 @@ test("prompt includes inbound handoff summary and expected output contract", asy
   assert.match(promptRaw, /## Expected Handoff Output/);
   assert.match(promptRaw, /SPORE_HANDOFF_JSON_BEGIN/);
 });
+
+test("prompt keeps a single handoff contract section and lists canonical next roles", async (t) => {
+  if (!(await commandExists("tmux"))) {
+    t.skip("tmux not available");
+    return;
+  }
+
+  const tempRoot = await fs.mkdtemp(
+    path.join(os.tmpdir(), "spore-workspace-scout-prompt-"),
+  );
+  const sessionDbPath = path.join(tempRoot, "sessions.sqlite");
+  const eventLogPath = path.join(tempRoot, "events.ndjson");
+  const sessionId = `workspace-scout-prompt-${Date.now()}`;
+  const runId = `${sessionId}-run`;
+  const plan = await buildSessionPlan({
+    profilePath: "config/profiles/scout.yaml",
+    projectPath: "config/projects/spore.yaml",
+    sessionId,
+    runId,
+    inboundHandoffs: [
+      {
+        id: "handoff-lead-task-brief",
+        kind: "task_brief",
+        sourceRole: "lead",
+        targetRole: "scout",
+        summary: {
+          title: "Lead brief",
+        },
+        artifacts: {
+          handoffPath: "tmp/sessions/lead.handoff.json",
+        },
+      },
+    ],
+    expectedHandoff: {
+      kind: "scout_findings",
+      marker: "SPORE_HANDOFF_JSON",
+      requiredSections: [
+        "summary",
+        "findings",
+        "recommendations",
+        "risks",
+        "evidence",
+        "scope",
+        "next_role",
+      ],
+      allowedNextRoles: ["builder"],
+    },
+  } as never);
+  const planPath = path.join(tempRoot, `${sessionId}.plan.json`);
+  const artifactsBase = path.join(PROJECT_ROOT, "tmp", "sessions", sessionId);
+
+  t.after(async () => {
+    await fs.rm(tempRoot, { recursive: true, force: true });
+    await Promise.all([
+      fs.rm(`${artifactsBase}.prompt.md`, { force: true }),
+      fs.rm(`${artifactsBase}.launch.sh`, { force: true }),
+      fs.rm(`${artifactsBase}.transcript.md`, { force: true }),
+      fs.rm(`${artifactsBase}.exit.json`, { force: true }),
+      fs.rm(`${artifactsBase}.pi-events.jsonl`, { force: true }),
+      fs.rm(`${artifactsBase}.stderr.log`, { force: true }),
+      fs.rm(`${artifactsBase}.pi-session.jsonl`, { force: true }),
+      fs.rm(`${artifactsBase}.control.ndjson`, { force: true }),
+      fs.rm(`${artifactsBase}.rpc-status.json`, { force: true }),
+      fs.rm(`${artifactsBase}.launch-context.json`, { force: true }),
+      fs.rm(`${artifactsBase}.context.json`, { force: true }),
+      fs.rm(`${artifactsBase}.plan.json`, { force: true }),
+    ]);
+  });
+
+  await fs.writeFile(planPath, `${JSON.stringify(plan, null, 2)}\n`, "utf8");
+
+  await runNode(
+    buildTsxEntrypointArgs("packages/runtime-pi/src/cli/run-session-plan.ts", [
+      "--plan",
+      planPath,
+      "--stub",
+      "--stub-seconds",
+      "0",
+      "--wait",
+      "--no-monitor",
+    ]),
+    {
+      SPORE_SESSION_DB_PATH: sessionDbPath,
+      SPORE_EVENT_LOG_PATH: eventLogPath,
+    },
+  );
+
+  const promptRaw = await fs.readFile(`${artifactsBase}.prompt.md`, "utf8");
+  assert.equal(
+    promptRaw.match(/## Expected Handoff Output/g)?.length ?? 0,
+    1,
+  );
+  assert.match(promptRaw, /Allowed next roles: builder/);
+});

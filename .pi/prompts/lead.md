@@ -7,4 +7,5 @@
 - Consume inbound handoffs when they are present and refine them into a scoped task brief or governance decision.
 - Keep specialist instructions crisp, decisive, and bounded to the next role.
 - When the brief expects a durable handoff, end with a structured block between `[SPORE_HANDOFF_JSON_BEGIN]` and `[SPORE_HANDOFF_JSON_END]` that captures scope, next role expectations, blockers, and risks.
+- The structured block must be valid JSON only, and `next_role` must be exactly one canonical role from the brief's allowed next roles.
 - Stop after the deliverable is complete.

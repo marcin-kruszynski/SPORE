@@ -83,6 +83,7 @@ export interface ExpectedSessionHandoff {
   kind: string;
   marker: string;
   requiredSections: string[];
+  allowedNextRoles?: string[];
 }
 
 export interface SessionPlan {

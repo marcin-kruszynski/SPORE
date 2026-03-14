@@ -107,7 +107,12 @@ function renderLaneDetail(initialEntry = "/cockpit/agents/session%3Asession-1") 
   };
 }
 
-type FetchMode = "ready" | "missing-lane" | "session-live-failed" | "session-live-unavailable";
+type FetchMode =
+  | "ready"
+  | "missing-lane"
+  | "session-live-failed"
+  | "session-live-unavailable"
+  | "dirty-handoff";
 
 function installLaneDetailFetch(modeRef: { current: FetchMode }, requests: string[]) {
   globalThis.fetch = (async (input: RequestInfo | URL) => {
@@ -326,14 +331,41 @@ function installLaneDetailFetch(modeRef: { current: FetchMode }, requests: strin
           primary: {
             kind: "implementation_summary",
             validation: {
-              valid: true,
-              issues: [],
+              valid: modeRef.current === "dirty-handoff" ? false : true,
+              issues:
+                modeRef.current === "dirty-handoff"
+                  ? [
+                      {
+                        message:
+                          "The structured handoff next_role 'frontend-builder' is not canonical.",
+                      },
+                    ]
+                  : [],
             },
-            payload: {
-              summary: "Implemented the requested dashboard change.",
-              changed_paths: ["apps/web/src/pages/ChatPage.tsx"],
-              tests_run: ["npm run test:web"],
-            },
+            payload:
+              modeRef.current === "dirty-handoff"
+                ? {
+                    summary: {
+                      title: "Scout findings",
+                      outcome:
+                        "Builder should add the theme toggle in the shared header.",
+                    },
+                    findings: [
+                      {
+                        title: "No existing toggle",
+                        details: "The dashboard shell has no real theme switch.",
+                      },
+                    ],
+                    recommendations: [
+                      "Add a root ThemeProvider and persistent header toggle.",
+                    ],
+                    next_role: "frontend-builder",
+                  }
+                : {
+                    summary: "Implemented the requested dashboard change.",
+                    changed_paths: ["apps/web/src/pages/ChatPage.tsx"],
+                    tests_run: ["npm run test:web"],
+                  },
           },
         },
         artifacts: {
@@ -550,6 +582,73 @@ test("AgentLaneDetailPage foregrounds real input, live output, and returned outp
   assert.ok(returnedOutputIndex > liveOutputIndex);
   assert.ok(artifactsIndex > returnedOutputIndex);
   assert.equal(pageText.includes("sourceRole"), false);
+
+  restoreDom();
+});
+
+test("AgentLaneDetailPage renders nested handoff summaries cleanly without object leakage", async () => {
+  const restoreDom = installDomGlobals("/cockpit/agents/session%3Asession-1");
+  const modeRef = { current: "dirty-handoff" as FetchMode };
+  installLaneDetailFetch(modeRef, []);
+
+  const view = renderLaneDetail();
+
+  await view.findByRole("heading", { name: "Implementer" });
+  await view.findByText(/Builder should add the theme toggle in the shared header/i);
+  await view.findByText(/not canonical/i);
+
+  const pageText = view.container.textContent ?? "";
+  assert.equal(pageText.includes("[object Object]"), false);
+
+  restoreDom();
+});
+
+test("AgentLaneDetailPage renders object and string section values in returned handoffs", async () => {
+  const restoreDom = installDomGlobals("/cockpit/agents/session%3Asession-1");
+  const modeRef = { current: "dirty-handoff" as FetchMode };
+  installLaneDetailFetch(modeRef, []);
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.endsWith("/api/sessions/session-1/live")) {
+      return jsonResponse({
+        ok: true,
+        session: {
+          id: "session-1",
+          role: "implementer",
+          state: "completed",
+          updatedAt: "2026-03-12T10:05:00.000Z",
+        },
+        events: [],
+        diagnostics: {
+          status: "completed",
+        },
+        handoff: {
+          primary: {
+            kind: "scout_findings",
+            validation: { valid: true, issues: [] },
+            payload: {
+              summary: "Compact density toggle needs a shared cockpit setting.",
+              scope: {
+                in_scope: ["apps/web/src/components/cockpit"],
+                out_of_scope: ["services/orchestrator"],
+              },
+              tests_run: "node --import=tsx --test apps/web/test/agent-cockpit-page.test.ts",
+            },
+          },
+        },
+        artifacts: {},
+      });
+    }
+    return originalFetch(input);
+  }) as typeof fetch;
+
+  const view = renderLaneDetail();
+
+  await view.findByRole("heading", { name: "Implementer" });
+  await view.findByText(/apps\/web\/src\/components\/cockpit/i);
+  await view.findByText(/agent-cockpit-page.test.ts/i);
 
   restoreDom();
 });

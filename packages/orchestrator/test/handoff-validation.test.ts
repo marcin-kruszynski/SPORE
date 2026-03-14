@@ -73,6 +73,56 @@ test("string summary and string blockers/risks satisfy human-facing handoff requ
   assert.equal(result.issues.length, 0);
 });
 
+test("scope objects with in_scope and out_of_scope satisfy structured planning handoffs", () => {
+  const result = validateStructuredHandoff({
+    markerFound: true,
+    parsedBlock: {
+      summary: "plain text summary",
+      findings: ["theme toggle missing"],
+      recommendations: ["builder adds toggle"],
+      risks: ["token drift"],
+      evidence: ["apps/web/src/main.tsx"],
+      scope: {
+        in_scope: ["apps/web/src/main.tsx"],
+        out_of_scope: ["services/orchestrator"],
+      },
+      next_role: "builder",
+    },
+    requiredSections: [
+      "summary",
+      "findings",
+      "recommendations",
+      "risks",
+      "evidence",
+      "scope",
+      "next_role",
+    ],
+    allowedNextRoles: ["builder"],
+  });
+
+  assert.equal(result.valid, true);
+  assert.equal(result.issues.length, 0);
+});
+
+test("summary arrays satisfy structured implementation handoffs", () => {
+  const result = validateStructuredHandoff({
+    markerFound: true,
+    parsedBlock: {
+      summary: [
+        "Wrapped the app in ThemeProvider.",
+        "Added a page-header theme toggle.",
+      ],
+      changed_paths: ["apps/web/src/main.tsx"],
+      tests_run: ["npm run web:build"],
+      open_risks: ["No browser smoke yet."],
+    },
+    requiredSections: ["summary", "changed_paths", "tests_run", "open_risks"],
+  });
+
+  assert.equal(result.valid, true);
+  assert.equal(result.issues.length, 0);
+});
+
 test("common near-miss handoff keys satisfy required sections", () => {
   const result = validateStructuredHandoff({
     markerFound: true,
@@ -87,6 +137,38 @@ test("common near-miss handoff keys satisfy required sections", () => {
 
   assert.equal(result.valid, true);
   assert.equal(result.issues.length, 0);
+});
+
+test("next_role must stay within canonical downstream workflow roles", () => {
+  const result = validateStructuredHandoff({
+    markerFound: true,
+    parsedBlock: {
+      summary: "plain text summary",
+      findings: ["theme toggle missing"],
+      recommendations: ["builder adds toggle"],
+      risks: ["token drift"],
+      evidence: ["apps/web/src/main.tsx"],
+      scope: ["apps/web"],
+      next_role: "frontend-builder",
+    },
+    requiredSections: [
+      "summary",
+      "findings",
+      "recommendations",
+      "risks",
+      "evidence",
+      "scope",
+      "next_role",
+    ],
+    allowedNextRoles: ["builder", "lead"],
+  } as never);
+
+  assert.equal(result.valid, false);
+  assert.ok(
+    result.issues.some(
+      (issue) => issue.code === "invalid_next_role" && issue.section === "next_role",
+    ),
+  );
 });
 
 test("contract fields with wrong types fail validation", () => {

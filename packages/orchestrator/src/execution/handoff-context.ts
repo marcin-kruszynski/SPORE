@@ -48,6 +48,7 @@ export async function buildExpectedHandoff(step: Record<string, unknown>) {
     marker: String(handoffPolicy.marker ?? DEFAULT_MARKER).trim() || DEFAULT_MARKER,
     requiredSections: normalizeRequiredSections(handoffPolicy.requiredSections),
     enforcementMode: String(handoffPolicy.enforcementMode ?? "accept").trim() || "accept",
+    allowedNextRoles: [],
   };
 }
 

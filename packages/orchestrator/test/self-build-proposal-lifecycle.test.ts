@@ -433,6 +433,62 @@ test("workflow proposals remain reviewable when the source run is waiting for re
   }
 });
 
+test("scenario runs in waiting_review stay in governance state instead of recovery failure", async () => {
+  const tempRoot = await fs.mkdtemp(
+    path.join(os.tmpdir(), "spore-waiting-review-scenario-run-"),
+  );
+  const dbPath = path.join(tempRoot, "orchestrator.sqlite");
+
+  try {
+    const item = createWorkItem(
+      {
+        title: "Docs waiting-review scenario",
+        kind: "scenario",
+        goal: "Keep docs governance runs out of managed-run recovery.",
+        metadata: {
+          projectPath: "config/projects/spore.yaml",
+          domainId: "docs",
+          mutationScope: ["docs"],
+          safeMode: true,
+        },
+      },
+      dbPath,
+    );
+
+    const runId = `work-item-run-${Date.now()}`;
+    const db = openOrchestratorDatabase(dbPath);
+    try {
+      insertWorkItemRun(db, {
+        id: runId,
+        workItemId: item.id,
+        status: "blocked",
+        triggerSource: "test",
+        requestedBy: "test-runner",
+        result: {
+          scenarioRunId: `scenario-run-${Date.now()}`,
+          executionId: `docs-adr-pass-${Date.now()}`,
+          status: "waiting_review",
+        },
+        metadata: {
+          itemKind: "scenario",
+        },
+        createdAt: new Date().toISOString(),
+        startedAt: new Date().toISOString(),
+        endedAt: new Date().toISOString(),
+      });
+    } finally {
+      db.close();
+    }
+
+    const runDetail = getSelfBuildWorkItemRun(runId, dbPath);
+    assert.ok(runDetail);
+    assert.equal(runDetail.terminalKind, "running");
+    assert.equal(runDetail.failure, null);
+  } finally {
+    await fs.rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test("proposal promotion context uses durable source execution without reusing workspace branches", async () => {
   const tempRoot = await fs.mkdtemp(
     path.join(os.tmpdir(), "spore-promotion-context-"),

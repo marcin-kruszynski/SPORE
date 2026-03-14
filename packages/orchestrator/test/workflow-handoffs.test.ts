@@ -9,6 +9,7 @@ import test from "node:test";
 import {
   createExecution,
   driveExecution,
+  recordApprovalDecision,
   recordReviewDecision,
 } from "../src/execution/workflow-execution.js";
 import { buildExpectedHandoff } from "../src/execution/handoff-context.js";
@@ -324,6 +325,96 @@ test("coordinator and integrator profiles expose structured handoff contracts", 
   ]);
 });
 
+test("published workflow handoffs keep clean summary text when the structured summary is a string", async (t) => {
+  const tempRoot = await fs.mkdtemp(
+    path.join(os.tmpdir(), "spore-workflow-handoff-summary-"),
+  );
+  const dbPath = path.join(tempRoot, "orchestrator.sqlite");
+  const transcriptPath = path.join(tempRoot, "scout.transcript.md");
+
+  t.after(async () => {
+    await fs.rm(tempRoot, { recursive: true, force: true });
+  });
+
+  await fs.writeFile(
+    transcriptPath,
+    [
+      "[agent:start]",
+      '[tool:update] bash: LICENSE',
+      "README.md",
+      "apps",
+      "The builder should add the shared header toggle after wiring the theme provider.",
+      "",
+      "[SPORE_HANDOFF_JSON_BEGIN]",
+      JSON.stringify(
+        {
+          summary:
+            "The dashboard needs a shared header toggle plus app-wide theme context before day/night mode can work.",
+          findings: ["Theme provider missing."],
+          recommendations: ["Builder adds ThemeProvider and header toggle."],
+          risks: ["Token drift in light mode."],
+          evidence: ["apps/web/src/main.tsx"],
+          scope: {
+            in_scope: ["apps/web/src/main.tsx", "apps/web/src/index.css"],
+            out_of_scope: ["services/orchestrator"],
+          },
+          next_role: "builder",
+        },
+        null,
+        2,
+      ),
+      "[SPORE_HANDOFF_JSON_END]",
+      "[agent:end]",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+
+  const db = openOrchestratorDatabase(dbPath);
+  try {
+    const published = await publishWorkflowStepHandoffs({
+      db,
+      execution: {
+        id: "execution-summary",
+        updatedAt: "2026-03-13T21:00:00.000Z",
+        objective: "Keep handoff summaries clean.",
+      },
+      step: {
+        id: "execution-summary:step:1",
+        sessionId: "session-summary",
+        role: "scout",
+        profilePath: "config/profiles/scout.yaml",
+        updatedAt: "2026-03-13T21:00:00.000Z",
+      },
+      session: {
+        transcriptPath,
+      },
+      steps: [
+        {
+          id: "execution-summary:step:1",
+          role: "scout",
+          wave: 0,
+        },
+        {
+          id: "execution-summary:step:2",
+          role: "builder",
+          wave: 1,
+        },
+      ],
+    });
+
+    assert.equal(published.length, 1);
+    const summary = (published[0]?.summary ?? {}) as Record<string, unknown>;
+    assert.match(
+      String(summary.outcome ?? ""),
+      /shared header toggle plus app-wide theme context/i,
+    );
+    assert.doesNotMatch(String(summary.outcome ?? ""), /^README\.md/m);
+  } finally {
+    db.close();
+  }
+});
+
 test("completed steps publish normalized workflow handoff artifacts", async (t) => {
   const tempRoot = await fs.mkdtemp(
     path.join(os.tmpdir(), "spore-workflow-handoffs-execution-"),
@@ -367,7 +458,7 @@ test("completed steps publish normalized workflow handoff artifacts", async (t) 
   });
 
   const created = createExecution(invocation, dbPath);
-  const detail = await driveExecution(created.execution.id, {
+  let detail = await driveExecution(created.execution.id, {
     wait: true,
     timeoutMs: 30000,
     intervalMs: 500,
@@ -375,6 +466,54 @@ test("completed steps publish normalized workflow handoff artifacts", async (t) 
     dbPath,
     sessionDbPath,
   });
+
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    const reviewPending = detail.steps.find((step) => step.state === "review_pending");
+    if (reviewPending) {
+      await recordReviewDecision(
+        created.execution.id,
+        {
+          status: "approved",
+          decidedBy: "test-runner",
+          comments: `advance ${reviewPending.role}`,
+        },
+        dbPath,
+        sessionDbPath,
+      );
+      detail = await driveExecution(created.execution.id, {
+        wait: true,
+        timeoutMs: 30000,
+        intervalMs: 500,
+        stub: true,
+        dbPath,
+        sessionDbPath,
+      });
+      continue;
+    }
+    const approvalPending = detail.steps.find((step) => step.state === "approval_pending");
+    if (approvalPending) {
+      await recordApprovalDecision(
+        created.execution.id,
+        {
+          status: "approved",
+          decidedBy: "test-runner",
+          comments: `approve ${approvalPending.role}`,
+        },
+        dbPath,
+        sessionDbPath,
+      );
+      detail = await driveExecution(created.execution.id, {
+        wait: true,
+        timeoutMs: 30000,
+        intervalMs: 500,
+        stub: true,
+        dbPath,
+        sessionDbPath,
+      });
+      continue;
+    }
+    break;
+  }
 
   const db = openOrchestratorDatabase(dbPath);
   try {
@@ -385,7 +524,6 @@ test("completed steps publish normalized workflow handoff artifacts", async (t) 
     const handoffKinds = handoffs.map((record) => record.kind).sort();
     assert.deepEqual(handoffKinds, [
       "implementation_summary",
-      "review_summary",
       "scout_findings",
       "task_brief",
       "verification_summary",
@@ -456,7 +594,7 @@ test("downstream sessions receive curated inbound workflow handoffs", async (t) 
   });
 
   const created = createExecution(invocation, dbPath);
-  const detail = await driveExecution(created.execution.id, {
+  let detail = await driveExecution(created.execution.id, {
     wait: true,
     timeoutMs: 30000,
     intervalMs: 500,
@@ -464,6 +602,54 @@ test("downstream sessions receive curated inbound workflow handoffs", async (t) 
     dbPath,
     sessionDbPath,
   });
+
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    const reviewPending = detail.steps.find((step) => step.state === "review_pending");
+    if (reviewPending) {
+      await recordReviewDecision(
+        created.execution.id,
+        {
+          status: "approved",
+          decidedBy: "test-runner",
+          comments: `advance ${reviewPending.role}`,
+        },
+        dbPath,
+        sessionDbPath,
+      );
+      detail = await driveExecution(created.execution.id, {
+        wait: true,
+        timeoutMs: 30000,
+        intervalMs: 500,
+        stub: true,
+        dbPath,
+        sessionDbPath,
+      });
+      continue;
+    }
+    const approvalPending = detail.steps.find((step) => step.state === "approval_pending");
+    if (approvalPending) {
+      await recordApprovalDecision(
+        created.execution.id,
+        {
+          status: "approved",
+          decidedBy: "test-runner",
+          comments: `approve ${approvalPending.role}`,
+        },
+        dbPath,
+        sessionDbPath,
+      );
+      detail = await driveExecution(created.execution.id, {
+        wait: true,
+        timeoutMs: 30000,
+        intervalMs: 500,
+        stub: true,
+        dbPath,
+        sessionDbPath,
+      });
+      continue;
+    }
+    break;
+  }
 
   const builderStep = detail.steps.find((step) => step.role === "builder");
   const testerStep = detail.steps.find((step) => step.role === "tester");
@@ -577,6 +763,13 @@ test("blocked handoff validation prevents review approval from advancing the ste
       updatedAt: new Date().toISOString(),
       consumedAt: null,
     });
+    updateStep(
+      db,
+      transitionStepRecord(reviewStep, "review_pending", {
+        reviewStatus: "pending",
+        approvalStatus: null,
+      }),
+    );
   } finally {
     db.close();
   }
@@ -626,6 +819,7 @@ test("approving a review-pending step without approval requirement completes it"
       transitionStepRecord(leadStep, "review_pending", {
         reviewStatus: "pending",
         approvalStatus: null,
+        approvalRequired: false,
       }),
     );
   } finally {

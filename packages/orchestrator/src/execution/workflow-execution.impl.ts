@@ -1260,7 +1260,7 @@ function selectRetryTargetStep(steps, gateStep, execution) {
   const preferredRole =
     getExecutionPolicy(execution)?.workflowPolicy?.retryTargetRole ?? null;
   const eligible = [...steps]
-    .filter((step) => step.sequence < gateStep.sequence && !step.reviewRequired)
+    .filter((step) => step.sequence < gateStep.sequence)
     .reverse();
   if (preferredRole) {
     const preferred = eligible.find((step) => step.role === preferredRole);
@@ -1342,7 +1342,7 @@ function resetDependentSteps(steps, execution, retryTarget, gateStep, reason) {
       (step) =>
         step.sequence > retryTarget.sequence &&
         step.sequence < gateStep.sequence &&
-        !step.reviewRequired,
+        true,
     )
     .map((step) => {
       const nextAttempt = step.attemptCount + 1;
@@ -3027,6 +3027,20 @@ export async function applyExecutionTreeGovernance(
     throw new Error(`unsupported tree governance action: ${action}`);
   }
 
+  for (const changedExecutionId of changedExecutionIds) {
+    if (!getExecutionDetail(changedExecutionId, dbPath, sessionDbPath)) {
+      continue;
+    }
+    try {
+      await reconcileExecution(changedExecutionId, payload);
+    } catch (error) {
+      if (String((error as Error)?.message ?? "").includes("execution not found:")) {
+        continue;
+      }
+      throw error;
+    }
+  }
+
   const outcome = {
     action,
     scope,
@@ -3497,6 +3511,29 @@ function getFirstPlannedStep(steps) {
   return getNextLaunchableSteps(steps)[0] ?? null;
 }
 
+function getAllowedNextRoles(steps, step) {
+  const currentWave = Number(step.wave ?? step.sequence ?? 0);
+  const laterSteps = steps.filter(
+    (candidate) => Number(candidate.wave ?? candidate.sequence ?? 0) > currentWave,
+  );
+  if (laterSteps.length === 0) {
+    return [];
+  }
+  const nearestWave = Math.min(
+    ...laterSteps.map((candidate) => Number(candidate.wave ?? candidate.sequence ?? 0)),
+  );
+  return [
+    ...new Set(
+      laterSteps
+        .filter(
+          (candidate) => Number(candidate.wave ?? candidate.sequence ?? 0) === nearestWave,
+        )
+        .map((candidate) => String(candidate.role ?? "").trim())
+        .filter(Boolean),
+    ),
+  ];
+}
+
 function assertNoActiveStep(steps, executionId, action) {
   const activeStep = steps.find((step) => ACTIVE_STEP_STATES.has(step.state));
   if (activeStep) {
@@ -3512,8 +3549,9 @@ async function launchStep(execution, step, options: LooseRecord = {}) {
   let workspace = null;
   let previousStep = null;
   let inboundHandoffs = [];
+  let allSteps = [];
   try {
-    const allSteps = listSteps(db, execution.id);
+    allSteps = listSteps(db, execution.id);
     previousStep =
       step.sequence > 0 ? (allSteps[step.sequence - 1] ?? null) : null;
     workspace = await ensureStepWorkspace(db, execution, step);
@@ -3531,6 +3569,13 @@ async function launchStep(execution, step, options: LooseRecord = {}) {
     db.close();
   }
   const expectedHandoff = await buildExpectedHandoff(step);
+  if (
+    expectedHandoff &&
+    Array.isArray(expectedHandoff.requiredSections) &&
+    expectedHandoff.requiredSections.includes("next_role")
+  ) {
+    expectedHandoff.allowedNextRoles = getAllowedNextRoles(allSteps, step);
+  }
   const briefPath = await writeExecutionBrief(execution, step, {
     inboundHandoffs,
     expectedHandoff,
@@ -3775,6 +3820,29 @@ function hasBlockingInvalidHandoff(db, executionId, stepId) {
       handoff.validation?.valid === false &&
       handoff.validation?.mode === "blocked",
   );
+}
+
+function shouldAutoRetryMalformedHandoff(step, enforcement, execution) {
+  if (!enforcement || enforcement.mode !== "blocked") {
+    return false;
+  }
+  if (String(execution?.workflowId ?? "") !== "feature-delivery") {
+    return false;
+  }
+  if (!["lead", "scout"].includes(String(step.role ?? ""))) {
+    return false;
+  }
+  if (step.attemptCount >= step.maxAttempts) {
+    return false;
+  }
+  const issueCodes = new Set(
+    asArray(enforcement.issues).map((issue) => String(issue?.code ?? "")),
+  );
+  return issueCodes.has("missing_marker") || issueCodes.has("invalid_json");
+}
+
+function allowsAutomaticInternalApproval(execution) {
+  return String(execution?.workflowId ?? "") === "feature-delivery";
 }
 
 function reconcileCoordinationState(db, execution) {
@@ -4029,6 +4097,10 @@ export async function reconcileExecution(
     if (observations.some((item) => item.settledStep)) {
       const db = openOrchestratorDatabase(dbPath);
       let updatedDetail = null;
+      let internalAutoReviewRequest: {
+        decidedBy: string;
+        comments: string;
+      } | null = null;
       try {
         const execution = getExecution(db, executionId);
         const dispatchBlocked = shouldPreserveDispatchBlock(execution);
@@ -4224,6 +4296,29 @@ export async function reconcileExecution(
               publishedHandoffs,
             );
             if (enforced.enforcement) {
+              if (shouldAutoRetryMalformedHandoff(activeStep, enforced.enforcement, execution)) {
+                const retriedStep = scheduleRetry(
+                  activeStep,
+                  execution,
+                  "handoff_validation_malformed",
+                );
+                updateStep(db, retriedStep);
+                emitWorkflowEvent(db, {
+                  executionId,
+                  stepId: activeStep.id,
+                  sessionId: activeStep.sessionId,
+                  type: "workflow.step.retry_scheduled",
+                  payload: {
+                    reason: "handoff_validation_malformed",
+                    nextAttempt: retriedStep.attemptCount,
+                    maxAttempts: retriedStep.maxAttempts,
+                    nextSessionId: retriedStep.sessionId,
+                    issues: enforced.enforcement.issues,
+                    handoffValidation: true,
+                  },
+                });
+                continue;
+              }
               settledStep = enforced.step;
               updateStep(db, settledStep);
               emitWorkflowEvent(db, {
@@ -4323,56 +4418,89 @@ export async function reconcileExecution(
             (left, right) => left.sequence - right.sequence,
           )[0];
           if (!isOperatorVisibleGovernance(pendingStep)) {
-            holdForInternalGovernance(db, execution, pendingStep);
+            const holdOwner = getInternalGovernorRole(pendingStep);
+            if (
+              allowsAutomaticInternalApproval(execution) &&
+              holdOwner &&
+              !hasBlockingInvalidHandoff(db, executionId, pendingStep.id)
+            ) {
+              internalAutoReviewRequest = {
+                decidedBy: holdOwner,
+                comments: `${holdOwner} auto-approved valid internally governed ${pendingStep.role} output.`,
+              };
+              updatedDetail = getExecutionDetail(executionId, dbPath, sessionDbPath);
+            } else {
+              holdForInternalGovernance(db, execution, pendingStep);
+              return getExecutionDetail(executionId, dbPath, sessionDbPath);
+            }
+          } else {
+            const waitingReview = transitionExecutionAfterProgress(
+              execution,
+              dispatchBlocked ? execution.state : "waiting_review",
+              {
+                currentStepIndex: pendingStep.sequence,
+                reviewStatus: "pending",
+                approvalStatus: pendingStep.approvalRequired ? "pending" : null,
+              },
+            );
+            updateExecution(db, waitingReview);
             return getExecutionDetail(executionId, dbPath, sessionDbPath);
           }
-          const waitingReview = transitionExecutionAfterProgress(
-            execution,
-            dispatchBlocked ? execution.state : "waiting_review",
-            {
-              currentStepIndex: pendingStep.sequence,
-              reviewStatus: "pending",
-              approvalStatus: pendingStep.approvalRequired ? "pending" : null,
-            },
-          );
-          updateExecution(db, waitingReview);
-          return getExecutionDetail(executionId, dbPath, sessionDbPath);
         }
 
-        const approvalPendingSteps = refreshedSteps.filter(
-          (step) => step.state === "approval_pending",
-        );
-        if (approvalPendingSteps.length > 0 && remainingActive.length === 0) {
-          const pendingStep = approvalPendingSteps.sort(
-            (left, right) => left.sequence - right.sequence,
-          )[0];
-          const waitingApproval = transitionExecutionAfterProgress(
+        if (internalAutoReviewRequest) {
+          updatedDetail =
+            updatedDetail ?? getExecutionDetail(executionId, dbPath, sessionDbPath);
+        } else {
+          const approvalPendingSteps = refreshedSteps.filter(
+            (step) => step.state === "approval_pending",
+          );
+          if (approvalPendingSteps.length > 0 && remainingActive.length === 0) {
+            const pendingStep = approvalPendingSteps.sort(
+              (left, right) => left.sequence - right.sequence,
+            )[0];
+            const waitingApproval = transitionExecutionAfterProgress(
+              execution,
+              dispatchBlocked ? execution.state : "waiting_approval",
+              {
+                currentStepIndex: pendingStep.sequence,
+                approvalStatus: "pending",
+              },
+            );
+            updateExecution(db, waitingApproval);
+            return getExecutionDetail(executionId, dbPath, sessionDbPath);
+          }
+
+          const nextLaunchable = getNextLaunchableSteps(refreshedSteps);
+          const runningExecution = transitionExecutionAfterProgress(
             execution,
-            dispatchBlocked ? execution.state : "waiting_approval",
+            dispatchBlocked ? execution.state : "running",
             {
-              currentStepIndex: pendingStep.sequence,
-              approvalStatus: "pending",
+              currentStepIndex:
+                remainingActive[0]?.sequence ??
+                nextLaunchable[0]?.sequence ??
+                refreshedSteps.length,
             },
           );
-          updateExecution(db, waitingApproval);
-          return getExecutionDetail(executionId, dbPath, sessionDbPath);
+          updateExecution(db, runningExecution);
+          updatedDetail = getExecutionDetail(executionId, dbPath, sessionDbPath);
         }
-
-        const nextLaunchable = getNextLaunchableSteps(refreshedSteps);
-        const runningExecution = transitionExecutionAfterProgress(
-          execution,
-          dispatchBlocked ? execution.state : "running",
-          {
-            currentStepIndex:
-              remainingActive[0]?.sequence ??
-              nextLaunchable[0]?.sequence ??
-              refreshedSteps.length,
-          },
-        );
-        updateExecution(db, runningExecution);
-        updatedDetail = getExecutionDetail(executionId, dbPath, sessionDbPath);
       } finally {
         db.close();
+      }
+
+      if (internalAutoReviewRequest) {
+        await recordReviewDecision(
+          executionId,
+          {
+            status: "approved",
+            decidedBy: internalAutoReviewRequest.decidedBy,
+            comments: internalAutoReviewRequest.comments,
+          },
+          dbPath,
+          sessionDbPath,
+        );
+        return reconcileExecution(executionId, options);
       }
 
       const launchable = getNextLaunchableSteps(updatedDetail.steps);
@@ -4429,37 +4557,40 @@ export async function reconcileExecution(
       const steps = listSteps(db, executionId);
       if (hasPlannedSteps(steps)) {
         const blockedWave = findBlockedWave(steps);
-        if (blockedWave) {
+        if (blockedWave !== null) {
+          const blockedWaveSteps = getWaveSteps(steps, blockedWave);
+          const blockedWaveStep = blockedWaveSteps[0] ?? null;
+          const blockedWavePolicy = getWavePolicy(steps, blockedWave);
           const existingEscalation = listEscalations(db, executionId).some(
             (item) =>
               item.status === "open" &&
               item.reason === "wave-blocked" &&
-              Number(item.payload?.wave ?? -1) === blockedWave.wave,
+              Number(item.payload?.wave ?? -1) === blockedWave,
           );
           if (!existingEscalation) {
             openEscalation(db, {
               execution,
-              step: blockedWave.steps[0] ?? null,
-              sourceStepId: blockedWave.steps[0]?.id ?? null,
+              step: blockedWaveStep,
+              sourceStepId: blockedWaveStep?.id ?? null,
               reason: "wave-blocked",
               payload: {
-                wave: blockedWave.wave,
-                waveName: blockedWave.waveName,
-                policy: blockedWave.policy,
+                wave: blockedWave,
+                waveName: blockedWaveStep?.waveName ?? null,
+                policy: blockedWavePolicy,
               },
             });
           }
           const heldExecution = holdExecutionRecord(
             execution,
-            `wave-${blockedWave.wave}-blocked`,
+            `wave-${blockedWave}-blocked`,
           );
           updateExecution(db, heldExecution);
           emitWorkflowEvent(db, {
             executionId,
             type: "workflow.wave.escalated",
             payload: {
-              wave: blockedWave.wave,
-              waveName: blockedWave.waveName,
+              wave: blockedWave,
+              waveName: blockedWaveStep?.waveName ?? null,
               reason: "wave-blocked",
             },
           });

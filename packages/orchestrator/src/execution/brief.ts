@@ -13,6 +13,7 @@ interface ExecutionBriefExpectedHandoff {
   kind?: string;
   marker?: string;
   requiredSections?: string[];
+  allowedNextRoles?: string[];
 }
 
 interface WriteExecutionBriefOptions {
@@ -78,6 +79,12 @@ export async function writeExecutionBrief(
           `- Kind: ${expectedHandoff.kind}`,
           `- Marker: ${expectedHandoff.marker}`,
           `- Required sections: ${(expectedHandoff.requiredSections ?? []).join(", ")}`,
+          ...(Array.isArray(expectedHandoff.allowedNextRoles) &&
+          expectedHandoff.allowedNextRoles.length > 0
+            ? [
+                `- Allowed next roles: ${expectedHandoff.allowedNextRoles.join(", ")}`,
+              ]
+            : []),
           "",
         ]
       : []),

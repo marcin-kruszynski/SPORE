@@ -58,6 +58,7 @@ function hasRequiredSection(
   if (section === "summary") {
     return (
       isRecord(value) ||
+      (Array.isArray(value) && value.length > 0) ||
       (typeof value === "string" && value.trim().length > 0)
     );
   }
@@ -93,13 +94,26 @@ function hasRequiredSection(
   if (section === "scope") {
     return (
       (typeof value === "string" && value.trim().length > 0) ||
-      (Array.isArray(value) && value.length > 0)
+      (Array.isArray(value) && value.length > 0) ||
+      (isRecord(value) && Object.keys(value).length > 0)
     );
   }
   if (typeof value === "string") {
     return value.trim().length > 0;
   }
   return value !== null && value !== undefined;
+}
+
+function getSectionValue(
+  payload: Record<string, unknown> | null,
+  section: string,
+) {
+  if (!payload) {
+    return undefined;
+  }
+  const candidateKeys = SECTION_ALIASES[section] ?? [section];
+  const key = candidateKeys.find((candidate) => Object.hasOwn(payload, candidate));
+  return key ? payload[key] : undefined;
 }
 
 export function deriveHandoffEnforcementMode(value: unknown) {
@@ -114,10 +128,12 @@ export function validateStructuredHandoff({
   markerFound,
   parsedBlock,
   requiredSections,
+  allowedNextRoles,
 }: {
   markerFound: boolean;
   parsedBlock: unknown;
   requiredSections: string[];
+  allowedNextRoles?: string[];
 }): HandoffValidationResult {
   const issues: HandoffValidationIssue[] = [];
 
@@ -150,6 +166,25 @@ export function validateStructuredHandoff({
         ),
       );
     }
+  }
+
+  const normalizedAllowedNextRoles = Array.isArray(allowedNextRoles)
+    ? [...new Set(allowedNextRoles.map((entry) => String(entry ?? "").trim()).filter(Boolean))]
+    : [];
+  const nextRole = String(getSectionValue(payload, "next_role") ?? "").trim();
+  if (
+    payload &&
+    nextRole &&
+    normalizedAllowedNextRoles.length > 0 &&
+    !normalizedAllowedNextRoles.includes(nextRole)
+  ) {
+    issues.push(
+      buildIssue(
+        "invalid_next_role",
+        `The structured handoff next_role '${nextRole}' is not one of the allowed downstream roles: ${normalizedAllowedNextRoles.join(", ")}.`,
+        "next_role",
+      ),
+    );
   }
 
   return {

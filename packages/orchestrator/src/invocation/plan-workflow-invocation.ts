@@ -96,6 +96,16 @@ function normalizeWorkflowInput(inputPath) {
   return `config/workflows/${inputPath}.yaml`;
 }
 
+function normalizeProjectInput(inputPath) {
+  if (!inputPath) {
+    return null;
+  }
+  if (inputPath.includes("/") || inputPath.endsWith(".yaml")) {
+    return inputPath;
+  }
+  return `config/projects/${inputPath}.yaml`;
+}
+
 function pickDefaultWorkflowPath(project, domain) {
   const preferredId =
     domain?.workflowPreferences?.[0] ??
@@ -370,20 +380,26 @@ function resolveWorkflowGovernance(workflow) {
   };
 }
 
-function resolveGovernance(role, workflow, policy) {
+function resolveGovernance(role, workflow, policy, selectedRoles = []) {
   const workflowGovernance = resolveWorkflowGovernance(workflow);
-  const leadGovernedRole = Boolean(
-    workflowGovernance.model === "lead-governed" &&
-      workflowGovernance.governorRole &&
-      workflowGovernance.governedRoles.includes(role),
-  );
-  const operatorVisible = Array.isArray(workflowGovernance.operatorVisibleRoles)
-    ? workflowGovernance.operatorVisibleRoles.includes(role)
-    : role === "reviewer";
-  const workflowRequiresReview =
-    workflow.reviewStep?.required ?? operatorVisible;
+  const governorSelected = workflowGovernance.governorRole
+    ? selectedRoles.includes(workflowGovernance.governorRole)
+    : false;
+  const workflowRequiresReview = workflow.reviewStep?.required ?? false;
   const workflowRequiresApproval =
     workflow.reviewStep?.approvalRequired ?? workflowRequiresReview;
+  const leadGovernedRole = Boolean(
+    workflowGovernance.model === "lead-governed" &&
+      governorSelected &&
+      workflowGovernance.governedRoles.includes(role),
+  );
+  const reviewerSelected = selectedRoles.includes("reviewer");
+  const operatorVisible =
+    workflowGovernance.model === "lead-governed" && governorSelected
+      ? Array.isArray(workflowGovernance.operatorVisibleRoles)
+        ? workflowGovernance.operatorVisibleRoles.includes(role)
+        : workflowRequiresReview && reviewerSelected
+      : workflowRequiresReview && reviewerSelected;
   const operatorReviewRequired = operatorVisible
     ? (policy.workflowPolicy?.reviewRequired ?? workflowRequiresReview)
     : false;
@@ -439,7 +455,7 @@ export async function planWorkflowInvocation({
   policyPackIds = null,
   metadata = null,
 }) {
-  const resolvedProjectPath = resolvePath(projectPath);
+  const resolvedProjectPath = resolvePath(normalizeProjectInput(projectPath));
   const project = (await readYaml(resolvedProjectPath)) as LooseRecord;
   const domain = (
     domainId ? resolveDomain(project, domainId) : null
@@ -484,7 +500,7 @@ export async function planWorkflowInvocation({
     const profile = await resolveProfilePath(project, domainId, role, {
       projectRoleProfiles,
     });
-    const governance = resolveGovernance(role, workflow, policy);
+    const governance = resolveGovernance(role, workflow, policy, selectedRoles);
     const sessionModeOverride =
       policy.runtimePolicy?.sessionModeByRole?.[role] ?? null;
     const docsQuery = buildDocsQuery({
@@ -647,7 +663,7 @@ export async function planProjectCoordination({
   coordinationGroupId = null,
   metadata = null,
 } = {}) {
-  const resolvedProjectPath = resolvePath(projectPath);
+  const resolvedProjectPath = resolvePath(normalizeProjectInput(projectPath));
   const project = (await readYaml(resolvedProjectPath)) as LooseRecord;
   const selectedDomains =
     asArray(domains).length > 0
@@ -693,7 +709,7 @@ export async function planFeaturePromotion({
   sourceSummary = null,
   metadata = null,
 } = {}) {
-  const resolvedProjectPath = resolvePath(projectPath);
+  const resolvedProjectPath = resolvePath(normalizeProjectInput(projectPath));
   const project = (await readYaml(resolvedProjectPath)) as LooseRecord;
   const promotionPolicy = (project.promotionPolicy ?? {}) as LooseRecord;
   const workflowPath = promotionPolicy.workflow

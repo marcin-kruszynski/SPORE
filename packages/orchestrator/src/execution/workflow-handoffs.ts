@@ -42,7 +42,7 @@ function nextWaveTargets(steps: Array<Record<string, unknown>>, step: Record<str
     (candidate) => Number(candidate.wave ?? candidate.sequence ?? 0) > currentWave,
   );
   if (laterSteps.length === 0) {
-    return { toStepId: "", targetRole: null };
+    return { toStepId: "", targetRole: null, allowedNextRoles: [] };
   }
   const nearestWave = Math.min(
     ...laterSteps.map((candidate) => Number(candidate.wave ?? candidate.sequence ?? 0)),
@@ -53,7 +53,25 @@ function nextWaveTargets(steps: Array<Record<string, unknown>>, step: Record<str
   const uniqueRoles = [...new Set(targets.map((candidate) => String(candidate.role ?? "")))].filter(Boolean);
   const targetRole = uniqueRoles.length === 1 ? uniqueRoles[0] : null;
   const toStepId = targets.length === 1 ? String(targets[0]?.id ?? "") : "";
-  return { toStepId, targetRole };
+  return {
+    toStepId,
+    targetRole,
+    allowedNextRoles: uniqueRoles,
+    targetSteps: targets.map((candidate) => ({
+      id: String(candidate.id ?? ""),
+      role: String(candidate.role ?? ""),
+    })),
+  };
+}
+
+function resolveRequestedNextRole(parsedObject: Record<string, unknown>) {
+  for (const key of ["next_role", "nextRole", "next-role"]) {
+    const value = String(parsedObject[key] ?? "").trim();
+    if (value) {
+      return value;
+    }
+  }
+  return "";
 }
 
 export async function publishWorkflowStepHandoffs({
@@ -83,17 +101,40 @@ export async function publishWorkflowStepHandoffs({
   const markerFound = hasStructuredHandoffMarker(output, expectedHandoff.marker);
   const parsedBlock = extractStructuredHandoffBlock(output, expectedHandoff.marker);
   const parsedObject = normalizeObject(parsedBlock);
+  const parsedSummaryText =
+    typeof parsedObject.summary === "string" ? parsedObject.summary.trim() : "";
+  const parsedSummaryLines = Array.isArray(parsedObject.summary)
+    ? parsedObject.summary
+        .map((entry) => String(entry ?? "").trim())
+        .filter(Boolean)
+    : [];
+  const { toStepId, targetRole, allowedNextRoles, targetSteps } = nextWaveTargets(steps, step);
+  const requestedNextRole = resolveRequestedNextRole(parsedObject);
+  const resolvedTargetRole = allowedNextRoles.includes(requestedNextRole)
+    ? requestedNextRole
+    : targetRole;
+  const resolvedTargetSteps = resolvedTargetRole
+    ? targetSteps.filter((candidate) => candidate.role === resolvedTargetRole)
+    : [];
+  const resolvedToStepId =
+    resolvedTargetSteps.length === 1 ? resolvedTargetSteps[0]?.id ?? toStepId : toStepId;
   const validation = {
     ...validateStructuredHandoff({
       markerFound,
       parsedBlock,
       requiredSections: expectedHandoff.requiredSections,
+      allowedNextRoles,
     }),
     mode: deriveHandoffEnforcementMode(expectedHandoff.enforcementMode),
   };
   const summary = {
     ...fallbackHandoffSummary(output, String(step.role ?? "role")),
     ...normalizeObject(parsedObject.summary),
+    ...(parsedSummaryText
+      ? { outcome: parsedSummaryText }
+      : parsedSummaryLines.length > 0
+        ? { outcome: parsedSummaryLines.join(" ") }
+        : {}),
   };
   const payload = Object.keys(parsedObject).length > 0
     ? parsedObject
@@ -101,14 +142,13 @@ export async function publishWorkflowStepHandoffs({
         summary,
         content: output.trim() || null,
       };
-  const { toStepId, targetRole } = nextWaveTargets(steps, step);
   const primaryHandoff = {
     id: buildHandoffId(String(step.id), expectedHandoff.kind),
     executionId: String(execution.id),
     fromStepId: String(step.id),
-    toStepId,
+    toStepId: resolvedToStepId,
         sourceRole: String(step.role),
-        targetRole,
+        targetRole: resolvedTargetRole,
         kind: expectedHandoff.kind,
         status: "ready",
     summary,
@@ -138,9 +178,9 @@ export async function publishWorkflowStepHandoffs({
         id: buildHandoffId(String(step.id), "workspace_snapshot"),
         executionId: String(execution.id),
         fromStepId: String(step.id),
-        toStepId,
+        toStepId: resolvedToStepId,
         sourceRole: String(step.role),
-        targetRole,
+        targetRole: resolvedTargetRole,
         kind: "workspace_snapshot",
         status: "ready",
         summary: {

@@ -191,6 +191,22 @@ function stringifyValue(value: unknown) {
   return null;
 }
 
+function summarizeStructuredValue(value: unknown) {
+  const record = asRecord(value);
+  return firstNonEmptyText(
+    record.outcome,
+    record.summary,
+    record.title,
+    record.objective,
+    record.message,
+    record.details,
+    record.note,
+    record.path,
+    record.action,
+    typeof value === "string" ? value : null,
+  );
+}
+
 function firstNonEmptyText(...values: unknown[]) {
   for (const value of values) {
     const text = toText(value, "").trim();
@@ -202,11 +218,21 @@ function firstNonEmptyText(...values: unknown[]) {
 }
 
 function toTextList(value: unknown) {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return Object.values(value)
+      .flatMap((entry) => toTextList(entry))
+      .filter(Boolean);
+  }
   if (!Array.isArray(value)) {
-    return [];
+    const single = summarizeStructuredValue(value);
+    return single ? [single] : [];
   }
 
   return value
+    .map((entry) =>
+      summarizeStructuredValue(entry) ??
+      (entry && typeof entry === "object" ? stringifyValue(entry) : null),
+    )
     .map((entry) => toText(entry, "").trim())
     .filter(Boolean);
 }
@@ -230,7 +256,7 @@ function buildReadablePayloadContent(payload: Record<string, unknown> | null) {
 
   const lines: string[] = [];
   const primaryText = firstNonEmptyText(
-    payload.summary,
+    summarizeStructuredValue(payload.summary),
     payload.outcome,
     payload.message,
     payload.request,
@@ -242,6 +268,26 @@ function buildReadablePayloadContent(payload: Record<string, unknown> | null) {
     lines.push(primaryText);
   }
 
+  appendListSection(
+    lines,
+    "Findings",
+    toTextList(payload.findings),
+  );
+  appendListSection(
+    lines,
+    "Recommendations",
+    toTextList(payload.recommendations),
+  );
+  appendListSection(
+    lines,
+    "Evidence",
+    toTextList(payload.evidence),
+  );
+  appendListSection(
+    lines,
+    "Scope",
+    toTextList(payload.scope),
+  );
   appendListSection(
     lines,
     "Changed paths",

@@ -121,3 +121,68 @@ test("pi launch scripts fail loudly when PI is unavailable instead of falling ba
   assert.doesNotMatch(launchScript, /bootstrap stub launcher/i);
   assert.match(launchScript, /pi CLI is required for runtime launch/i);
 });
+
+test("writeLaunchAssets does not duplicate expected handoff contract when a brief is attached", async () => {
+  const sessionId = `tsx-launch-brief-${Date.now()}`;
+  const contextPath = path.join(
+    PROJECT_ROOT,
+    "tmp",
+    "sessions",
+    `${sessionId}.context.json`,
+  );
+  const briefPath = path.join(
+    PROJECT_ROOT,
+    "tmp",
+    "sessions",
+    `${sessionId}.brief.md`,
+  );
+  await fs.mkdir(path.dirname(contextPath), { recursive: true });
+  const plan = await buildSessionPlan({
+    profilePath: "config/profiles/scout.yaml",
+    projectPath: "config/projects/spore.yaml",
+    sessionId,
+    runId: `${sessionId}-run`,
+    expectedHandoff: {
+      kind: "scout_findings",
+      marker: "SPORE_HANDOFF_JSON",
+      requiredSections: [
+        "summary",
+        "findings",
+        "recommendations",
+        "risks",
+        "evidence",
+        "scope",
+        "next_role",
+      ],
+      allowedNextRoles: ["builder"],
+    },
+  } as never);
+
+  await fs.writeFile(contextPath, "{}\n", "utf8");
+  await fs.writeFile(
+    briefPath,
+    [
+      "# SPORE Workflow Invocation Brief",
+      "",
+      "## Expected Handoff Output",
+      "- Kind: scout_findings",
+      "- Marker: SPORE_HANDOFF_JSON",
+      "- Required sections: summary, findings, recommendations, risks, evidence, scope, next_role",
+      "- Allowed next roles: builder",
+      "",
+      "- End with [SPORE_HANDOFF_JSON_BEGIN] ... [SPORE_HANDOFF_JSON_END].",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+
+  const assets = await writeLaunchAssets({
+    sessionId,
+    plan,
+    contextPath,
+    briefPath,
+  });
+
+  const prompt = await fs.readFile(assets.promptPath, "utf8");
+  assert.equal(prompt.match(/## Expected Handoff Output/g)?.length ?? 0, 1);
+});
