@@ -39,6 +39,29 @@ function getErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Mission Map is unavailable.";
 }
 
+function collectExecutionIdsFromTree(
+  tree: { root?: { execution?: { id?: string | null } | null; children?: unknown[] | null } | null } | null,
+) {
+  const ids = new Set<string>();
+  const stack = [tree?.root ?? null];
+  while (stack.length > 0) {
+    const node = stack.pop() as
+      | { execution?: { id?: string | null } | null; children?: unknown[] | null }
+      | null
+      | undefined;
+    if (!node) {
+      continue;
+    }
+    const executionId = String(node.execution?.id ?? "").trim();
+    if (executionId) {
+      ids.add(executionId);
+    }
+    const children = Array.isArray(node.children) ? node.children : [];
+    stack.push(...children);
+  }
+  return Array.from(ids);
+}
+
 async function loadMissionBundle(options: {
   threadId: string;
   threadSummary: Awaited<ReturnType<typeof listOperatorThreads>>[number] | null;
@@ -60,6 +83,7 @@ async function loadMissionBundle(options: {
   });
 
   let executionDetail = null;
+  let executionDetailsById: Record<string, Awaited<ReturnType<typeof getExecutionDetail>>> = {};
   let executionError: string | null = null;
   let executionTree = null;
   let treeError: string | null = null;
@@ -72,12 +96,30 @@ async function loadMissionBundle(options: {
 
     if (detailResult.status === "fulfilled") {
       executionDetail = detailResult.value;
+      if (executionDetail?.execution?.id) {
+        executionDetailsById[String(executionDetail.execution.id)] = executionDetail;
+      }
     } else {
       executionError = getErrorMessage(detailResult.reason);
     }
 
     if (treeResult.status === "fulfilled") {
       executionTree = treeResult.value;
+      const familyExecutionIds = collectExecutionIdsFromTree(executionTree).filter(
+        (executionId) => executionId !== executionLink.executionId,
+      );
+      if (familyExecutionIds.length > 0) {
+        const familyDetails = await Promise.allSettled(
+          familyExecutionIds.map((executionId) => getExecutionDetail(executionId)),
+        );
+        for (let index = 0; index < familyExecutionIds.length; index += 1) {
+          const executionId = familyExecutionIds[index];
+          const detail = familyDetails[index];
+          if (detail?.status === "fulfilled" && detail.value?.execution?.id) {
+            executionDetailsById[String(detail.value.execution.id)] = detail.value;
+          }
+        }
+      }
     } else {
       treeError = getErrorMessage(treeResult.reason);
     }
@@ -116,6 +158,7 @@ async function loadMissionBundle(options: {
     coordinationGroupsError: options.coordinationGroupsError,
     executionLink,
     executionDetail,
+    executionDetailsById,
     executionError,
     executionTree,
     treeError,

@@ -361,12 +361,7 @@ function buildExecutionLabel(
 ) {
   const objective = executionObjective(execution);
   const executionId = toText(execution?.id, "");
-  if (
-    preferMissionLabel &&
-    linkedExecutionId &&
-    executionId === linkedExecutionId &&
-    (objective.length === 0 || objective === mission.objective)
-  ) {
+  if (preferMissionLabel && linkedExecutionId && executionId === linkedExecutionId) {
     return `${mission.title} execution`;
   }
   return (
@@ -423,11 +418,10 @@ function buildExecutionNodeFromTree(
   treeNode: MissionMapApiExecutionTreeNode,
   mission: { title: string; objective: string },
   linkedExecutionId: string | null,
-  sessionIds: string[],
+  sessionIdsByExecutionId: Map<string, string[]>,
   sessionLives: Record<string, MissionMapApiSessionLive>,
   sessionErrors: Record<string, string>,
   sessionRecords: Map<string, { id?: string | null; role?: string | null; state?: string | null; runtimeAdapter?: string | null; launcherType?: string | null; transportMode?: string | null; }>,
-  attachSessions: boolean,
 ): MissionMapNode | null {
   const execution = treeNode.execution ?? null;
   const executionId = toText(execution?.id, "");
@@ -440,24 +434,21 @@ function buildExecutionNodeFromTree(
         child,
         mission,
         linkedExecutionId,
-        sessionIds,
+        sessionIdsByExecutionId,
         sessionLives,
         sessionErrors,
         sessionRecords,
-        false,
       ),
     )
     .filter((node): node is MissionMapNode => Boolean(node));
-  const sessionNodes = attachSessions
-    ? sessionIds.map((sessionId) =>
-        buildSessionNode(
-          sessionId,
-          sessionLives[sessionId] ?? null,
-          sessionErrors[sessionId] ?? null,
-          sessionRecords.get(sessionId) ?? null,
-        ),
-      )
-    : [];
+  const sessionNodes = (sessionIdsByExecutionId.get(executionId) ?? []).map((sessionId) =>
+    buildSessionNode(
+      sessionId,
+      sessionLives[sessionId] ?? null,
+      sessionErrors[sessionId] ?? null,
+      sessionRecords.get(sessionId) ?? null,
+    ),
+  );
   return {
     id: `execution:${executionId}`,
     kind: "execution",
@@ -656,10 +647,17 @@ export function adaptMissionMapMission(
     warnings.push(link.detail);
   }
 
+  const executionDetailsById = {
+    ...(input.executionDetailsById ?? {}),
+  };
+  if (input.executionDetail?.execution?.id) {
+    executionDetailsById[toText(input.executionDetail.execution.id, "")] = input.executionDetail;
+  }
   const sessionLives = input.sessionLives ?? {};
   const sessionErrors = input.sessionErrors ?? {};
   const sessionRecords = new Map(
-    asArray(input.executionDetail?.sessions)
+    Object.values(executionDetailsById)
+      .flatMap((detail) => asArray(detail?.sessions))
       .map((entry) => {
         const sessionId = toText(entry.sessionId, "") || toText(entry.session?.id, "");
         if (!sessionId) {
@@ -675,12 +673,27 @@ export function adaptMissionMapMission(
         ...asArray(input.threadDetail?.metadata?.execution?.sessionIds).map((entry) =>
           toText(entry, ""),
         ),
-        ...asArray(input.executionDetail?.sessions).map((entry) =>
-          toText(entry.sessionId, "") || toText(entry.session?.id, ""),
+        ...Object.values(executionDetailsById).flatMap((detail) =>
+          asArray(detail?.sessions).map((entry) =>
+            toText(entry.sessionId, "") || toText(entry.session?.id, ""),
+          ),
         ),
       ].filter(Boolean),
     ),
   );
+  const sessionIdsByExecutionId = new Map<string, string[]>();
+  for (const detail of Object.values(executionDetailsById)) {
+    const executionId = toText(detail?.execution?.id, "");
+    if (!executionId) {
+      continue;
+    }
+    const detailSessionIds = asArray(detail?.sessions)
+      .map((entry) => toText(entry.sessionId, "") || toText(entry.session?.id, ""))
+      .filter(Boolean);
+    if (detailSessionIds.length > 0) {
+      sessionIdsByExecutionId.set(executionId, detailSessionIds);
+    }
+  }
 
   const missionNode: MissionMapNode = {
     id: `thread:${threadId}`,
@@ -701,14 +714,13 @@ export function adaptMissionMapMission(
 
   if (input.executionTree?.root) {
     const treeRoot = buildExecutionNodeFromTree(
-      input.executionTree.root,
+        input.executionTree.root,
         { title, objective },
         link.executionId,
-        sessionIds,
+        sessionIdsByExecutionId,
         sessionLives,
         sessionErrors,
         sessionRecords,
-        true,
       );
     if (treeRoot) {
       missionNode.children.push(treeRoot);
