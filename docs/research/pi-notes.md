@@ -29,3 +29,7 @@
 ## SPORE Decision Impact
 
 These findings reinforce ADR-0002: PI-first runtime integration while keeping SPORE-owned config, governance, and session contracts.
+
+They also informed the new multi-backend runtime work:
+
+- SPORE now uses the published `@mariozechner/pi-coding-agent` SDK package for embedded and worker-backed PI runtime modes.

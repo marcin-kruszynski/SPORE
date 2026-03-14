@@ -443,6 +443,9 @@ A new agent should avoid these unless there is a very explicit reason:
 - bypassing orchestrator or gateway surfaces in favor of direct SQLite scraping,
 - introducing shared mutable worktree behavior as a shortcut.
 
+Approved exception:
+- a bounded multi-backend PI runtime adapter migration is allowed under `ADR-0014`, `ADR-0015`, and `ADR-0016` when the work preserves the existing PI-first runtime slice and improves backend isolation without weakening inspectability or recovery.
+
 ## Verification Expectations
 
 For self-build work, the minimum expected verification loop remains:

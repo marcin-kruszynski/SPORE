@@ -141,8 +141,10 @@ export interface AgentSessionDetailViewModel {
     workspaceId: string | null;
     workspacePurpose: string | null;
     branchName: string | null;
+    backendKind: string | null;
     runtimeAdapter: string | null;
     transportMode: string | null;
+    supportsControl: boolean;
     launcherType: string | null;
     lastEventType: string | null;
     lastEventAt: string | null;

@@ -93,6 +93,8 @@ export interface PolicyContainer extends JsonObject {
     [key: string]: JsonValue | undefined;
   };
   runtimePolicy: {
+    defaultBackendKind?: JsonValue;
+    backendKindByRole?: Record<string, JsonValue>;
     sessionModeByRole?: Record<string, JsonValue>;
     workspace?: JsonValue;
     [key: string]: JsonValue | undefined;

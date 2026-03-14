@@ -55,6 +55,9 @@ This file is the broader inventory view over `docs/`. It separates active ground
 - `docs/decisions/ADR-0008-typescript-first-codebase.md`
 - `docs/decisions/ADR-0012-operator-chat-surface.md`
 - `docs/decisions/ADR-0013-workflow-handoffs-and-runtime-role-inputs.md`
+- `docs/decisions/ADR-0014-runtime-adapter-multi-backend-pi.md`
+- `docs/decisions/ADR-0015-pi-sdk-worker-transport.md`
+- `docs/decisions/ADR-0016-runtime-artifact-parity.md`
 
 ### References And Research
 

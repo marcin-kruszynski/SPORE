@@ -130,6 +130,7 @@ That policy currently affects:
 - policy-selected retry target role and downstream reset behavior after rework,
 - reviewer-step `reviewRequired` and `approvalRequired` defaults,
 - step watchdog `stepSoftTimeoutMs` and `stepHardTimeoutMs`,
+- per-role runtime backend defaults via `runtimePolicy.defaultBackendKind` and `runtimePolicy.backendKindByRole`,
 - per-role `sessionMode`,
 - docs-kb startup retrieval query terms and result limit.
 

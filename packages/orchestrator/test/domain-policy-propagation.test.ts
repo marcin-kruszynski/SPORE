@@ -45,6 +45,7 @@ test("backend domain policy propagates from planner into execution store records
   });
 
   const invocation = await planWorkflowInvocation({
+    workflowPath: "config/workflows/backend-service-delivery.yaml",
     projectPath: "config/projects/example-project.yaml",
     domainId: "backend",
     roles: ["builder", "reviewer"],
@@ -114,9 +115,16 @@ test("backend domain policy propagates from planner into execution store records
       waveGate: {
         mode: "all",
       },
-      wavePolicy: {},
+      wavePolicy: {
+        maxActiveMs: 90000,
+        onTimeout: "open_escalation",
+        onFailure: "open_escalation",
+        blockNextWaveOnOpenEscalation: true,
+      },
     },
     runtimePolicy: {
+      providerFamily: "pi",
+      backendKind: "pi_rpc",
       sessionMode: "ephemeral",
       workspace: {
         enabled: true,

@@ -51,6 +51,7 @@ test("session live route returns diagnostics and control guidance", async (t) =>
       role: "builder",
       state: "active",
       runtimeAdapter: "runtime-pi",
+      backendKind: "pi_rpc",
       transportMode: "tmux",
       sessionMode: "ephemeral",
       projectId: "example-project",
@@ -64,6 +65,9 @@ test("session live route returns diagnostics and control guidance", async (t) =>
       launcherType: "pi-rpc",
       launchCommand: `tmp/sessions/${sessionId}.launch.sh`,
       tmuxSession: `${sessionId}-tmux`,
+      runtimeCapabilities: { supportsSteer: true },
+      runtimeStatusPath: `tmp/sessions/${sessionId}.runtime-status.json`,
+      runtimeEventsPath: `tmp/sessions/${sessionId}.runtime-events.jsonl`,
       startedAt: new Date(Date.now() - 90_000).toISOString(),
       endedAt: null,
       createdAt: new Date(Date.now() - 90_000).toISOString(),
@@ -124,6 +128,11 @@ test("session live route returns diagnostics and control guidance", async (t) =>
         null,
         2,
       )}\n`,
+      "utf8",
+    ),
+    fs.writeFile(
+      `${base}.runtime-status.json`,
+      `${JSON.stringify({ backendKind: "pi_rpc", state: "active", health: "healthy", heartbeatAt: new Date().toISOString(), terminalSignal: null }, null, 2)}\n`,
       "utf8",
     ),
     fs.writeFile(
@@ -198,6 +207,7 @@ test("session live route returns diagnostics and control guidance", async (t) =>
   assert.equal(response.json.ok, true);
   assert.equal(response.json.session.id, sessionId);
   assert.equal(response.json.diagnostics.status, "stuck_active");
+  assert.equal(response.json.diagnostics.supportsControl, true);
   assert.equal(response.json.diagnostics.supportsRpcControl, true);
   assert.equal(response.json.diagnostics.staleSession, true);
   assert.equal(response.json.diagnostics.operatorUrgency, "high");
@@ -227,8 +237,10 @@ test("session live route returns diagnostics and control guidance", async (t) =>
   assert.equal(response.json.handoff.primary.kind, "implementation_summary");
   assert.equal(response.json.handoff.primary.validation.mode, "review_pending");
   assert.equal(response.json.controlHistory.length, 1);
+  assert.equal(response.json.launcherMetadata.backendKind, "pi_rpc");
   assert.equal(response.json.launcherMetadata.launcherType, "pi-rpc");
   assert.equal(response.json.launcherMetadata.runtimeAdapter, "runtime-pi");
+  assert.ok(response.json.launcherMetadata.runtimeStatus);
   assert.equal(
     response.json.launcherMetadata.cwd,
     ".spore/worktrees/spore/ws-live",

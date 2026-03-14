@@ -2,11 +2,33 @@ export type CliFlags = Record<string, string | undefined>;
 
 export interface RuntimeAdapterConfig {
   id: string;
+  providerFamily?: string;
   package?: string;
   sessionTransport?: string;
+  defaultBackendKind?: string;
+  supportedBackends?: Array<{
+    backendKind: string;
+    description?: string;
+  }>;
 }
 
 export interface RuntimeConfig {
+  primaryRuntime?: {
+    providerFamily?: string;
+    backendKind?: string;
+  };
+  developmentRuntime?: {
+    providerFamily?: string;
+    backendKind?: string;
+  };
+  testRuntime?: {
+    providerFamily?: string;
+    backendKind?: string;
+  };
+  candidateProductionRuntime?: {
+    providerFamily?: string;
+    backendKind?: string;
+  };
   runtimeAdapters?: RuntimeAdapterConfig[];
   sessionDefaults?: {
     mode?: string;
@@ -88,6 +110,8 @@ export interface ExpectedSessionHandoff {
 
 export interface SessionPlan {
   version: number;
+  providerFamily: string;
+  backendKind: string;
   runtime: "pi";
   adapterId: string;
   adapterPackage?: string;

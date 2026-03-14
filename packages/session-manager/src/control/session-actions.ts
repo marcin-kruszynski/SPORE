@@ -38,6 +38,14 @@ function applyOverrides(
     launcherType: overrides.launcherType ?? session.launcherType,
     launchCommand: overrides.launchCommand ?? session.launchCommand,
     tmuxSession: overrides.tmuxSession ?? session.tmuxSession,
+    runtimeInstanceId:
+      overrides.runtimeInstanceId ?? session.runtimeInstanceId,
+    runtimeCapabilities:
+      overrides.runtimeCapabilities ?? session.runtimeCapabilities,
+    runtimeStatusPath:
+      overrides.runtimeStatusPath ?? session.runtimeStatusPath,
+    runtimeEventsPath:
+      overrides.runtimeEventsPath ?? session.runtimeEventsPath,
   };
 }
 

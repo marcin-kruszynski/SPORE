@@ -10,6 +10,7 @@ Use `docs/` as ground truth for product state, architecture, operations, and dir
 - Tactical backlog and next work: [plans/self-build-status-and-next-steps.md](plans/self-build-status-and-next-steps.md)
 - Current roadmap: [plans/roadmap.md](plans/roadmap.md)
 - Local development and verification: [runbooks/local-dev.md](runbooks/local-dev.md)
+- Approved runtime exception: [decisions/ADR-0014-runtime-adapter-multi-backend-pi.md](decisions/ADR-0014-runtime-adapter-multi-backend-pi.md)
 
 ## Current Architecture
 
@@ -56,6 +57,9 @@ Use `docs/` as ground truth for product state, architecture, operations, and dir
 - TypeScript-first codebase: [decisions/ADR-0008-typescript-first-codebase.md](decisions/ADR-0008-typescript-first-codebase.md)
 - Conversation-first operator chat surface: [decisions/ADR-0012-operator-chat-surface.md](decisions/ADR-0012-operator-chat-surface.md)
 - Durable workflow handoffs and runtime role inputs: [decisions/ADR-0013-workflow-handoffs-and-runtime-role-inputs.md](decisions/ADR-0013-workflow-handoffs-and-runtime-role-inputs.md)
+- Multi-backend PI runtime adapter boundary: [decisions/ADR-0014-runtime-adapter-multi-backend-pi.md](decisions/ADR-0014-runtime-adapter-multi-backend-pi.md)
+- PI SDK worker transport: [decisions/ADR-0015-pi-sdk-worker-transport.md](decisions/ADR-0015-pi-sdk-worker-transport.md)
+- Runtime artifact parity across PI backends: [decisions/ADR-0016-runtime-artifact-parity.md](decisions/ADR-0016-runtime-artifact-parity.md)
 
 Note: early bootstrap history contains two accepted `ADR-0001` files. Keep both as historical foundation records and do not reuse that number.
 

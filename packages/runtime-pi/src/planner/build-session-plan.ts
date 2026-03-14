@@ -22,6 +22,7 @@ export interface BuildSessionPlanOptions {
   projectPath?: string | null;
   domainId?: string | null;
   workflowId?: string | null;
+  backendKind?: string | null;
   sessionId?: string | null;
   runId?: string | null;
   sessionMode?: string | null;
@@ -75,6 +76,7 @@ export async function buildSessionPlan({
   projectPath = null,
   domainId = null,
   workflowId = null,
+  backendKind = null,
   sessionId = null,
   runId = null,
   sessionMode = null,
@@ -120,10 +122,28 @@ export async function buildSessionPlan({
     );
   }
 
+  const runtimeEnv = String(process.env.SPORE_RUNTIME_ENV ?? "").toLowerCase();
+  const selectedRuntime =
+    runtimeEnv === "test"
+      ? runtimeConfig.testRuntime
+      : runtimeEnv === "development" || runtimeEnv === "dev"
+        ? runtimeConfig.developmentRuntime
+        : runtimeEnv === "production-candidate"
+          ? runtimeConfig.candidateProductionRuntime
+          : runtimeConfig.primaryRuntime;
+
+  const effectiveBackendKind =
+    backendKind ??
+    selectedRuntime?.backendKind ??
+    adapter.defaultBackendKind ??
+    "pi_rpc";
+
   const effectiveSessionId = sessionId ?? `${profile.id}-${Date.now()}`;
   const effectiveRunId = runId ?? `run-${Date.now()}`;
   const plan: SessionPlan = {
-    version: 1,
+    version: 2,
+    providerFamily: selectedRuntime?.providerFamily ?? "pi",
+    backendKind: effectiveBackendKind,
     runtime: "pi",
     adapterId: adapter.id,
     adapterPackage: adapter.package,

@@ -109,6 +109,7 @@ test("tui execution and family commands consume orchestrator HTTP surfaces", {
   )) as TempPaths;
   const executionId = `tui-family-${Date.now()}`;
   const { branched } = await createFamilyScenario({
+    workflowPath: "config/workflows/frontend-ui-pass.yaml",
     rootRoles: ["builder", "tester", "reviewer"],
     childBranches: [
       {
@@ -339,7 +340,7 @@ test("tui execution and family commands consume orchestrator HTTP surfaces", {
   const projectPlanOutput = await runCli([
     "project-plan",
     "--project",
-    "config/projects/example-project.yaml",
+    "config/projects/spore.yaml",
     "--domains",
     "backend,frontend",
     "--objective",
@@ -358,7 +359,7 @@ test("tui execution and family commands consume orchestrator HTTP surfaces", {
   const projectInvokeOutput = await runCli([
     "project-invoke",
     "--project",
-    "config/projects/example-project.yaml",
+    "config/projects/spore.yaml",
     "--domains",
     "backend,frontend",
     "--objective",

@@ -82,7 +82,7 @@ test("project coordination and promotion routes expose coordinator and integrato
   const projectPlan = await postJson(
     `http://127.0.0.1:${ORCHESTRATOR_PORT}/projects/plan`,
     {
-      project: "config/projects/example-project.yaml",
+      project: "config/projects/spore.yaml",
       domains: ["backend", "frontend"],
       objective: "Coordinate backend and frontend work for one project.",
       coordinationMode: "brownfield-intake",
@@ -114,7 +114,7 @@ test("project coordination and promotion routes expose coordinator and integrato
   const projectPlanProxy = await postJson(
     `http://127.0.0.1:${WEB_PORT}/api/orchestrator/projects/plan`,
     {
-      project: "config/projects/example-project.yaml",
+      project: "config/projects/spore.yaml",
       domains: ["backend", "frontend"],
       objective: "Coordinate backend and frontend work for one project.",
       coordinationMode: "brownfield-intake",
@@ -126,7 +126,7 @@ test("project coordination and promotion routes expose coordinator and integrato
   const projectInvoke = await postJson(
     `http://127.0.0.1:${ORCHESTRATOR_PORT}/projects/invoke`,
     {
-      project: "config/projects/example-project.yaml",
+      project: "config/projects/spore.yaml",
       domains: ["backend", "frontend"],
       objective: "Coordinate backend and frontend work for one project.",
       coordinationMode: "brownfield-intake",

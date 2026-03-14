@@ -119,7 +119,7 @@ function isJsonObject(value: JsonValue | unknown): value is JsonObject {
 }
 
 function asSessionPlan(value: ArtifactContent | null): SessionPlan | null {
-  return isJsonObject(value) ? (value as SessionPlan) : null;
+  return isJsonObject(value) ? (value as unknown as SessionPlan) : null;
 }
 
 function asLaunchContext(
@@ -281,6 +281,24 @@ async function readJsonBody(
 
 function supportsRpcControl(session: SessionRecord): boolean {
   return session.launcherType === "pi-rpc";
+}
+
+function supportsSessionControl(session: SessionRecord): boolean {
+  return Boolean(
+    session.runtimeCapabilities?.supportsSteer ||
+      supportsRpcControl(session) ||
+      session.tmuxSession,
+  );
+}
+
+function resolveControlMode(session: SessionRecord): "rpc" | "tmux" | "adapter" {
+  if (supportsRpcControl(session)) {
+    return "rpc";
+  }
+  if (session.runtimeCapabilities?.supportsSteer) {
+    return "adapter";
+  }
+  return "tmux";
 }
 
 function createControlRequestRecord(
@@ -458,6 +476,7 @@ function deriveSessionDiagnostics(
     hasPiEvents: Boolean(artifacts.piEvents?.exists),
     hasRpcStatus: Boolean(artifacts.rpcStatus?.exists),
     controlCount: Array.isArray(controlHistory) ? controlHistory.length : 0,
+    supportsControl: supportsSessionControl(session),
     supportsRpcControl: supportsRpcControl(session),
     lastSteerAt: lastSteer?.acceptedAt ?? null,
     lastControlResult: latestControl?.result ?? null,
@@ -473,6 +492,16 @@ function deriveSessionDiagnostics(
 
 function getArtifactMap(session: SessionRecord): Record<string, string> {
   const base = path.join(PROJECT_ROOT, "tmp", "sessions", session.id);
+  const runtimeStatusPath = session.runtimeStatusPath
+    ? path.isAbsolute(session.runtimeStatusPath)
+      ? session.runtimeStatusPath
+      : path.join(PROJECT_ROOT, session.runtimeStatusPath)
+    : `${base}.runtime-status.json`;
+  const runtimeEventsPath = session.runtimeEventsPath
+    ? path.isAbsolute(session.runtimeEventsPath)
+      ? session.runtimeEventsPath
+      : path.join(PROJECT_ROOT, session.runtimeEventsPath)
+    : `${base}.runtime-events.jsonl`;
   return {
     plan: `${base}.plan.json`,
     context: `${base}.context.json`,
@@ -480,8 +509,12 @@ function getArtifactMap(session: SessionRecord): Record<string, string> {
     prompt: `${base}.prompt.md`,
     launch: `${base}.launch.sh`,
     transcript: `${base}.transcript.md`,
+    runtimeStatus: runtimeStatusPath,
+    runtimeEvents: runtimeEventsPath,
+    rawEvents: `${base}.raw-events.jsonl`,
     piEvents: `${base}.pi-events.jsonl`,
     piSession: `${base}.pi-session.jsonl`,
+    workerProtocol: `${base}.worker-protocol.ndjson`,
     stderr: `${base}.stderr.log`,
     control: `${base}.control.ndjson`,
     exit: `${base}.exit.json`,
@@ -566,11 +599,12 @@ async function readArtifactContent<T = ArtifactContent>(
     };
   }
 
-  if (
-    artifactName.endsWith("Events") ||
-    artifactName === "piSession" ||
-    artifactName === "control"
-  ) {
+    if (
+      artifactName.endsWith("Events") ||
+      artifactName === "piSession" ||
+      artifactName === "control" ||
+      artifactName === "workerProtocol"
+    ) {
     return {
       path: path.relative(PROJECT_ROOT, targetPath),
       content: content
@@ -586,6 +620,7 @@ async function readArtifactContent<T = ArtifactContent>(
     artifactName === "context" ||
     artifactName === "handoff" ||
     artifactName === "exit" ||
+    artifactName === "runtimeStatus" ||
     artifactName === "rpcStatus" ||
     artifactName === "launchContext"
   ) {
@@ -636,14 +671,14 @@ async function handleStopAction({
       source: "session-gateway",
       reason: body.reason ?? null,
       force: body.force ?? true,
-      controlMode: supportsRpcControl(session) ? "rpc" : "tmux",
+      controlMode: resolveControlMode(session),
     },
   });
 
   let control = null;
   let tmuxResult = null;
 
-  if (supportsRpcControl(session)) {
+  if (supportsSessionControl(session)) {
     control = await appendControlAction(session, {
       action: "abort",
       source: "session-gateway",
@@ -762,10 +797,10 @@ async function handleSteerAction({
     attempted: false,
     delivered: false,
     tmuxSession: session.tmuxSession ?? null,
-    mode: supportsRpcControl(session) ? "rpc" : "tmux",
+    mode: resolveControlMode(session),
   };
   if (
-    !supportsRpcControl(session) &&
+    !supportsSessionControl(session) &&
     session.tmuxSession &&
     (await tmuxSessionExists(session.tmuxSession))
   ) {
@@ -789,7 +824,7 @@ async function handleSteerAction({
       controlPath: control.path,
       message: body.message,
       enter,
-      deliveryMode: supportsRpcControl(session) ? "rpc" : "tmux",
+      deliveryMode: resolveControlMode(session),
       tmuxDelivery,
     },
   });
@@ -1134,6 +1169,10 @@ async function createServer(options: ServerOptions = {}) {
           ? (await readArtifactContent<JsonObject>(session, "rpcStatus"))
               .content
           : null;
+        const runtimeStatus = artifacts.runtimeStatus?.exists
+          ? (await readArtifactContent<JsonObject>(session, "runtimeStatus"))
+              .content
+          : null;
         const launchContext = artifacts.launchContext?.exists
           ? asLaunchContext(
               (await readArtifactContent<JsonObject>(session, "launchContext"))
@@ -1192,13 +1231,16 @@ async function createServer(options: ServerOptions = {}) {
             runId: session.runId ?? null,
           },
           launcherMetadata: {
+            backendKind: session.backendKind ?? null,
             launcherType: session.launcherType ?? null,
             tmuxSession: session.tmuxSession ?? null,
             runId: session.runId ?? null,
             runtimeAdapter: session.runtimeAdapter ?? null,
             transportMode: session.transportMode ?? null,
+            capabilities: session.runtimeCapabilities ?? {},
             cwd: launchContext?.cwd ?? plan?.session?.cwd ?? null,
             rpcStatus,
+            runtimeStatus,
           },
           controlAck: controlHistory[0]
             ? {

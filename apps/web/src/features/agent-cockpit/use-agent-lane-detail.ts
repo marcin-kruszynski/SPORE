@@ -6,8 +6,8 @@ import {
   asRecord,
   formatRelativeTimestamp,
   humanize,
-  parseTimestamp,
-  toText,
+    parseTimestamp,
+    toText,
 } from "../../adapters/adapter-utils.js";
 import {
   AGENT_COCKPIT_BOOTSTRAP_QUERY_KEY,
@@ -113,6 +113,10 @@ function toThreadUpdate(message: OperatorApiMessage, index: number) {
     timestamp,
     freshnessLabel: formatRelativeTimestamp(timestamp),
   };
+}
+
+function toBoolean(value: unknown, fallback = false) {
+  return typeof value === "boolean" ? value : fallback;
 }
 
 function toSessionUpdate(event: MissionMapApiSessionEvent, index: number) {
@@ -472,6 +476,11 @@ function buildInspection(input: {
       toText(input.sessionLive?.launchContext?.branchName, "") ||
       input.previous?.inspection.branchName ||
       null,
+    backendKind:
+      toText(input.sessionLive?.launcherMetadata?.backendKind, "") ||
+      toText(input.sessionLive?.session?.backendKind, "") ||
+      input.previous?.inspection.backendKind ||
+      null,
     runtimeAdapter:
       toText(input.sessionLive?.launcherMetadata?.runtimeAdapter, "") ||
       toText(input.sessionLive?.session?.runtimeAdapter, "") ||
@@ -482,6 +491,11 @@ function buildInspection(input: {
       toText(input.sessionLive?.session?.transportMode, "") ||
       input.previous?.inspection.transportMode ||
       null,
+    supportsControl:
+      toBoolean(input.sessionLive?.diagnostics?.supportsControl, false) ||
+      toBoolean(input.sessionLive?.diagnostics?.supportsRpcControl, false) ||
+      input.previous?.inspection.supportsControl ||
+      false,
     launcherType:
       toText(input.sessionLive?.launcherMetadata?.launcherType, "") ||
       toText(input.sessionLive?.session?.launcherType, "") ||
@@ -621,8 +635,10 @@ function buildUnavailableDetail(
       workspaceId: null,
       workspacePurpose: null,
       branchName: null,
+      backendKind: null,
       runtimeAdapter: null,
       transportMode: null,
+      supportsControl: false,
       launcherType: null,
       lastEventType: null,
       lastEventAt: null,

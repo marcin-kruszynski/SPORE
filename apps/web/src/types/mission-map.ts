@@ -170,6 +170,7 @@ export interface MissionMapApiSessionRecord {
   role?: string | null;
   projectName?: string | null;
   sessionMode?: string | null;
+  backendKind?: string | null;
   runtimeAdapter?: string | null;
   transportMode?: string | null;
   launcherType?: string | null;
@@ -243,6 +244,8 @@ export interface MissionMapApiSessionLive {
     operatorUrgency?: string | null;
     staleSession?: boolean | null;
     staleReason?: string | null;
+    supportsControl?: boolean | null;
+    supportsRpcControl?: boolean | null;
     suggestions?: Array<Record<string, unknown>> | null;
     lastEventType?: string | null;
     lastEventAt?: string | null;
@@ -267,14 +270,17 @@ export interface MissionMapApiSessionLive {
     sourceCommit?: string | null;
   } | null;
   launcherMetadata?: {
+    backendKind?: string | null;
     cwd?: string | null;
     launcherType?: string | null;
     tmuxSession?: string | null;
     runId?: string | null;
     runtimeAdapter?: string | null;
     transportMode?: string | null;
+    capabilities?: Record<string, unknown> | null;
     mode?: string | null;
     rpcStatus?: Record<string, unknown> | null;
+    runtimeStatus?: Record<string, unknown> | null;
   } | null;
   handoff?: Record<string, unknown> | null;
   controlHistory?: Array<Record<string, unknown>> | null;

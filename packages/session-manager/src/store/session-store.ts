@@ -23,6 +23,7 @@ interface SessionRecordRow {
   role: string;
   state: SessionRecord["state"];
   runtimeAdapter: string;
+  backendKind: string | null;
   transportMode: string | null;
   sessionMode: string | null;
   projectId: string | null;
@@ -36,6 +37,10 @@ interface SessionRecordRow {
   launcherType: string | null;
   launchCommand: string | null;
   tmuxSession: string | null;
+  runtimeInstanceId: string | null;
+  runtimeCapabilitiesJson: string | null;
+  runtimeStatusPath: string | null;
+  runtimeEventsPath: string | null;
   startedAt: string | null;
   endedAt: string | null;
   createdAt: string;
@@ -95,6 +100,7 @@ function toSessionRecord(row: SessionRecordRow): SessionRecord {
     role: row.role,
     state: row.state,
     runtimeAdapter: row.runtimeAdapter,
+    backendKind: row.backendKind,
     transportMode: row.transportMode,
     sessionMode: row.sessionMode,
     projectId: row.projectId,
@@ -108,6 +114,13 @@ function toSessionRecord(row: SessionRecordRow): SessionRecord {
     launcherType: row.launcherType,
     launchCommand: row.launchCommand,
     tmuxSession: row.tmuxSession,
+    runtimeInstanceId: row.runtimeInstanceId,
+    runtimeCapabilities: parseJsonField<Record<string, boolean> | null>(
+      row.runtimeCapabilitiesJson,
+      null,
+    ),
+    runtimeStatusPath: row.runtimeStatusPath,
+    runtimeEventsPath: row.runtimeEventsPath,
     startedAt: row.startedAt,
     endedAt: row.endedAt,
     createdAt: row.createdAt,
@@ -158,6 +171,7 @@ export function openSessionDatabase(dbPath: string): DatabaseSync {
       role TEXT NOT NULL,
       state TEXT NOT NULL,
       runtime_adapter TEXT NOT NULL,
+      backend_kind TEXT,
       transport_mode TEXT,
       session_mode TEXT,
       project_id TEXT,
@@ -171,6 +185,10 @@ export function openSessionDatabase(dbPath: string): DatabaseSync {
       launcher_type TEXT,
       launch_command TEXT,
       tmux_session TEXT,
+      runtime_instance_id TEXT,
+      runtime_capabilities_json TEXT,
+      runtime_status_path TEXT,
+      runtime_events_path TEXT,
       started_at TEXT,
       ended_at TEXT,
       created_at TEXT NOT NULL,
@@ -202,6 +220,11 @@ export function openSessionDatabase(dbPath: string): DatabaseSync {
     ["launcher_type", "TEXT"],
     ["launch_command", "TEXT"],
     ["tmux_session", "TEXT"],
+    ["backend_kind", "TEXT"],
+    ["runtime_instance_id", "TEXT"],
+    ["runtime_capabilities_json", "TEXT"],
+    ["runtime_status_path", "TEXT"],
+    ["runtime_events_path", "TEXT"],
     ["artifact_recovery_json", "TEXT"],
   ]);
   return db;
@@ -246,6 +269,7 @@ export function upsertSessionInTransaction(
       role,
       state,
       runtime_adapter,
+      backend_kind,
       transport_mode,
       session_mode,
       project_id,
@@ -259,6 +283,10 @@ export function upsertSessionInTransaction(
       launcher_type,
       launch_command,
       tmux_session,
+      runtime_instance_id,
+      runtime_capabilities_json,
+      runtime_status_path,
+      runtime_events_path,
       started_at,
        ended_at,
        created_at,
@@ -272,6 +300,7 @@ export function upsertSessionInTransaction(
       @role,
       @state,
       @runtimeAdapter,
+      @backendKind,
       @transportMode,
       @sessionMode,
       @projectId,
@@ -285,6 +314,10 @@ export function upsertSessionInTransaction(
       @launcherType,
       @launchCommand,
       @tmuxSession,
+      @runtimeInstanceId,
+      @runtimeCapabilitiesJson,
+      @runtimeStatusPath,
+      @runtimeEventsPath,
       @startedAt,
        @endedAt,
        @createdAt,
@@ -298,6 +331,7 @@ export function upsertSessionInTransaction(
       role = excluded.role,
       state = excluded.state,
       runtime_adapter = excluded.runtime_adapter,
+      backend_kind = excluded.backend_kind,
       transport_mode = excluded.transport_mode,
       session_mode = excluded.session_mode,
       project_id = excluded.project_id,
@@ -310,18 +344,28 @@ export function upsertSessionInTransaction(
       transcript_path = excluded.transcript_path,
       launcher_type = excluded.launcher_type,
       launch_command = excluded.launch_command,
-       tmux_session = excluded.tmux_session,
-       started_at = excluded.started_at,
-       ended_at = excluded.ended_at,
-       updated_at = excluded.updated_at,
-       artifact_recovery_json = excluded.artifact_recovery_json
+      tmux_session = excluded.tmux_session,
+      runtime_instance_id = excluded.runtime_instance_id,
+      runtime_capabilities_json = excluded.runtime_capabilities_json,
+      runtime_status_path = excluded.runtime_status_path,
+      runtime_events_path = excluded.runtime_events_path,
+      started_at = excluded.started_at,
+      ended_at = excluded.ended_at,
+      updated_at = excluded.updated_at,
+      artifact_recovery_json = excluded.artifact_recovery_json
    `);
 
-  const { artifactRecovery: _artifactRecovery, ...sessionParameters } =
-    sessionRecord;
+  const {
+    artifactRecovery: _artifactRecovery,
+    runtimeCapabilities: _runtimeCapabilities,
+    ...sessionParameters
+  } = sessionRecord;
   statement.run(
     asSqlParameters({
       ...(sessionParameters as unknown as Record<string, unknown>),
+      runtimeCapabilitiesJson: sessionRecord.runtimeCapabilities
+        ? JSON.stringify(sessionRecord.runtimeCapabilities)
+        : null,
       artifactRecoveryJson: sessionRecord.artifactRecovery
         ? JSON.stringify(sessionRecord.artifactRecovery)
         : null,
@@ -353,6 +397,7 @@ export function getSession(
           role,
           state,
           runtime_adapter AS runtimeAdapter,
+          backend_kind AS backendKind,
           transport_mode AS transportMode,
           session_mode AS sessionMode,
           project_id AS projectId,
@@ -366,6 +411,10 @@ export function getSession(
           launcher_type AS launcherType,
           launch_command AS launchCommand,
           tmux_session AS tmuxSession,
+          runtime_instance_id AS runtimeInstanceId,
+          runtime_capabilities_json AS runtimeCapabilitiesJson,
+          runtime_status_path AS runtimeStatusPath,
+          runtime_events_path AS runtimeEventsPath,
           started_at AS startedAt,
           ended_at AS endedAt,
           created_at AS createdAt,

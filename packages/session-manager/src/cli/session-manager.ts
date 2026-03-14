@@ -154,6 +154,34 @@ async function loadPlan(planPath: string): Promise<SessionPlan> {
   return JSON.parse(raw) as SessionPlan;
 }
 
+async function readRuntimeStatusHeartbeat(
+  session: SessionRecord,
+): Promise<{ heartbeatAt: string | null; terminalSettled: boolean }> {
+  const runtimeStatusPath = session.runtimeStatusPath
+    ? resolvePath(session.runtimeStatusPath, session.runtimeStatusPath)
+    : null;
+  if (!runtimeStatusPath) {
+    return { heartbeatAt: null, terminalSettled: false };
+  }
+  try {
+    const raw = await fs.readFile(runtimeStatusPath, "utf8");
+    const parsed = JSON.parse(raw) as {
+      heartbeatAt?: string | null;
+      terminalSignal?: { settled?: boolean } | null;
+    };
+    return {
+      heartbeatAt: parsed.heartbeatAt ?? null,
+      terminalSettled: Boolean(parsed.terminalSignal?.settled),
+    };
+  } catch (error) {
+    const typed = error as NodeJS.ErrnoException;
+    if (typed.code === "ENOENT") {
+      return { heartbeatAt: null, terminalSettled: false };
+    }
+    throw typed;
+  }
+}
+
 async function createFromPlan(flags: CliFlags): Promise<void> {
   const planPath = asString(flags.plan);
   if (!planPath) {
@@ -174,6 +202,12 @@ async function createFromPlan(flags: CliFlags): Promise<void> {
       launcherType: asString(flags.launcher) ?? null,
       launchCommand: asString(flags.command) ?? null,
       tmuxSession: asString(flags.tmux) ?? null,
+      runtimeInstanceId: asString(flags["runtime-instance"]) ?? null,
+      runtimeCapabilities: asString(flags["runtime-capabilities-json"])
+        ? (JSON.parse(String(flags["runtime-capabilities-json"])) as Record<string, boolean>)
+        : null,
+      runtimeStatusPath: asString(flags["runtime-status"]) ?? null,
+      runtimeEventsPath: asString(flags["runtime-events"]) ?? null,
     });
     upsertSession(db, record);
     const event = createLifecycleEvent(record, "session.planned", {
@@ -206,6 +240,12 @@ async function transition(flags: CliFlags): Promise<void> {
       launcherType: asString(flags.launcher) ?? null,
       launchCommand: asString(flags.command) ?? null,
       tmuxSession: asString(flags.tmux) ?? null,
+      runtimeInstanceId: asString(flags["runtime-instance"]) ?? null,
+      runtimeCapabilities: asString(flags["runtime-capabilities-json"])
+        ? (JSON.parse(String(flags["runtime-capabilities-json"])) as Record<string, boolean>)
+        : null,
+      runtimeStatusPath: asString(flags["runtime-status"]) ?? null,
+      runtimeEventsPath: asString(flags["runtime-events"]) ?? null,
     },
     payload: {
       source: "session-manager",
@@ -378,6 +418,7 @@ async function reconcileOnce(flags: CliFlags): Promise<ReconcileResult> {
       const hasTmux = currentSession.tmuxSession
         ? await tmuxSessionExists(currentSession.tmuxSession)
         : false;
+      const runtimeHeartbeat = await readRuntimeStatusHeartbeat(currentSession);
       if (hasTmux) {
         pending.push({
           sessionId: currentSession.id,
@@ -385,6 +426,22 @@ async function reconcileOnce(flags: CliFlags): Promise<ReconcileResult> {
           reason: "tmux-active",
         });
         continue;
+      }
+      if (
+        !hasTmux &&
+        runtimeHeartbeat.heartbeatAt &&
+        !runtimeHeartbeat.terminalSettled
+      ) {
+        const ageMs = Date.now() - parseTimestamp(runtimeHeartbeat.heartbeatAt);
+        if (ageMs < graceMs) {
+          pending.push({
+            sessionId: currentSession.id,
+            state: currentSession.state,
+            reason: "runtime-heartbeat-active",
+            ageMs,
+          });
+          continue;
+        }
       }
       if (!hasTmux) {
         const ageMs =

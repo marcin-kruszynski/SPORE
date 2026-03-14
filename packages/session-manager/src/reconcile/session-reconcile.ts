@@ -40,6 +40,13 @@ interface RpcStatusArtifact {
   terminalSignal?: RpcTerminalSignal | null;
 }
 
+interface RuntimeStatusArtifact {
+  state?: string;
+  health?: string;
+  heartbeatAt?: string | null;
+  terminalSignal?: RpcTerminalSignal | null;
+}
+
 export interface SessionArtifactSignal {
   source: SessionArtifactSignalSource;
   signalSource: SessionArtifactSignalSource;
@@ -264,6 +271,52 @@ function parseRpcStatusSignal(
   });
 }
 
+function parseRuntimeStatusSignal(
+  artifactPath: string,
+  raw: unknown,
+): SessionArtifactSignal | null {
+  if (!isJsonRecord(raw)) {
+    return null;
+  }
+  const runtimeStatus = raw as RuntimeStatusArtifact;
+  const terminalSignal = isJsonRecord(runtimeStatus.terminalSignal)
+    ? (runtimeStatus.terminalSignal as RpcTerminalSignal)
+    : null;
+  if (!terminalSignal?.settled || !Number.isInteger(terminalSignal.exitCode)) {
+    return null;
+  }
+  return buildSessionSignal(
+    "runtime-status",
+    artifactPath,
+    terminalSignal.exitCode,
+    {
+      finishedAt:
+        typeof terminalSignal.finishedAt === "string"
+          ? terminalSignal.finishedAt
+          : null,
+      status: typeof runtimeStatus.state === "string" ? runtimeStatus.state : null,
+      terminalSignalSource:
+        typeof terminalSignal.source === "string" ? terminalSignal.source : null,
+    },
+  );
+}
+
+async function readGenericRuntimeSignal(
+  session: SessionRecord,
+  projectRoot: string,
+): Promise<SessionArtifactSignal | null> {
+  const runtimeStatusPath = session.runtimeStatusPath
+    ? path.isAbsolute(session.runtimeStatusPath)
+      ? session.runtimeStatusPath
+      : path.join(projectRoot, session.runtimeStatusPath)
+    : path.join(projectRoot, "tmp", "sessions", `${session.id}.runtime-status.json`);
+  const runtimeStatusArtifact = await readJsonFileIfExists(runtimeStatusPath);
+  return parseRuntimeStatusSignal(
+    runtimeStatusPath,
+    readJsonValue(runtimeStatusArtifact),
+  );
+}
+
 async function readSessionArtifactSignal(
   session: SessionRecord,
   projectRoot: string,
@@ -323,7 +376,9 @@ export async function reconcileSessionFromArtifacts({
       };
     }
 
-    const signal = await readSessionArtifactSignal(session, projectRoot);
+    const signal =
+      (await readGenericRuntimeSignal(session, projectRoot)) ??
+      (await readSessionArtifactSignal(session, projectRoot));
     if (!signal) {
       return {
         reconciled: false,

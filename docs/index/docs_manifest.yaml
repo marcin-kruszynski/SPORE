@@ -1,5 +1,5 @@
 version: 2
-updated_at: 2026-03-12
+updated_at: 2026-03-14
 owner: documentation-steward
 scope: canonical-docs-only
 notes:
@@ -286,6 +286,27 @@ documents:
     owner: architecture-council
     tags: [workflow, handoff, runtime, roles]
     path: docs/decisions/ADR-0013-workflow-handoffs-and-runtime-role-inputs.md
+  - id: adr-runtime-adapter-multi-backend-pi
+    type: decision
+    domain: agent-runtime
+    status: accepted
+    owner: architecture-council
+    tags: [runtime, pi, adapter, migration]
+    path: docs/decisions/ADR-0014-runtime-adapter-multi-backend-pi.md
+  - id: adr-pi-sdk-worker-transport
+    type: decision
+    domain: agent-runtime
+    status: accepted
+    owner: architecture-council
+    tags: [runtime, worker, transport, protocol]
+    path: docs/decisions/ADR-0015-pi-sdk-worker-transport.md
+  - id: adr-runtime-artifact-parity
+    type: decision
+    domain: session-ui
+    status: accepted
+    owner: architecture-council
+    tags: [runtime, artifacts, inspectability, recovery]
+    path: docs/decisions/ADR-0016-runtime-artifact-parity.md
   - id: bootstrap-completion-summary
     type: historical
     domain: shared

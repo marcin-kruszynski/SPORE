@@ -1,11 +1,31 @@
 id: runtime-settings
-primaryRuntime: pi
+primaryRuntime:
+  providerFamily: pi
+  backendKind: pi_rpc
+developmentRuntime:
+  providerFamily: pi
+  backendKind: pi_sdk_embedded
+testRuntime:
+  providerFamily: pi
+  backendKind: pi_sdk_embedded
+candidateProductionRuntime:
+  providerFamily: pi
+  backendKind: pi_sdk_worker
 runtimeAdapters:
   - id: pi
+    providerFamily: pi
     package: packages/runtime-pi
     sessionTransport: local-process
     supportsSteering: planned
     supportsSessionInspection: true
+    defaultBackendKind: pi_rpc
+    supportedBackends:
+      - backendKind: pi_rpc
+        description: Current subprocess RPC launcher path.
+      - backendKind: pi_sdk_embedded
+        description: Same-process SDK runtime for dev and test flows.
+      - backendKind: pi_sdk_worker
+        description: Dedicated worker process using the PI SDK.
 sessionDefaults:
   mode: tmux-backed
   storeRoot: tmp/sessions

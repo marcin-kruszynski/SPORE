@@ -141,8 +141,10 @@ export function AgentSessionSummary({ detail }: AgentSessionSummaryProps) {
           <DetailRow label="Workspace purpose" value={detail.inspection.workspacePurpose} />
           <DetailRow label="Branch" value={detail.inspection.branchName} />
           <DetailRow label="Cwd" value={detail.inspection.cwd} />
+          <DetailRow label="Backend" value={detail.inspection.backendKind} />
           <DetailRow label="Runtime" value={detail.inspection.runtimeAdapter} />
           <DetailRow label="Transport" value={detail.inspection.transportMode} />
+          <DetailRow label="Control" value={detail.inspection.supportsControl ? "supported" : null} />
           <DetailRow label="Launcher" value={detail.inspection.launcherType} />
           <DetailRow label="Last event" value={detail.inspection.lastEventType} />
         </div>

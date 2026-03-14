@@ -91,6 +91,7 @@ projectCoordinationPolicy:
     stepSoftTimeoutMs: 30000
     stepHardTimeoutMs: 120000
   runtimePolicy:
+    defaultBackendKind: pi_rpc
     sessionModeByRole:
       coordinator: persistent
     workspace:
@@ -120,6 +121,7 @@ promotionPolicy:
     stepSoftTimeoutMs: 30000
     stepHardTimeoutMs: 120000
   runtimePolicy:
+    defaultBackendKind: pi_rpc
     sessionModeByRole:
       integrator: persistent
     workspace:
@@ -146,6 +148,9 @@ uiSettings:
   surfaces: [cli, tui, web]
 runtimePolicies:
   runtime: pi
+  defaultBackendKind: pi_rpc
+  developmentBackendKind: pi_sdk_embedded
+  candidateProductionBackendKind: pi_sdk_worker
   liveInspectionRequired: true
 selfWorkDefaults:
   safeMode: true

@@ -14,5 +14,12 @@ PI is the initial technical substrate for SPORE runtime work.
 
 - use PI as the first runtime control plane,
 - translate SPORE profiles into PI runtime settings,
+- support multiple PI backend kinds behind a SPORE-owned runtime adapter contract,
 - bridge PI events into SPORE session and observability contracts,
 - keep SPORE-specific workflow, domain, and review policy outside of PI internals.
+
+Current backend kinds:
+
+- `pi_rpc`: compatibility and operational fallback,
+- `pi_sdk_embedded`: local dev and test mode,
+- `pi_sdk_worker`: production candidate with process isolation and SDK-level integration.

@@ -27,6 +27,7 @@
       "@spore/docs-kb": ["packages/docs-kb/src/index.ts"],
       "@spore/workspace-manager": ["packages/workspace-manager/src/index.ts"],
       "@spore/session-manager": ["packages/session-manager/src/index.ts"],
+      "@spore/runtime-core": ["packages/runtime-core/src/index.ts"],
       "@spore/runtime-pi": ["packages/runtime-pi/src/index.ts"],
       "@spore/orchestrator": ["packages/orchestrator/src/index.ts"],
       "@spore/tui": ["packages/tui/src/index.ts"],

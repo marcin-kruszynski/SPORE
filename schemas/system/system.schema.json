@@ -2,6 +2,88 @@
   "type": "object",
   "required": ["id"],
   "properties": {
-    "id": { "type": "string" }
+    "id": { "type": "string" },
+    "primaryRuntime": {
+      "type": "object",
+      "required": ["providerFamily", "backendKind"],
+      "properties": {
+        "providerFamily": { "type": "string", "enum": ["pi"] },
+        "backendKind": {
+          "type": "string",
+          "enum": ["pi_rpc", "pi_sdk_embedded", "pi_sdk_worker"]
+        }
+      }
+    },
+    "developmentRuntime": {
+      "type": "object",
+      "properties": {
+        "providerFamily": { "type": "string", "enum": ["pi"] },
+        "backendKind": {
+          "type": "string",
+          "enum": ["pi_rpc", "pi_sdk_embedded", "pi_sdk_worker"]
+        }
+      }
+    },
+    "testRuntime": {
+      "type": "object",
+      "properties": {
+        "providerFamily": { "type": "string", "enum": ["pi"] },
+        "backendKind": {
+          "type": "string",
+          "enum": ["pi_rpc", "pi_sdk_embedded", "pi_sdk_worker"]
+        }
+      }
+    },
+    "candidateProductionRuntime": {
+      "type": "object",
+      "properties": {
+        "providerFamily": { "type": "string", "enum": ["pi"] },
+        "backendKind": {
+          "type": "string",
+          "enum": ["pi_rpc", "pi_sdk_embedded", "pi_sdk_worker"]
+        }
+      }
+    },
+    "runtimeAdapters": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "providerFamily"],
+        "properties": {
+          "id": { "type": "string" },
+          "providerFamily": { "type": "string", "enum": ["pi"] },
+          "package": { "type": "string" },
+          "sessionTransport": { "type": "string" },
+          "supportsSteering": { "type": "string" },
+          "supportsSessionInspection": { "type": "boolean" },
+          "defaultBackendKind": {
+            "type": "string",
+            "enum": ["pi_rpc", "pi_sdk_embedded", "pi_sdk_worker"]
+          },
+          "supportedBackends": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["backendKind"],
+              "properties": {
+                "backendKind": {
+                  "type": "string",
+                  "enum": ["pi_rpc", "pi_sdk_embedded", "pi_sdk_worker"]
+                },
+                "description": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "sessionDefaults": {
+      "type": "object",
+      "properties": {
+        "mode": { "type": "string" },
+        "storeRoot": { "type": "string" },
+        "captureTranscript": { "type": "boolean" }
+      }
+    }
   }
 }

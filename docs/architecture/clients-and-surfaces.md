@@ -21,6 +21,8 @@ The repository now exposes three concrete surfaces over the shared session model
 - `packages/tui/` for operator dashboard and per-session inspection,
 - `services/session-gateway/` for HTTP access to status, sessions, events, artifacts, streams, and narrow control actions.
 
+Those surfaces now consume backend-aware runtime metadata rather than assuming a single launcher path. Clients should prefer capability flags and `backendKind` over hard-coded `pi-rpc` checks.
+
 The repository also includes:
 
 - `services/orchestrator/` for workflow planning and invocation entrypoints,

@@ -94,6 +94,8 @@ test("planned domain policy becomes runtime retrieval inputs and startup context
   assert.equal(plan.session.domainId, invocation.domain.id);
   assert.equal(plan.session.workflowId, invocation.workflow.id);
   assert.equal(plan.session.sessionMode, launch.sessionMode);
+  assert.equal(plan.providerFamily, "pi");
+  assert.equal(plan.backendKind, launch.policy.runtimePolicy.backendKind);
   assert.equal(plan.retrieval.query, launch.policy.docsKbPolicy.query);
   assert.deepEqual(
     plan.retrieval.queryTerms,
@@ -117,6 +119,8 @@ test("planned domain policy becomes runtime retrieval inputs and startup context
   assert.equal(written.payload.session.domainId, plan.session.domainId);
   assert.equal(written.payload.session.workflowId, plan.session.workflowId);
   assert.equal(written.payload.session.sessionMode, plan.session.sessionMode);
+  assert.equal(written.payload.runtime.providerFamily, plan.providerFamily);
+  assert.equal(written.payload.runtime.backendKind, plan.backendKind);
   assert.equal(written.payload.retrieval.query, plan.retrieval.query);
   assert.equal(written.payload.retrieval.note, null);
   assert.ok(written.payload.retrieval.results.length >= 1);
@@ -129,5 +133,6 @@ test("planned domain policy becomes runtime retrieval inputs and startup context
   assert.equal(rawContext.session.domainId, invocation.domain.id);
   assert.equal(rawContext.session.workflowId, invocation.workflow.id);
   assert.equal(rawContext.session.sessionMode, launch.sessionMode);
+  assert.equal(rawContext.runtime.backendKind, launch.policy.runtimePolicy.backendKind);
   assert.equal(rawContext.retrieval.query, launch.policy.docsKbPolicy.query);
 });

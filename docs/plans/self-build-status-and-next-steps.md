@@ -30,7 +30,11 @@ This means SPORE can already work on SPORE in controlled, auditable loops.
 
 ## What Still Needs Work
 
-The major remaining gaps are not foundational runtime gaps anymore. They are quality, safety, and operator-experience gaps.
+The major remaining gaps are not broad foundational runtime rebuilds anymore. They are quality, safety, and operator-experience gaps.
+
+Approved exception:
+
+- a bounded multi-backend PI runtime adapter migration is allowed under `ADR-0014`, `ADR-0015`, and `ADR-0016` because SPORE now needs a safer runtime boundary around the already-working PI-first slice.
 
 ### 1. Planner And Scheduler Quality
 

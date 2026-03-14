@@ -55,4 +55,19 @@ The runtime layer also receives the execution's `domainId` and `workflowId` dire
 
 ### Future Abstraction
 
-A runtime abstraction layer can be introduced later, but bootstrap and first implementation waves remain PI-centered.
+Bootstrap and first implementation waves remain PI-centered, but the runtime boundary is now explicitly multi-backend within the PI family.
+
+### Multi-Backend PI Runtime Adapter
+
+`ADR-0014`, `ADR-0015`, and `ADR-0016` introduce a SPORE-owned `RuntimeAdapter` boundary with three PI backend kinds:
+
+- `pi_rpc` for the existing CLI RPC subprocess path,
+- `pi_sdk_embedded` for same-process SDK integration in bounded dev/test flows,
+- `pi_sdk_worker` for SDK integration behind a worker-process protocol.
+
+The generic runtime artifact contract now centers on:
+
+- `*.runtime-status.json`,
+- `*.runtime-events.jsonl`,
+- `*.control.ndjson`,
+- compatibility artifacts such as `*.rpc-status.json` and `*.pi-events.jsonl` while readers migrate.

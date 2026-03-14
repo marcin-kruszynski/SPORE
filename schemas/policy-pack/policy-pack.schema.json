@@ -33,6 +33,11 @@
     "runtimePolicy": {
       "type": "object",
       "properties": {
+        "defaultBackendKind": { "type": "string" },
+        "backendKindByRole": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
         "sessionModeByRole": {
           "type": "object",
           "additionalProperties": { "type": "string" }

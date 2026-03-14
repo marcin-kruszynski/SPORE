@@ -54,9 +54,17 @@ The repository now includes:
 - PI JSON event capture and PI session artifacts in `tmp/sessions/`,
 - PI RPC status and control queue artifacts in `tmp/sessions/`,
 - detached-session reconciliation from exit files,
+- generic runtime-status reconciliation before RPC-specific fallback artifacts,
 - operator inspection via `packages/tui/`,
 - session, artifact, and event-stream access plus narrow control actions via `services/session-gateway/`.
 - a combined live-session route (`GET /sessions/:id/live`) that now returns diagnostics and suggested recovery actions along with metadata, artifacts, events, and control history.
+
+Session records now also persist backend-aware runtime metadata such as:
+
+- `backendKind`,
+- runtime capability flags,
+- generic runtime status and event artifact paths,
+- backend-local runtime instance ids when available.
 
 Workflow execution now also links parent and child sessions so a single execution can be rendered as a step/session tree in the web surface.
 

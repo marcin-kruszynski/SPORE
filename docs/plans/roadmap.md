@@ -22,6 +22,10 @@ The next waves should focus on five product priorities:
 4. Make the self-build dashboard and TUI the primary operator mission-control surface.
 5. Expand self-build-specific scenario and regression coverage.
 
+Approved exception in the current wave:
+
+- land the bounded multi-backend PI runtime adapter migration from `ADR-0014`, `ADR-0015`, and `ADR-0016` so SPORE can keep PI-first integration while decoupling the core runtime boundary from a single launcher implementation.
+
 ## Next
 
 After those land, the next layer should be:

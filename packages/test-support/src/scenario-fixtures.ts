@@ -23,6 +23,8 @@ type ScenarioExecutionArgs = {
 };
 
 type FamilyScenarioArgs = {
+  workflowPath?: string | null;
+  projectPath?: string;
   rootRoles: string[];
   childBranches: Array<Record<string, unknown>>;
   domainId?: string | null;
@@ -76,6 +78,8 @@ export async function createScenarioExecution({
 }
 
 export async function createFamilyScenario({
+  workflowPath,
+  projectPath = "config/projects/example-project.yaml",
   rootRoles,
   childBranches,
   domainId,
@@ -85,7 +89,8 @@ export async function createFamilyScenario({
   sessionDbPath,
 }: FamilyScenarioArgs) {
   const rootInvocation = await createScenarioExecution({
-    projectPath: "config/projects/example-project.yaml",
+    workflowPath,
+    projectPath,
     domainId,
     roles: rootRoles,
     invocationId,

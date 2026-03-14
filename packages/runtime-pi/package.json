@@ -6,5 +6,9 @@
   "description": "PI runtime planning for SPORE",
   "exports": {
     ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@mariozechner/pi-coding-agent": "^0.58.0",
+    "zod": "^3.25.76"
   }
 }

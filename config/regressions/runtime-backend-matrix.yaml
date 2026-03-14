@@ -1,0 +1,13 @@
+id: runtime-backend-matrix
+label: Runtime Backend Matrix
+scenarios: [backend-service-delivery, frontend-ui-pass, cli-verification-pass]
+realPiRequired: false
+stopOnFailure: false
+concurrency: 1
+timeoutMs: 240000
+artifactRetention: full
+historyRetentionDays: 14
+retainFailedRuns: true
+schedule:
+  enabled: false
+tags: [runtime, backend, matrix]

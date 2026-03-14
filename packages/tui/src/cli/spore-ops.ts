@@ -107,7 +107,7 @@ function renderDashboard({
   lines.push("Active / Recent Sessions:");
   for (const session of sessions.slice(0, 8)) {
     lines.push(
-      `- ${session.id} | role=${session.role} | state=${session.state} | run=${session.runId} | tmux=${session.tmuxSession ?? "-"}`,
+      `- ${session.id} | role=${session.role} | state=${session.state} | run=${session.runId} | backend=${session.backendKind ?? "-"} | tmux=${session.tmuxSession ?? "-"}`,
     );
   }
   lines.push("");

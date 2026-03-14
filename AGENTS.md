@@ -9,6 +9,7 @@ SPORE (Swarm Protocol for Orchestration, Rituals & Execution) is a modular, prof
 - Current scope is bootstrap-plus-executable-foundation.
 - In scope: repo structure, docs, config skeletons, docs search, session lifecycle, operator surfaces, PI-first runtime planning, and the first orchestrator-facing workflow slice.
 - Do not build a production orchestrator runtime, production web UI, or a full execution engine in this phase.
+- Approved architecture exception: bounded work on a multi-backend PI `RuntimeAdapter` boundary is allowed when it preserves the current PI-first slice and does not broaden into a general orchestrator/runtime rewrite.
 
 ## Primary Sources Of Truth
 

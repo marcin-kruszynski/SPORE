@@ -25,6 +25,7 @@ test("family governance, audit, and policy diff routes work through HTTP and web
   );
   const executionId = `http-governance-root-${Date.now()}`;
   const invocation = await planWorkflowInvocation({
+    workflowPath: "config/workflows/frontend-ui-pass.yaml",
     projectPath: "config/projects/example-project.yaml",
     domainId: "frontend",
     roles: ["builder", "tester", "reviewer"],

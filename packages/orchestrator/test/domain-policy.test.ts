@@ -46,6 +46,7 @@ async function makeTempPaths() {
 test("review changes_requested uses policy retry target and resets downstream steps", async () => {
   const { dbPath, sessionDbPath } = await makeTempPaths();
   const invocation = await planWorkflowInvocation({
+    workflowPath: "config/workflows/backend-service-delivery.yaml",
     projectPath: "config/projects/example-project.yaml",
     domainId: "backend",
     roles: ["builder", "tester", "reviewer"],
@@ -170,6 +171,7 @@ test("held executions can record owner, guidance, expiry, and emit escalation on
 test("frontend review changes_requested can branch rework into a child execution", async () => {
   const { dbPath, sessionDbPath } = await makeTempPaths();
   const invocation = await planWorkflowInvocation({
+    workflowPath: "config/workflows/frontend-ui-pass.yaml",
     projectPath: "config/projects/example-project.yaml",
     domainId: "frontend",
     roles: ["builder", "tester", "reviewer"],
@@ -303,6 +305,7 @@ test("family-level governance can review and approve all pending child execution
   const { dbPath, sessionDbPath } = await makeTempPaths();
   const rootInvocationId = `family-governance-root-test-${Date.now()}`;
   const rootInvocation = await planWorkflowInvocation({
+    workflowPath: "config/workflows/frontend-ui-pass.yaml",
     projectPath: "config/projects/example-project.yaml",
     domainId: "frontend",
     roles: ["builder", "tester", "reviewer"],
@@ -556,8 +559,9 @@ test("completed retry sessions can unblock held executions and launch the next w
   const builder = detail.steps.find((step) => step.role === "builder");
 
   assert.equal(refreshedLead.state, "review_pending");
-  assert.equal(detail.execution.state, "waiting_review");
-  assert.equal(detail.execution.holdReason, null);
+  assert.equal(detail.execution.state, "held");
+  assert.equal(detail.execution.holdOwner, null);
+  assert.equal(detail.execution.holdReason, "internal-governance-pending");
   assert.equal(builder.state, "planned");
 });
 
@@ -565,6 +569,7 @@ test("completed retry sessions can unblock held executions into waiting_review",
   const { dbPath, sessionDbPath } = await makeTempPaths();
   const invocationId = `held-retry-review-${Date.now()}`;
   const invocation = await planWorkflowInvocation({
+    workflowPath: "config/workflows/backend-service-delivery.yaml",
     projectPath: "config/projects/example-project.yaml",
     domainId: "backend",
     roles: ["reviewer"],
@@ -757,8 +762,9 @@ test("exit artifacts can reconcile stale active sessions and unblock the next wa
   const builder = detail.steps.find((step) => step.role === "builder");
 
   assert.equal(refreshedScout.state, "review_pending");
-  assert.equal(detail.execution.state, "waiting_review");
-  assert.equal(detail.execution.holdReason, null);
+  assert.equal(detail.execution.state, "held");
+  assert.equal(detail.execution.holdOwner, null);
+  assert.equal(detail.execution.holdReason, "internal-governance-pending");
   assert.equal(builder.state, "planned");
 });
 
@@ -885,8 +891,9 @@ test("final rpc-status artifacts can reconcile stale active sessions and unblock
   const builder = detail.steps.find((step) => step.role === "builder");
 
   assert.equal(refreshedScout.state, "review_pending");
-  assert.equal(detail.execution.state, "waiting_review");
-  assert.equal(detail.execution.holdReason, null);
+  assert.equal(detail.execution.state, "held");
+  assert.equal(detail.execution.holdOwner, null);
+  assert.equal(detail.execution.holdReason, "internal-governance-pending");
   assert.equal(builder.state, "planned");
 });
 
@@ -1001,8 +1008,9 @@ test("persisted artifact recovery remains visible when session-manager settles b
   const builder = detail.steps.find((step) => step.role === "builder");
 
   assert.equal(refreshedScout.state, "review_pending");
-  assert.equal(detail.execution.state, "waiting_review");
-  assert.equal(detail.execution.holdReason, null);
+  assert.equal(detail.execution.state, "held");
+  assert.equal(detail.execution.holdOwner, null);
+  assert.equal(detail.execution.holdReason, "internal-governance-pending");
   assert.equal(builder.state, "planned");
   assert.equal(detail.artifactRecovery.count, 1);
   assert.equal(detail.artifactRecovery.events[0].signalSource, "rpc-status");

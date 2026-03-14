@@ -26,6 +26,7 @@ export function createSessionRecordFromPlan(
     role: plan.session.role,
     state: options.state ?? "planned",
     runtimeAdapter: plan.adapterId,
+    backendKind: plan.backendKind ?? null,
     transportMode: plan.session.transportMode ?? null,
     sessionMode: plan.session.sessionMode ?? null,
     projectId: plan.project?.id ?? null,
@@ -40,6 +41,12 @@ export function createSessionRecordFromPlan(
     launcherType: options.launcherType ?? null,
     launchCommand: options.launchCommand ?? null,
     tmuxSession: options.tmuxSession ?? null,
+    runtimeInstanceId: options.runtimeInstanceId ?? null,
+    runtimeCapabilities: options.runtimeCapabilities ?? null,
+    runtimeStatusPath:
+      options.runtimeStatusPath ?? `tmp/sessions/${plan.session.id}.runtime-status.json`,
+    runtimeEventsPath:
+      options.runtimeEventsPath ?? `tmp/sessions/${plan.session.id}.runtime-events.jsonl`,
     startedAt: options.state === "active" ? now : null,
     endedAt: null,
     createdAt: now,

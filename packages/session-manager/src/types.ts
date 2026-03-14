@@ -16,6 +16,7 @@ export interface SessionRecord {
   role: string;
   state: SessionState;
   runtimeAdapter: string;
+  backendKind?: string | null;
   transportMode: string | null;
   sessionMode: string | null;
   projectId: string | null;
@@ -29,6 +30,10 @@ export interface SessionRecord {
   launcherType: string | null;
   launchCommand: string | null;
   tmuxSession: string | null;
+  runtimeInstanceId?: string | null;
+  runtimeCapabilities?: Record<string, boolean> | null;
+  runtimeStatusPath?: string | null;
+  runtimeEventsPath?: string | null;
   startedAt: string | null;
   endedAt: string | null;
   createdAt: string;
@@ -52,7 +57,10 @@ export interface SessionSummary {
 
 export type SessionEventPayload = Record<string, unknown>;
 
-export type SessionArtifactSignalSource = "exit-file" | "rpc-status";
+export type SessionArtifactSignalSource =
+  | "exit-file"
+  | "rpc-status"
+  | "runtime-status";
 
 export type SessionArtifactFallbackReason =
   | "exit-file-missing"
@@ -95,6 +103,8 @@ export interface SessionProjectPlan {
 
 export interface SessionPlan {
   adapterId: string;
+  providerFamily?: string;
+  backendKind?: string | null;
   session: {
     id: string;
     runId: string;
@@ -112,6 +122,10 @@ export interface SessionRecordOverrides {
   launcherType?: string | null;
   launchCommand?: string | null;
   tmuxSession?: string | null;
+  runtimeInstanceId?: string | null;
+  runtimeCapabilities?: Record<string, boolean> | null;
+  runtimeStatusPath?: string | null;
+  runtimeEventsPath?: string | null;
 }
 
 export interface CreateSessionRecordOptions extends SessionRecordOverrides {

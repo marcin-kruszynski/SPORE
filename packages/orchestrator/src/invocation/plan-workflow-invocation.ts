@@ -35,6 +35,11 @@ const DOMAIN_ROLE_KEYS = {
   reviewer: "reviewerProfile",
 };
 
+const DEFAULT_RUNTIME_CONFIG_PATH = path.join(
+  PROJECT_ROOT,
+  "config/system/runtime.yaml",
+);
+
 export const SUPPORTED_COORDINATION_MODES = [
   "delivery",
   "project-breakdown",
@@ -125,7 +130,10 @@ function resolveAllowedCoordinationModes(
     return [...modes] as CoordinationMode[];
   };
 
-  const projectAllowed = normalizeConfiguredModes(projectModes, "project supportedModes");
+  const projectAllowed = normalizeConfiguredModes(
+    projectModes,
+    "project supportedModes",
+  );
   const workflowAllowed = normalizeConfiguredModes(
     workflowModes,
     "workflow supportedCoordinationModes",
@@ -140,7 +148,9 @@ function resolveAllowedCoordinationModes(
   if (workflowAllowed.length === 0) {
     return projectAllowed as CoordinationMode[];
   }
-  return projectAllowed.filter((mode) => workflowAllowed.includes(mode)) as CoordinationMode[];
+  return projectAllowed.filter((mode) =>
+    workflowAllowed.includes(mode),
+  ) as CoordinationMode[];
 }
 
 function unique(items) {
@@ -225,6 +235,23 @@ async function resolvePolicyPacks(packIds = []) {
   return packs;
 }
 
+async function resolveSystemRuntimeDefaults() {
+  const config = (await readYaml(DEFAULT_RUNTIME_CONFIG_PATH)) as LooseRecord;
+  const runtimeEnv = String(process.env.SPORE_RUNTIME_ENV ?? "").toLowerCase();
+  const selectedRuntime =
+    runtimeEnv === "test"
+      ? (config?.testRuntime as LooseRecord | undefined)
+      : runtimeEnv === "development" || runtimeEnv === "dev"
+        ? (config?.developmentRuntime as LooseRecord | undefined)
+        : runtimeEnv === "production-candidate"
+          ? (config?.candidateProductionRuntime as LooseRecord | undefined)
+          : (config?.primaryRuntime as LooseRecord | undefined);
+  return {
+    providerFamily: String(selectedRuntime?.providerFamily ?? "pi"),
+    backendKind: String(selectedRuntime?.backendKind ?? "pi_rpc"),
+  };
+}
+
 function mergeObjects(base: LooseRecord = {}, overlay: LooseRecord = {}) {
   return {
     ...base,
@@ -261,6 +288,14 @@ function mergePolicies(
     },
     runtimePolicy: {
       ...mergeObjects(domainConfig.runtimePolicy, domainOverride.runtimePolicy),
+      defaultBackendKind:
+        domainOverride.runtimePolicy?.defaultBackendKind ??
+        domainConfig.runtimePolicy?.defaultBackendKind ??
+        null,
+      backendKindByRole: mergeObjects(
+        domainConfig.runtimePolicy?.backendKindByRole,
+        domainOverride.runtimePolicy?.backendKindByRole,
+      ),
       sessionModeByRole: mergeObjects(
         domainConfig.runtimePolicy?.sessionModeByRole,
         domainOverride.runtimePolicy?.sessionModeByRole,
@@ -548,6 +583,7 @@ export async function planWorkflowInvocation({
   const effectiveInvocationId = invocationId ?? `invoke-${Date.now()}`;
   const effectiveRunId = `${effectiveInvocationId}-${domainId ?? "shared"}`;
   const timestamp = Date.now();
+  const systemRuntime = await resolveSystemRuntimeDefaults();
   const waveAssignments = buildWaveAssignments(workflow, selectedRoles);
   const waveSizes = waveAssignments.reduce((accumulator, assignment) => {
     accumulator[assignment.wave] = (accumulator[assignment.wave] ?? 0) + 1;
@@ -562,6 +598,10 @@ export async function planWorkflowInvocation({
       projectRoleProfiles,
     });
     const governance = resolveGovernance(role, workflow, policy, selectedRoles);
+    const backendKind =
+      policy.runtimePolicy?.backendKindByRole?.[role] ??
+      policy.runtimePolicy?.defaultBackendKind ??
+      systemRuntime.backendKind;
     const sessionModeOverride =
       policy.runtimePolicy?.sessionModeByRole?.[role] ?? null;
     const docsQuery = buildDocsQuery({
@@ -601,6 +641,8 @@ export async function planWorkflowInvocation({
           wavePolicy: assignment.wavePolicy,
         },
         runtimePolicy: {
+          providerFamily: systemRuntime.providerFamily,
+          backendKind,
           sessionMode: sessionModeOverride,
           workspace: policy.runtimePolicy?.workspace ?? null,
         },
@@ -668,6 +710,10 @@ export async function planWorkflowInvocation({
           policy.workflowPolicy?.defaultRoles ?? workflow.roleSequence ?? [],
       },
       runtimePolicy: {
+        providerFamily: systemRuntime.providerFamily,
+        defaultBackendKind:
+          policy.runtimePolicy?.defaultBackendKind ?? systemRuntime.backendKind,
+        backendKindByRole: policy.runtimePolicy?.backendKindByRole ?? {},
         sessionModeByRole: policy.runtimePolicy?.sessionModeByRole ?? {},
         workspace: policy.runtimePolicy?.workspace ?? null,
       },

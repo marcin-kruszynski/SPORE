@@ -158,6 +158,14 @@ curl http://127.0.0.1:8787/sessions/smoke-001/live
 curl -N http://127.0.0.1:8787/stream/events?session=smoke-001
 ```
 
+To exercise the new backend-aware runtime path without requiring live PI credentials, use stub mode with an explicit backend kind:
+
+```bash
+npm run runtime-pi:run -- --profile config/profiles/builder.yaml --project config/projects/spore.yaml --session-id local-sdk-embedded --run-id local-sdk-embedded-run --backend-kind pi_sdk_embedded --stub --stub-seconds 0 --wait --no-monitor
+
+npm run runtime-pi:run -- --profile config/profiles/builder.yaml --project config/projects/spore.yaml --session-id local-sdk-worker --run-id local-sdk-worker-run --backend-kind pi_sdk_worker --stub --stub-seconds 0 --wait --no-monitor
+```
+
 ## Orchestrator Smoke Test
 
 Start the orchestrator service:

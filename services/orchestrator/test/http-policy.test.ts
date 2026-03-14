@@ -35,6 +35,7 @@ test("orchestrator HTTP and web proxy expose policy-aware plan preview", async (
   await waitForHealth(`http://127.0.0.1:${WEB_PORT}/`);
 
   const payload = {
+    workflowPath: "config/workflows/frontend-ui-pass.yaml",
     project: "config/projects/example-project.yaml",
     domain: "frontend",
     roles: ["builder", "tester", "reviewer"],
@@ -86,7 +87,11 @@ test("orchestrator HTTP and web proxy expose policy-aware plan preview", async (
     ["ui-core"],
   );
   assert.equal(
-    webPlan.invocation.launches[2].policy.governance.approvalRequired,
+    webPlan.invocation.launches[2].policy.governance.reviewRequired,
     true,
+  );
+  assert.equal(
+    webPlan.invocation.launches[2].policy.governance.approvalRequired,
+    false,
   );
 });

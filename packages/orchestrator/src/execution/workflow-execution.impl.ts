@@ -4,6 +4,7 @@ import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { buildTsxEntrypointArgs } from "@spore/core";
+import { startRuntimeForStep } from "./runtime-launch.impl.js";
 import {
   appendControlMessage,
   readControlMessagesFromOffset,
@@ -3777,6 +3778,12 @@ async function launchStep(execution, step, options: LooseRecord = {}) {
   if (step.sessionMode) {
     args.push("--session-mode", step.sessionMode);
   }
+  if (getStepPolicy(step)?.runtimePolicy?.backendKind) {
+    args.push(
+      "--backend-kind",
+      String(getStepPolicy(step)?.runtimePolicy?.backendKind),
+    );
+  }
   if (contextQuery) {
     args.push("--context-query", contextQuery);
   }
@@ -3827,7 +3834,12 @@ async function launchStep(execution, step, options: LooseRecord = {}) {
     args.push("--launcher", options.launcher);
   }
 
-  const runtime = await runCli("node", args);
+  const runtime = await startRuntimeForStep({
+    backendKind: getStepPolicy(step)?.runtimePolicy?.backendKind ?? null,
+    sessionId: step.sessionId,
+    runId: `${execution.id}-${step.sequence + 1}`,
+    commandArgs: args,
+  });
 
   return withOrchestratorDatabase(dbPath, (db) => {
     const currentExecution = getExecution(db, execution.id);

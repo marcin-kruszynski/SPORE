@@ -94,6 +94,10 @@ export async function writeStartupContext(
     generatedAt: new Date().toISOString(),
     planSources: plan.metadata.sourceFiles,
     contextFiles: plan.pi.contextFiles,
+    runtime: {
+      providerFamily: plan.providerFamily,
+      backendKind: plan.backendKind,
+    },
     session: {
       role: plan.session.role,
       domainId: plan.session.domainId ?? null,
