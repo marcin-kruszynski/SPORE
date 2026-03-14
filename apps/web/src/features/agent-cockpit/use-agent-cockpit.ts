@@ -45,6 +45,28 @@ function collectExecutionIdsFromTree(tree: MissionMapApiExecutionTree | null | u
   return executionIds;
 }
 
+function isTerminalLikeState(value: unknown) {
+  const state = toText(value, "").toLowerCase();
+  return [
+    "completed",
+    "settled",
+    "resolved",
+    "approved",
+    "succeeded",
+    "done",
+    "failed",
+    "error",
+    "rejected",
+    "stopped",
+    "canceled",
+  ].includes(state);
+}
+
+function isPreLaunchState(value: unknown) {
+  const state = toText(value, "").toLowerCase();
+  return ["planned", "pending", "ready_for_review", "validation_required"].includes(state);
+}
+
 type AgentCockpitLoadOptions = {
   includeActions: boolean;
   includeSelfBuild: boolean;
@@ -287,6 +309,22 @@ async function loadAgentCockpitData(options: AgentCockpitLoadOptions) {
   if (options.includeSessionLive !== false) {
     await Promise.all(
       sessionIds.map(async (sessionId) => {
+        const knownSession =
+          Object.values(executionDetails)
+            .flatMap((detail) => detail?.sessions ?? [])
+            .find((entry) => toText(entry.sessionId, toText(entry.session?.id, "")) === sessionId)
+            ?.session ??
+          sessionList.find((entry) => toText(entry.id, "") === sessionId) ??
+          null;
+        const knownStep = Object.values(executionDetails)
+          .flatMap((detail) => detail?.steps ?? [])
+          .find((step) => toText(step.sessionId, "") === sessionId);
+        if (knownSession && isTerminalLikeState((knownSession as { state?: unknown }).state)) {
+          return;
+        }
+        if (knownStep && isPreLaunchState(knownStep.state)) {
+          return;
+        }
         try {
           sessionLives[sessionId] = await getSessionLive(sessionId);
         } catch (error) {

@@ -210,25 +210,29 @@ function mapRawState(value: unknown): AgentLaneState | null {
   if (
     normalized.includes("block") ||
     normalized.includes("quarantine") ||
-    normalized.includes("stalled")
+    normalized.includes("stalled") ||
+    normalized.includes("handoff")
   ) {
     return "blocked";
   }
   if (
     normalized.includes("complete") ||
     normalized.includes("success") ||
-    normalized.includes("done")
+    normalized.includes("done") ||
+    normalized.includes("settled")
   ) {
     return "completed";
   }
   if (
     normalized.includes("wait") ||
     normalized.includes("pending") ||
-    normalized.includes("held") ||
     normalized.includes("review") ||
     normalized.includes("approval")
   ) {
     return "waiting";
+  }
+  if (normalized.includes("held")) {
+    return "blocked";
   }
   if (
     normalized.includes("run") ||
@@ -1015,6 +1019,7 @@ export function adaptAgentCockpit(input: AgentCockpitAdapterInput): AgentCockpit
       });
 
       const state = normalizeLaneState([
+        matchedStep?.lastError,
         matchedStep?.state,
         sessionLive?.diagnostics?.status,
         sessionLive?.session?.state,

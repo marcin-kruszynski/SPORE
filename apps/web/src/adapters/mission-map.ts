@@ -2,8 +2,10 @@ import type {
   MissionMapAdapterInput,
   MissionMapApiCoordinationGroupSummary,
   MissionMapApiExecutionRecord,
+  MissionMapApiExecutionStep,
   MissionMapApiExecutionStepSummary,
   MissionMapApiExecutionTreeNode,
+  MissionMapApiSessionRecord,
   MissionMapApiSessionLive,
   MissionMapExecutionLink,
   MissionMapMission,
@@ -46,14 +48,14 @@ function normalizeNodeState(rawState: string | null | undefined): MissionMapNode
   if (["running", "active", "in_progress", "processing"].includes(state)) {
     return state === "active" ? "active" : "running";
   }
-  if (["completed", "resolved", "approved", "succeeded", "done"].includes(state)) {
+  if (["completed", "resolved", "approved", "succeeded", "done", "settled"].includes(state)) {
     return "completed";
+  }
+  if (["review_pending", "handoff_validation_blocked", "blocked", "held", "paused", "quarantined"].includes(state)) {
+    return "blocked";
   }
   if (["waiting", "waiting_operator", "waiting_review", "waiting_approval", "pending", "planned", "ready_for_review", "validation_required"].includes(state)) {
     return "waiting";
-  }
-  if (["blocked", "held", "paused", "quarantined"].includes(state)) {
-    return "blocked";
   }
   if (["failed", "error", "rejected", "stopped", "canceled"].includes(state)) {
     return "error";
@@ -377,17 +379,29 @@ function buildSessionNode(
   sessionId: string,
   sessionLive: MissionMapApiSessionLive | null,
   error: string | null,
-  fallbackSession: { id?: string | null; role?: string | null; state?: string | null; runtimeAdapter?: string | null; launcherType?: string | null; transportMode?: string | null; } | null,
+  fallbackSession: MissionMapApiSessionRecord | null,
+  matchedStep: MissionMapApiExecutionStep | null,
 ): MissionMapNode {
   const session = sessionLive?.session ?? fallbackSession ?? null;
   const diagnostics = sessionLive?.diagnostics ?? null;
-  const role = toText(session?.role, "") || sessionId;
+  const role =
+    toText(session?.role, "") ||
+    toText(matchedStep?.role, "") ||
+    sessionId;
   const workspaceId = toText(sessionLive?.workspace?.id, "");
   const runtime = toText(session?.runtimeAdapter, "");
+  const state = error
+    ? "error"
+    : normalizeNodeState(
+        toText(matchedStep?.lastError, "") ||
+          toText(matchedStep?.state, "") ||
+          toText(session?.state, "") ||
+          toText(diagnostics?.status, "idle"),
+      );
   const output = error
     ? error
     : [
-        toText(diagnostics?.status, ""),
+        toText(matchedStep?.state, "") || toText(session?.state, "") || toText(diagnostics?.status, ""),
         workspaceId ? `workspace ${workspaceId}` : "",
         runtime,
       ]
@@ -396,13 +410,9 @@ function buildSessionNode(
   return {
     id: `session:${sessionId}`,
     kind: "session",
-    label: `${role} session`,
+    label: role,
     task: toText(session?.id, sessionId),
-    state: error
-      ? "error"
-      : normalizeNodeState(
-          toText(diagnostics?.status, "") || toText(session?.state, "idle"),
-        ),
+    state,
     output: output || undefined,
     badges: [
       toText(session?.launcherType, ""),
@@ -414,14 +424,81 @@ function buildSessionNode(
   };
 }
 
+function buildSessionNodeMap(options: {
+  steps: MissionMapApiExecutionStep[];
+  sessionIdsByExecutionId: Map<string, string[]>;
+  sessionLives: Record<string, MissionMapApiSessionLive>;
+  sessionErrors: Record<string, string>;
+  sessionRecords: Map<string, MissionMapApiSessionRecord>;
+}) {
+  const stepBySessionId = new Map<string, MissionMapApiExecutionStep>();
+  for (const step of options.steps) {
+    const sessionId = toText(step.sessionId, "");
+    if (sessionId) {
+      stepBySessionId.set(sessionId, step);
+    }
+  }
+
+  const nodeBySessionId = new Map<string, MissionMapNode>();
+  const allSessionIds = new Set<string>([
+    ...Array.from(options.sessionRecords.keys()),
+    ...Array.from(stepBySessionId.keys()),
+  ]);
+  for (const sessionId of Array.from(allSessionIds)) {
+    const fallbackSession = options.sessionRecords.get(sessionId) ?? null;
+    const matchedStep = stepBySessionId.get(sessionId) ?? null;
+    if (toText(fallbackSession?.role, "") === "orchestrator" || toText(matchedStep?.role, "") === "orchestrator") {
+      continue;
+    }
+    nodeBySessionId.set(
+      sessionId,
+      buildSessionNode(
+        sessionId,
+        options.sessionLives[sessionId] ?? null,
+        options.sessionErrors[sessionId] ?? null,
+        fallbackSession,
+        matchedStep,
+      ),
+    );
+  }
+
+  const rootSessionIdsByExecutionId = new Map<string, string[]>();
+  for (const [executionId, sessionIds] of options.sessionIdsByExecutionId.entries()) {
+    const roots: string[] = [];
+    for (const sessionId of sessionIds) {
+      const node = nodeBySessionId.get(sessionId);
+      if (!node) {
+        continue;
+      }
+      const parentSessionId = toText(stepBySessionId.get(sessionId)?.parentSessionId, "") || toText(options.sessionRecords.get(sessionId)?.parentSessionId, "");
+      if (parentSessionId && nodeBySessionId.has(parentSessionId)) {
+        nodeBySessionId.get(parentSessionId)?.children.push(node);
+        continue;
+      }
+      roots.push(sessionId);
+    }
+    for (const sessionId of sessionIds) {
+      if (!nodeBySessionId.has(sessionId) && stepBySessionId.has(sessionId)) {
+        roots.push(sessionId);
+      }
+    }
+    rootSessionIdsByExecutionId.set(executionId, roots);
+  }
+
+  return {
+    nodeBySessionId,
+    stepBySessionId,
+    rootSessionIdsByExecutionId,
+  };
+}
+
 function buildExecutionNodeFromTree(
   treeNode: MissionMapApiExecutionTreeNode,
   mission: { title: string; objective: string },
   linkedExecutionId: string | null,
   sessionIdsByExecutionId: Map<string, string[]>,
-  sessionLives: Record<string, MissionMapApiSessionLive>,
-  sessionErrors: Record<string, string>,
-  sessionRecords: Map<string, { id?: string | null; role?: string | null; state?: string | null; runtimeAdapter?: string | null; launcherType?: string | null; transportMode?: string | null; }>,
+  rootSessionIdsByExecutionId: Map<string, string[]>,
+  sessionNodeById: Map<string, MissionMapNode>,
 ): MissionMapNode | null {
   const execution = treeNode.execution ?? null;
   const executionId = toText(execution?.id, "");
@@ -435,20 +512,14 @@ function buildExecutionNodeFromTree(
         mission,
         linkedExecutionId,
         sessionIdsByExecutionId,
-        sessionLives,
-        sessionErrors,
-        sessionRecords,
+        rootSessionIdsByExecutionId,
+        sessionNodeById,
       ),
     )
     .filter((node): node is MissionMapNode => Boolean(node));
-  const sessionNodes = (sessionIdsByExecutionId.get(executionId) ?? []).map((sessionId) =>
-    buildSessionNode(
-      sessionId,
-      sessionLives[sessionId] ?? null,
-      sessionErrors[sessionId] ?? null,
-      sessionRecords.get(sessionId) ?? null,
-    ),
-  );
+  const sessionNodes = (rootSessionIdsByExecutionId.get(executionId) ?? [])
+    .map((sessionId) => sessionNodeById.get(sessionId) ?? null)
+    .filter((node): node is MissionMapNode => Boolean(node));
   return {
     id: `execution:${executionId}`,
     kind: "execution",
@@ -569,6 +640,7 @@ function buildExecutionRootsFromCoordinationGroup(
         sessionLives[sessionId] ?? null,
         sessionErrors[sessionId] ?? null,
         sessionRecords.get(sessionId) ?? null,
+        null,
       ),
     ),
     ...targetRoot.children,
@@ -674,26 +746,67 @@ export function adaptMissionMapMission(
           toText(entry, ""),
         ),
         ...Object.values(executionDetailsById).flatMap((detail) =>
-          asArray(detail?.sessions).map((entry) =>
-            toText(entry.sessionId, "") || toText(entry.session?.id, ""),
-          ),
+          [
+            ...asArray(detail?.sessions).map((entry) =>
+              toText(entry.sessionId, "") || toText(entry.session?.id, ""),
+            ),
+            ...asArray(detail?.steps).map((step) => toText(step.sessionId, "")),
+          ],
         ),
       ].filter(Boolean),
     ),
   );
   const sessionIdsByExecutionId = new Map<string, string[]>();
+  const sessionOwnerById = new Map<string, string>();
   for (const detail of Object.values(executionDetailsById)) {
     const executionId = toText(detail?.execution?.id, "");
     if (!executionId) {
       continue;
     }
-    const detailSessionIds = asArray(detail?.sessions)
+    sessionIdsByExecutionId.set(executionId, sessionIdsByExecutionId.get(executionId) ?? []);
+    for (const sessionId of asArray(detail?.sessions)
       .map((entry) => toText(entry.sessionId, "") || toText(entry.session?.id, ""))
-      .filter(Boolean);
-    if (detailSessionIds.length > 0) {
-      sessionIdsByExecutionId.set(executionId, detailSessionIds);
+      .filter(Boolean)) {
+      const previousOwner = sessionOwnerById.get(sessionId);
+      if (previousOwner && previousOwner !== executionId) {
+        sessionIdsByExecutionId.set(
+          previousOwner,
+          (sessionIdsByExecutionId.get(previousOwner) ?? []).filter((candidate) => candidate !== sessionId),
+        );
+      }
+      sessionOwnerById.set(sessionId, executionId);
+      const current = sessionIdsByExecutionId.get(executionId) ?? [];
+      if (!current.includes(sessionId)) {
+        current.push(sessionId);
+        sessionIdsByExecutionId.set(executionId, current);
+      }
     }
   }
+  for (const detail of Object.values(executionDetailsById)) {
+    const executionId = toText(detail?.execution?.id, "");
+    if (!executionId) {
+      continue;
+    }
+    for (const sessionId of asArray(detail?.steps)
+      .map((step) => toText(step.sessionId, ""))
+      .filter(Boolean)) {
+      if (sessionOwnerById.has(sessionId)) {
+        continue;
+      }
+      const current = sessionIdsByExecutionId.get(executionId) ?? [];
+      if (!current.includes(sessionId)) {
+        current.push(sessionId);
+        sessionIdsByExecutionId.set(executionId, current);
+      }
+    }
+  }
+  const sessionNodeMap = buildSessionNodeMap({
+    steps: asArray(input.executionDetail?.steps),
+    sessionIdsByExecutionId,
+    sessionLives,
+    sessionErrors,
+    sessionRecords: sessionRecords as Map<string, MissionMapApiSessionRecord>,
+  });
 
   const missionNode: MissionMapNode = {
     id: `thread:${threadId}`,
@@ -718,9 +831,8 @@ export function adaptMissionMapMission(
         { title, objective },
         link.executionId,
         sessionIdsByExecutionId,
-        sessionLives,
-        sessionErrors,
-        sessionRecords,
+        sessionNodeMap.rootSessionIdsByExecutionId,
+        sessionNodeMap.nodeBySessionId,
       );
     if (treeRoot) {
       missionNode.children.push(treeRoot);
@@ -759,17 +871,19 @@ export function adaptMissionMapMission(
       badges: buildExecutionBadges(input.executionDetail.execution),
       source: "execution",
       children: sessionIds.map((sessionId) =>
-        buildSessionNode(
-          sessionId,
-          sessionLives[sessionId] ?? null,
-          sessionErrors[sessionId] ?? null,
-          sessionRecords.get(sessionId) ?? null,
-        ),
+        sessionNodeMap.nodeBySessionId.get(sessionId) ??
+          buildSessionNode(
+            sessionId,
+            sessionLives[sessionId] ?? null,
+            sessionErrors[sessionId] ?? null,
+            sessionRecords.get(sessionId) ?? null,
+            null,
+          ),
       ),
     });
   }
 
-  const readySessionCount = sessionIds.filter((sessionId) => sessionLives[sessionId]).length;
+  const readySessionCount = sessionIds.filter((sessionId) => sessionNodeMap.nodeBySessionId.has(sessionId)).length;
   const sourceState = {
     thread: input.threadDetail || input.threadSummary
       ? createSourceState(

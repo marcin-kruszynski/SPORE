@@ -62,6 +62,28 @@ function collectExecutionIdsFromTree(
   return Array.from(ids);
 }
 
+function isTerminalLikeState(value: unknown) {
+  const state = String(value ?? "").trim().toLowerCase();
+  return [
+    "completed",
+    "settled",
+    "resolved",
+    "approved",
+    "succeeded",
+    "done",
+    "failed",
+    "error",
+    "rejected",
+    "stopped",
+    "canceled",
+  ].includes(state);
+}
+
+function isPreLaunchState(value: unknown) {
+  const state = String(value ?? "").trim().toLowerCase();
+  return ["planned", "pending", "ready_for_review", "validation_required"].includes(state);
+}
+
 async function loadMissionBundle(options: {
   threadId: string;
   threadSummary: Awaited<ReturnType<typeof listOperatorThreads>>[number] | null;
@@ -129,9 +151,12 @@ async function loadMissionBundle(options: {
     new Set(
       [
         ...((threadDetail?.metadata?.execution?.sessionIds ?? []).filter(Boolean) as string[]),
-        ...((executionDetail?.sessions ?? [])
-          .map((entry) => String(entry.sessionId ?? entry.session?.id ?? "").trim())
-          .filter(Boolean) as string[]),
+        ...Object.values(executionDetailsById)
+          .flatMap((detail) => [
+            ...(detail?.sessions ?? []).map((entry) => String(entry.sessionId ?? entry.session?.id ?? "").trim()),
+            ...((detail?.steps ?? []).map((step) => String(step.sessionId ?? "").trim())),
+          ])
+          .filter(Boolean),
       ],
     ),
   );
@@ -141,6 +166,19 @@ async function loadMissionBundle(options: {
   if (sessionIds.length > 0) {
     await Promise.all(
       sessionIds.map(async (sessionId) => {
+        const knownSession = Object.values(executionDetailsById)
+          .flatMap((detail) => detail?.sessions ?? [])
+          .find((entry) => String(entry.sessionId ?? entry.session?.id ?? "").trim() === sessionId)
+          ?.session;
+        const knownStep = Object.values(executionDetailsById)
+          .flatMap((detail) => detail?.steps ?? [])
+          .find((step) => String(step.sessionId ?? "").trim() === sessionId);
+        if (knownSession && isTerminalLikeState(knownSession.state)) {
+          return;
+        }
+        if (knownStep && isPreLaunchState(knownStep.state)) {
+          return;
+        }
         try {
           sessionLives[sessionId] = await getSessionLive(sessionId);
         } catch (error) {
