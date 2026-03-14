@@ -8,7 +8,7 @@ Workflow plan and invoke requests now honor merged domain policy from:
 - the matching `activeDomains[]` project entry
 - any referenced `config/policy-packs/*.yaml`
 
-Those policies currently shape default roles, per-role max attempts, reviewer review and approval requirements, session mode, step watchdog defaults, and docs-kb startup retrieval.
+Those policies currently shape default roles, per-role max attempts, reviewer review and approval requirements, runtime backend selection, session mode, step watchdog defaults, and docs-kb startup retrieval.
 
 Workflow templates may also define `stepSets`, which the service exposes back through plan/invoke payloads as per-launch `wave`, `waveName`, and `workflowPolicy.waveGate` metadata.
 
@@ -19,8 +19,14 @@ Workflow templates may also define `stepSets`, which the service exposes back th
 - `GET /executions/:id`
 - `GET /executions/:id/children`
 - `GET /executions/:id/tree`
+- `GET /executions/:id/history`
+- `GET /executions/:id/audit`
+- `GET /executions/:id/policy-diff`
+- `GET /executions/:id/handoffs`
 - `GET /coordination-groups`
 - `GET /coordination-groups/:id`
+- `GET /coordination-families`
+- `GET /coordination-families/:id`
 - `GET /executions/:id/events`
 - `GET /executions/:id/escalations`
 - `GET /run-center/summary`
@@ -54,11 +60,17 @@ Workflow templates may also define `stepSets`, which the service exposes back th
 - `POST /self-build/overrides/:id/review`
 - `POST /self-build/overrides/:id/release`
 - `GET /scenarios/:id/trends`
+- `GET /scenarios`
+- `POST /scenarios/:id/run`
 - `GET /scenario-runs/:runId`
 - `GET /scenario-runs/:runId/artifacts`
+- `POST /scenario-runs/:runId/rerun`
+- `GET /regressions`
+- `POST /regressions/:id/run`
 - `GET /regressions/:id/trends`
 - `GET /regressions/:id/latest-report`
 - `GET /regressions/scheduler/status`
+- `POST /regressions/scheduler/run`
 - `GET /regression-runs/:runId`
 - `GET /regression-runs/:runId/report`
 - `GET /work-item-templates`
@@ -74,6 +86,7 @@ Workflow templates may also define `stepSets`, which the service exposes back th
 - `GET /work-item-groups`
 - `GET /work-item-groups/:id`
 - `POST /work-item-groups/:id/run`
+- `GET /work-item-groups/:id/dependencies`
 - `POST /work-item-groups/:id/unblock`
 - `POST /work-item-groups/:id/reroute`
 - `POST /work-item-groups/:id/retry-downstream`

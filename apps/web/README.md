@@ -1,9 +1,11 @@
 # `apps/web`
 
-This app now provides the first minimal browser-based operator surface for SPORE.
+This app now provides the main browser-based operator surface for SPORE.
 
 ## Current Capability
 
+- sets `/cockpit` as the primary operator home and exposes `/cockpit/agents/:laneId` for lane drilldown
+- exposes separate `Mission Map`, `Operator Chat`, and `Self-Build` mission-control surfaces over real orchestrator/gateway APIs
 - fetches status, session lists, session detail, and events through `services/session-gateway/`
 - preserves existing session operator controls:
   - stop
@@ -129,6 +131,8 @@ This app now provides the first minimal browser-based operator surface for SPORE
   - approve, reject, rework, quarantine, release, or promote pending governance gates with action buttons or chat replies
   - follow linked goal plans, groups, proposals, and integration branches without leaving the browser mission-control view
 
+Secondary sidebar pages such as agents, tools, skills, spaces, and settings still exist, but some are read-only/mock-backed previews while the cockpit, mission map, chat, self-build, project, workflow, and evidence routes are the real operator surfaces.
+
 ## Simplest Operator Flow
 
 The shortest guided operator path is:
@@ -163,6 +167,8 @@ npm run web:start
 
 Open `http://127.0.0.1:8788`.
 
+The browser default landing surface is `http://127.0.0.1:8788/cockpit`.
+
 Environment variables:
 
 - `SPORE_WEB_HOST` default `127.0.0.1`
@@ -173,6 +179,8 @@ Environment variables:
 The app intentionally stays thin. It proxies `/api/*` to the gateway and `/api/orchestrator/*` to the orchestrator service, and it does not read local state files directly.
 
 The browser remains compatible with additive payloads. When trend, report, or run-detail routes are unavailable, the UI falls back to aggregate run-center summaries and embedded run metadata instead of assuming a fixed backend schema.
+
+The web server also preserves the compatibility `legacy-dashboard` route beside the SPA.
 
 ## Optional Execution Payload Fields
 

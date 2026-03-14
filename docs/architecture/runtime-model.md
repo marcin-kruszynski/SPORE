@@ -10,14 +10,10 @@ SPORE standardizes on PI ecosystem as the initial runtime foundation.
 - extensibility surfaces for tools, prompts, and provider configuration,
 - practical integration path for future Web UI and session controls.
 
-### Planned Ownership: `packages/runtime-pi/`
+### Current Ownership
 
-- profile-to-PI runtime translation,
-- runtime wrapper and startup orchestration,
-- extension and tool registration bridge,
-- session startup hooks,
-- steering and telemetry bridge,
-- future web session bridge adapter.
+- `packages/runtime-core/` owns the backend-agnostic runtime contract, registry, supervisor seam, snapshots, and artifact manifest types.
+- `packages/runtime-pi/` owns PI-specific runtime translation, adapters, worker protocol, and backend implementations.
 
 ### Current Executable Slice
 

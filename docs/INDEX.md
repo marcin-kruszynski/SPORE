@@ -11,6 +11,7 @@ Use `docs/` as ground truth for product state, architecture, operations, and dir
 - Current roadmap: [plans/roadmap.md](plans/roadmap.md)
 - Local development and verification: [runbooks/local-dev.md](runbooks/local-dev.md)
 - Approved runtime exception: [decisions/ADR-0014-runtime-adapter-multi-backend-pi.md](decisions/ADR-0014-runtime-adapter-multi-backend-pi.md)
+- Release notes for the runtime + operator surface update: [operations/2026-03-14-platform-runtime-and-ops-release-notes.md](operations/2026-03-14-platform-runtime-and-ops-release-notes.md)
 
 ## Current Architecture
 
@@ -30,6 +31,7 @@ Use `docs/` as ground truth for product state, architecture, operations, and dir
 ## Current Operations
 
 - Local development runbook: [runbooks/local-dev.md](runbooks/local-dev.md)
+- Platform runtime and ops release notes: [operations/2026-03-14-platform-runtime-and-ops-release-notes.md](operations/2026-03-14-platform-runtime-and-ops-release-notes.md)
 - Scenario library: [runbooks/scenario-library.md](runbooks/scenario-library.md)
 - Documentation maintenance runbook: [runbooks/documentation-maintenance.md](runbooks/documentation-maintenance.md)
 - Workspace operating model: [operations/workspace-operating-model.md](operations/workspace-operating-model.md)

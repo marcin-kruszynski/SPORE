@@ -27,6 +27,7 @@ SPORE is a layered orchestration system where documentation, configuration, runt
    - `packages/config-schema/`
 
 3. Runtime and orchestration
+   - `packages/runtime-core/`
    - `packages/runtime-pi/`
    - `packages/orchestrator/`
    - `packages/workspace-manager/`
@@ -53,6 +54,7 @@ Active first-party packages and services include:
 - `packages/test-support/`
 - `packages/docs-kb/`
 - `packages/config-schema/`
+- `packages/runtime-core/`
 - `packages/runtime-pi/`
 - `packages/session-manager/`
 - `packages/workspace-manager/`
@@ -67,7 +69,8 @@ Key implemented capabilities include:
 - docs-kb indexing and search,
 - config validation,
 - PI-first runtime planning and launch,
-- tmux-backed sessions with live inspection and control history,
+- multi-backend PI runtime adapters with generic runtime artifacts,
+- tmux-backed sessions plus SDK-backed runtime modes with live inspection and control history,
 - durable workflow execution history and governance,
 - execution trees, branch spawning, and grouped execution control,
 - scenario and regression run history,
@@ -81,6 +84,8 @@ Today the real operator surface is:
 - HTTP services in `services/session-gateway/` and `services/orchestrator/`,
 - package-level CLIs and the TUI,
 - the thin browser client in `apps/web/`.
+
+The current browser surface is no longer just a minimal shell. It includes Agent Cockpit, Mission Map, Operator Chat, lane detail, self-build dashboards, and evidence/project/workflow reads over the shared HTTP surfaces.
 
 `apps/cli/` is still a scaffold-only future app, so "CLI" currently means the package-level CLIs and TUI commands rather than a separate polished app shell.
 

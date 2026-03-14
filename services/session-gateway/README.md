@@ -56,13 +56,14 @@ The write side is still intentionally narrow:
 
 - `stop` issues an operator stop request and settles the session as `stopped`
 - `mark-complete` applies an operator completion override
-- `steer` appends to a control queue and routes through PI RPC for `pi-rpc` sessions; tmux text delivery remains the fallback for non-RPC launchers
+- `steer` appends to a durable control queue and now routes through backend-aware runtime capabilities; `pi_rpc` remains the explicit RPC path while SDK-backed sessions can expose adapter-backed control without changing the HTTP contract
 
 The combined live route is the preferred read for operator tooling because it now includes:
 
 - session metadata,
 - recent events,
 - artifact summary,
+- backend-aware runtime artifact paths such as `runtime-status` and `runtime-events`,
 - workspace linkage, runtime `cwd`, and launch-context evidence when the session plan carries workspace metadata,
 - control history,
 - control acknowledgement summary,

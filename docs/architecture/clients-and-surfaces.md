@@ -37,6 +37,9 @@ The repository also includes:
 
 The current browser surface now renders:
 
+- `Agent Cockpit` as the default browser operator home,
+- `Agent Lane Detail` for session/runtime/evidence drilldown,
+- `Mission Map` as a dedicated execution-topology surface,
 - durable execution list and execution detail,
 - step/session tree view,
 - execution lineage hints when payloads include parent/child relationships,

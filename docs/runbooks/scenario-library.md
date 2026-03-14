@@ -19,6 +19,7 @@ npm run orchestrator:scenario-show -- --scenario backend-service-delivery
 npm run orchestrator:scenario-run -- --scenario backend-service-delivery --stub
 npm run orchestrator:regression-list
 npm run orchestrator:regression-run -- --regression local-fast --stub
+npm run test:runtime
 ```
 
 ## Canonical Scenarios
@@ -156,9 +157,12 @@ Use this order when validating the local orchestration stack:
 ```bash
 npm run config:validate
 npm run docs-kb:index
+npm run test:runtime
 npm run test:all-local
 SPORE_RUN_PI_E2E=1 npm run test:e2e:pi
 ```
+
+The current runtime-focused regression profile is `config/regressions/runtime-backend-matrix.yaml`. Use it when you need a named document reference for the multi-backend PI runtime validation layer.
 
 ## Notes
 

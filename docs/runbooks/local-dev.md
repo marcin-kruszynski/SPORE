@@ -166,6 +166,13 @@ npm run runtime-pi:run -- --profile config/profiles/builder.yaml --project confi
 npm run runtime-pi:run -- --profile config/profiles/builder.yaml --project config/projects/spore.yaml --session-id local-sdk-worker --run-id local-sdk-worker-run --backend-kind pi_sdk_worker --stub --stub-seconds 0 --wait --no-monitor
 ```
 
+For the browser operator surfaces, the main current routes are:
+
+- `http://127.0.0.1:8788/cockpit`
+- `http://127.0.0.1:8788/missions`
+- `http://127.0.0.1:8788/chat`
+- `http://127.0.0.1:8788/self-build`
+
 ## Orchestrator Smoke Test
 
 Start the orchestrator service:

@@ -37,3 +37,9 @@ When a tmux-backed or detached PI session stops updating its session row, SPORE 
 - Orchestrator reconciliation emits `workflow.step.artifact_recovered` before the step's terminal workflow event and carries explicit `artifactRecoveryCount` plus the recovery payload so execution history timelines show exactly when auto-heal happened.
 - Execution detail and execution history expose an `artifactRecovery` summary with counts, per-source totals, and the concrete recovery events.
 - Self-build operator surfaces that already point at execution state, such as work-item run detail and proposal review packages, preserve the same `artifactRecovery` summary so operators can distinguish clean completion from artifact-assisted recovery.
+
+The runtime adapter migration adds generic runtime observability alongside those legacy PI/RPC signals:
+
+- `runtime-status.json` and `runtime-events.jsonl` as backend-agnostic runtime artifacts,
+- backend-aware runtime capability and launch metadata in session rows,
+- `/sessions/:id/live` launcher metadata that can describe RPC, embedded SDK, or worker-backed sessions without changing the client contract.

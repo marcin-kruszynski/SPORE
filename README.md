@@ -20,7 +20,7 @@
 
 [![Node 24+](https://img.shields.io/badge/Node-24%2B-339933?style=for-the-badge&logo=node.js&logoColor=white)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org)
-[![Zero Dependencies](https://img.shields.io/badge/Runtime_Deps-Zero-00C853?style=for-the-badge)](.)
+[![PI Runtime](https://img.shields.io/badge/PI_Runtime-Multi--Backend-00C853?style=for-the-badge)](.)
 [![Local-First](https://img.shields.io/badge/Storage-Local--First_SQLite-FF6F00?style=for-the-badge)](.)
 [![License: MIT](https://img.shields.io/badge/License-MIT-A855F7?style=for-the-badge)](LICENSE)
 
@@ -46,6 +46,15 @@ SPORE solves this with a **structured orchestration protocol** where every decis
 
 > **SPORE doesn't just orchestrate agents -- it orchestrates its own evolution.**
 
+## What's New
+
+- Multi-backend PI runtime support now exists behind a SPORE-owned runtime adapter boundary: `pi_rpc`, `pi_sdk_embedded`, and `pi_sdk_worker`.
+- Session/runtime inspection is now backend-aware through generic runtime artifacts such as `runtime-status` and `runtime-events`.
+- The browser default home is now the real `Agent Cockpit`, with `Mission Map`, `Operator Chat`, and the self-build dashboard as first-class operator surfaces.
+- `spore-ops` and the orchestrator HTTP surface now expose the current coordinator/integrator, self-build, and scenario/regression model directly.
+
+> See the full update summary in [docs/operations/2026-03-14-platform-runtime-and-ops-release-notes.md](docs/operations/2026-03-14-platform-runtime-and-ops-release-notes.md).
+
 <br/>
 
 ## ✦ Key Capabilities
@@ -67,7 +76,7 @@ SPORE plans, executes, reviews, and promotes improvements to itself through gove
 <td width="33%" valign="top">
 
 ### 🔍 Full Observability
-Every session runs in tmux. Every decision is recorded. Every workflow step produces durable, inspectable artifacts.
+Every workflow step produces durable, inspectable artifacts. Sessions remain operator-visible across tmux-backed RPC and newer SDK-backed runtime modes.
 
 </td>
 </tr>
@@ -86,8 +95,8 @@ Natural language mission control. State goals, review plans, approve gates, and 
 </td>
 <td width="33%" valign="top">
 
-### 🧩 Zero Runtime Dependencies
-Built entirely on Node.js built-ins. SQLite for state. tmux for sessions. No external services required.
+### 🧩 Multi-Backend PI Runtime
+SPORE keeps PI-first integration while supporting RPC, embedded SDK, and worker-process SDK backends behind one internal runtime contract.
 
 </td>
 </tr>
@@ -125,10 +134,10 @@ SPORE is organized into **five distinct layers**, each with clear ownership boun
 ║ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ║
 ║                                                                         ║
 ║   ┌──────────────────────┐    ┌────────────────────────┐               ║
-║   │   Orchestrator :8789 │    │    Runtime PI           │               ║
-║   │   plan · invoke      │    │    plan · launch        │  EXECUTE     ║
-║   │   drive · review     │    │    pi-rpc · steer       │               ║
-║   │   self-build · govern│    │    tmux-backed          │               ║
+║   │   Orchestrator :8789 │    │ Runtime Core + PI       │               ║
+║   │   plan · invoke      │    │ adapter · launch        │  EXECUTE     ║
+║   │   drive · review     │    │ rpc · embedded · worker │               ║
+║   │   self-build · govern│    │ artifact parity         │               ║
 ║   └──────────┬───────────┘    └──────────┬─────────────┘               ║
 ║              └───────── step drive ──────┘                              ║
 ║ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ║
@@ -145,7 +154,7 @@ SPORE is organized into **five distinct layers**, each with clear ownership boun
 ║                                                                         ║
 ║   ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐                        ║
 ║   │  Docs  │ │  ADRs  │ │Research│ │Docs KB │   KNOWLEDGE            ║
-║   │ 100+   │ │  14    │ │   6    │ │ SQLite │                        ║
+║   │ 100+   │ │  16+   │ │   6    │ │ SQLite │                        ║
 ║   └────────┘ └────────┘ └────────┘ └────────┘                        ║
 ║                                                                         ║
 ╚═══════════════════════════════════════════════════════════════════════════╝
@@ -192,14 +201,14 @@ The orchestrator resolves profiles, merges domain policies, and builds a multi-s
 
 ### 2. Execute
 
-Each step launches a tmux-backed PI session. The orchestrator drives step-by-step with watchdogs:
+Each step launches through a PI runtime adapter. Today that can still be a tmux-backed RPC session, but the same orchestration path can also target embedded or worker-process PI SDK backends:
 
 ```
        Step 1 (scout)          Step 2 (builder)         Step 3 (tester)
       ┌──────────────┐        ┌──────────────┐        ┌──────────────┐
       │  📡 Research │   ──►  │  🔨 Build    │   ──►  │  🧪 Verify   │
-      │  tmux + PI   │        │  tmux + PI   │        │  tmux + PI   │
-      │  RPC control │        │  workspace   │        │  snapshot    │
+       │ PI runtime   │        │ PI runtime   │        │ PI runtime   │
+       │ rpc/sdk path │        │ workspace    │        │ snapshot     │
       └──────┬───────┘        └──────┬───────┘        └──────┬───────┘
              │                       │                        │
              ▼                       ▼                        ▼
@@ -244,9 +253,9 @@ Every artifact is inspectable. Operators see everything in real-time:
    │   ────────      Server projects plan → operator reviews     │
    │                 Approve gates via buttons or natural text    │
    │                                                             │
-   │   🌐 Web UI     Execution trees · Lineage boards            │
-   │   ────────      Wave progression · Governance controls      │
-   │                 Self-build dashboard · Live SSE streams     │
+   │   🌐 Web UI     Agent Cockpit · Mission Map                 │
+   │   ────────      Operator Chat · Self-Build dashboard        │
+   │                 Lineage, governance, lane detail, SSE       │
    │                                                             │
    │   📟 TUI        Dashboard · Inspect · Run-center            │
    │   ────────      100+ commands · Self-build triage           │
@@ -433,7 +442,12 @@ A TypeScript browser SPA providing full operator visibility:
 npm run ops:dashboard              # Live status overview
 npm run ops:dashboard -- --watch   # Continuous refresh mode
 npm run ops:inspect -- --session <id>  # Deep session inspection with tmux capture
+npm run orchestrator:run-center    # Operator run-center summary
+npm run orchestrator:scenario-list # Scenario catalog
+npm run orchestrator:project-plan -- --project config/projects/spore.yaml --domains backend,frontend
 ```
+
+`spore-ops` is now broader than a dashboard/inspect helper; it is the terminal counterpart to the browser mission-control surfaces.
 
 ### HTTP APIs
 
@@ -461,13 +475,20 @@ Over **100 operator commands** through npm scripts covering orchestration, sessi
  │                                                                     │
  │  packages/                                                          │
  │  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐  │
- │  │  orchestrator    │  │  runtime-pi      │  │  session-manager │  │
- │  │  ═══════════════ │  │  ═══════════════ │  │  ═══════════════ │  │
- │  │  ~30K lines      │  │  PI integration  │  │  Lifecycle FSM   │  │
- │  │  Workflow engine  │  │  tmux launcher   │  │  SQLite store    │  │
- │  │  Self-build core  │  │  3 launcher modes│  │  Event log       │  │
- │  │  Governance       │  │  RPC control     │  │  Reconciliation  │  │
- │  └──────────────────┘  └──────────────────┘  └──────────────────┘  │
+   │  │  orchestrator    │  │  runtime-core    │  │  session-manager │  │
+   │  │  ═══════════════ │  │  ═══════════════ │  │  ═══════════════ │  │
+   │  │  ~30K lines      │  │  Runtime contract│  │  Lifecycle FSM   │  │
+   │  │  Workflow engine  │  │  tmux launcher   │  │  SQLite store    │  │
+   │  │  Self-build core  │  │  registry/superv.│  │  Event log       │  │
+   │  │  Governance       │  │  snapshots/events│  │  Reconciliation  │  │
+   │  └──────────────────┘  └──────────────────┘  └──────────────────┘  │
+   │  ┌──────────────────┐                                              │
+   │  │  runtime-pi      │                                              │
+   │  │  ═══════════════ │                                              │
+   │  │  PI adapters     │                                              │
+   │  │  rpc/sdk/worker  │                                              │
+   │  │  artifact parity │                                              │
+   │  └──────────────────┘                                              │
  │  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐  │
  │  │  workspace-mgr   │  │  docs-kb         │  │  config-schema   │  │
  │  │  ═══════════════ │  │  ═══════════════ │  │  ═══════════════ │  │
@@ -495,11 +516,15 @@ Over **100 operator commands** through npm scripts covering orchestration, sessi
 ### Internal Dependencies
 
 ```
-  orchestrator ───────┬── runtime-pi (session launch + control)
+  orchestrator ───────┬── runtime-core (adapter registry + supervisor)
+                      ├── runtime-pi (session launch + PI backends)
                       ├── session-manager (session state queries)
                       └── config-schema (YAML parsing)
 
-  runtime-pi ─────────┬── session-manager (session records)
+  runtime-core ──────── standalone runtime contracts
+
+  runtime-pi ─────────┬── runtime-core (adapter contracts)
+                      ├── session-manager (session records)
                       ├── config-schema (YAML parsing)
                       └── docs-kb (context retrieval)
 
@@ -535,17 +560,19 @@ node >= 24    npm    tmux    git    rg    jq    sqlite3
 
 Optional: `pi` agent runtime (`npm install -g @mariozechner/pi-coding-agent`)
 
+For the newer SDK-backed runtime backends, SPORE also installs `@mariozechner/pi-coding-agent` as a workspace dependency.
+
 ### Install & Verify
 
 ```bash
-git clone <repo-url> && cd SPORE-3
+git clone <repo-url> && cd SPORE-2
 npm install
 
 # Verify everything works
 npm run typecheck          # TypeScript across all workspaces
 npm run lint               # Biome linter
 npm run docs-kb:index      # Build docs search index
-npm run config:validate    # Validate all 64 YAML configs
+npm run config:validate    # Validate the current config catalog
 npm run test:all-local     # Run all local test suites
 ```
 
@@ -563,6 +590,9 @@ npm run web:start                  # :8788
 
 # Terminal 4: TUI dashboard
 npm run ops:dashboard -- --watch
+
+# Open the browser mission-control home
+# http://127.0.0.1:8788/cockpit
 ```
 
 ### Run a Workflow
@@ -577,6 +607,10 @@ npm run orchestrator:invoke -- --domain backend --roles lead,reviewer \
 
 # Self-build: create a goal plan
 npm run orchestrator:goal-plan-create -- --goal "Stabilize CLI verification and docs follow-up"
+
+# Runtime stub smoke for SDK-backed backends
+npm run runtime-pi:run -- --profile config/profiles/builder.yaml --project config/projects/spore.yaml --session-id local-sdk-embedded --run-id local-sdk-embedded-run --backend-kind pi_sdk_embedded --stub --stub-seconds 0 --wait --no-monitor
+npm run runtime-pi:run -- --profile config/profiles/builder.yaml --project config/projects/spore.yaml --session-id local-sdk-worker --run-id local-sdk-worker-run --backend-kind pi_sdk_worker --stub --stub-seconds 0 --wait --no-monitor
 ```
 
 > See [docs/runbooks/local-dev.md](docs/runbooks/local-dev.md) for the full setup guide.
@@ -600,7 +634,7 @@ config/
 ├── teams/              2 team compositions
 ├── policy-packs/       7 reusable policy presets
 ├── scenarios/         11 test scenarios (including 7 self-build scenarios)
-├── regressions/        6 regression test suites
+├── regressions/        7 regression test suites
 ├── validation-bundles/ 4 validation bundle presets
 ├── work-item-templates/4 work-item templates for self-build
 └── system/             4 system configs (defaults, runtime, observability, permissions)
@@ -637,7 +671,7 @@ SPORE_RUN_PI_E2E=1 npm run test:e2e:gateway-control
 node --import=tsx --test path/to/file.test.ts
 ```
 
-34 test files across the monorepo using `node:test` and `node:assert/strict`.
+The monorepo uses `node:test` and `node:assert/strict` across policy, HTTP, web, TUI, workspace, and runtime suites.
 
 <br/>
 
@@ -716,15 +750,15 @@ The long-term trajectory:
 | **Language** | TypeScript 5.9 | Type-safe, ESM-first, strong tooling |
 | **Runtime** | Node.js 24+ | Built-in SQLite, ESM support, stable |
 | **Storage** | SQLite (WAL mode) | Zero-ops, local-first, concurrent reads |
-| **Sessions** | tmux | Durable, inspectable, operator-accessible |
-| **Agent Runtime** | PI (`pi-rpc`) | Bidirectional RPC, event capture, extensible |
+| **Sessions** | tmux + generic runtime artifacts | Durable, inspectable, operator-accessible |
+| **Agent Runtime** | PI (`pi_rpc`, `pi_sdk_embedded`, `pi_sdk_worker`) | One adapter boundary with compatibility and SDK-backed modes |
 | **HTTP** | `node:http` | Zero dependencies, full control |
 | **Formatting** | Biome 2.4 | Fast, opinionated, single tool |
 | **Testing** | `node:test` + `node:assert` | Built-in, no test framework dependency |
 | **Modules** | ESM + NodeNext | Modern, explicit, tree-shakeable |
 | **Search** | FNV-1a hash embeddings | Local-first, no external API needed |
 
-**Zero external runtime dependencies.** The entire platform runs on Node.js built-ins plus an optional `pi` CLI.
+**Local-first runtime posture.** The platform still centers on Node.js, SQLite, tmux, and local files, while the PI integration boundary now supports both CLI RPC and SDK-backed runtime modes.
 
 <br/>
 
@@ -751,20 +785,23 @@ The long-term trajectory:
 | [Role Model](docs/architecture/role-model.md) | 8 roles, handoff contracts, topology |
 | [Workflow Model](docs/architecture/workflow-model.md) | Templates, waves, governance states |
 | [Session Model](docs/architecture/session-model.md) | Lifecycle, artifacts, diagnostics |
-| [Runtime Model](docs/architecture/runtime-model.md) | PI-first strategy, launcher modes |
+| [Runtime Model](docs/architecture/runtime-model.md) | PI-first strategy, runtime adapters, backend modes |
 | [Config Model](docs/architecture/config-model.md) | Policy merge, domain defaults |
 | [Client Surfaces](docs/architecture/clients-and-surfaces.md) | API routes, thin-client rules |
 | [Event Model](docs/architecture/event-model.md) | Event envelope, observability |
 
 ### Decisions
 
-14 Architecture Decision Records in [docs/decisions/](docs/decisions/), including:
+16 Architecture Decision Records in [docs/decisions/](docs/decisions/), including:
 - [ADR-0002: PI-First Runtime](docs/decisions/ADR-0002-runtime-pi-first.md)
 - [ADR-0005: Builder-Tester Verification Workspaces](docs/decisions/ADR-0005-builder-tester-verification-workspaces.md)
 - [ADR-0006: Project Coordinator Role](docs/decisions/ADR-0006-project-coordinator-role.md)
 - [ADR-0007: Feature Integrator Promotion Boundary](docs/decisions/ADR-0007-feature-integrator-promotion-boundary.md)
 - [ADR-0012: Operator Chat Surface](docs/decisions/ADR-0012-operator-chat-surface.md)
 - [ADR-0013: Workflow Handoffs](docs/decisions/ADR-0013-workflow-handoffs-and-runtime-role-inputs.md)
+- [ADR-0014: Multi-Backend PI Runtime Adapter](docs/decisions/ADR-0014-runtime-adapter-multi-backend-pi.md)
+- [ADR-0015: PI SDK Worker Transport](docs/decisions/ADR-0015-pi-sdk-worker-transport.md)
+- [ADR-0016: Runtime Artifact Parity](docs/decisions/ADR-0016-runtime-artifact-parity.md)
 
 ### Full Index
 
@@ -786,7 +823,7 @@ SPORE synthesizes concepts from six reference projects -- adapting the best idea
 | **Gastown** | Durable sessions, tmux-first | tmux-backed sessions with SQLite metadata |
 | **Mulch** | Structured knowledge capture | Local-first docs KB with semantic search |
 | **Beads** | Dependency-aware task graphs | Durable workflow executions with review gates |
-| **PI Mono** | Extensible runtime, model abstraction | PI-first runtime with RPC launcher |
+| **PI Mono** | Extensible runtime, model abstraction | PI-first runtime with RPC and SDK-backed adapters |
 | **Agentic Eng. Book** | Plan-build-review loops, governance | Documentation-first, 12 principles, phased delivery |
 
 <br/>

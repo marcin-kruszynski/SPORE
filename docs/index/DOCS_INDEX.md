@@ -38,6 +38,7 @@ This file is the broader inventory view over `docs/`. It separates active ground
 - `docs/runbooks/local-dev.md`
 - `docs/runbooks/scenario-library.md`
 - `docs/runbooks/documentation-maintenance.md`
+- `docs/operations/2026-03-14-platform-runtime-and-ops-release-notes.md`
 - `docs/operations/workspace-operating-model.md`
 
 ### Specs

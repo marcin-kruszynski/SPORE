@@ -8,7 +8,9 @@ This package now owns the first executable session metadata layer for SPORE.
 - appends lifecycle events to `data/state/events.ndjson`
 - supports `create-from-plan`, `transition`, `show`, `list`, `events`, and `status`
 - supports filtered event queries and a live `feed`
-- supports `reconcile` sweeps and watch mode to settle detached sessions from exit files
+- persists backend-aware runtime metadata such as `backendKind`, runtime capabilities, and runtime artifact paths
+- supports `reconcile` sweeps and watch mode to settle detached sessions from generic `runtime-status` first and legacy exit/RPC artifacts second
+- treats fresh runtime heartbeats as evidence that non-tmux SDK-backed sessions are still alive
 
 ## Run
 

@@ -1,6 +1,6 @@
 # `packages/tui`
 
-This package contains a lightweight terminal operator surface for SPORE.
+This package contains the terminal operator surface for SPORE through `spore-ops`.
 
 ## Current Commands
 
@@ -108,7 +108,7 @@ npx tsx packages/tui/src/cli/spore-ops.ts review --execution e2e-review-001 --st
 The TUI/CLI operator surface now provides:
 
 - a dashboard over session state and recent events,
-- per-session inspection with tmux pane capture when available,
+- per-session inspection with backend-aware runtime metadata and tmux pane capture when available,
 - rooted execution tree inspection over orchestrator HTTP read surfaces,
 - rooted family inspection and family governance actions,
 - audit log inspection over `/executions/:id/audit`,
@@ -155,3 +155,4 @@ Recent operator commands also expose richer validation surfaces:
 - `regression-scheduler-status` returns the read-only scheduler status summary and latest scheduled-run pointers for all regression profiles.
 - `work-item-*` commands expose the same managed self-work model as the orchestrator HTTP surface, so terminal operators can create, inspect, and run durable work items without bypassing orchestration state.
 - `project-*` and `promotion-*` commands expose the coordinator-root and integrator-specific planner/invoker paths without changing the semantics of existing lead-first domain workflows.
+- `spore-ops` is now broader than a dashboard/inspect utility; it is the terminal counterpart to the browser mission-control surfaces.

@@ -6,11 +6,12 @@ SPORE should maintain explicit seams between knowledge, configuration, execution
 
 - `packages/core/`: shared orchestration concepts and contracts.
 - `packages/config-schema/`: validation and config-loading boundaries.
+- `packages/runtime-core/`: backend-agnostic runtime contracts, registry, and supervisor seams.
 - `packages/runtime-pi/`: PI-specific runtime integration.
-- `packages/orchestrator/`: future orchestration policy and execution coordination.
-- `packages/session-manager/`: future session lifecycle and metadata handling.
+- `packages/orchestrator/`: orchestration policy and execution coordination.
+- `packages/session-manager/`: session lifecycle and metadata handling.
 - `packages/tui/`: operator-oriented terminal experiences.
-- `packages/web-ui/`: future browser-facing operator interface.
+- `apps/web/`: browser-facing operator interface.
 - `packages/docs-kb/`: documentation indexing and retrieval.
 - `packages/shared/`: utility types, helpers, and shared primitives.
 

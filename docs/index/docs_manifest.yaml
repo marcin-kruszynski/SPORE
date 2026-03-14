@@ -181,6 +181,13 @@ documents:
     owner: documentation-steward
     tags: [workspace, operating-model]
     path: docs/operations/workspace-operating-model.md
+  - id: platform-runtime-ops-release-notes-2026-03-14
+    type: operations
+    domain: shared
+    status: active
+    owner: documentation-steward
+    tags: [release-notes, runtime, operator-surfaces]
+    path: docs/operations/2026-03-14-platform-runtime-and-ops-release-notes.md
   - id: project-state-direction-handoff
     type: status
     domain: shared
