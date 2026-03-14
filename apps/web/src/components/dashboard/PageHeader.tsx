@@ -1,5 +1,6 @@
-import type { ReactNode } from "react";
-import { Search, Bell, Inbox } from "lucide-react";
+import { Moon, Sun, Search, Bell, Inbox } from "lucide-react";
+import { useTheme } from "next-themes";
+import { useEffect, useState, type ReactNode } from "react";
 
 import { Button } from "../ui/button.js";
 
@@ -11,7 +12,24 @@ interface PageHeaderProps {
   pendingCount?: number;
 }
 
-export function PageHeader({ title, subtitle, breadcrumbs, actions, pendingCount = 3 }: PageHeaderProps) {
+export function PageHeader({
+  title,
+  subtitle,
+  breadcrumbs,
+  actions,
+  pendingCount = 3,
+}: PageHeaderProps) {
+  const { resolvedTheme, setTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  const isNightMode = resolvedTheme === "dark";
+  const themeModeLabel = isNightMode ? "Day mode" : "Night mode";
+  const themeToggleLabel = isNightMode ? "Switch to day mode" : "Switch to night mode";
+
   return (
     <header className="sticky top-0 z-30 flex h-14 items-center justify-between border-b border-border bg-background/80 px-6 backdrop-blur-sm">
       <div className="flex items-center gap-3">
@@ -34,6 +52,20 @@ export function PageHeader({ title, subtitle, breadcrumbs, actions, pendingCount
       </div>
       <div className="flex items-center gap-2">
         {actions}
+        {mounted && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-8 gap-2 border-muted bg-background text-xs font-semibold text-foreground hover:bg-accent/80"
+            onClick={() => setTheme(isNightMode ? "light" : "dark")}
+            aria-label={themeToggleLabel}
+            title={themeToggleLabel}
+          >
+            {isNightMode ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+            <span>{themeModeLabel}</span>
+          </Button>
+        )}
         <Button variant="ghost" size="icon" className="relative h-8 w-8 text-muted-foreground hover:text-foreground">
           <Search className="h-4 w-4" />
         </Button>

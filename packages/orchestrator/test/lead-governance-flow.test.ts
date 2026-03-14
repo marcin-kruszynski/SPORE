@@ -339,7 +339,18 @@ test("invalid specialist handoffs hold execution before the next specialist can 
     transcriptPath,
     [
       "[stub:agent-output:start]",
-      "Builder completed work without a structured handoff.",
+      "Builder completed work but omitted required summary content.",
+      "[SPORE_HANDOFF_JSON_BEGIN]",
+      JSON.stringify(
+        {
+          changed_paths: ["apps/web/src/components/cockpit/AgentLaneCard.tsx"],
+          tests_run: ["npm run test:web"],
+          open_risks: ["compact density layout not visually rechecked"],
+        },
+        null,
+        2,
+      ),
+      "[SPORE_HANDOFF_JSON_END]",
       "[stub:agent-output:end]",
       "",
     ].join("\n"),
@@ -440,6 +451,124 @@ test("invalid specialist handoffs hold execution before the next specialist can 
     assert.equal(detail.execution.holdOwner, "lead");
     assert.equal(detail.execution.holdReason, "internal-governance-pending");
     assert.equal(refreshedTester?.state, "planned");
+  } finally {
+    await fs.rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("malformed specialist handoffs auto-retry once before escalating to lead review", async () => {
+  const tempRoot = await fs.mkdtemp(
+    path.join(os.tmpdir(), "spore-lead-governance-malformed-runtime-"),
+  );
+  const dbPath = path.join(tempRoot, "orchestrator.sqlite");
+  const sessionDbPath = path.join(tempRoot, "sessions.sqlite");
+  const transcriptPath = path.join(tempRoot, "scout.transcript.md");
+  const timestamp = new Date().toISOString();
+
+  await fs.writeFile(
+    transcriptPath,
+    [
+      "[stub:agent-output:start]",
+      "Scout dumped raw search output and never emitted the handoff marker.",
+      "apps/web/src/components/cockpit/AgentLaneCard.tsx:42:const density = compact",
+      "[stub:agent-output:end]",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+
+  try {
+    const invocation = await planWorkflowInvocation({
+      workflowPath: "config/workflows/feature-delivery.yaml",
+      projectPath: "config/projects/spore.yaml",
+      domainId: "frontend",
+      roles: ["lead", "scout", "builder", "tester", "reviewer"],
+      objective: "Verify malformed scout output gets one automatic retry.",
+      invocationId: `lead-governance-malformed-${Date.now()}`,
+    });
+
+    createExecution(invocation, dbPath);
+    const initial = getExecutionDetail(invocation.invocationId, dbPath, sessionDbPath);
+    assert.ok(initial);
+
+    const leadStep = initial?.steps.find((step) => step.role === "lead");
+    const scoutStep = initial?.steps.find((step) => step.role === "scout");
+    const builderStep = initial?.steps.find((step) => step.role === "builder");
+    assert.ok(leadStep?.id);
+    assert.ok(scoutStep?.id);
+    assert.ok(builderStep?.id);
+
+    const db = openOrchestratorDatabase(dbPath);
+    try {
+      updateStep(db, transitionStepRecord(leadStep, "completed", { settledAt: timestamp }));
+      updateStep(
+        db,
+        transitionStepRecord(scoutStep, "active", {
+          launchedAt: timestamp,
+          updatedAt: timestamp,
+        }),
+      );
+      updateExecution(
+        db,
+        transitionExecutionRecord(initial?.execution, "running", {
+          currentStepIndex: scoutStep.sequence,
+          startedAt: timestamp,
+        }),
+      );
+    } finally {
+      db.close();
+    }
+
+    const sessionDb = openSessionDatabase(sessionDbPath);
+    try {
+      upsertSession(sessionDb, {
+        id: scoutStep.sessionId,
+        runId: `${invocation.invocationId}-scout`,
+        agentIdentityId: "scout:scout",
+        profileId: "scout",
+        role: "scout",
+        state: "completed",
+        runtimeAdapter: "pi",
+        transportMode: "rpc",
+        sessionMode: "ephemeral",
+        projectId: "spore",
+        projectName: "SPORE",
+        projectType: "orchestration-platform",
+        domainId: "frontend",
+        workflowId: invocation.workflow.id,
+        parentSessionId: null,
+        contextPath: null,
+        transcriptPath,
+        launcherType: "stub",
+        launchCommand: "fake",
+        tmuxSession: null,
+        startedAt: timestamp,
+        endedAt: timestamp,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      });
+    } finally {
+      sessionDb.close();
+    }
+
+    const detail = await reconcileExecution(invocation.invocationId, {
+      dbPath,
+      sessionDbPath,
+      stub: true,
+      launcher: "stub",
+      noMonitor: true,
+    });
+
+    const retriedScout = detail.steps.find((step) => step.role === "scout");
+    const refreshedBuilder = detail.steps.find((step) => step.role === "builder");
+
+    assert.equal(detail.execution.state, "running");
+    assert.equal(detail.execution.holdOwner, null);
+    assert.equal(detail.execution.holdReason, null);
+    assert.equal(retriedScout?.state, "active");
+    assert.equal(retriedScout?.attemptCount, 2);
+    assert.match(String(retriedScout?.lastError ?? ""), /handoff_validation/i);
+    assert.equal(refreshedBuilder?.state, "planned");
   } finally {
     await fs.rm(tempRoot, { recursive: true, force: true });
   }
@@ -605,7 +734,7 @@ test("invalid specialist handoffs stop proposal governance before operator revie
   }
 });
 
-test("valid specialist handoffs still wait for explicit lead approval before the next specialist launches", async () => {
+test("valid specialist handoffs auto-advance through lead-governed internal review", async () => {
   const tempRoot = await fs.mkdtemp(
     path.join(os.tmpdir(), "spore-lead-governance-valid-runtime-"),
   );
@@ -624,7 +753,7 @@ test("valid specialist handoffs still wait for explicit lead approval before the
           summary: {
             title: "Scout findings",
             objective: "Verify valid scout handoff behavior.",
-            outcome: "Builder should wait for lead approval.",
+            outcome: "Builder should launch after automatic lead approval.",
             confidence: "high",
           },
           findings: ["use the sidebar header area"],
@@ -650,7 +779,7 @@ test("valid specialist handoffs still wait for explicit lead approval before the
       projectPath: "config/projects/spore.yaml",
       domainId: "frontend",
       roles: ["lead", "scout", "builder", "tester", "reviewer"],
-      objective: "Verify valid scout output still waits for lead approval.",
+      objective: "Verify valid scout output auto-advances through lead governance.",
       invocationId: `lead-governance-valid-${Date.now()}`,
     });
 
@@ -741,14 +870,17 @@ test("valid specialist handoffs still wait for explicit lead approval before the
       noMonitor: true,
     });
 
+    const refreshedLead = detail.steps.find((step) => step.role === "lead");
     const refreshedScout = detail.steps.find((step) => step.role === "scout");
     const refreshedBuilder = detail.steps.find((step) => step.role === "builder");
 
-    assert.equal(refreshedScout?.state, "review_pending");
-    assert.equal(detail.execution.state, "held");
-    assert.equal(detail.execution.holdOwner, "lead");
-    assert.equal(detail.execution.holdReason, "internal-governance-pending");
-    assert.equal(refreshedBuilder?.state, "planned");
+    assert.equal(refreshedLead?.state, "completed");
+    assert.equal(refreshedScout?.state, "completed");
+    assert.equal(refreshedScout?.reviewStatus, "approved");
+    assert.equal(detail.execution.state, "running");
+    assert.equal(detail.execution.holdOwner, null);
+    assert.equal(detail.execution.holdReason, null);
+    assert.equal(refreshedBuilder?.state, "active");
   } finally {
     await fs.rm(tempRoot, { recursive: true, force: true });
   }

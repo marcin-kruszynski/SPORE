@@ -98,10 +98,15 @@ function buildStubHandoffJson(plan: SessionPlan): string | null {
         "verdict",
         "target_branch",
         "integration_branch",
-        "next_role",
       ].includes(section)
     ) {
       payload[section] = `stub ${section} for ${role}`;
+      continue;
+    }
+    if (section === "next_role") {
+      payload[section] =
+        plan.metadata?.expectedHandoff?.allowedNextRoles?.[0] ??
+        `stub ${section} for ${role}`;
       continue;
     }
     if (section === "scope") {
@@ -152,6 +157,9 @@ export async function writeLaunchAssets({
           : path.join(PROJECT_ROOT, briefPath),
       )
     : null;
+  const briefHasExpectedHandoff =
+    typeof briefContent === "string" &&
+    briefContent.includes("## Expected Handoff Output");
 
   const prompt = [
     "# SPORE Runtime Session",
@@ -192,12 +200,18 @@ export async function writeLaunchAssets({
           "",
         ].join("\n")
       : "",
-    plan.metadata?.expectedHandoff
+    plan.metadata?.expectedHandoff && !briefHasExpectedHandoff
       ? [
           "## Expected Handoff Output",
           `- Kind: ${plan.metadata.expectedHandoff.kind}`,
           `- Marker: ${plan.metadata.expectedHandoff.marker}`,
           `- Required sections: ${plan.metadata.expectedHandoff.requiredSections.join(", ")}`,
+          ...(Array.isArray(plan.metadata.expectedHandoff.allowedNextRoles) &&
+          plan.metadata.expectedHandoff.allowedNextRoles.length > 0
+            ? [
+                `- Allowed next roles: ${plan.metadata.expectedHandoff.allowedNextRoles.join(", ")}`,
+              ]
+            : []),
           "",
           `End with [${plan.metadata.expectedHandoff.marker}_BEGIN] ... [${plan.metadata.expectedHandoff.marker}_END].`,
           "",

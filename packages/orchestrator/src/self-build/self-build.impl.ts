@@ -3429,7 +3429,7 @@ function summarizeValidationState(validation = null) {
 }
 
 function workItemRunTerminalKind(run: LooseRecord = {}) {
-  const status = String(run.status ?? "").trim();
+  const status = String(run.result?.status ?? run.status ?? "").trim();
   if (["completed", "passed"].includes(status)) {
     return "completed";
   }
@@ -3438,14 +3438,15 @@ function workItemRunTerminalKind(run: LooseRecord = {}) {
   }
   if (
     [
-      "waiting_review",
-      "waiting_approval",
       "held",
       "paused",
       "blocked",
     ].includes(status)
   ) {
     return "blocked";
+  }
+  if (["waiting_review", "waiting_approval"].includes(status)) {
+    return "running";
   }
   if (["running", "planned", "starting"].includes(status)) {
     return "running";
@@ -5068,6 +5069,10 @@ function buildExecutionObservabilitySummary(
     state: executionDetail.execution.state ?? null,
     status:
       executionDetail.execution.status ?? executionDetail.execution.state ?? null,
+    holdReason: executionDetail.execution.holdReason ?? null,
+    holdOwner: executionDetail.execution.holdOwner ?? null,
+    holdGuidance: executionDetail.execution.holdGuidance ?? null,
+    currentStepIndex: executionDetail.execution.currentStepIndex ?? null,
     role: executionDetail.execution.role ?? null,
     workflowId: executionDetail.execution.workflowId ?? null,
     projectId: executionDetail.execution.projectId ?? null,
@@ -5127,6 +5132,15 @@ export function getSelfBuildWorkItemRun(
   const executionDetail = run.result?.executionId
     ? getExecutionDetail(run.result.executionId, dbPath)
     : null;
+  const executionSummary = buildExecutionObservabilitySummary(
+    executionDetail,
+    run.result?.executionId ?? null,
+  );
+  const executionContext = compactObject(executionSummary);
+  const isInternalGovernanceHold =
+    toText(executionContext.holdReason, "") === "internal-governance-pending" &&
+    toText(executionContext.holdOwner, "") !== "";
+  const terminalKind = workItemRunTerminalKind(run);
   const failure =
     run.status === "failed"
       ? {
@@ -5136,11 +5150,11 @@ export function getSelfBuildWorkItemRun(
             run.result?.error ??
             run.metadata?.error ??
             "The work item run ended in a failed state.",
-        }
-      : run.status === "blocked"
-        ? {
-            code: "work_item_run_blocked",
-            label: "Work item run blocked",
+          }
+        : run.status === "blocked" && terminalKind === "blocked" && !isInternalGovernanceHold
+          ? {
+              code: "work_item_run_blocked",
+              label: "Work item run blocked",
             reason:
               item?.blockedReason ??
               item?.dependencyState?.reason ??
@@ -5247,10 +5261,7 @@ export function getSelfBuildWorkItemRun(
         ? { id: goalPlan.id, title: goalPlan.title, goal: goalPlan.goal }
         : null,
     },
-    execution: buildExecutionObservabilitySummary(
-      executionDetail,
-      run.result?.executionId ?? null,
-    ),
+    execution: executionSummary,
     links: {
       ...buildWorkItemRunLinks(run),
       self: `/work-item-runs/${encodeURIComponent(runId)}`,

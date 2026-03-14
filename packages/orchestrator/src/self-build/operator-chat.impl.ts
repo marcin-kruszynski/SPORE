@@ -64,6 +64,7 @@ interface OperatorThreadLinkage extends LooseRecord {
 
 interface OperatorThreadExecutionSettings extends LooseRecord {
   projectId?: string;
+  projectPath?: string;
   safeMode?: boolean;
   mode?: string;
   stub?: boolean;
@@ -185,6 +186,9 @@ function normalizeExecutionSettings(
     Number.parseInt(String(payload.interval ?? "1500"), 10) || 1500;
   return {
     projectId: toText(payload.projectId ?? payload.project, "spore"),
+    projectPath: normalizeProjectPath(
+      payload.projectPath ?? payload.project ?? payload.projectId,
+    ),
     safeMode: payload.safeMode !== false,
     mode: toText(payload.mode, "supervised"),
     stub: explicitStub,
@@ -196,6 +200,17 @@ function normalizeExecutionSettings(
     autoRun: payload.autoRun !== false,
     autoPromote: payload.autoPromote === true,
   };
+}
+
+function normalizeProjectPath(value: unknown) {
+  const text = toText(value, "spore");
+  if (!text) {
+    return "config/projects/spore.yaml";
+  }
+  if (text.includes("/") || text.endsWith(".yaml")) {
+    return text;
+  }
+  return `config/projects/${text}.yaml`;
 }
 
 function extractExecutionSettings(
@@ -917,6 +932,10 @@ function buildThreadProgress(
   const activeQuarantine = asObject(context.activeQuarantine);
   const pendingActionKind = toText(pendingActions[0]?.actionKind, "");
   const proposalStatus = toText(proposal.status, "");
+  const proposalValidationStatus = toText(
+    asObject(proposal.validation).status,
+    "",
+  );
   const goalPlanStatus = toText(goalPlan.status, "");
   const needsRunRecovery = latestRunNeedsRecovery(latestRun, proposal);
 
@@ -943,6 +962,8 @@ function buildThreadProgress(
     currentStage = "validation";
   } else if (proposalStatus === "reviewed") {
     currentStage = "proposal_approval";
+  } else if (["queued", "running"].includes(proposalValidationStatus)) {
+    currentStage = "validation";
   } else if (proposal.id) {
     currentStage = "proposal_review";
   } else if (group.id || goalPlanStatus === "materialized") {
@@ -973,8 +994,7 @@ function buildThreadProgress(
     stateOverride = "rework";
   } else if (
     String(thread.status) === "completed" ||
-    proposalStatus === "promotion_candidate" ||
-    goalPlanStatus === "completed"
+    (proposalStatus === "promotion_candidate" && pendingActions.length === 0)
   ) {
     stateOverride = "completed";
   } else if (
@@ -1103,15 +1123,15 @@ function buildDecisionGuidance(
       };
     case "proposal-promotion":
       return {
-        title: "Decide whether to promote the proposal",
+        title: "Decide whether to merge the proposal",
         why: "Validation is complete and the proposal is ready for the configured integration target.",
         nextIfApproved:
-          "The orchestrator launches promotion to the integration branch and records the promotion result.",
+          "The orchestrator launches the final merge flow to the integration branch and records the promotion result.",
         riskNote:
-          "Promotion moves the change toward shared integration, so approve only when the evidence is sufficient.",
-        primaryAction: "Promote to integration",
+          "Merging moves the change toward shared integration, so approve only when the evidence is sufficient.",
+        primaryAction: "Merge to integration",
         secondaryActions: choices.filter(
-          (label) => label !== "Promote to integration",
+          (label) => label !== "Merge to integration",
         ),
         suggestedReplies: [],
       };
@@ -1298,7 +1318,7 @@ function buildPendingActionTrace(
     case "proposal-promotion":
       return {
         actionKind: action.actionKind,
-        summary: `Pending promotion decision because proposal ${toText(proposal.id, toText(action.targetId, "unknown"))} is promotion-ready.`,
+        summary: `Pending merge decision because proposal ${toText(proposal.id, toText(action.targetId, "unknown"))} is promotion-ready.`,
         reasons: dedupe([
           proposal.status ? `Proposal status is ${proposal.status}.` : "",
         ]),
@@ -1680,6 +1700,10 @@ function latestRunNeedsRecovery(
   if (!latestRun) {
     return false;
   }
+  const execution = asObject(latestRun.execution);
+  if (toText(execution.holdReason, "") === "internal-governance-pending") {
+    return false;
+  }
   if (!["failed", "blocked"].includes(toText(latestRun.status, ""))) {
     return false;
   }
@@ -1690,6 +1714,13 @@ function latestRunNeedsRecovery(
     return false;
   }
   return !proposal || runTimestamp(latestRun) >= proposalTimestamp(proposal);
+}
+
+function proposalAllowsAutoGovernance(proposal: LooseRecord | null) {
+  if (!proposal) {
+    return false;
+  }
+  return asObject(proposal.metadata).requiresHumanApproval === false;
 }
 
 function summarizeThreadContext(
@@ -1772,8 +1803,19 @@ function inferThreadStatus(
   proposal: LooseRecord | null,
   pendingActions: LooseRecord[],
 ) {
+  const proposalStatus = String(proposal?.status ?? "");
+  const proposalValidationStatus = toText(
+    asObject(proposal?.validation).status,
+    "",
+  );
   if (pendingActions.length > 0) {
     return "waiting_operator";
+  }
+  if (
+    proposalStatus === "validation_required" ||
+    ["queued", "running"].includes(proposalValidationStatus)
+  ) {
+    return "running";
   }
   if (
     ["failed", "blocked", "quarantined"].includes(String(group?.status ?? ""))
@@ -1781,14 +1823,11 @@ function inferThreadStatus(
     return "blocked";
   }
   if (
-    ["rejected", "rework_required"].includes(String(proposal?.status ?? ""))
+    ["rejected", "rework_required"].includes(proposalStatus)
   ) {
     return "blocked";
   }
-  if (
-    String(proposal?.status ?? "") === "promotion_candidate" ||
-    String(goalPlan?.status ?? "") === "completed"
-  ) {
+  if (proposalStatus === "promotion_candidate") {
     return "completed";
   }
   if (goalPlan || group || proposal) {
@@ -1839,7 +1878,20 @@ function matchPendingActionChoice(message: string, action: LooseRecord | null) {
     ["rerun", ["rerun", "retry", "run again", "try again"]],
     ["quarantine", ["quarantine", "freeze", "isolate"]],
     ["release", ["release", "unquarantine", "resume"]],
-    ["promote", ["promote", "promotion", "integrate", "ship", "yes", "tak"]],
+    [
+      "promote",
+      [
+        "promote",
+        "promotion",
+        "integrate",
+        "ship",
+        "merge",
+        "merge it",
+        "merge to integration",
+        "yes",
+        "tak",
+      ],
+    ],
     ["hold", ["hold", "wait", "later", "pause", "not now"]],
   ]);
   for (const entry of actions) {
@@ -1869,12 +1921,14 @@ async function supersedeObsoleteActions(
         String(goalPlan?.status ?? "") === "planned") ||
       (action.actionKind === "proposal-review" &&
         !needsRunRecovery &&
+        !proposalAllowsAutoGovernance(proposal) &&
         action.targetId === proposal?.id &&
         ["draft", "ready_for_review"].includes(
           String(proposal?.status ?? ""),
         )) ||
       (action.actionKind === "proposal-approval" &&
         !needsRunRecovery &&
+        !proposalAllowsAutoGovernance(proposal) &&
         action.targetId === proposal?.id &&
         String(proposal?.status ?? "") === "reviewed") ||
       (action.actionKind === "proposal-promotion" &&
@@ -1938,7 +1992,7 @@ function findThreadQuarantine(
 function executionRunOptions(thread: LooseRecord, overrides: LooseRecord = {}) {
   const execution = extractExecutionSettings(thread);
   return {
-    project: execution.projectId ?? "spore",
+    project: execution.projectPath ?? normalizeProjectPath(execution.projectId),
     safeMode: execution.safeMode !== false,
     wait: execution.wait !== false,
     timeout: String(overrides.timeout ?? execution.timeout ?? 180000),
@@ -2283,8 +2337,8 @@ function requestProposalPromotionAction(
     threadId,
     {
       actionKind: "proposal-promotion",
-      title: "Promote proposal",
-      summary: `Proposal ${proposal.id} is promotion-ready. Decide whether the orchestrator should promote it to the configured integration branch.`,
+      title: "Merge proposal",
+      summary: `Proposal ${proposal.id} is promotion-ready. Decide whether the orchestrator should merge it through the configured integration branch.`,
       targetType: "proposal",
       targetId: String(proposal.id),
       payload: {
@@ -2296,7 +2350,7 @@ function requestProposalPromotionAction(
         actions: [
           {
             value: "promote",
-            label: "Promote to integration",
+            label: "Merge to integration",
             tone: "primary",
           },
           { value: "hold", label: "Hold here", tone: "secondary" },
@@ -2353,6 +2407,7 @@ async function syncThreadState(threadId: string, dbPath: string) {
   );
   proposal = proposalSelection.proposal;
   let latestRun = resolveLatestThreadRun(group, linkage, proposal, dbPath);
+  let needsRunRecovery = latestRunNeedsRecovery(latestRun, proposal);
 
   let integrationBranch =
     getProposalIntegrationBranch(proposal) || linkage.integrationBranch || null;
@@ -2438,10 +2493,11 @@ async function syncThreadState(threadId: string, dbPath: string) {
           proposal,
           dbPath,
         );
+        needsRunRecovery = latestRunNeedsRecovery(latestRun, proposal);
       }
 
       if (!startedManagedWorkAutoRun) {
-        if (latestRunNeedsRecovery(latestRun, proposal)) {
+        if (needsRunRecovery) {
           pendingActions = requestManagedRunRecoveryAction(
             threadId,
             latestRun,
@@ -2449,6 +2505,53 @@ async function syncThreadState(threadId: string, dbPath: string) {
             dbPath,
           );
         } else if (
+          proposal &&
+          ["draft", "ready_for_review"].includes(String(proposal.status)) &&
+          proposalAllowsAutoGovernance(proposal)
+        ) {
+          await reviewProposalArtifact(
+            String(proposal.id),
+            {
+              status: "reviewed",
+              by: "lead",
+              source: "operator-chat-auto-governance",
+              comments: "Auto-reviewed internally governed proposal.",
+            },
+            dbPath,
+          );
+          proposal = getProposalSummary(String(proposal.id), dbPath);
+          needsRunRecovery = latestRunNeedsRecovery(latestRun, proposal);
+        }
+
+        if (
+          proposal &&
+          String(proposal.status) === "reviewed" &&
+          proposalAllowsAutoGovernance(proposal)
+        ) {
+          await approveProposalArtifact(
+            String(proposal.id),
+            {
+              status: "approved",
+              by: "lead",
+              source: "operator-chat-auto-governance",
+              comments: "Auto-approved internally governed proposal.",
+            },
+            dbPath,
+          );
+          proposal = getProposalSummary(String(proposal.id), dbPath);
+          integrationBranch =
+            getProposalIntegrationBranch(proposal) || linkage.integrationBranch || null;
+          activeQuarantine = findThreadQuarantine(
+            goalPlan,
+            group,
+            proposal,
+            integrationBranch,
+            dbPath,
+          );
+          needsRunRecovery = latestRunNeedsRecovery(latestRun, proposal);
+        }
+
+        if (
           proposal &&
           ["draft", "ready_for_review"].includes(String(proposal.status))
         ) {
@@ -2552,6 +2655,23 @@ async function syncThreadState(threadId: string, dbPath: string) {
         }
       }
     }
+  }
+
+  if (needsRunRecovery && pendingActions.length > 0) {
+    for (const action of pendingActions) {
+      if (toText(action.actionKind, "") !== "managed-run-recovery") {
+        closeAction(
+          action,
+          "superseded",
+          {
+            status: "superseded",
+            reason: "Recovery action superseded other pending proposal actions.",
+          },
+          dbPath,
+        );
+      }
+    }
+    pendingActions = listPendingThreadActions(threadId, dbPath);
   }
 
   thread = withDatabase(dbPath, (db) => getOperatorThread(db, threadId));
@@ -2683,6 +2803,7 @@ async function createGoalPlanFromMessage(
       goal: content,
       title: payload.title ?? safeExcerpt(content, 80),
       projectId: execution.projectId ?? "spore",
+      projectPath: execution.projectPath ?? normalizeProjectPath(execution.projectId),
       mode: execution.mode ?? "supervised",
       safeMode: execution.safeMode !== false,
       by: payload.by ?? "operator",
@@ -2770,7 +2891,7 @@ function helpReply() {
   return [
     "Tell me what you want SPORE to do and I will turn that into a governed self-build flow.",
     "I can create a goal plan, edit that plan in chat, stop for review and approval, run managed work, trigger validation, request rework or quarantine, release quarantines, and ask before promotion.",
-    "You can answer directly in chat with commands like: approve, reject, edit, keep only docs, drop 2, rework, quarantine, release, promote, hold, status.",
+    "You can answer directly in chat with commands like: approve, reject, edit, keep only docs, drop 2, rework, quarantine, release, merge, promote, hold, status.",
   ].join(" ");
 }
 

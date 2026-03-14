@@ -69,8 +69,11 @@ function mapWorkItemState(state) {
   if (["running", "planned", "starting"].includes(state)) {
     return "running";
   }
+  if (["waiting_review", "waiting_approval"].includes(state)) {
+    return "running";
+  }
   if (
-    ["waiting_review", "waiting_approval", "held", "paused"].includes(state)
+    ["held", "paused"].includes(state)
   ) {
     return "blocked";
   }

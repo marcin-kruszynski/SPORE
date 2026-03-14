@@ -378,6 +378,7 @@ test("ChatPage loads from real operator APIs and applies live stream updates", a
     view.getByText("Loading mission control...").textContent,
     "Loading mission control...",
   );
+  assert.equal(view.getByText("Operator Console").textContent, "Operator Console");
 
   await view.findByText("Polish operator chat mission console");
   await view.findAllByText("Review the mission plan");
@@ -435,6 +436,41 @@ test("ChatPage loads from real operator APIs and applies live stream updates", a
   await view.findByText(
     "The proposal has been reviewed and now needs approval.",
   );
+
+  restoreDom();
+});
+
+test("ChatPage shows Operator Console subtitle in the header while loading and active", async () => {
+  const restoreDom = installDomGlobals();
+
+  globalThis.EventSource = MockEventSource as unknown as typeof EventSource;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    const method = init?.method ?? "GET";
+
+    if (url.endsWith("/api/orchestrator/operator/threads") && method === "GET") {
+      return jsonResponse({ ok: true, detail: [makeThreadSummary()] });
+    }
+    if (url.endsWith("/api/orchestrator/operator/actions") && method === "GET") {
+      return jsonResponse({ ok: true, detail: [makeAction()] });
+    }
+    if (url.endsWith("/api/orchestrator/operator/threads/thread-1") && method === "GET") {
+      return jsonResponse({ ok: true, detail: makeThreadDetail() });
+    }
+
+    throw new Error(`Unexpected request: ${method} ${url}`);
+  }) as typeof fetch;
+
+  const view = renderChatPage();
+
+  assert.equal(
+    view.getByText("Loading mission control...").textContent,
+    "Loading mission control...",
+  );
+  assert.equal(view.getByText("Operator Console").textContent, "Operator Console");
+
+  await view.findByText("Polish operator chat mission console");
+  await view.findByText("Operator Console");
 
   restoreDom();
 });
@@ -539,6 +575,7 @@ test("ChatPage shows a real-backed error state with retry", async () => {
   const view = renderChatPage();
 
   await view.findByText("Mission Control is unavailable");
+  assert.equal(view.getByText("Operator Console").textContent, "Operator Console");
   fireEvent.click(view.getByRole("button", { name: /retry/i }));
 
   await view.findByText("Polish operator chat mission console");

@@ -653,12 +653,14 @@ function insertProposalArtifactForWorkItem({
   itemTitle,
   itemGoal,
   proposalStatus,
+  metadataOverrides = {},
 }: {
   dbPath: string;
   itemId: string;
   itemTitle: string;
   itemGoal: string;
   proposalStatus: string;
+  metadataOverrides?: JsonRecord;
 }) {
   const timestamp = new Date().toISOString();
   const runId = `work-item-run-seed-${Date.now()}`;
@@ -688,6 +690,7 @@ function insertProposalArtifactForWorkItem({
       itemGoal,
       proposalStatus,
       timestamp,
+      metadataOverrides,
     });
   } finally {
     db.close();
@@ -3571,6 +3574,15 @@ test("operator chat does not append duplicate validation-start events while vali
       String(asObject(asObject(detail.context).proposal).id ?? ""),
       seeded.proposalId,
     );
+    assertThreadUxProjection(asObject(detail), {
+      currentStage: "validation",
+      currentState: "validation",
+      exceptionState: null,
+      statusLineIncludes: /validation/i,
+      suggestedReplies: "empty",
+      expectDistinctTitle: true,
+    });
+    assert.equal(detail.status, "running");
     await sleep(50);
   }
 
@@ -3915,6 +3927,10 @@ test("operator chat supports proposal rework and quarantine release flows", asyn
     threadTitle: promotionPending.title,
     objective: asObject(promotionPending.summary).objective as string,
   });
+  assert.match(
+    String(asObject(proposalPromotionAction.decisionGuidance).primaryAction ?? ""),
+    /merge/i,
+  );
 
   setProposalProjectionState(dbPath, promotionProposalId, {
     proposalStatus: "promotion_candidate",
@@ -4187,4 +4203,177 @@ test("operator chat shows run recovery guidance when the latest rerun failed wit
   );
   assert.match(String(refreshedGuidance.title ?? ""), /recover|rerun/i);
   assert.match(String(refreshedGuidance.why ?? ""), /failed/i);
+});
+
+test("operator chat auto-advances proposal governance when human proposal review is disabled", async (t) => {
+  const { ORCHESTRATOR_PORT, dbPath } = await startOperatorChatServer(
+    t,
+    "spore-http-operator-chat-auto-proposal-",
+  );
+
+  const thread = await createStubOperatorThread(
+    ORCHESTRATOR_PORT,
+    "Add a day and night toggle to the dashboard shell and keep the work in safe mode.",
+    { wait: false },
+  );
+
+  const approvedThread = await replyInOperatorThread(
+    ORCHESTRATOR_PORT,
+    thread.id,
+    "approve",
+  );
+  const group = asObject(asObject(approvedThread.context).group);
+  const seededItem = asArray<JsonRecord>(group.items)[0];
+  assert.ok(seededItem);
+
+  insertProposalArtifactForWorkItem({
+    dbPath,
+    itemId: String(seededItem.id ?? ""),
+    itemTitle: String(seededItem.title ?? "Work item"),
+    itemGoal: String(seededItem.goal ?? ""),
+    proposalStatus: "ready_for_review",
+    metadataOverrides: {
+      requiresHumanApproval: false,
+    },
+  });
+
+  const refreshedThread = await getOperatorThreadDetail(
+    ORCHESTRATOR_PORT,
+    thread.id,
+  );
+
+  assert.ok(
+    asArray<JsonRecord>(refreshedThread.pendingActions).every(
+      (action) =>
+        action.actionKind !== "proposal-review" &&
+        action.actionKind !== "proposal-approval",
+    ),
+  );
+  assertThreadUxProjection(asObject(refreshedThread), {
+    currentStage: "validation",
+    currentState: "validation",
+    exceptionState: null,
+    statusLineIncludes: /validation/i,
+    suggestedReplies: "empty",
+    expectDistinctTitle: true,
+  });
+  assert.equal(refreshedThread.status, "running");
+});
+
+test("operator chat does not treat docs waiting_review runs as managed-run recovery failures", async (t) => {
+  const { ORCHESTRATOR_PORT } = await startOperatorChatServer(
+    t,
+    "spore-http-operator-chat-docs-waiting-review-",
+  );
+
+  const thread = await createStubOperatorThread(
+    ORCHESTRATOR_PORT,
+    "Refresh the README introduction to emphasize that SPORE is modular, profile-driven, and documentation-first.",
+    { wait: false },
+  );
+
+  await replyInOperatorThread(ORCHESTRATOR_PORT, thread.id, "approve");
+
+  const refreshedThread = await getOperatorThreadDetail(
+    ORCHESTRATOR_PORT,
+    thread.id,
+  );
+
+  assert.ok(
+    asArray<JsonRecord>(refreshedThread.pendingActions).every(
+      (action) => action.actionKind !== "managed-run-recovery",
+    ),
+  );
+  assertThreadUxProjection(asObject(refreshedThread), {
+    currentStage: "managed_work",
+    currentState: "managed_work",
+    exceptionState: null,
+    statusLineIncludes: /running|working/i,
+    suggestedReplies: "empty",
+    expectDistinctTitle: true,
+  });
+});
+
+test("operator chat keeps lead-owned internal governance holds out of run recovery", async (t) => {
+  const { ORCHESTRATOR_PORT, dbPath } = await startOperatorChatServer(
+    t,
+    "spore-http-operator-chat-internal-governance-",
+  );
+
+  const thread = await createStubOperatorThread(
+    ORCHESTRATOR_PORT,
+    "Add a day and night toggle to the dashboard shell and keep the change in safe mode.",
+    { wait: false },
+  );
+
+  const approvedThread = await replyInOperatorThread(
+    ORCHESTRATOR_PORT,
+    thread.id,
+    "approve",
+  );
+  const group = asObject(asObject(approvedThread.context).group);
+  const seededItem = asArray<JsonRecord>(group.items)[0];
+  assert.ok(seededItem);
+
+  const governedRun = insertBlockedRunWithoutProposal({
+    dbPath,
+    itemId: String(seededItem.id ?? ""),
+  });
+  const executionId = `execution:${governedRun.runId}`;
+  const timestamp = new Date().toISOString();
+
+  const invocation = await planWorkflowInvocation({
+    workflowPath: "config/workflows/feature-delivery.yaml",
+    projectPath: "config/projects/spore.yaml",
+    domainId: "frontend",
+    roles: ["lead", "scout", "builder", "tester", "reviewer"],
+    objective: "Keep lead-owned internal governance holds internal to the pipeline.",
+    invocationId: executionId,
+  });
+  createExecution(invocation, dbPath);
+  const initialExecution = getExecutionDetail(executionId, dbPath);
+  assert.ok(initialExecution);
+
+  const scoutStep = initialExecution.steps.find((step) => step.role === "scout");
+  assert.ok(scoutStep?.id);
+
+  const db = openOrchestratorDatabase(dbPath);
+  try {
+    updateStep(
+      db,
+      transitionStepRecord(scoutStep, "review_pending", {
+        reviewStatus: "pending",
+        approvalStatus: null,
+        updatedAt: timestamp,
+      }),
+    );
+    updateExecution(
+      db,
+      transitionExecutionRecord(initialExecution.execution, "held", {
+        currentStepIndex: scoutStep.sequence,
+        holdOwner: "lead",
+        holdReason: "internal-governance-pending",
+        holdGuidance: "Await internal governance by lead before advancing scout.",
+        heldAt: timestamp,
+      }),
+    );
+  } finally {
+    db.close();
+  }
+
+  const refreshedThread = await getOperatorThreadDetail(
+    ORCHESTRATOR_PORT,
+    thread.id,
+  );
+  const refreshedRun = asObject(asObject(refreshedThread.context).latestRun);
+  const refreshedGuidance = asObject(refreshedThread.decisionGuidance);
+
+  assert.equal(refreshedRun.id, governedRun.runId);
+  assert.equal(refreshedThread.status, "running");
+  assert.ok(
+    asArray<JsonRecord>(refreshedThread.pendingActions).every(
+      (action) => action.actionKind !== "managed-run-recovery",
+    ),
+  );
+  assert.match(String(refreshedGuidance.title ?? ""), /no operator decision/i);
 });
