@@ -770,10 +770,12 @@ test("MissionMapPage renders real-backed mission graphs and refreshes from the e
 
 test("MissionMapPage renders the full execution family tree instead of collapsing to Managed Work", async () => {
   const restoreDom = installDomGlobals();
+  const calls: string[] = [];
 
   globalThis.EventSource = MockEventSource as unknown as typeof EventSource;
   globalThis.fetch = (async (input: RequestInfo | URL) => {
     const url = String(input);
+    calls.push(url);
 
     if (url.endsWith("/api/orchestrator/operator/threads")) {
       return jsonResponse({ ok: true, detail: [makeFamilyThreadSummary()] });
@@ -824,13 +826,25 @@ test("MissionMapPage renders the full execution family tree instead of collapsin
   const view = renderMissionMapPage();
 
   await view.findByText("Implement OAuth2 PKCE flow execution");
-  await view.findByText("architect session");
+  assert.ok((await view.findAllByText("architect")).length >= 1);
   await view.findByText("Implement TokenService and AuthCodeStore");
   await view.findByText("Implement session bridge for backward compatibility");
-  await view.findByText("reviewer session");
-  const guardianSessions = await view.findAllByText("guardian session");
-  assert.equal(guardianSessions.length, 2);
+  assert.ok((await view.findAllByText("reviewer")).length >= 1);
+  const guardianSessions = await view.findAllByText("guardian");
+  assert.ok(guardianSessions.length >= 2);
   await view.findByText("Dependency audit for new OAuth libraries");
+  assert.equal(
+    calls.some((url) => url.endsWith("/api/sessions/session-guardian-root/live")),
+    false,
+  );
+  assert.equal(
+    calls.some((url) => url.endsWith("/api/sessions/session-tester/live")),
+    false,
+  );
+  assert.equal(
+    calls.some((url) => url.endsWith("/api/sessions/invoke-1773524933229-frontend-tester-5/live")),
+    false,
+  );
 
   restoreDom();
 });
@@ -1009,7 +1023,7 @@ test("MissionMapPage keeps session nodes visible when tree data is missing but e
 
   fireEvent.click(view.getAllByRole("button", { name: /tree/i })[0]);
 
-  await view.findByText("implementer session");
+  await view.findByText("implementer");
   await view.findByText("session-1");
 
   restoreDom();
@@ -1050,7 +1064,7 @@ test("MissionMapPage attaches fallback session nodes under the linked child exec
   fireEvent.click(view.getAllByRole("button", { name: /tree/i })[0]);
 
   const childLane = await view.findByText("Child implementation lane");
-  const sessionNode = await view.findByText("implementer session");
+  const sessionNode = await view.findByText("implementer");
   const siblingLane = await view.findByText("Sibling review lane");
 
   assert.ok(childLane.compareDocumentPosition(sessionNode) & Node.DOCUMENT_POSITION_FOLLOWING);

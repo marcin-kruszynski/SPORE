@@ -162,6 +162,8 @@ export interface MissionMapApiExecutionStep {
   sequence?: number | null;
   wave?: number | null;
   waveName?: string | null;
+  parentSessionId?: string | null;
+  lastError?: string | null;
 }
 
 export interface MissionMapApiSessionRecord {
@@ -180,6 +182,7 @@ export interface MissionMapApiSessionRecord {
   contextPath?: string | null;
   startedAt?: string | null;
   updatedAt?: string | null;
+  parentSessionId?: string | null;
 }
 
 export interface MissionMapApiSessionArtifactDescriptor {

@@ -867,6 +867,68 @@ test("adaptAgentCockpit prefers lane-specific step state and wave labels over th
   assert.equal(laneByRole.get("Reviewer")?.state, "waiting");
 });
 
+test("adaptAgentCockpit treats handoff validation blocked lanes as blocked even when the session settled", () => {
+  const model = adaptAgentCockpit({
+    threads: [
+      {
+        id: "thread-1",
+        title: "Frontend mission",
+        status: "running",
+        updatedAt: "2026-03-14T22:00:00.000Z",
+        summary: {
+          objective: "Remove the day/night mode label.",
+          lastMessageExcerpt: "Builder lane is blocked on structured handoff validation.",
+        },
+      },
+    ],
+    threadDetails: {
+      "thread-1": makeThreadDetail({
+        title: "Frontend mission",
+        status: "running",
+        metadata: {
+          execution: {
+            executionId: "exec-root",
+          },
+        },
+      }),
+    },
+    executionDetails: {
+      "exec-root": {
+        execution: {
+          id: "exec-root",
+          state: "held",
+          workflowId: "feature-delivery",
+        },
+        steps: [
+          {
+            sessionId: "builder-session",
+            role: "builder",
+            waveName: "wave-4",
+            state: "review_pending",
+            lastError: "handoff_validation_blocked",
+          },
+        ],
+        sessions: [
+          {
+            sessionId: "builder-session",
+            session: {
+              id: "builder-session",
+              role: "builder",
+              state: "completed",
+            },
+          },
+        ],
+      },
+    },
+    sessionLives: {
+      "builder-session": makeSessionLive("builder-session", "settled"),
+    },
+  });
+
+  const builderLane = model.lanes.find((lane) => lane.roleLabel === "Builder");
+  assert.equal(builderLane?.state, "blocked");
+});
+
 test("adaptAgentCockpit derives real lanes from active work-item runs and child promotion executions", () => {
   const model = adaptAgentCockpit({
     threads: [

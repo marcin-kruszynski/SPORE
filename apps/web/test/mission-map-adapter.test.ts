@@ -192,8 +192,8 @@ test("adapts explicit execution and session live data into a stable mission map 
   assert.deepEqual(flattenLabels(mission.rootNodes), [
     "Mission Alpha",
     "Mission Alpha execution",
-    "implementer session",
-    "reviewer session",
+    "implementer",
+    "reviewer",
     "Review runtime-backed mission topology",
   ]);
 });
@@ -445,17 +445,17 @@ test("keeps the full execution family tree even when thread hero says Managed Wo
   assert.deepEqual(flattenLabels(mission.rootNodes), [
     "Implement OAuth2 PKCE flow",
     "Implement OAuth2 PKCE flow execution",
-    "architect session",
+    "architect",
     "Implement TokenService and AuthCodeStore",
-    "implementer session",
+    "implementer",
     "Implement session bridge for backward compatibility",
-    "implementer session",
+    "implementer",
     "Review auth module refactor PR #247",
-    "reviewer session",
+    "reviewer",
     "Security scan on auth changes",
-    "guardian session",
+    "guardian",
     "Dependency audit for new OAuth libraries",
-    "guardian session",
+    "guardian",
   ]);
 });
 
@@ -633,7 +633,7 @@ test("keeps session nodes in the coordination-group fallback when tree data is m
   assert.deepEqual(flattenLabels(mission.rootNodes), [
     "Mission Gamma",
     "Recover the mission topology from coordination data.",
-    "implementer session",
+    "implementer",
     "Review the fallback mission map",
   ]);
 });
@@ -741,7 +741,7 @@ test("attaches fallback session nodes to the linked child execution when the lin
     "Mission Delta",
     "Coordinate the fallback tree",
     "Link session nodes to the child execution.",
-    "implementer session",
+    "implementer",
     "Sibling review lane",
   ]);
   assert.equal(mission.rootNodes[0]?.children[0]?.label, "Coordinate the fallback tree");
@@ -751,8 +751,120 @@ test("attaches fallback session nodes to the linked child execution when the lin
   );
   assert.equal(
     mission.rootNodes[0]?.children[0]?.children[0]?.children[0]?.label,
-    "implementer session",
+    "implementer",
   );
+});
+
+test("builds a nested session tree from one execution detail using parent session lineage and hides orchestrator", () => {
+  const mission = adaptMissionMapMission({
+    threadSummary: {
+      id: "thread-lineage",
+      title: "Mission Lineage",
+      status: "running",
+      summary: {
+        objective: "Render the full execution family from one execution detail.",
+      },
+    },
+    threadDetail: {
+      id: "thread-lineage",
+      title: "Mission Lineage",
+      status: "running",
+      hero: {
+        phase: "Managed Work",
+      },
+      summary: {
+        objective: "Render the full execution family from one execution detail.",
+      },
+      metadata: {
+        execution: {
+          executionId: "exec-lineage",
+        },
+      },
+    },
+    executionDetail: {
+      execution: {
+        id: "exec-lineage",
+        state: "held",
+        objective: "Render the full execution family from one execution detail.",
+        projectRole: "lead",
+      },
+      steps: [
+        {
+          id: "step-0",
+          sequence: 0,
+          role: "orchestrator",
+          state: "completed",
+          sessionId: "session-orchestrator",
+        },
+        {
+          id: "step-1",
+          sequence: 1,
+          role: "lead",
+          state: "completed",
+          sessionId: "session-lead",
+          parentSessionId: "session-orchestrator",
+        },
+        {
+          id: "step-2",
+          sequence: 2,
+          role: "scout",
+          state: "completed",
+          sessionId: "session-scout",
+          parentSessionId: "session-lead",
+        },
+        {
+          id: "step-3",
+          sequence: 3,
+          role: "builder",
+          state: "review_pending",
+          lastError: "handoff_validation_blocked",
+          sessionId: "session-builder",
+          parentSessionId: "session-scout",
+        },
+      ],
+      sessions: [
+        { sessionId: "session-orchestrator", session: { id: "session-orchestrator", role: "orchestrator", state: "completed", runtimeAdapter: "pi" } },
+        { sessionId: "session-lead", session: { id: "session-lead", role: "lead", state: "completed", runtimeAdapter: "pi", parentSessionId: "session-orchestrator" } },
+        { sessionId: "session-scout", session: { id: "session-scout", role: "scout", state: "completed", runtimeAdapter: "pi", parentSessionId: "session-lead" } },
+        { sessionId: "session-builder", session: { id: "session-builder", role: "builder", state: "completed", runtimeAdapter: "pi", parentSessionId: "session-scout" } },
+      ],
+    },
+    executionTree: {
+      selectedExecutionId: "exec-lineage",
+      rootExecutionId: "exec-lineage",
+      executionCount: 1,
+      root: {
+        execution: {
+          id: "exec-lineage",
+          state: "held",
+          objective: "Render the full execution family from one execution detail.",
+          projectRole: "lead",
+        },
+        stepSummary: { count: 4, byState: { completed: 2, review_pending: 1, planned: 1 } },
+        children: [],
+      },
+    },
+    sessionLives: {
+      "session-lead": { ok: true, session: { id: "session-lead", role: "lead", state: "completed", runtimeAdapter: "pi" }, diagnostics: { status: "settled", staleSession: false, operatorUrgency: "low" } },
+      "session-scout": { ok: true, session: { id: "session-scout", role: "scout", state: "completed", runtimeAdapter: "pi" }, diagnostics: { status: "settled", staleSession: false, operatorUrgency: "low" } },
+      "session-builder": { ok: true, session: { id: "session-builder", role: "builder", state: "completed", runtimeAdapter: "pi" }, diagnostics: { status: "settled", staleSession: false, operatorUrgency: "high" } },
+    },
+  });
+
+  assert.deepEqual(flattenLabels(mission.rootNodes), [
+    "Mission Lineage",
+    "Mission Lineage execution",
+    "lead",
+    "scout",
+    "builder",
+  ]);
+  const executionNode = mission.rootNodes[0]?.children[0];
+  const leadNode = executionNode?.children[0];
+  const scoutNode = leadNode?.children[0];
+  const builderNode = scoutNode?.children[0];
+  assert.equal(leadNode?.state, "completed");
+  assert.equal(scoutNode?.state, "completed");
+  assert.equal(builderNode?.state, "blocked");
 });
 
 test("derives execution links deterministically when candidates tie on score", () => {
