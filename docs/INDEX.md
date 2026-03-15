@@ -9,6 +9,7 @@ Use `docs/` as ground truth for product state, architecture, operations, and dir
 - Current project state: [plans/project-state-and-direction-handoff.md](plans/project-state-and-direction-handoff.md)
 - Tactical backlog and next work: [plans/self-build-status-and-next-steps.md](plans/self-build-status-and-next-steps.md)
 - Current roadmap: [plans/roadmap.md](plans/roadmap.md)
+- Work-management unification plan: [plans/unification-refactoring-plan.md](plans/unification-refactoring-plan.md)
 - Local development and verification: [runbooks/local-dev.md](runbooks/local-dev.md)
 - Approved runtime exception: [decisions/ADR-0014-runtime-adapter-multi-backend-pi.md](decisions/ADR-0014-runtime-adapter-multi-backend-pi.md)
 - Release notes for the runtime + operator surface update: [operations/2026-03-14-platform-runtime-and-ops-release-notes.md](operations/2026-03-14-platform-runtime-and-ops-release-notes.md)
@@ -42,8 +43,9 @@ Use `docs/` as ground truth for product state, architecture, operations, and dir
 - Principles: [vision/principles.md](vision/principles.md)
 - Glossary: [vision/glossary.md](vision/glossary.md)
 - Project handoff: [plans/project-state-and-direction-handoff.md](plans/project-state-and-direction-handoff.md)
-- Self-build status: [plans/self-build-status-and-next-steps.md](plans/self-build-status-and-next-steps.md)
+- Project work status: [plans/self-build-status-and-next-steps.md](plans/self-build-status-and-next-steps.md)
 - Current roadmap: [plans/roadmap.md](plans/roadmap.md)
+- Work-management unification plan: [plans/unification-refactoring-plan.md](plans/unification-refactoring-plan.md)
 - Operator chat plan: [plans/operator-chat-surface-plan.md](plans/operator-chat-surface-plan.md)
 - Long-range self-build roadmap: [plans/long-range-self-build-roadmap.md](plans/long-range-self-build-roadmap.md)
 - Full self-build implementation plan: [plans/full-self-build-implementation-plan.md](plans/full-self-build-implementation-plan.md)
@@ -62,6 +64,7 @@ Use `docs/` as ground truth for product state, architecture, operations, and dir
 - Multi-backend PI runtime adapter boundary: [decisions/ADR-0014-runtime-adapter-multi-backend-pi.md](decisions/ADR-0014-runtime-adapter-multi-backend-pi.md)
 - PI SDK worker transport: [decisions/ADR-0015-pi-sdk-worker-transport.md](decisions/ADR-0015-pi-sdk-worker-transport.md)
 - Runtime artifact parity across PI backends: [decisions/ADR-0016-runtime-artifact-parity.md](decisions/ADR-0016-runtime-artifact-parity.md)
+- Unified project work management pipeline: [decisions/ADR-0017-unified-project-work-management.md](decisions/ADR-0017-unified-project-work-management.md)
 
 Note: early bootstrap history contains two accepted `ADR-0001` files. Keep both as historical foundation records and do not reuse that number.
 

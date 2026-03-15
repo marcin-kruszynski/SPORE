@@ -2,6 +2,11 @@ import crypto from "node:crypto";
 import { DEFAULT_ORCHESTRATOR_DB_PATH } from "../metadata/constants.js";
 import { getCoordinatorFamilySummary } from "../execution/workflow-execution.js";
 import {
+  getDefaultProjectId,
+  normalizeProjectConfigPath,
+  normalizeProjectRef,
+} from "../project-config.js";
+import {
   type openOrchestratorDatabase,
   withRetriedOrchestratorDatabase,
 } from "../store/db.js";
@@ -186,7 +191,7 @@ function normalizeExecutionSettings(
   const interval =
     Number.parseInt(String(payload.interval ?? "1500"), 10) || 1500;
   return {
-    projectId: toText(payload.projectId ?? payload.project, "spore"),
+    projectId: normalizeProjectRef(payload.projectId ?? payload.project),
     projectPath: normalizeProjectPath(
       payload.projectPath ?? payload.project ?? payload.projectId,
     ),
@@ -204,14 +209,7 @@ function normalizeExecutionSettings(
 }
 
 function normalizeProjectPath(value: unknown) {
-  const text = toText(value, "spore");
-  if (!text) {
-    return "config/projects/spore.yaml";
-  }
-  if (text.includes("/") || text.endsWith(".yaml")) {
-    return text;
-  }
-  return `config/projects/${text}.yaml`;
+  return normalizeProjectConfigPath(value);
 }
 
 function extractExecutionSettings(
@@ -445,7 +443,9 @@ function proposalValidationStatus(
   latestRun: LooseRecord | null | undefined,
 ) {
   const proposalValidation = asObject(proposal?.validation);
-  const proposalMetadataValidation = asObject(asObject(proposal?.metadata).validation);
+  const proposalMetadataValidation = asObject(
+    asObject(proposal?.metadata).validation,
+  );
   const runValidation = asObject(asObject(latestRun?.metadata).validation);
   return toText(
     proposalValidation.status,
@@ -1866,9 +1866,7 @@ function inferThreadStatus(
   ) {
     return "blocked";
   }
-  if (
-    ["rejected", "rework_required"].includes(proposalStatus)
-  ) {
+  if (["rejected", "rework_required"].includes(proposalStatus)) {
     return "blocked";
   }
   if (proposalStatus === "promotion_candidate") {
@@ -2589,7 +2587,9 @@ async function syncThreadState(threadId: string, dbPath: string) {
           );
           proposal = getProposalSummary(String(proposal.id), dbPath);
           integrationBranch =
-            getProposalIntegrationBranch(proposal) || linkage.integrationBranch || null;
+            getProposalIntegrationBranch(proposal) ||
+            linkage.integrationBranch ||
+            null;
           activeQuarantine = findThreadQuarantine(
             goalPlan,
             group,
@@ -2645,7 +2645,10 @@ async function syncThreadState(threadId: string, dbPath: string) {
                   artifactRef(
                     "proposal",
                     String(proposal.id),
-                    toText(asObject(proposal.summary).title, String(proposal.id)),
+                    toText(
+                      asObject(proposal.summary).title,
+                      String(proposal.id),
+                    ),
                     String(proposal.status),
                   ),
                 ],
@@ -2714,7 +2717,8 @@ async function syncThreadState(threadId: string, dbPath: string) {
           "superseded",
           {
             status: "superseded",
-            reason: "Recovery action superseded other pending proposal actions.",
+            reason:
+              "Recovery action superseded other pending proposal actions.",
           },
           dbPath,
         );
@@ -2858,8 +2862,9 @@ async function createGoalPlanFromMessage(
     {
       goal: content,
       title: payload.title ?? safeExcerpt(content, 80),
-      projectId: execution.projectId ?? "spore",
-      projectPath: execution.projectPath ?? normalizeProjectPath(execution.projectId),
+      projectId: execution.projectId ?? getDefaultProjectId(),
+      projectPath:
+        execution.projectPath ?? normalizeProjectPath(execution.projectId),
       mode: execution.mode ?? "supervised",
       safeMode: execution.safeMode !== false,
       by: payload.by ?? "operator",
@@ -3002,7 +3007,7 @@ export async function createOperatorThread(
         metadata: { mission: { objective: content } },
       }),
     ),
-    projectId: execution.projectId ?? "spore",
+    projectId: execution.projectId ?? getDefaultProjectId(),
     status: "active",
     summary: {
       objective: content,
@@ -3238,6 +3243,7 @@ async function resolveGoalPlanReviewAction({
   action,
   choice,
   payload,
+  thread,
   dbPath,
 }: ResolveOperatorActionArgs) {
   if (choice === "edit") {
@@ -3290,7 +3296,38 @@ async function resolveGoalPlanReviewAction({
     },
     dbPath,
   );
-  return null;
+  if (
+    choice !== "reject" &&
+    extractExecutionSettings(thread).autoRun !== false &&
+    claimManagedWorkAutoRun(String(action.threadId), String(action.targetId), dbPath)
+  ) {
+    appendThreadMessage(
+      String(action.threadId),
+      "assistant",
+      "event",
+      `Goal plan ${action.targetId} is approved. I am materializing and running managed work now.`,
+      {
+        artifacts: [
+          artifactRef(
+            "goal-plan",
+            String(action.targetId),
+            toText(result?.title, String(action.targetId)),
+            toText(result?.status, ""),
+          ),
+        ],
+      },
+      dbPath,
+    );
+    await runGoalPlan(
+      String(action.targetId),
+      {
+        ...executionRunOptions(thread),
+        autoValidate: extractExecutionSettings(thread).autoValidate !== false,
+      },
+      dbPath,
+    );
+  }
+  return syncThreadState(String(action.threadId), dbPath);
 }
 
 async function resolveProposalReviewAction({

@@ -5,6 +5,7 @@ import {
 } from "../execution/workflow-execution.js";
 import { planWorkflowInvocation } from "../invocation/plan-workflow-invocation.js";
 import { DEFAULT_ORCHESTRATOR_DB_PATH } from "../metadata/constants.js";
+import { normalizeProjectConfigPath } from "../project-config.js";
 import {
   runRegressionById,
   runScenarioById,
@@ -72,9 +73,7 @@ function mapWorkItemState(state) {
   if (["waiting_review", "waiting_approval"].includes(state)) {
     return "running";
   }
-  if (
-    ["held", "paused"].includes(state)
-  ) {
+  if (["held", "paused"].includes(state)) {
     return "blocked";
   }
   if (["failed", "rejected", "canceled", "stopped"].includes(state)) {
@@ -132,10 +131,14 @@ export function listManagedWorkItems(
 ) {
   const status = options.status ? String(options.status).trim() : null;
   const limit = Number.parseInt(String(options.limit ?? "50"), 10) || 50;
+  const projectId =
+    options.projectId != null ? String(options.projectId).trim() || null : null;
   return withDatabase(dbPath, (db) =>
-    listWorkItems(db, status, limit).map((item) =>
-      buildWorkItemSummary(item, listWorkItemRuns(db, item.id, 5)),
-    ),
+    listWorkItems(db, status, limit)
+      .filter((item) => !projectId || item.metadata?.projectId === projectId)
+      .map((item) =>
+        buildWorkItemSummary(item, listWorkItemRuns(db, item.id, 5)),
+      ),
   );
 }
 
@@ -302,7 +305,7 @@ async function runWorkflowWorkItem(item, options, run, dbPath) {
   const roles = Array.isArray(metadata.roles) ? metadata.roles : null;
   const plannedInvocation = await planWorkflowInvocation({
     workflowPath: metadata.workflowPath ?? metadata.workflow ?? null,
-    projectPath: metadata.projectPath ?? "config/projects/spore.yaml",
+    projectPath: metadata.projectPath ?? normalizeProjectConfigPath(),
     domainId: metadata.domainId ?? null,
     roles,
     maxRoles:

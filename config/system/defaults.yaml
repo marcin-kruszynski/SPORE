@@ -1,5 +1,6 @@
 id: system-defaults
 runtime: pi
+defaultProjectId: spore
 documentation:
   indexPath: docs/INDEX.md
   manifestPath: docs/index/docs_manifest.yaml

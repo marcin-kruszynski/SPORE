@@ -4,6 +4,8 @@
   "properties": {
     "id": { "type": "string" },
     "name": { "type": "string" },
+    "taskClass": { "type": "string" },
+    "pathPrefixes": { "type": "array", "items": { "type": "string" } },
     "policyPacks": { "type": "array", "items": { "type": "string" } },
     "leadProfile": { "type": "string" },
     "defaultBuilderProfile": { "type": "string" },

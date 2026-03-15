@@ -2,6 +2,7 @@
 // biome-ignore-all lint/suspicious/noExplicitAny: the orchestrator CLI is a dynamic flag parser over many additive command payloads.
 import { spawn } from "node:child_process";
 import { buildTsxEntrypointArgs, PROJECT_ROOT } from "@spore/core";
+import { normalizeProjectRef } from "../project-config.js";
 import {
   applyExecutionTreeAction,
   applyExecutionTreeGovernance,
@@ -236,7 +237,15 @@ function spawnDetachedExecutionDriver(executionId: string, flags: CliFlags) {
 
 async function main() {
   const { positional, flags } = parseArgs(process.argv.slice(2));
-  const command = positional[0] ?? "plan";
+  const rawCommand = positional[0] ?? "plan";
+  const commandAliases = {
+    "project-goals": "goal-plan-list",
+    "project-goal-create": "goal-plan-create",
+    "project-work-items": "work-item-list",
+    "project-dashboard": "self-build-dashboard",
+    "project-summary": "self-build-summary",
+  } as const;
+  const command = commandAliases[rawCommand] ?? rawCommand;
 
   if (command === "plan") {
     const invocation = await buildInvocation(flags);
@@ -941,7 +950,7 @@ async function main() {
       );
     }
     const detail = await materializePolicyRecommendation(flags.recommendation, {
-      projectId: flags.project ?? "spore",
+      projectId: normalizeProjectRef(flags.project),
       domain: flags.domain ?? null,
       safeMode: flags["safe-mode"] !== false,
       reviewRequired: flags["review-required"] !== false,
@@ -1148,7 +1157,7 @@ async function main() {
     const detail = await createGoalPlan({
       title: flags.title ?? null,
       goal: flags.goal,
-      projectId: flags.project ?? "spore",
+      projectId: normalizeProjectRef(flags.project),
       domainId: flags.domain ?? null,
       mode: flags.mode ?? "supervised",
       safeMode: flags["safe-mode"] !== false,
