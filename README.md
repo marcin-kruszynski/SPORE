@@ -14,7 +14,7 @@
 ### **Swarm Protocol for Orchestration, Rituals & Execution**
 
 *Governed multi-agent orchestration platform*<br/>
-*powered by [PI](https://github.com/ArtificialAnomaly/pi) · built to manage any software project*
+*powered by [PI](https://github.com/ArtificialAnomaly/pi) · evolving into governed project work management for software teams*
 
 <br/>
 
@@ -43,16 +43,17 @@
 
 Agentic workflows fail for three predictable reasons: they **mix implementation with coordination**, they **hide decisions in chat** that vanish when sessions end, and they provide **weak inspectability** -- operators cannot see, steer, or trust what agents are doing.
 
-SPORE solves this with a **structured orchestration protocol** where every decision is a durable artifact, every agent runs in an inspectable PI session, and work on any project flows through a **governed pipeline**: goal → plan → execute → validate → promote.
+SPORE solves this with a **structured orchestration protocol** where every decision is a durable artifact, every agent runs in an inspectable PI session, and project work is being generalized into a **governed pipeline**: goal → plan → execute → validate → promote.
 
-> **SPORE manages software projects the way the best human teams do -- but with full observability, structural governance, and AI agents powered by PI doing the work.**
+> **SPORE is building toward software project delivery with the governance, traceability, and observability of the best human teams -- with PI-powered agents doing the work inside inspectable, policy-shaped loops.**
 
 ## What's New
 
-- Multi-backend PI runtime support now exists behind a SPORE-owned runtime adapter boundary: `pi_rpc`, `pi_sdk_embedded`, and `pi_sdk_worker`.
-- Session/runtime inspection is now backend-aware through generic runtime artifacts such as `runtime-status` and `runtime-events`.
-- The browser default home is now the real `Agent Cockpit`, with `Mission Map`, `Operator Chat`, and the self-build dashboard as first-class operator surfaces.
-- `spore-ops` and the orchestrator HTTP surface now expose the current coordinator/integrator, self-build, and scenario/regression model directly.
+- Cross-domain delivery is now planner-first by default: a coordinator root gets a durable plan, adopts it into a dispatch queue, and drives domain work through explicit lead and integrator lanes.
+- PI execution now runs through one SPORE-owned adapter boundary, letting `pi_rpc`, `pi_sdk_embedded`, and `pi_sdk_worker` share the same governance, artifacts, and operator inspection model.
+- Project work management is converging into one governed product surface for software projects, with SPORE-on-SPORE self-build as the strongest reference flow today.
+- `Agent Cockpit` is now the browser home, `Mission Map` stays rooted in execution trees, and `Operator Chat` plus project-work views act as one mission-control surface.
+- Coordinator-family visibility, workflow handoffs, validation, execution-tree lineage, and promotion governance were hardened across the stack.
 
 > See the full update summary in [docs/operations/2026-03-14-platform-runtime-and-ops-release-notes.md](docs/operations/2026-03-14-platform-runtime-and-ops-release-notes.md).
 
@@ -65,19 +66,19 @@ SPORE solves this with a **structured orchestration protocol** where every decis
 <td width="33%" valign="top">
 
 ### 🎭 Role-Based Orchestration
-An orchestrator dispatches through domain-aware leads to specialized workers. Eight architectural roles with profile-driven behavior.
+An orchestrator dispatches through an explicit coordinator -> planner -> lead -> integrator topology. Nine agent roles, plus the human operator, shape the governance model.
 
 </td>
 <td width="33%" valign="top">
 
 ### 🔄 Governed Work Management
-Goal → Plan → Execute → Validate → Promote. One pipeline for any project, with human checkpoints at every critical gate.
+Objective -> Coordinate -> Dispatch -> Validate -> Promote. One governed pipeline being generalized for software projects, with self-build as the strongest SPORE reference case.
 
 </td>
 <td width="33%" valign="top">
 
 ### 🔍 Full Observability
-Every agent runs in an operator-visible PI session. Every decision is recorded. Every workflow step produces durable, inspectable artifacts across tmux-backed RPC and newer SDK-backed runtime modes.
+Every agent runs in an operator-visible PI session. Every decision is recorded. Every workflow family, lane, and execution tree emits durable, inspectable artifacts across RPC and SDK-backed runtime modes.
 
 </td>
 </tr>
@@ -129,21 +130,23 @@ SPORE is built on [**PI**](https://github.com/ArtificialAnomaly/pi) -- an extens
 │                                                                     │
 │   Together:                                                         │
 │   ─────────                                                         │
-│   SPORE plans the work, PI executes it, SPORE governs the result.  │
-│   Every PI session runs in tmux for live inspectability.            │
-│   The operator can steer any agent in real-time through PI's RPC.   │
+│   SPORE plans the work, PI executes it, SPORE governs the result.   │
+│   SPORE preserves live inspectability across tmux-backed and         │
+│   SDK-backed PI runtime modes. Operators can inspect and steer       │
+│   active agent work through SPORE's PI control surfaces.             │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
 ### How PI Integrates
 
-| Mode | Command | Use Case |
-|------|---------|----------|
-| **PI RPC** | `pi --mode rpc` | **Primary.** Full bidirectional control: steer, follow up, abort, get state |
-| **PI JSON** | `pi --mode json` | Debug. One-shot JSON event streaming |
-| **Stub** | *(no PI needed)* | Testing. Simulates sessions for development without PI |
+| Backend | Internal Kind | Use Case |
+|---------|---------------|----------|
+| **PI RPC** | `pi_rpc` | **Primary.** tmux-backed bidirectional control with live steer, follow-up, abort, and state inspection |
+| **PI SDK Embedded** | `pi_sdk_embedded` | In-process SDK launch path behind the same SPORE runtime contract |
+| **PI SDK Worker** | `pi_sdk_worker` | Worker-process SDK isolation with the same orchestration and artifact model |
+| **Stub** | *(no PI needed)* | Testing and launcher validation without requiring a live PI install |
 
-SPORE auto-detects PI availability and falls back to stub mode gracefully. But the real power -- actual AI agents writing code, reviewing changes, running tests -- that comes from PI.
+SPORE resolves these runtime choices behind its own adapter boundary, so orchestration, governance, and operator inspection stay consistent even as the PI transport changes. When PI is unavailable, SPORE falls back to stub mode for development-only flows.
 
 <br/>
 
@@ -177,9 +180,9 @@ SPORE is organized into **five distinct layers**, each with clear ownership boun
 ║ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ║
 ║                                                                         ║
 ║   ┌──────────────────────┐    ┌────────────────────────┐               ║
-║   │   Orchestrator :8789 │    │ Runtime Core + PI       │               ║
-║   │   plan · invoke      │    │ adapter · launch        │  EXECUTE     ║
-║   │   drive · review     │    │ rpc · embedded · worker │               ║
+║   │   Orchestrator :8789 │    │ Runtime Core + Adapter  │               ║
+║   │   plan · invoke      │    │ boundary · launch       │  EXECUTE     ║
+║   │   drive · review     │    │ pi_rpc · sdk · worker   │               ║
 ║   │   work mgmt · govern │    │ artifact parity         │               ║
 ║   └──────────┬───────────┘    └──────────┬─────────────┘               ║
 ║              └───────── step drive ──────┘                              ║
@@ -187,17 +190,17 @@ SPORE is organized into **five distinct layers**, each with clear ownership boun
 ║                                                                         ║
 ║   ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐             ║
 ║   │Profiles│ │Workflows│ │Projects│ │Domains │ │ Policy │  CONFIGURE  ║
-║   │  8     │ │  12    │ │   2    │ │   4    │ │ Packs 7│             ║
+║   │  9     │ │  12    │ │   2    │ │   4    │ │ Packs 7│             ║
 ║   └────────┘ └────────┘ └────────┘ └────────┘ └────────┘             ║
 ║   ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐                        ║
 ║   │Scenarios│ │Regress.│ │V-Bundle│ │Schemas │                        ║
-║   │  11    │ │   6    │ │   4    │ │  15    │                        ║
+║   │  11    │ │   7    │ │   4    │ │  17    │                        ║
 ║   └────────┘ └────────┘ └────────┘ └────────┘                        ║
 ║ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ║
 ║                                                                         ║
 ║   ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐                        ║
 ║   │  Docs  │ │  ADRs  │ │Research│ │Docs KB │   KNOWLEDGE            ║
-║   │ 100+   │ │  16+   │ │   6    │ │ SQLite │                        ║
+║   │ 100+   │ │  18    │ │   6    │ │ SQLite │                        ║
 ║   └────────┘ └────────┘ └────────┘ └────────┘                        ║
 ║                                                                         ║
 ╚═══════════════════════════════════════════════════════════════════════════╝
@@ -205,9 +208,9 @@ SPORE is organized into **five distinct layers**, each with clear ownership boun
 
 **Core boundary rules:**
 - Clients are thin over HTTP -- never touch SQLite directly
-- Sessions explain runtime; executions explain workflow; coordination groups explain management
-- Knowledge retrieval is domain-policy-shaped, never hidden inside the orchestrator
-- Approval ≠ Promotion ≠ Merge -- each is a distinct governed transition
+- Sessions explain runtime; executions explain workflow; coordinator families explain project management
+- Planner-first coordination is structural: coordinator root -> planner lane -> adopted dispatch queue -> domain lead lanes -> integrator promotion lane
+- Approval != Promotion != Merge -- each is a distinct governed transition
 
 <br/>
 
@@ -217,94 +220,102 @@ SPORE is organized into **five distinct layers**, each with clear ownership boun
 
 ## ⚡ How It Works
 
-### 1. Plan
+### 1. Coordinate & Plan
 
-The orchestrator resolves profiles, merges domain policies, and builds a multi-step execution plan:
-
-```
-  Workflow YAML ──┐     ┌── Domain Policy
-  Profile YAML ───┤     ├── Policy Packs
-  Project YAML ───┘     └── Runtime Config
-          │                       │
-          └───────┬───────────────┘
-                  ▼
-       ┌─────────────────────┐
-       │   ORCHESTRATOR      │
-       │   ─────────────     │
-       │   Resolve profiles  │
-       │   Merge policies    │
-       │   Build step plan   │
-       │   Snapshot config   │
-       └─────────┬───────────┘
-                 │
-                 ▼
-       Durable Execution Record
-       (SQLite + event log)
-```
-
-### 2. Execute
-
-Each step launches through a PI runtime adapter. Today that can still be a tmux-backed RPC session, but the same orchestration path can also target embedded or worker-process PI SDK backends:
+The operator objective now materializes as a coordinator-root execution family. That root launches a planner lane, receives a `coordination_plan` handoff, and adopts the validated result into a dispatch queue before any domain lead lane starts:
 
 ```
-       Step 1 (scout)          Step 2 (builder)         Step 3 (tester)
-      ┌──────────────┐        ┌──────────────┐        ┌──────────────┐
-      │  📡 Research │   ──►  │  🔨 Build    │   ──►  │  🧪 Verify   │
-       │ PI runtime   │        │ PI runtime   │        │ PI runtime   │
-       │ rpc/sdk path │        │ workspace    │        │ snapshot     │
-      └──────┬───────┘        └──────┬───────┘        └──────┬───────┘
-             │                       │                        │
-             ▼                       ▼                        ▼
-       scout_findings        implementation_summary    verification_summary
-                             + workspace_snapshot
+   Operator Objective
+          │
+          ▼
+   ┌──────────────────────┐
+   │ Coordinator Root     │
+   │ project family       │
+   │ mode + policy state  │
+   └──────────┬───────────┘
+              │ launches
+              ▼
+   ┌──────────────────────┐
+   │ Planner Lane         │
+   │ domain ordering      │
+   │ dependencies         │
+   │ waves + contracts    │
+   └──────────┬───────────┘
+              │ publishes
+              ▼
+     `coordination_plan`
+              │ adopted by
+              ▼
+   Coordinator Dispatch Queue
+   (wave-aware durable state)
 ```
 
-### 3. Review & Govern
+### 2. Dispatch & Execute
 
-Independent reviewer provides quality gates. Operator can intervene at any point:
+Once the adopted queue is ready, the coordinator dispatches domain tasks into lead lanes. Those lanes run their role steps through the SPORE-owned runtime adapter boundary, whether the active backend is RPC, embedded SDK, or worker SDK:
 
 ```
-       ┌──────────────┐
-       │  📝 Reviewer  │
-       │  Independent  │
-       │  quality gate │
-       └──────┬───────┘
-              │
-      ┌───────┼───────┐
-      │       │       │
-   approve  revise  reject
-      │       │       │
-      ▼       ▼       ▼
-   proceed  retry    fail
-      │
-      ▼
+   Dispatch Queue          Domain Lead Lane        RuntimeAdapter Boundary
+  ┌──────────────┐        ┌────────────────┐      ┌────────────────────────┐
+  │ wave-1 task  │ ────►  │ backend lead   │ ───► │ `pi_rpc`               │
+  │ wave-2 task  │ ────►  │ frontend lead  │ ───► │ `pi_sdk_embedded`      │
+  │ held task    │        │ docs lead      │ ───► │ `pi_sdk_worker`        │
+  └──────────────┘        └───────┬────────┘      └────────────┬───────────┘
+                                   │                            │
+                                   ▼                            ▼
+                        scout_findings / task_brief     runtime-status / events
+                        implementation_summary          workspace snapshots
+                        verification_summary            backend-aware artifacts
+```
+
+### 3. Validate, Review & Promote
+
+Workflow handoffs, validation bundles, and reviewer gates harden readiness before promotion. The integrator lane is the governed promotion path for work that clears those gates:
+
+```
+   Lead Lane Outputs
+          │
+          ▼
+   Validation Bundles
+   + workflow handoffs
+          │
+          ▼
+   ┌──────────────┐
+   │  Reviewer    │
+   │ approve /    │
+   │ revise /     │
+   │ reject       │
+   └──────┬───────┘
+          │ ready for promotion
+          ▼
    ┌──────────────┐        ┌───────────────────────────┐
-   │  🔄 Promote  │   ──►  │  Integration Branch       │
-   │  Integrator  │        │  (never auto-merge main)  │
+   │ Integrator   │   ──►  │ Integration Branch        │
+   │ promotion    │        │ governed landing zone     │
+   │ lane         │        │ (never auto-merge main)   │
    └──────────────┘        └───────────────────────────┘
 ```
 
 ### 4. Observe & Steer
 
-Every artifact is inspectable. Operators see everything in real-time:
+Every artifact is inspectable. Operators see the coordinator family, execution tree, runtime state, and governance posture in real time:
 
 ```
    ┌─────────────────────────────────────────────────────────────┐
    │                    OPERATOR SURFACES                         │
    │                                                             │
    │   💬 Chat       "Start a docs maintenance pass"             │
-   │   ────────      Server projects plan → operator reviews     │
-   │                 Approve gates via buttons or natural text    │
+   │   ────────      Operator Chat creates objectives, reviews    │
+   │                 plans, approves gates, and steers lanes      │
    │                                                             │
    │   🌐 Web UI     Agent Cockpit · Mission Map                 │
-   │   ────────      Operator Chat · Self-Build dashboard        │
-   │                 Lineage, governance, lane detail, SSE       │
+   │   ────────      Project Work · Self-Build · Operator Chat   │
+   │                 Execution trees, family lanes, SSE, review  │
    │                                                             │
    │   📟 TUI        Dashboard · Inspect · Run-center            │
-   │   ────────      100+ commands · Self-build triage           │
+   │   ────────      100+ commands · coordination visibility     │
    │                                                             │
    │   📊 Events     NDJSON event log · SSE streaming            │
-   │   ────────      Session + workflow + control events         │
+   │   ────────      Session + workflow + control + queue events │
    └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -316,37 +327,30 @@ Every artifact is inspectable. Operators see everything in real-time:
 
 ## 🔄 Project Work Management
 
-SPORE's flagship capability: a **governed work pipeline** that manages software delivery on **any project** -- including SPORE itself. Every change flows through the same pipeline with human checkpoints at every critical transition.
+SPORE's flagship capability is a **governed work pipeline** that is being unified into a reusable product surface for software delivery. Today, the strongest reference flow is SPORE using that planner-first pipeline on its own repository.
 
 ```
-   ┌──────────┐     ┌──────────┐     ┌──────────┐     ┌──────────┐     ┌──────────┐
-   │          │     │          │     │          │     │          │     │          │
-   │  🎯 Goal │────►│  📋 Plan │────►│  ⚙️ Run  │────►│  ✅ Valid │────►│  🚀 Prom │
-   │          │     │          │     │          │     │          │     │          │
-   │  Define  │     │  Review  │     │ Execute  │     │ Validate │     │ Promote  │
-   │  intent  │     │  & edit  │     │ in       │     │ with     │     │ to       │
-   │          │     │  items   │     │ isolated │     │ bundles  │     │ integ.   │
-   │          │     │          │     │ workspace│     │          │     │ branch   │
-   └──────────┘     └──────────┘     └──────────┘     └──────────┘     └──────────┘
-        │                │                │                │                │
-        ▼                ▼                ▼                ▼                ▼
-   Operator         Operator         Workspace        Proposal        Integration
-   states goal      reviews plan     isolation        artifacts       branch
-   in chat          edits items      git worktree     review/approve  landing zone
+   ┌─────────────┐   ┌────────────────┐   ┌────────────────┐   ┌──────────────┐   ┌──────────────┐
+   │ 🎯 Objective │──►│ 📋 Coordinate  │──►│ ⚙️ Dispatch    │──►│ ✅ Validate   │──►│ 🚀 Promote   │
+   └──────┬──────┘   └───────┬────────┘   └────────┬───────┘   └──────┬───────┘   └──────┬───────┘
+          │                  │                       │                  │                  │
+          ▼                  ▼                       ▼                  ▼                  ▼
+   Operator goal      Coordinator root        Domain lead lanes   Review + approval   Integrator lane
+   via chat/CLI       + planner lane          in isolated         + validation        to integration
+                       + adopted queue        workspaces          bundles             branch
 ```
 
 ### The Work Management Pipeline
 
 | Stage | What Happens | Governance |
 |-------|-------------|------------|
-| **Goal** | Operator states an objective via chat or CLI | Natural language, converted to structured plan |
-| **Plan** | System creates work items from project templates | Operator reviews, edits, reorders before materialization |
-| **Execute** | Each work item runs in an isolated git worktree via PI | Policy-gated, watchdog-monitored, workspace-backed |
-| **Validate** | Named validation bundles check results | Typecheck, lint, tests, format -- configurable per domain |
-| **Propose** | Builder outputs become proposal artifacts | Separate review and approval transitions |
-| **Promote** | Integrator moves approved work to integration branch | Never auto-merges to main; operator decides |
+| **Objective** | Operator states an objective via chat or CLI | Natural language intent becomes a durable coordinator-root mission |
+| **Coordinate** | Coordinator root launches the planner lane and adopts a `coordination_plan` | Family mode, adopted plan, and queue state stay visible before execution |
+| **Dispatch** | The coordinator dispatch queue materializes domain work into lead lanes and isolated workspaces | Wave-aware sequencing, workspace isolation, and policy-backed routing |
+| **Validate** | Workflow handoffs, validation bundles, and reviewer gates check readiness | Validation, review, approval, and promotion remain distinct governed states |
+| **Promote** | Integrator lane promotes approved work to the integration branch | Never auto-merges to main; operator decides when and how to land |
 
-> **Note:** SPORE uses this same pipeline to manage its own development -- a capability we call "self-build." But the pipeline is generic: configure your project, define your domains, provide work-item templates, and SPORE manages your work the same way.
+> **Note:** SPORE uses this pipeline to manage its own development -- a capability we call "self-build." That self-build flow is the reference case for the broader project-work-management product surface.
 
 ### Safety Mechanisms
 
@@ -382,7 +386,7 @@ SPORE's flagship capability: a **governed work pipeline** that manages software 
 
 ## 🎭 Role System
 
-Eight architectural roles form SPORE's delegation hierarchy. Concrete behavior is attached via **profiles** -- the same role can have domain-specific variants.
+Nine agent roles, plus the human operator, form SPORE's delegation topology. Concrete behavior is attached via **profiles** -- the same role can have domain-specific variants, while coordinator, planner, and integrator make the project-family control flow explicit.
 
 ```
                               ┌─────────────────┐
@@ -397,40 +401,49 @@ Eight architectural roles form SPORE's delegation hierarchy. Concrete behavior i
                                        │
                               ┌────────▼────────┐
                               │  📊 COORDINATOR  │  Project-root manager
-                              │     persistent   │  Read-mostly, delegates
+                              │     persistent   │  Adopts plan, owns queue
                               └────────┬────────┘
-                                       │
-                 ┌─────────────────────┼─────────────────────┐
-                 │                     │                     │
-        ┌────────▼────────┐   ┌────────▼────────┐  ┌────────▼────────┐
-        │   📐 LEAD       │   │   📐 LEAD       │  │   📐 LEAD       │
-        │   (backend)     │   │   (frontend)    │  │   (docs)        │
-        │   persistent    │   │   persistent    │  │   persistent    │
-        └────────┬────────┘   └─────────────────┘  └─────────────────┘
-                 │
-    ┌────────────┼────────────┐
-    │            │            │
-┌───▼───┐  ┌────▼───┐  ┌────▼───┐       ┌──────────┐     ┌──────────────┐
-│📡SCOUT│  │🔨BUILD │  │🧪TEST  │       │📝REVIEWER│     │🔄 INTEGRATOR │
-│explore│  │ code   │  │verify  │  ───► │ approve/ │     │   promote    │
-│analyze│  │ docs   │  │report  │       │ revise/  │     │   to branch  │
-│       │  │        │  │        │       │ reject   │     │              │
-└───────┘  └────────┘  └────────┘       └──────────┘     └──────────────┘
-ephemeral   ephemeral   ephemeral        ephemeral          ephemeral
+                                        │
+                               ┌────────▼────────┐
+                               │   🧭 PLANNER    │  Planning lane
+                               │     persistent   │  Publishes coordination_plan
+                               └────────┬────────┘
+                                        │ adopted into queue
+                  ┌─────────────────────┼─────────────────────┐
+                  │                     │                     │
+         ┌────────▼────────┐   ┌────────▼────────┐  ┌────────▼────────┐
+         │   📐 LEAD       │   │   📐 LEAD       │  │   📐 LEAD       │
+         │   (backend)     │   │   (frontend)    │  │   (docs)        │
+         │   persistent    │   │   persistent    │  │   persistent    │
+         └────────┬────────┘   └─────────────────┘  └─────────────────┘
+                  │
+     ┌────────────┼────────────┐
+     │            │            │
+ ┌───▼───┐  ┌────▼───┐  ┌────▼───┐       ┌──────────┐     ┌──────────────┐
+ │📡SCOUT│  │🔨BUILD │  │🧪TEST  │  ───► │📝REVIEWER│ ───► │🔄 INTEGRATOR │
+ │explore│  │ code   │  │verify  │       │ approve/ │     │ promotion    │
+ │analyze│  │ docs   │  │report  │       │ revise/  │     │ lane         │
+ │       │  │        │  │        │       │ reject   │     │ to branch    │
+ └───────┘  └────────┘  └────────┘       └──────────┘     └──────────────┘
+ ephemeral   ephemeral   ephemeral        ephemeral          persistent
 ```
+
+The persistent project-family lanes are **coordinator**, **planner**, domain **lead** lanes, and the **integrator** promotion lane. **Scout**, **builder**, **tester**, and **reviewer** provide the execution and governance steps beneath those lanes.
 
 ### Workflow Handoffs
 
 Each role produces a **semantic handoff artifact** consumed by the next step:
 
 ```
-   Lead ─────────► task_brief ─────────────────────────────────────────►
+   Planner ──────► coordination_plan ───────────────► coordinator adopted queue
+                                                                        │
+   Lead ─────────► task_brief ─────────────────────────────────────────►│
                                                                         │
    Scout ────────► scout_findings ─────────────────────────────────────►│
                                                                         │
    Builder ──────► implementation_summary + workspace_snapshot ────────►│
                                                                         │
-   Tester ───────► verification_summary ──────────────────────────────►│
+   Tester ───────► verification_summary ───────────────────────────────►│
                                                                         │
    Reviewer ─────► review_summary ─────────────────────────────────────►│
                                                                         ▼
@@ -447,36 +460,33 @@ Each role produces a **semantic handoff artifact** consumed by the next step:
 
 ### Web Console `:8788`
 
-A TypeScript browser SPA providing full operator visibility:
+`Agent Cockpit` is now the browser home. From there, operators move into `Mission Map`, `Operator Chat`, and project/self-build work views with execution-tree-rooted visibility:
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
-│  SPORE Operator Console                                     :8788   │
+│  SPORE Operator Console / Agent Cockpit                     :8788   │
 ├──────────────────────────────────────────────────────────────────────┤
 │                                                                      │
 │  ┌─────────────────────────────────────────┐  ┌───────────────────┐ │
 │  │  💬 Operator Chat                       │  │  📊 Project Work  │ │
-│  │  ─────────────────                      │  │  Dashboard        │ │
+│  │  ─────────────────                      │  │  + Self-Build     │ │
 │  │  > "Run a docs maintenance pass"        │  │                   │ │
-│  │                                         │  │  Plans: 3 active  │ │
-│  │  🤖 I'll create a goal plan for docs    │  │  Items: 12 total  │ │
-│  │     maintenance. Here's what I suggest: │  │  Runs:  8 done    │ │
-│  │                                         │  │  Proposals: 2     │ │
-│  │  📋 Work Items:                         │  │                   │ │
-│  │  1. ADR index sync                      │  │  ⚠️ 1 needs review │ │
-│  │  2. Stale doc detection                 │  │  ✅ 7 validated    │ │
-│  │  3. Manifest alignment                  │  │                   │ │
-│  │                                         │  │  Workspace Health  │ │
-│  │  [Approve Plan] [Edit Items] [Cancel]   │  │  Active: 3        │ │
-│  └─────────────────────────────────────────┘  │  Stale:  0        │ │
+│  │                                         │  │  Goals:  3 active │ │
+│  │  🤖 I created a coordinator root and    │  │  Queue:  5 tasks  │ │
+│  │     planner lane. Review this adopted   │  │  Waves:  2 live   │ │
+│  │     coordination plan before dispatch.  │  │  Proposals: 2     │ │
+│  │                                         │  │                   │ │
+│  │  [Approve Plan] [Inspect Queue] [Chat]  │  │  ⚠️ 1 needs review │ │
+│  └─────────────────────────────────────────┘  │  ✅ 7 validated    │ │
 │                                                └───────────────────┘ │
 │  ┌──────────────────────────────────────────────────────────────────┐│
-│  │  Execution Tree                                                  ││
-│  │  ├── coordinator (completed)                                     ││
-│  │  │   ├── lead-backend (running) ► Step 3/4: builder              ││
+│  │  Mission Map (execution-tree rooted)                             ││
+│  │  ├── coordinator-root (held)                                     ││
+│  │  │   ├── planner-lane (completed) -> adopted v3                  ││
+│  │  │   ├── lead-backend (running) -> builder                       ││
 │  │  │   ├── lead-frontend (waiting_review)                          ││
-│  │  │   └── integrator (planned)                                    ││
-│  │  Event Timeline ─── SSE Live Stream ───────────────────────────  ││
+│  │  │   └── integrator-lane (planned)                               ││
+│  │  Event Timeline ─── SSE / queue / governance stream ──────────  ││
 │  └──────────────────────────────────────────────────────────────────┘│
 └──────────────────────────────────────────────────────────────────────┘
 ```
@@ -492,7 +502,7 @@ npm run orchestrator:scenario-list # Scenario catalog
 npm run orchestrator:project-plan -- --project config/projects/spore.yaml --domains backend,frontend
 ```
 
-`spore-ops` is now broader than a dashboard/inspect helper; it is the terminal counterpart to the browser mission-control surfaces.
+`spore-ops` is now broader than a dashboard/inspect helper; it is the terminal counterpart to `Agent Cockpit`, `Mission Map`, and the project-work mission-control surfaces.
 
 ### HTTP APIs
 
@@ -539,7 +549,7 @@ Over **100 operator commands** through npm scripts covering orchestration, sessi
  │  │  ═══════════════ │  │  ═══════════════ │  │  ═══════════════ │  │
  │  │  Git worktree    │  │  Doc indexing    │  │  YAML + JSON     │  │
  │  │  Snapshot handoff│  │  Semantic search │  │  Schema validate │  │
- │  │  Gov-aware clean │  │  SQLite store    │  │  15 schema defs  │  │
+ │  │  Gov-aware clean │  │  SQLite store    │  │  17 schema defs  │  │
  │  └──────────────────┘  └──────────────────┘  └──────────────────┘  │
  │  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐  │
  │  │  tui             │  │  core            │  │  shared-types    │  │
@@ -610,7 +620,7 @@ For the newer SDK-backed runtime backends, SPORE also installs `@mariozechner/pi
 ### Install & Verify
 
 ```bash
-git clone <repo-url> && cd SPORE-2
+git clone <repo-url> && cd SPORE-3
 npm install
 
 # Verify everything works
@@ -668,11 +678,11 @@ npm run runtime-pi:run -- --profile config/profiles/builder.yaml --project confi
 
 ## ⚙️ Configuration Model
 
-All configuration is **declarative YAML** validated against **15 JSON schemas**. Configuration is not just descriptive -- it **directly affects live execution behavior**.
+All configuration is **declarative YAML** validated against **17 JSON schemas**. Configuration is not just descriptive -- it **directly affects live execution behavior**.
 
 ```
 config/
-├── profiles/           8 agent role profiles (orchestrator, coordinator, lead, ...)
+├── profiles/           9 agent role profiles (orchestrator, coordinator, planner, ...)
 ├── workflows/         12 workflow templates (feature-delivery, bugfix, promotion, ...)
 ├── projects/           2 project definitions (example + SPORE self-management)
 ├── domains/            4 domain configs with executable policy defaults
@@ -756,7 +766,7 @@ The monorepo uses `node:test` and `node:assert/strict` across policy, HTTP, web,
 
 ### Current Focus
 
-The foundation is executable across all layers. The immediate focus is **unifying the work management pipeline** so it serves any project, not just SPORE itself, and **deepening the PI integration** for richer agent capabilities.
+The foundation is executable across all layers. The immediate focus is **turning the current SPORE-on-SPORE work pipeline into a reusable project-work-management product surface** and **deepening the PI integration** for richer agent capabilities.
 
 | Priority | Area | Goal |
 |----------|------|------|
@@ -794,11 +804,11 @@ SPORE aims to become the platform where **PI-powered agent teams deliver softwar
 | **Language** | TypeScript 5.9 | Type-safe, ESM-first, strong tooling |
 | **Runtime** | Node.js 24+ | Built-in SQLite, ESM support, stable |
 | **Storage** | SQLite (WAL mode) | Zero-ops, local-first, concurrent reads |
-| **Sessions** | tmux + runtime artifacts | Durable, inspectable, operator-accessible |
+| **Sessions** | runtime artifacts + tmux/RPC | Durable, inspectable, operator-accessible |
 | **PI Backends** | `pi_rpc`, `pi_sdk_embedded`, `pi_sdk_worker` | One PI-first runtime boundary with compatibility and SDK-backed modes |
 | **HTTP** | `node:http` | Zero dependencies, full control |
 | **Formatting** | Biome 2.4 | Fast, opinionated, single tool |
-| **Testing** | `node:test` + `node:assert` | Built-in, no test framework dependency |
+| **Testing** | `node:test` + `node:assert/strict` | Built-in, no test framework dependency |
 | **Modules** | ESM + NodeNext | Modern, explicit, tree-shakeable |
 | **Search** | FNV-1a hash embeddings | Local-first, no external API needed |
 
@@ -827,7 +837,7 @@ SPORE aims to become the platform where **PI-powered agent teams deliver softwar
 | Document | Scope |
 |----------|-------|
 | [System Overview](docs/architecture/system-overview.md) | Five-layer architecture |
-| [Role Model](docs/architecture/role-model.md) | 8 roles, handoff contracts, topology |
+| [Role Model](docs/architecture/role-model.md) | 9 roles, handoff contracts, topology |
 | [Workflow Model](docs/architecture/workflow-model.md) | Templates, waves, governance states |
 | [Session Model](docs/architecture/session-model.md) | Lifecycle, artifacts, diagnostics |
 | [Runtime Model](docs/architecture/runtime-model.md) | PI-first strategy, runtime adapters, backend modes |
@@ -837,7 +847,7 @@ SPORE aims to become the platform where **PI-powered agent teams deliver softwar
 
 ### Decisions
 
-16 Architecture Decision Records in [docs/decisions/](docs/decisions/), including:
+18 Architecture Decision Records in [docs/decisions/](docs/decisions/), including:
 - [ADR-0002: PI-First Runtime](docs/decisions/ADR-0002-runtime-pi-first.md)
 - [ADR-0005: Builder-Tester Verification Workspaces](docs/decisions/ADR-0005-builder-tester-verification-workspaces.md)
 - [ADR-0006: Project Coordinator Role](docs/decisions/ADR-0006-project-coordinator-role.md)
