@@ -1,5 +1,6 @@
 declare module "@spore/orchestrator" {
   export {
+    adoptCoordinatorPlanFromHandoff,
     getCoordinatorFamilySummary,
     getCoordinatorFamilySummaryByRootExecutionId,
     createExecution,

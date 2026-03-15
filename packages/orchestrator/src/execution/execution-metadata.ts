@@ -9,6 +9,20 @@ function asJsonObject(value: unknown): LooseObject {
     : {};
 }
 
+function asJsonArray(value: unknown): JsonValue[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function toText(value: unknown): string | null {
+  const text = String(value ?? "").trim();
+  return text || null;
+}
+
+function toInteger(value: unknown): number | null {
+  const parsed = Number.parseInt(String(value ?? ""), 10);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 export function getExecutionMetadata(
   execution: { metadata?: JsonObject } | null,
 ) {
@@ -97,6 +111,166 @@ export function getExecutionCoordinationMode(
   return String(metadata.coordinationMode ?? "").trim() || null;
 }
 
+export function getExecutionAdoptedPlan(
+  execution: { metadata?: JsonObject } | null,
+) {
+  const adoptedPlan = asJsonObject(getExecutionMetadata(execution).adoptedPlan);
+  if (Object.keys(adoptedPlan).length === 0) {
+    return null;
+  }
+  return {
+    status: toText(adoptedPlan.status),
+    handoffId: toText(adoptedPlan.handoffId),
+    version: toInteger(adoptedPlan.version),
+  };
+}
+
+export function getExecutionDispatchQueue(
+  execution: { metadata?: JsonObject } | null,
+) {
+  const dispatchQueue = asJsonObject(getExecutionMetadata(execution).dispatchQueue);
+  if (Object.keys(dispatchQueue).length === 0) {
+    return null;
+  }
+  return {
+    currentWaveId: toText(dispatchQueue.currentWaveId),
+    tasks: asJsonArray(dispatchQueue.tasks).map((task) => {
+      const normalized = asJsonObject(task);
+      return {
+        taskId: toText(normalized.taskId),
+        domainId: toText(normalized.domainId),
+        summary: toText(normalized.summary),
+        waveId: toText(normalized.waveId),
+        status: toText(normalized.status),
+        executionId: toText(normalized.executionId),
+        dependencyTaskIds: asJsonArray(normalized.dependencyTaskIds)
+          .map((entry) => toText(entry))
+          .filter((entry): entry is string => Boolean(entry)),
+        sharedContractRefs: asJsonArray(normalized.sharedContractRefs)
+          .map((entry) => asJsonObject(entry))
+          .map((entry) => ({
+            id: toText(entry.id),
+            summary: toText(entry.summary),
+          }))
+          .filter((entry) => entry.id),
+        recommendedWorkflow: toText(normalized.recommendedWorkflow),
+      };
+    }),
+  };
+}
+
+export function getExecutionDispatchTask(
+  execution: { metadata?: JsonObject } | null,
+) {
+  const dispatchTask = asJsonObject(getExecutionMetadata(execution).dispatchTask);
+  if (Object.keys(dispatchTask).length === 0) {
+    return null;
+  }
+  return {
+    taskId: toText(dispatchTask.taskId),
+    domainId: toText(dispatchTask.domainId),
+    summary: toText(dispatchTask.summary),
+    waveId: toText(dispatchTask.waveId),
+    dependencyTaskIds: asJsonArray(dispatchTask.dependencyTaskIds)
+      .map((entry) => toText(entry))
+      .filter((entry): entry is string => Boolean(entry)),
+    sharedContractRefs: asJsonArray(dispatchTask.sharedContractRefs)
+      .map((entry) => {
+        const contract = asJsonObject(entry);
+        const id = toText(contract.id);
+        if (!id) {
+          return null;
+        }
+        return {
+          id,
+          summary: toText(contract.summary),
+        };
+      })
+      .filter(Boolean),
+    recommendedWorkflow: toText(dispatchTask.recommendedWorkflow),
+  };
+}
+
+export function getExecutionCurrentWaveId(
+  execution: { metadata?: JsonObject } | null,
+) {
+  return (
+    getExecutionDispatchQueue(execution)?.currentWaveId ??
+    toText(asJsonObject(getExecutionMetadata(execution).adoptedPlan).currentWaveId)
+  );
+}
+
+export function getExecutionDispatchQueueStatus(
+  execution: { metadata?: JsonObject } | null,
+) {
+  const counts = {
+    pending: 0,
+    dispatched: 0,
+    in_progress: 0,
+    blocked: 0,
+    completed: 0,
+    failed: 0,
+  };
+  for (const task of getExecutionDispatchQueue(execution)?.tasks ?? []) {
+    const status = task.status;
+    if (status && Object.hasOwn(counts, status)) {
+      counts[status] += 1;
+    }
+  }
+  return counts;
+}
+
+export function getExecutionSupersededTaskIds(
+  execution: { metadata?: JsonObject } | null,
+) {
+  return asJsonArray(getExecutionMetadata(execution).supersededTaskIds)
+    .map((entry) => toText(entry))
+    .filter((entry): entry is string => Boolean(entry));
+}
+
+export function getExecutionLatestReplan(
+  execution: { metadata?: JsonObject } | null,
+) {
+  const replan = asJsonObject(getExecutionMetadata(execution).replan);
+  if (Object.keys(replan).length === 0) {
+    return null;
+  }
+  return {
+    status: toText(replan.status),
+    reason: toText(replan.reason),
+    latestPlanVersion: toInteger(replan.latestPlanVersion),
+    requiresOperatorReview:
+      replan.requiresOperatorReview === undefined
+        ? null
+        : replan.requiresOperatorReview === true,
+  };
+}
+
+export function getExecutionReplanHistory(
+  execution: { metadata?: JsonObject } | null,
+) {
+  return asJsonArray(getExecutionMetadata(execution).replanHistory)
+    .map((entry) => {
+      const record = asJsonObject(entry);
+      const requestId = toText(record.requestId);
+      const reason = toText(record.reason);
+      if (!requestId && !reason) {
+        return null;
+      }
+      return {
+        requestId,
+        reason,
+        requestedByExecutionId: toText(record.requestedByExecutionId),
+        latestPlanVersion: toInteger(record.latestPlanVersion),
+        requiresOperatorReview:
+          record.requiresOperatorReview === undefined
+            ? null
+            : record.requiresOperatorReview === true,
+      };
+    })
+    .filter(Boolean);
+}
+
 export function getPromotionSummary(
   execution: { metadata?: JsonObject } | null,
 ): LooseObject | null {
@@ -128,6 +302,16 @@ export function decorateExecution<
         familyKey: string | null;
         coordinationMode: string | null;
       };
+      coordination: {
+        adoptedPlan: ReturnType<typeof getExecutionAdoptedPlan>;
+        dispatchTask: ReturnType<typeof getExecutionDispatchTask>;
+        currentWaveId: string | null;
+        dispatchQueue: ReturnType<typeof getExecutionDispatchQueue>;
+        queueStatus: ReturnType<typeof getExecutionDispatchQueueStatus>;
+        supersededTaskIds: ReturnType<typeof getExecutionSupersededTaskIds>;
+        replan: ReturnType<typeof getExecutionLatestReplan>;
+        replanHistory: ReturnType<typeof getExecutionReplanHistory>;
+      };
       promotion: JsonObject | null;
       promotionStatus: JsonValue | null;
     })
@@ -151,6 +335,16 @@ export function decorateExecution<
         String(metadata.projectLaneType ?? "").trim() || projectRole || null,
       familyKey: getExecutionFamilyKey(execution),
       coordinationMode: getExecutionCoordinationMode(execution),
+    },
+    coordination: {
+      adoptedPlan: getExecutionAdoptedPlan(execution),
+      dispatchTask: getExecutionDispatchTask(execution),
+      currentWaveId: getExecutionCurrentWaveId(execution),
+      dispatchQueue: getExecutionDispatchQueue(execution),
+      queueStatus: getExecutionDispatchQueueStatus(execution),
+      supersededTaskIds: getExecutionSupersededTaskIds(execution),
+      replan: getExecutionLatestReplan(execution),
+      replanHistory: getExecutionReplanHistory(execution),
     },
     promotion,
     promotionStatus: promotion?.status ?? null,

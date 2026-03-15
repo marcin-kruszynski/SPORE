@@ -92,6 +92,6 @@ test("orchestrator HTTP and web proxy expose policy-aware plan preview", async (
   );
   assert.equal(
     webPlan.invocation.launches[2].policy.governance.approvalRequired,
-    false,
+    true,
   );
 });

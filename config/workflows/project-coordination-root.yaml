@@ -22,6 +22,7 @@ retryPolicy:
 documentationUpdatePolicy:
   required: false
 completionRequirements:
-  - lead-lanes-created
+  - coordination-plan-adopted
+  - dispatch-queue-materialized
   - child-executions-settled
   - project-status-synthesized

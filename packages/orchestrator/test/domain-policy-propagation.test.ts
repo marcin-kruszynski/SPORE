@@ -148,7 +148,7 @@ test("backend domain policy propagates from planner into execution store records
       ]),
     },
     governance: {
-      model: "lead-governed",
+      model: "default",
       governedByRole: null,
       operatorVisible: true,
       reviewRequired: true,

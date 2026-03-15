@@ -1,4 +1,5 @@
 export {
+  adoptCoordinatorPlanFromHandoff,
   applyExecutionTreeAction,
   branchExecution,
   driveCoordinationGroup,

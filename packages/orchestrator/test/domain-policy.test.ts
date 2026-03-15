@@ -559,9 +559,9 @@ test("completed retry sessions can unblock held executions and launch the next w
   const builder = detail.steps.find((step) => step.role === "builder");
 
   assert.equal(refreshedLead.state, "review_pending");
-  assert.equal(detail.execution.state, "held");
+  assert.equal(detail.execution.state, "waiting_review");
   assert.equal(detail.execution.holdOwner, null);
-  assert.equal(detail.execution.holdReason, "internal-governance-pending");
+  assert.equal(detail.execution.holdReason, null);
   assert.equal(builder.state, "planned");
 });
 
@@ -762,9 +762,9 @@ test("exit artifacts can reconcile stale active sessions and unblock the next wa
   const builder = detail.steps.find((step) => step.role === "builder");
 
   assert.equal(refreshedScout.state, "review_pending");
-  assert.equal(detail.execution.state, "held");
+  assert.equal(detail.execution.state, "waiting_review");
   assert.equal(detail.execution.holdOwner, null);
-  assert.equal(detail.execution.holdReason, "internal-governance-pending");
+  assert.equal(detail.execution.holdReason, null);
   assert.equal(builder.state, "planned");
 });
 
@@ -891,9 +891,9 @@ test("final rpc-status artifacts can reconcile stale active sessions and unblock
   const builder = detail.steps.find((step) => step.role === "builder");
 
   assert.equal(refreshedScout.state, "review_pending");
-  assert.equal(detail.execution.state, "held");
+  assert.equal(detail.execution.state, "waiting_review");
   assert.equal(detail.execution.holdOwner, null);
-  assert.equal(detail.execution.holdReason, "internal-governance-pending");
+  assert.equal(detail.execution.holdReason, null);
   assert.equal(builder.state, "planned");
 });
 
@@ -1008,9 +1008,9 @@ test("persisted artifact recovery remains visible when session-manager settles b
   const builder = detail.steps.find((step) => step.role === "builder");
 
   assert.equal(refreshedScout.state, "review_pending");
-  assert.equal(detail.execution.state, "held");
+  assert.equal(detail.execution.state, "waiting_review");
   assert.equal(detail.execution.holdOwner, null);
-  assert.equal(detail.execution.holdReason, "internal-governance-pending");
+  assert.equal(detail.execution.holdReason, null);
   assert.equal(builder.state, "planned");
   assert.equal(detail.artifactRecovery.count, 1);
   assert.equal(detail.artifactRecovery.events[0].signalSource, "rpc-status");

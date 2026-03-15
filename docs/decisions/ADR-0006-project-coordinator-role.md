@@ -43,21 +43,26 @@ The decision includes these architectural rules:
 - One coordinator root execution owns one project execution family for one active project run.
 - `rootExecutionId` is the canonical family identifier; `familyKey` is optional grouping metadata only.
 - Coordinator-root planning carries explicit `coordinationMode` metadata.
-- Lead child executions sit under that coordinator root using the existing lineage and coordination primitives.
+- A dedicated `planner` child lane sits under the coordinator root and runs before lead dispatch by default.
+- The planner emits a durable `coordination_plan` artifact that the coordinator adopts before dispatching lead work.
+- Lead child executions sit under that coordinator root using the existing lineage and coordination primitives, but now receive domain-scoped task packages derived from the adopted plan rather than the same raw project objective.
 - The coordinator remains read-mostly by default and does not receive a mutating workspace unless a future policy explicitly allows it.
 - Domain review, approval, retry, and rework loops remain lead-owned by default.
 - Project-wide blockers, cross-domain conflicts, and exhausted lead-level recovery may escalate to the coordinator.
 - The integrator remains the explicit promotion owner for the coordinator family.
 - Operator surfaces should expose a reusable coordinator-family summary rather than reconstructing project state from transcripts or proposal records.
+- The coordinator owns the durable dispatch queue, current wave, and replan history for that family.
 
 Recommended topology:
 
 ```text
 orchestrator
   -> coordinator
-       -> lead (backend)
-       -> lead (frontend)
-       -> lead (docs)
+       -> planner
+       -> lead (backend task package)
+       -> lead (frontend task package)
+       -> lead (docs task package)
+       -> integrator
 ```
 
 ## Consequences
@@ -65,6 +70,7 @@ orchestrator
 - SPORE gains an explicit project-owned execution root that can supervise multiple lead lanes cleanly.
 - The top-level orchestrator can remain the portfolio control plane rather than the project-detail lane.
 - Leads remain domain-scoped coordinators instead of absorbing project-wide routing responsibilities.
+- Multi-domain objectives are decomposed before execution fan-out, reducing duplicated interpretation across lead lanes.
 - Multi-project execution becomes easier to model using one coordinator-root family per project.
 - Project-level escalations gain a natural target role without globally changing lead-local recovery defaults.
 - Project config and schema must grow project-scoped coordinator settings such as `coordinatorProfile` and a project coordination policy block.
@@ -72,6 +78,7 @@ orchestrator
 - Planner and invocation logic must add explicit project-root entrypoints instead of mutating old direct workflow behavior.
 - Web, TUI, CLI, and HTTP surfaces must learn to recognize coordinator-root families while preserving backward compatibility for older trees.
 - Operator-facing coordination surfaces should use family detail, lane, and readiness reads keyed by `rootExecutionId`.
+- Operator-facing coordination surfaces should also expose planner state, adopted plan version, dispatch queue status, and replan history.
 - Workspace rules stay stricter because the coordinator remains outside normal mutation worktrees.
 - Future project-scoped roles such as an `integrator` promotion lane have a natural parent boundary under the coordinator.
 - The integrator boundary remains preserved: coordinator visibility and blocker aggregation do not collapse promotion work back into the coordinator lane.

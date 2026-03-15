@@ -197,6 +197,174 @@ test("contract fields with wrong types fail validation", () => {
   );
 });
 
+test("coordination plan fields with wrong types fail validation", () => {
+  const result = validateStructuredHandoff({
+    markerFound: true,
+    parsedBlock: {
+      summary: "Planner summary",
+      affected_domains: "backend",
+      domain_tasks: { backend: "ship API" },
+      waves: "wave-1",
+      dependencies: true,
+      shared_contracts: 123,
+      unresolved_questions: false,
+    },
+    requiredSections: [
+      "summary",
+      "affected_domains",
+      "domain_tasks",
+      "waves",
+      "dependencies",
+      "shared_contracts",
+      "unresolved_questions",
+    ],
+  });
+
+  assert.equal(result.valid, false);
+  assert.deepEqual(
+    result.issues.map((issue) => issue.section),
+    [
+      "affected_domains",
+      "domain_tasks",
+      "waves",
+      "dependencies",
+      "shared_contracts",
+      "unresolved_questions",
+    ],
+  );
+});
+
+test("coordination plan fields reject malformed array members", () => {
+  const result = validateStructuredHandoff({
+    markerFound: true,
+    parsedBlock: {
+      summary: "Planner summary",
+      affected_domains: ["backend", null],
+      domain_tasks: [{ id: "task-1" }, "frontend"],
+      waves: [{ id: "wave-1" }, "wave-2"],
+      dependencies: [{ from: "task-1", to: "task-2" }, null],
+      shared_contracts: [{ id: "contract-1" }, 42],
+      unresolved_questions: ["Need API field?", {}],
+    },
+    requiredSections: [
+      "summary",
+      "affected_domains",
+      "domain_tasks",
+      "waves",
+      "dependencies",
+      "shared_contracts",
+      "unresolved_questions",
+    ],
+  });
+
+  assert.equal(result.valid, false);
+  assert.deepEqual(
+    result.issues.map((issue) => issue.section),
+    [
+      "affected_domains",
+      "domain_tasks",
+      "waves",
+      "dependencies",
+      "shared_contracts",
+      "unresolved_questions",
+    ],
+  );
+});
+
+test("coordination plan fields reject records missing required ids and task links", () => {
+  const result = validateStructuredHandoff({
+    markerFound: true,
+    parsedBlock: {
+      summary: "Planner summary",
+      affected_domains: ["backend"],
+      domain_tasks: [{}],
+      waves: [{ task_ids: ["task-backend"] }],
+      dependencies: [{ from_task_id: "task-backend" }],
+      shared_contracts: [{}],
+      unresolved_questions: ["Need schema review?"],
+    },
+    requiredSections: [
+      "summary",
+      "affected_domains",
+      "domain_tasks",
+      "waves",
+      "dependencies",
+      "shared_contracts",
+      "unresolved_questions",
+    ],
+  });
+
+  assert.equal(result.valid, false);
+  assert.deepEqual(
+    result.issues.map((issue) => issue.section),
+    ["domain_tasks", "waves", "dependencies", "shared_contracts"],
+  );
+});
+
+test("coordination plan fields reject empty affected_domains, domain_tasks, and waves", () => {
+  const result = validateStructuredHandoff({
+    markerFound: true,
+    parsedBlock: {
+      summary: "Planner summary",
+      affected_domains: [],
+      domain_tasks: [],
+      waves: [],
+      dependencies: [],
+      shared_contracts: [],
+      unresolved_questions: [],
+    },
+    requiredSections: [
+      "summary",
+      "affected_domains",
+      "domain_tasks",
+      "waves",
+      "dependencies",
+      "shared_contracts",
+      "unresolved_questions",
+    ],
+  });
+
+  assert.equal(result.valid, false);
+  assert.deepEqual(
+    result.issues.map((issue) => issue.section),
+    ["affected_domains", "domain_tasks", "waves"],
+  );
+});
+
+test("lead progress fields with wrong types fail validation", () => {
+  const result = validateStructuredHandoff({
+    markerFound: true,
+    parsedBlock: {
+      summary: "Backend lane progress",
+      task_id: ["task-backend-api"],
+      active_task_id: 42,
+      status: { state: "blocked" },
+      blocked_on_task_ids: "task-frontend-shell",
+      replan_reason: false,
+    },
+    requiredSections: [
+      "summary",
+      "task_id",
+      "active_task_id",
+      "status",
+      "blocked_on_task_ids",
+      "replan_reason",
+    ],
+  });
+
+  assert.equal(result.valid, false);
+  assert.deepEqual(
+    result.issues.map((issue) => issue.section),
+    [
+      "task_id",
+      "active_task_id",
+      "status",
+      "blocked_on_task_ids",
+      "replan_reason",
+    ],
+  );
+});
+
 test("enforcement mode defaults to accept and validates supported values", () => {
   assert.equal(deriveHandoffEnforcementMode(undefined), "accept");
   assert.equal(deriveHandoffEnforcementMode("review_pending"), "review_pending");

@@ -2,6 +2,7 @@ id: spore
 name: SPORE
 type: orchestration-platform
 coordinatorProfile: coordinator
+plannerProfile: planner
 integratorProfile: integrator
 activeDomains:
   - id: docs

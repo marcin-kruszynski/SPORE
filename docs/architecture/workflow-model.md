@@ -85,6 +85,7 @@ They are explicit planner and invoker paths:
 Rules:
 
 - `coordinator` is a project-root, read-mostly role and is not prepended to existing domain workflow role lists.
+- `planner` is a project-scoped child lane under the coordinator root and runs before lead dispatch by default.
 - `integrator` is a project-scoped promotion lane and is not prepended to domain workflow role lists.
 - existing lead-first child workflows keep their current semantics.
 - `coordinationMode` is explicit project-root metadata; the seeded supported values are `delivery`, `project-breakdown`, and `brownfield-intake`.
@@ -98,15 +99,33 @@ Promotion lanes reuse existing execution-family primitives:
 - `parentExecutionId`
 - `branchKey`
 
-The coordinator root owns the family and domain child lanes. Integrator executions are explicit children under that root and inherit project-level coordination metadata rather than mutating the role lists of domain workflows.
+The coordinator root owns the family, adopts the durable planning artifact, and manages dispatch across planner, lead, and integrator child lanes. Integrator executions remain explicit children under that root and inherit project-level coordination metadata rather than mutating the role lists of domain workflows.
 
 The reusable coordinator-family summary currently projects:
 
 - the coordinator root identity and selected `coordinationMode`,
+- planner lane state,
+- the latest durable `coordination_plan` and adopted plan version,
+- queue state for planned/dispatched/blocked/completed domain tasks,
 - lead lane summaries and the optional integrator lane,
+- durable replan status and replan history,
 - readiness state for lead completion vs pending review or approval,
 - family blockers from open escalations and promotion blockers,
 - the latest durable `routing_summary` handoff for operator inspection.
+
+The default project coordination schema is now planner-first:
+
+```text
+operator objective
+  -> coordinator root
+  -> planner lane
+  -> adopted coordination_plan
+  -> coordinator-owned dispatch queue
+  -> lead task-package lanes
+  -> integrator lane when family readiness allows it
+```
+
+This means multi-domain work is no longer dispatched as the same project objective to every lead. The planner first decomposes the objective into domain-scoped work packages, dependencies, and execution waves. The coordinator then push-dispatches those packages to leads.
 
 ## Domain Policy Integration
 
@@ -227,9 +246,11 @@ The handoff contract is intentionally narrower than free-form agent messaging:
 The canonical semantic chain for the current implementation workflows is:
 
 - `lead -> task_brief`
+- `planner -> coordination_plan`
 - `scout -> scout_findings`
 - `builder -> implementation_summary`
 - `builder -> workspace_snapshot` as auxiliary evidence,
+- `lead -> lead_progress` as auxiliary upward progress evidence,
 - `tester -> verification_summary`
 - `reviewer -> review_summary`
 - `coordinator -> routing_summary`

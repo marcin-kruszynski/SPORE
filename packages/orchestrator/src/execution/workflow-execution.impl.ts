@@ -28,6 +28,7 @@ import {
   removeWorkspace,
 } from "@spore/workspace-manager";
 import {
+  buildPlannerIntent,
   planFeaturePromotion,
   planProjectCoordination,
   planWorkflowInvocation,
@@ -88,6 +89,7 @@ import {
   listWorkspaceAllocations,
   openOrchestratorDatabase,
   recordWorkflowHandoffConsumption,
+  upsertWorkflowHandoff,
   updateEscalation,
   updateExecution,
   updateStep,
@@ -111,6 +113,9 @@ import {
   decorateExecution,
   defaultEscalationTargetRole,
   deriveParentHoldReason,
+  getExecutionAdoptedPlan,
+  getExecutionDispatchQueue,
+  getExecutionSupersededTaskIds,
   getExecutionRootExecutionId,
   getExecutionProjectRole,
   getExecutionTopologyKind,
@@ -2240,17 +2245,36 @@ function getCoordinatorFamilyState(
     return null;
   }
   executionsById.set(rootExecution.id, decoratedRoot);
+  const adoptedPlan = getExecutionAdoptedPlan(decoratedRoot);
+  const familyHandoffs = [
+    ...listWorkflowHandoffs(db, {
+      executionId: rootExecution.id,
+      kind: "routing_summary",
+      limit: 50,
+    }),
+    ...Array.from(executionsById.values()).flatMap((execution) =>
+      listWorkflowHandoffs(db, {
+        executionId: execution.id,
+        limit: 50,
+      }),
+    ),
+  ];
+  if (adoptedPlan?.handoffId) {
+    const pinnedAdoptedPlan = getWorkflowHandoff(db, adoptedPlan.handoffId);
+    if (
+      pinnedAdoptedPlan &&
+      !familyHandoffs.some((handoff) => handoff.id === pinnedAdoptedPlan.id)
+    ) {
+      familyHandoffs.push(pinnedAdoptedPlan);
+    }
+  }
   return {
     rootExecution: executionsById.get(rootExecution.id),
     familyExecutions: Array.from(executionsById.values()),
     familyEscalations: Array.from(executionsById.values()).flatMap((execution) =>
       listEscalations(db, execution.id),
     ),
-    familyHandoffs: listWorkflowHandoffs(db, {
-      executionId: rootExecution.id,
-      kind: "routing_summary",
-      limit: 50,
-    }),
+    familyHandoffs,
   };
 }
 
@@ -2634,6 +2658,23 @@ function buildCoordinatorBranchKey(domainId) {
   return `domain:${domainId}`;
 }
 
+function buildCoordinatorTaskBranchKey(domainId, taskId) {
+  const normalizedTaskId = String(taskId ?? "").trim();
+  return normalizedTaskId
+    ? `domain:${domainId}:${normalizedTaskId}`
+    : buildCoordinatorBranchKey(domainId);
+}
+
+function buildPlannerBranchKey() {
+  return "planner:coordination";
+}
+
+function sanitizeExecutionSegment(value) {
+  return String(value ?? "")
+    .trim()
+    .replace(/[^a-zA-Z0-9._-]/g, "-");
+}
+
 function buildPromotionBranchKey(featureKey) {
   return `promotion:${featureKey}`;
 }
@@ -2641,11 +2682,730 @@ function buildPromotionBranchKey(featureKey) {
 function buildProjectLaneMetadata(rootExecutionId, domainId, coordinationMode = null) {
   return {
     topologyKind: "project-child",
+    projectRole: "lead",
     projectLaneType: "lead",
     projectRootExecutionId: rootExecutionId,
     coordinationMode,
     selectedDomainId: domainId,
   };
+}
+
+function buildLeadDispatchTaskMetadata(task, payload) {
+  const normalizedTask = asRecord(task);
+  const taskId = String(normalizedTask.id ?? "").trim() || null;
+  if (!taskId) {
+    return null;
+  }
+  const sharedContractRefs = asArray(payload?.shared_contracts)
+    .map((contract) => asRecord(contract))
+    .map((contract) => {
+      const id = String(contract.id ?? "").trim() || null;
+      if (!id) {
+        return null;
+      }
+      return {
+        id,
+        summary: String(contract.summary ?? "").trim() || null,
+      };
+    })
+    .filter(Boolean);
+  const dependencyTaskIds = asArray(payload?.dependencies)
+    .map((dependency) => asRecord(dependency))
+    .filter(
+      (dependency) =>
+        String(dependency.from_task_id ?? "").trim() === taskId &&
+        String(dependency.to_task_id ?? "").trim(),
+    )
+    .map((dependency) => String(dependency.to_task_id ?? "").trim())
+    .filter(Boolean);
+  const recommendedWorkflow =
+    String(
+      normalizedTask.recommendedWorkflow ?? normalizedTask.recommended_workflow ?? "",
+    ).trim() || null;
+  return {
+    taskId,
+    domainId: String(normalizedTask.domainId ?? "").trim() || null,
+    summary: String(normalizedTask.summary ?? "").trim() || null,
+    waveId: null,
+    dependencyTaskIds,
+    sharedContractRefs,
+    recommendedWorkflow,
+  };
+}
+
+function buildPlannerLaneMetadata(
+  rootExecutionId,
+  coordinationMode,
+  selectedDomains,
+  plannerIntent,
+) {
+  return {
+    topologyKind: "project-child",
+    projectRole: "planner",
+    projectLaneType: "planner",
+    projectRootExecutionId: rootExecutionId,
+    coordinationMode,
+    selectedDomains,
+    plannerIntent,
+    adoptedPlan: {
+      status: "pending",
+      handoffId: null,
+      version: null,
+    },
+  };
+}
+
+function extractCoordinationPlanVersion(payload, summary) {
+  return (
+    Number.parseInt(String(payload?.version ?? ""), 10) ||
+    Number.parseInt(String(summary?.version ?? ""), 10) ||
+    1
+  );
+}
+
+function buildDispatchQueueFromCoordinationPlan(payload) {
+  const normalizedPayload = asRecord(payload);
+  const waves = asArray(normalizedPayload.waves).map((wave) => asRecord(wave));
+  const waveByTaskId = new Map();
+  for (const wave of waves) {
+    const waveId = String(wave.id ?? "").trim() || null;
+    if (!waveId) {
+      continue;
+    }
+    for (const taskId of asArray(wave.task_ids)) {
+      const normalizedTaskId = String(taskId ?? "").trim() || null;
+      if (normalizedTaskId) {
+        waveByTaskId.set(normalizedTaskId, waveId);
+      }
+    }
+  }
+  const tasks = asArray(normalizedPayload.domain_tasks)
+    .map((task) => asRecord(task))
+    .map((task) => {
+      const taskId = String(task.id ?? "").trim() || null;
+      if (!taskId) {
+        return null;
+      }
+      const dispatchTask = buildLeadDispatchTaskMetadata(task, normalizedPayload);
+      if (!dispatchTask) {
+        return null;
+      }
+      dispatchTask.waveId = waveByTaskId.get(taskId) ?? null;
+      return {
+        taskId,
+        domainId: dispatchTask.domainId,
+        summary: dispatchTask.summary,
+        waveId: dispatchTask.waveId,
+        status: "pending",
+        executionId: null,
+        recommendedWorkflow: dispatchTask.recommendedWorkflow,
+        dependencyTaskIds: dispatchTask.dependencyTaskIds,
+        sharedContractRefs: dispatchTask.sharedContractRefs,
+      };
+    })
+    .filter(Boolean);
+  const currentWaveId =
+    (String(waves[0]?.id ?? "").trim() || null) ??
+    (String(tasks[0]?.waveId ?? "").trim() || null) ??
+    null;
+  return {
+    currentWaveId,
+    tasks,
+  };
+}
+
+function coordinationPlanTaskSignature(task) {
+  const normalizedTask = asRecord(task);
+  return JSON.stringify({
+    domainId: String(normalizedTask.domainId ?? "").trim() || null,
+    summary: String(normalizedTask.summary ?? "").trim() || null,
+    waveId: String(normalizedTask.waveId ?? "").trim() || null,
+    recommendedWorkflow:
+      String(
+        normalizedTask.recommendedWorkflow ?? normalizedTask.recommended_workflow ?? "",
+      ).trim() || null,
+    dependencyTaskIds: asArray(normalizedTask.dependencyTaskIds),
+    sharedContractRefs: asArray(normalizedTask.sharedContractRefs),
+  });
+}
+
+function validateCoordinationPlanForAdoption(rootExecution, payload) {
+  const normalizedPayload = asRecord(payload);
+  const selectedDomains = new Set(
+    asArray(rootExecution.metadata?.selectedDomains)
+      .map((entry) => String(entry ?? "").trim())
+      .filter(Boolean),
+  );
+  const taskIds = new Set();
+  const normalizedTasks = asArray(normalizedPayload.domain_tasks).map((task) => asRecord(task));
+  if (normalizedTasks.length === 0) {
+    return false;
+  }
+  for (const task of normalizedTasks) {
+    const taskId = String(task.id ?? "").trim();
+    const domainId = String(task.domainId ?? "").trim();
+    if (!taskId || !domainId) {
+      return false;
+    }
+    if (selectedDomains.size > 0 && !selectedDomains.has(domainId)) {
+      return false;
+    }
+    if (taskIds.has(taskId)) {
+      return false;
+    }
+    taskIds.add(taskId);
+  }
+  const normalizedWaves = asArray(normalizedPayload.waves).map((entry) => asRecord(entry));
+  if (normalizedWaves.length === 0) {
+    return false;
+  }
+  const wavedTaskIds = new Set();
+  for (const wave of normalizedWaves) {
+    const waveId = String(wave.id ?? "").trim();
+    const taskRefs = asArray(wave.task_ids).map((entry) => String(entry ?? "").trim());
+    if (!waveId || taskRefs.some((taskId) => !taskIds.has(taskId))) {
+      return false;
+    }
+    for (const taskId of taskRefs) {
+      wavedTaskIds.add(taskId);
+    }
+  }
+  if ([...taskIds].some((taskId) => !wavedTaskIds.has(taskId))) {
+    return false;
+  }
+  for (const dependency of asArray(normalizedPayload.dependencies).map((entry) => asRecord(entry))) {
+    const fromTaskId = String(dependency.from_task_id ?? "").trim();
+    const toTaskId = String(dependency.to_task_id ?? "").trim();
+    if (!taskIds.has(fromTaskId) || !taskIds.has(toTaskId)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function isSupersededDispatchLane(execution) {
+  return execution?.metadata?.dispatchSuperseded === true;
+}
+
+export function adoptCoordinatorPlanFromHandoff(
+  db,
+  rootExecutionId,
+  handoff,
+) {
+  const rootExecution = getExecution(db, rootExecutionId);
+  if (!rootExecution || getExecutionProjectRole(rootExecution) !== "coordinator") {
+    return null;
+  }
+  const payload = asRecord(handoff?.payload);
+  if (
+    handoff?.validation?.valid === false ||
+    !validateCoordinationPlanForAdoption(rootExecution, payload)
+  ) {
+    emitWorkflowEvent(db, {
+      executionId: rootExecutionId,
+      stepId: null,
+      sessionId: null,
+      type: "workflow.execution.plan_adoption_rejected",
+      payload: {
+        handoffId: handoff?.id ?? null,
+        reason: "invalid_coordination_plan",
+      },
+    });
+    const nextRootExecution = recordCoordinatorReplanRequest(db, rootExecution, {
+      requestId: `invalid-plan:${String(handoff?.id ?? "")}`,
+      reason: "invalid_coordination_plan",
+      requestedByExecutionId: String(handoff?.executionId ?? "").trim() || null,
+      latestPlanVersion: extractCoordinationPlanVersion(handoff?.payload, handoff?.summary),
+      requiresOperatorReview: true,
+    });
+    return nextRootExecution;
+  }
+  const existingQueue = getExecutionDispatchQueue(rootExecution);
+  const nextQueue = buildDispatchQueueFromCoordinationPlan(payload);
+  const childExecutions = listChildExecutions(db, rootExecutionId);
+  const childByExecutionId = new Map(childExecutions.map((child) => [child.id, child]));
+  const preservedByTaskId = new Map(
+    (existingQueue?.tasks ?? [])
+      .filter((task) => task.taskId)
+      .map((task) => [task.taskId, task] as const),
+  );
+  const mergedQueue = {
+    currentWaveId:
+      existingQueue?.currentWaveId &&
+      nextQueue.tasks.some((task) => task.waveId === existingQueue.currentWaveId)
+        ? existingQueue.currentWaveId
+        : nextQueue.currentWaveId,
+    tasks: nextQueue.tasks.map((task) => {
+      const previous = preservedByTaskId.get(task.taskId);
+      const sameDomain =
+        previous?.domainId && task.domainId
+          ? previous.domainId === task.domainId
+          : true;
+      const previousExecution = previous?.executionId
+        ? childByExecutionId.get(previous.executionId)
+        : null;
+      const previousDispatchTask = asRecord(
+        asRecord(previousExecution).metadata?.dispatchTask,
+      );
+      const previousTaskShape = previousExecution
+        ? {
+            ...previousDispatchTask,
+            waveId: previous?.waveId,
+          }
+        : {
+            taskId: previous?.taskId,
+            domainId: previous?.domainId,
+            summary: previous?.summary,
+            waveId: previous?.waveId,
+          };
+      const sameTaskShape =
+        sameDomain &&
+        coordinationPlanTaskSignature(previousTaskShape) ===
+          coordinationPlanTaskSignature(task);
+      return {
+        ...task,
+        status: sameTaskShape ? (previous?.status ?? task.status) : task.status,
+        executionId: sameTaskShape ? (previous?.executionId ?? null) : null,
+      };
+    }),
+  };
+  const nextQueueByTaskId = new Map(
+    mergedQueue.tasks.map((task) => [task.taskId, task]),
+  );
+  const supersededTaskIds = childExecutions
+    .filter((child) => getExecutionProjectRole(child) === "lead")
+    .map((child) => ({
+      execution: child,
+      dispatchTask: asRecord(child.metadata?.dispatchTask),
+    }))
+    .map(({ execution, dispatchTask }) => ({
+      execution,
+      taskId: String(dispatchTask.taskId ?? "").trim(),
+      domainId: String(dispatchTask.domainId ?? "").trim() || null,
+    }))
+    .filter((entry) => entry.taskId)
+    .filter((entry) => {
+      const nextTask = nextQueueByTaskId.get(entry.taskId);
+      return (
+        !nextTask ||
+        entry.domainId !== (String(nextTask.domainId ?? "").trim() || null)
+      );
+    });
+  const updatedRootExecution = {
+    ...rootExecution,
+    metadata: {
+      ...(rootExecution.metadata ?? {}),
+      adoptedPlan: {
+        status: "adopted",
+        handoffId: handoff.id,
+        version: extractCoordinationPlanVersion(handoff.payload, handoff.summary),
+      },
+      dispatchQueue: mergedQueue,
+      replan: null,
+      supersededTaskIds: supersededTaskIds.map((entry) => entry.taskId),
+    },
+  };
+  updateExecution(db, updatedRootExecution);
+  for (const entry of supersededTaskIds) {
+    const child = getExecution(db, entry.execution.id);
+    if (!child) {
+      continue;
+    }
+    const nextState = TERMINAL_EXECUTION_STATES.has(child.state)
+      ? child.state
+      : "held";
+    updateExecution(db, {
+      ...child,
+      state: nextState,
+      heldFromState:
+        nextState === "held" ? child.state : child.heldFromState,
+      holdReason:
+        nextState === "held" ? "dispatch-superseded" : child.holdReason,
+      holdOwner:
+        nextState === "held" ? "coordinator" : child.holdOwner,
+      holdGuidance:
+        nextState === "held"
+          ? "Superseded by a newer coordination plan."
+          : child.holdGuidance,
+      heldAt: nextState === "held" ? nowIso() : child.heldAt,
+      metadata: {
+        ...(child.metadata ?? {}),
+        dispatchSuperseded: true,
+      },
+    });
+  }
+  return updatedRootExecution;
+}
+
+function persistLeadProgressRecord(db, execution, options = {}) {
+  if (getExecutionProjectRole(execution) !== "lead") {
+    return null;
+  }
+  const existingProgress = listWorkflowHandoffs(db, {
+    executionId: execution.id,
+    kind: "lead_progress",
+    limit: 5,
+  })
+    .sort((left, right) => {
+      const leftTime = Date.parse(left.updatedAt ?? "") || 0;
+      const rightTime = Date.parse(right.updatedAt ?? "") || 0;
+      return rightTime - leftTime;
+    })[0];
+  const dispatchTask = asRecord(execution.metadata?.dispatchTask);
+  const normalizedOptions = asRecord(options);
+  const existingPayload = asRecord(existingProgress?.payload);
+  const existingSummary = asRecord(existingProgress?.summary);
+  const taskId = String(dispatchTask.taskId ?? "").trim() || null;
+  if (!taskId) {
+    return null;
+  }
+  const summary =
+    String(normalizedOptions.summary ?? existingPayload.summary ?? dispatchTask.summary ?? execution.objective ?? "").trim() ||
+    null;
+  const progressStatus =
+    String(normalizedOptions.status ?? existingPayload.status ?? execution.state ?? "").trim() === "running"
+      ? "in_progress"
+      : String(normalizedOptions.status ?? existingPayload.status ?? execution.state ?? "").trim() === "completed"
+        ? "completed"
+        : String(normalizedOptions.status ?? existingPayload.status ?? execution.state ?? "").trim() === "held"
+          ? "blocked"
+          : String(normalizedOptions.status ?? existingPayload.status ?? execution.state ?? "").trim() || "pending";
+  const blockedOnTaskIds = asArray(
+    normalizedOptions.blockedOnTaskIds ??
+      existingPayload.blocked_on_task_ids ??
+      dispatchTask.blockedOnTaskIds,
+  )
+    .map((entry) => String(entry ?? "").trim())
+    .filter(Boolean);
+  const replanReason =
+    String(
+      normalizedOptions.replanReason ?? existingPayload.replan_reason ?? "",
+    ).trim() || null;
+  const timestamp = nowIso();
+  const handoff = {
+    id: existingProgress?.id ?? `handoff-${execution.id}-lead-progress`,
+    executionId: execution.id,
+    fromStepId: null,
+    toStepId: null,
+    sourceRole: "lead",
+    targetRole: "coordinator",
+    kind: "lead_progress",
+    status: "ready",
+    summary: {
+      title: `Lead progress for ${taskId}`,
+      objective: execution.objective ?? null,
+      outcome:
+        summary ??
+        (String(existingSummary.outcome ?? "").trim() || null),
+      confidence: progressStatus === "completed" ? "high" : "medium",
+    },
+    artifacts: {
+      sessionId: null,
+      transcriptPath: null,
+      briefPath: null,
+      handoffPath: null,
+      workspaceId: null,
+      proposalArtifactId: null,
+      snapshotRef: null,
+      snapshotCommit: null,
+    },
+    payload: {
+      task_id: taskId,
+      active_task_id:
+        String(
+          normalizedOptions.activeTaskId ?? existingPayload.active_task_id ?? taskId,
+        ).trim() || taskId,
+      status: progressStatus,
+      blocked_on_task_ids: blockedOnTaskIds,
+      replan_reason: replanReason,
+      summary,
+    },
+    validation: {
+      ...(existingProgress?.validation ?? {}),
+      valid: existingProgress?.validation?.valid ?? true,
+      degraded: existingProgress?.validation?.degraded ?? false,
+      mode: existingProgress?.validation?.mode ?? "accept",
+      issues: existingProgress?.validation?.issues ?? [],
+    },
+    createdAt: existingProgress?.createdAt ?? timestamp,
+    updatedAt: timestamp,
+    consumedAt: existingProgress?.consumedAt ?? null,
+  };
+  upsertWorkflowHandoff(db, handoff);
+  return handoff;
+}
+
+function syncCoordinatorDispatchQueueState(db, rootExecution) {
+  const dispatchQueue = getExecutionDispatchQueue(rootExecution);
+  if (!dispatchQueue) {
+    return rootExecution;
+  }
+  const childExecutions = listChildExecutions(db, rootExecution.id);
+  const executionById = new Map(childExecutions.map((child) => [child.id, child]));
+  const latestLeadProgressByExecutionId = new Map();
+  for (const handoff of listWorkflowHandoffs(db, { kind: "lead_progress", limit: 200 })) {
+    if (!executionById.has(handoff.executionId)) {
+      continue;
+    }
+    const current = latestLeadProgressByExecutionId.get(handoff.executionId);
+    const currentTime = Date.parse(current?.updatedAt ?? "") || 0;
+    const handoffTime = Date.parse(handoff.updatedAt ?? "") || 0;
+    if (!current || handoffTime >= currentTime) {
+      latestLeadProgressByExecutionId.set(handoff.executionId, handoff);
+    }
+  }
+  const nextTasks = dispatchQueue.tasks.map((task) => {
+    const executionId = String(task.executionId ?? "").trim() || null;
+    const child = executionId ? executionById.get(executionId) ?? null : null;
+    const normalizedChild = asRecord(child);
+    const progress = asRecord(latestLeadProgressByExecutionId.get(executionId)?.payload);
+    let status = String(task.status ?? "pending").trim() || "pending";
+    if (child) {
+      const childState = String(normalizedChild.state ?? "").trim();
+      if (TERMINAL_EXECUTION_STATES.has(childState)) {
+        status = childState === "completed" ? "completed" : "failed";
+      } else if (
+        String(progress.status ?? "").trim() === "blocked" ||
+        asArray(progress.blocked_on_task_ids).length > 0
+      ) {
+        status = "blocked";
+      } else if (childState === "running") {
+        status = "in_progress";
+      } else if (
+        ["held", "waiting_review", "waiting_approval"].includes(
+          childState,
+        )
+      ) {
+        status = "blocked";
+      } else if (String(progress.status ?? "").trim()) {
+        status = String(progress.status).trim();
+      } else if (status === "pending") {
+        status = "dispatched";
+      }
+    }
+    return {
+      ...task,
+      executionId,
+      status,
+    };
+  });
+  const nextCurrentWaveId =
+    nextTasks.find((task) => !["completed", "failed"].includes(task.status))?.waveId ?? null;
+  const nextRootExecution = {
+    ...rootExecution,
+    metadata: {
+      ...(rootExecution.metadata ?? {}),
+      dispatchQueue: {
+        currentWaveId: nextCurrentWaveId,
+        tasks: nextTasks,
+      },
+    },
+  };
+  updateExecution(db, nextRootExecution);
+  return nextRootExecution;
+}
+
+function recordCoordinatorReplanRequest(db, rootExecution, payload = {}) {
+  const normalizedPayload = asRecord(payload);
+  const reason = String(normalizedPayload.reason ?? "").trim() || null;
+  if (!reason) {
+    return rootExecution;
+  }
+  const replanHistory = asArray(rootExecution.metadata?.replanHistory);
+  const requestId =
+    String(normalizedPayload.requestId ?? "").trim() ||
+    `replan-${replanHistory.length + 1}`;
+  if (
+    replanHistory.some(
+      (entry) => String(asRecord(entry).requestId ?? "").trim() === requestId,
+    )
+  ) {
+    return rootExecution;
+  }
+  const latestPlanVersion =
+    Number.parseInt(String(normalizedPayload.latestPlanVersion ?? ""), 10) ||
+    getExecutionAdoptedPlan(rootExecution)?.version ||
+    null;
+  const entry = {
+    requestId,
+    reason,
+    requestedByExecutionId:
+      String(normalizedPayload.requestedByExecutionId ?? "").trim() || null,
+    latestPlanVersion,
+    requiresOperatorReview: normalizedPayload.requiresOperatorReview === true,
+  };
+  const nextExecution = {
+    ...rootExecution,
+    metadata: {
+      ...(rootExecution.metadata ?? {}),
+      replan: {
+        status: "requested",
+        reason,
+        latestPlanVersion,
+        requiresOperatorReview: normalizedPayload.requiresOperatorReview === true,
+      },
+      replanHistory: [...replanHistory, entry],
+    },
+  };
+  updateExecution(db, nextExecution);
+  return nextExecution;
+}
+
+function dependenciesSatisfied(task, dispatchQueue) {
+  const dependencyTaskIds = asArray(task?.dependencyTaskIds)
+    .map((entry) => String(entry ?? "").trim())
+    .filter(Boolean);
+  if (dependencyTaskIds.length === 0) {
+    return true;
+  }
+  const completedTaskIds = new Set(
+    asArray(dispatchQueue?.tasks)
+      .filter((entry) => String(entry?.status ?? "") === "completed")
+      .map((entry) => String(entry?.taskId ?? "").trim())
+      .filter(Boolean),
+  );
+  return dependencyTaskIds.every((taskId) => completedTaskIds.has(taskId));
+}
+
+async function ensureCoordinatorLeadDispatch(
+  rootExecution,
+  dbPath,
+  sessionDbPath,
+) {
+  if (getExecutionProjectRole(rootExecution) !== "coordinator") {
+    return;
+  }
+  const adoptedPlan = getExecutionAdoptedPlan(rootExecution);
+  const dispatchQueue = getExecutionDispatchQueue(rootExecution);
+  if (!adoptedPlan?.handoffId || !dispatchQueue?.tasks?.length) {
+    return;
+  }
+  const leadChildren = withOrchestratorDatabase(dbPath, (db) =>
+    listChildExecutions(db, rootExecution.id).filter(
+      (child) =>
+        getExecutionProjectRole(child) === "lead" &&
+        !isSupersededDispatchLane(child) &&
+        !getExecutionSupersededTaskIds(rootExecution).includes(
+          String(child.metadata?.dispatchTask?.taskId ?? "").trim(),
+        ),
+    ),
+  );
+  const leadByTaskId = new Map(
+    leadChildren
+      .map((child) => [String(child.metadata?.dispatchTask?.taskId ?? "").trim(), child])
+      .filter((entry) => Boolean(entry[0])),
+  );
+  const adoptedPlanHandoff = withOrchestratorDatabase(dbPath, (db) =>
+    getWorkflowHandoff(db, adoptedPlan.handoffId),
+  );
+  const planPayload = asRecord(adoptedPlanHandoff?.payload);
+  const planTasksById = new Map(
+    asArray(planPayload.domain_tasks)
+      .map((task) => asRecord(task))
+      .map((task) => [String(task.id ?? "").trim(), task]),
+  );
+  for (const queueTask of dispatchQueue.tasks) {
+    if (!["pending", "blocked"].includes(String(queueTask.status ?? ""))) {
+      continue;
+    }
+    if (!dependenciesSatisfied(queueTask, dispatchQueue)) {
+      continue;
+    }
+    if (leadByTaskId.has(String(queueTask.taskId ?? ""))) {
+      continue;
+    }
+    const planTask = planTasksById.get(String(queueTask.taskId ?? "").trim());
+    if (!planTask) {
+      continue;
+    }
+    const dispatchTask = buildLeadDispatchTaskMetadata(planTask, planPayload);
+    if (!dispatchTask?.domainId) {
+      continue;
+    }
+    dispatchTask.waveId = String(queueTask.waveId ?? dispatchTask.waveId ?? "").trim() || null;
+    const invocationId = `${rootExecution.id}-${sanitizeExecutionSegment(dispatchTask.domainId)}-${sanitizeExecutionSegment(dispatchTask.taskId)}-lead`;
+    const invocation = await planWorkflowInvocation({
+      workflowPath: dispatchTask.recommendedWorkflow ?? undefined,
+      projectPath: rootExecution.projectPath,
+      domainId: dispatchTask.domainId,
+      maxRoles: 32,
+      invocationId,
+      objective: dispatchTask.summary ?? queueTask.summary ?? rootExecution.objective,
+      coordinationGroupId: rootExecution.coordinationGroupId ?? rootExecution.id,
+      parentExecutionId: rootExecution.id,
+      branchKey: buildCoordinatorTaskBranchKey(dispatchTask.domainId, dispatchTask.taskId),
+      metadata: {
+        ...buildProjectLaneMetadata(
+          rootExecution.id,
+          dispatchTask.domainId,
+          rootExecution.metadata?.coordinationMode ?? null,
+        ),
+        dispatchTask,
+      },
+    });
+    createExecution(invocation, dbPath);
+    await emitBranchEvents(
+      rootExecution.id,
+      invocation.invocationId,
+      invocation.coordination.branchKey,
+      dbPath,
+    );
+    withOrchestratorDatabase(dbPath, (db) => {
+      const refreshedRoot = getExecution(db, rootExecution.id);
+      const currentQueue = getExecutionDispatchQueue(refreshedRoot);
+      if (!currentQueue) {
+        return;
+      }
+      updateExecution(db, {
+        ...refreshedRoot,
+        metadata: {
+          ...(refreshedRoot.metadata ?? {}),
+          dispatchQueue: {
+            currentWaveId: currentQueue.currentWaveId,
+            tasks: currentQueue.tasks.map((task) =>
+              task.taskId === dispatchTask.taskId
+                ? {
+                    ...task,
+                    executionId: invocation.invocationId,
+                    status: "dispatched",
+                  }
+                : task,
+            ),
+          },
+        },
+      });
+    });
+  }
+  void sessionDbPath;
+}
+
+function maybeAdoptCoordinatorPlanFromPublishedHandoffs(
+  db,
+  execution,
+  publishedHandoffs,
+) {
+  if (getExecutionProjectRole(execution) !== "planner") {
+    return;
+  }
+  const rootExecution = getCoordinatorFamilyRootExecution(db, execution);
+  if (!rootExecution || getExecutionProjectRole(rootExecution) !== "coordinator") {
+    return;
+  }
+  const coordinationPlan = publishedHandoffs.find(
+    (handoff) => handoff.kind === "coordination_plan",
+  );
+  if (!coordinationPlan) {
+    return;
+  }
+  const existingAdoption = getExecutionAdoptedPlan(rootExecution);
+  if (existingAdoption?.handoffId === coordinationPlan.id) {
+    return null;
+  }
+  return adoptCoordinatorPlanFromHandoff(
+    db,
+    rootExecution.id,
+    coordinationPlan,
+  );
 }
 
 function _buildPromotionLaneMetadata(
@@ -2836,28 +3596,41 @@ export async function buildProjectCoordinationPlan(options: LooseRecord = {}) {
   const selectedDomains = asArray(
     rootInvocation.metadata?.invocationMetadata?.selectedDomains,
   );
-  const childInvocations = [];
-  for (const domainId of selectedDomains) {
-    const childPlan = await planWorkflowInvocation({
-      projectPath: rootInvocation.project.path,
-      domainId,
-      maxRoles: 32,
-      invocationId: `${rootInvocation.invocationId}-${domainId}-lead`,
-      objective: options.objective ?? rootInvocation.objective,
-      coordinationGroupId: rootInvocation.invocationId,
-      parentExecutionId: rootInvocation.invocationId,
-      branchKey: buildCoordinatorBranchKey(domainId),
-      metadata: buildProjectLaneMetadata(
-        rootInvocation.invocationId,
-        domainId,
-        coordinationMode,
-      ),
-    });
-    childInvocations.push(childPlan);
-  }
+  const plannerIntent = buildPlannerIntent(coordinationMode, selectedDomains);
+  rootInvocation.metadata.invocationMetadata = {
+    ...(rootInvocation.metadata.invocationMetadata ?? {}),
+    plannerIntent,
+    adoptedPlan: {
+      status: "pending",
+      handoffId: null,
+      version: null,
+    },
+    dispatchQueue: {
+      currentWaveId: null,
+      tasks: [],
+    },
+  };
+
+  const plannerPlan = await planWorkflowInvocation({
+    workflowPath: rootInvocation.workflow.path,
+    projectPath: rootInvocation.project.path,
+    roles: ["planner"],
+    maxRoles: 1,
+    invocationId: `${rootInvocation.invocationId}-planner`,
+    objective: options.objective ?? rootInvocation.objective,
+    coordinationGroupId: rootInvocation.invocationId,
+    parentExecutionId: rootInvocation.invocationId,
+    branchKey: buildPlannerBranchKey(),
+    metadata: buildPlannerLaneMetadata(
+      rootInvocation.invocationId,
+      coordinationMode,
+      selectedDomains,
+      plannerIntent,
+    ),
+  });
   return {
     rootInvocation,
-    childInvocations,
+    childInvocations: [plannerPlan],
     selectedDomains,
   };
 }
@@ -4230,8 +5003,36 @@ export async function reconcileExecution(
   withOrchestratorDatabase(dbPath, (db) => {
     const execution = getExecution(db, executionId);
     if (execution) {
+      if (getExecutionProjectRole(execution) === "lead") {
+        const progressHandoff = persistLeadProgressRecord(db, execution);
+        const latestStoredProgress = listWorkflowHandoffs(db, {
+          executionId: execution.id,
+          kind: "lead_progress",
+          limit: 1,
+        })[0] ?? progressHandoff;
+        const rootExecution = getCoordinatorFamilyRootExecution(db, execution);
+        if (rootExecution) {
+          let nextRoot = syncCoordinatorDispatchQueueState(db, rootExecution);
+          const progressPayload = asRecord(latestStoredProgress?.payload);
+          if (String(progressPayload.replan_reason ?? "").trim()) {
+            const latestPlanVersion = getExecutionAdoptedPlan(nextRoot)?.version;
+            nextRoot = recordCoordinatorReplanRequest(db, nextRoot, {
+              requestId: `${latestStoredProgress?.id ?? execution.id}:${String(progressPayload.replan_reason ?? "").trim()}:${latestPlanVersion ?? "none"}`,
+              reason: String(progressPayload.replan_reason ?? "").trim(),
+              requestedByExecutionId: execution.id,
+              latestPlanVersion,
+              requiresOperatorReview: true,
+            });
+          }
+          reconcileExpiredHold(db, nextRoot);
+        }
+      }
       const coordinated = reconcileCoordinationState(db, execution);
-      reconcileExpiredHold(db, coordinated);
+      const refreshed =
+        getExecutionProjectRole(coordinated) === "coordinator"
+          ? syncCoordinatorDispatchQueueState(db, coordinated)
+          : coordinated;
+      reconcileExpiredHold(db, refreshed);
     }
   });
 
@@ -4240,6 +5041,14 @@ export async function reconcileExecution(
     throw new Error(
       `execution not found after coordination reconcile: ${executionId}`,
     );
+  }
+
+  if (getExecutionProjectRole(detail.execution) === "coordinator") {
+    await ensureCoordinatorLeadDispatch(detail.execution, dbPath, sessionDbPath);
+    detail = getExecutionDetail(executionId, dbPath, sessionDbPath);
+    if (!detail) {
+      throw new Error(`execution not found after dispatch reconcile: ${executionId}`);
+    }
   }
 
   if (isExecutionSettled(detail)) {
@@ -4511,6 +5320,30 @@ export async function reconcileExecution(
                   issues: enforced.enforcement.issues,
                 },
               });
+            }
+            const adoptedRootExecution = maybeAdoptCoordinatorPlanFromPublishedHandoffs(
+              db,
+              execution,
+              publishedHandoffs,
+            );
+            if (adoptedRootExecution) {
+              emitWorkflowEvent(db, {
+                executionId: adoptedRootExecution.id,
+                stepId: null,
+                sessionId: execution.sessionId ?? null,
+                type: "workflow.execution.plan_adopted",
+                payload: {
+                  plannerExecutionId: execution.id,
+                  handoffId: getExecutionAdoptedPlan(adoptedRootExecution)?.handoffId,
+                  version: getExecutionAdoptedPlan(adoptedRootExecution)?.version,
+                  currentWaveId: getExecutionDispatchQueue(adoptedRootExecution)?.currentWaveId,
+                },
+              });
+              await ensureCoordinatorLeadDispatch(
+                adoptedRootExecution,
+                dbPath,
+                sessionDbPath,
+              );
             }
           }
           settleStepWorkspace(

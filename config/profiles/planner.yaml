@@ -1,0 +1,25 @@
+id: planner
+name: Project Planner
+role: planner
+description: Project-scoped planning profile responsible for producing durable cross-domain coordination plans before lead dispatch.
+domain: project
+runtime: pi
+systemPromptRef: .pi/prompts/planner.md
+skills: [planning, decomposition, dependency-mapping, contract-design]
+tools: [docs-kb, session-inspect, execution-tree]
+permissions: [read-config, read-docs, inspect-status, propose-plan]
+sessionMode: persistent
+reviewPolicy:
+  required: false
+handoffPolicy:
+  mode: explicit
+  mustReportUpward: true
+  outputKind: coordination_plan
+  targetRole: coordinator
+  marker: SPORE_HANDOFF_JSON
+  requiredSections: [summary, affected_domains, domain_tasks, waves, dependencies, shared_contracts, unresolved_questions]
+  enforcementMode: review_pending
+docsPolicy:
+  updateRequired: true
+telemetryPolicy:
+  level: detailed

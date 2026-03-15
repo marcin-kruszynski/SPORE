@@ -42,7 +42,12 @@ function nextWaveTargets(steps: Array<Record<string, unknown>>, step: Record<str
     (candidate) => Number(candidate.wave ?? candidate.sequence ?? 0) > currentWave,
   );
   if (laterSteps.length === 0) {
-    return { toStepId: "", targetRole: null, allowedNextRoles: [] };
+    return {
+      toStepId: "",
+      targetRole: null,
+      allowedNextRoles: [],
+      targetSteps: [],
+    };
   }
   const nearestWave = Math.min(
     ...laterSteps.map((candidate) => Number(candidate.wave ?? candidate.sequence ?? 0)),
@@ -72,6 +77,37 @@ function resolveRequestedNextRole(parsedObject: Record<string, unknown>) {
     }
   }
   return "";
+}
+
+function mapLeadProgressStatus(step: Record<string, unknown>, payload: Record<string, unknown>) {
+  const explicit = String(payload.status ?? "").trim();
+  if (explicit) {
+    return explicit;
+  }
+  const stepState = String(step.state ?? "").trim();
+  if (stepState === "running") {
+    return "in_progress";
+  }
+  if (stepState === "completed") {
+    return "completed";
+  }
+  if (["held", "waiting_review", "waiting_approval", "review_pending"].includes(stepState)) {
+    return "blocked";
+  }
+  return stepState || "pending";
+}
+
+function leadProgressSummaryText(
+  parsedObject: Record<string, unknown>,
+  summary: Record<string, unknown>,
+) {
+  if (typeof parsedObject.summary === "string") {
+    return parsedObject.summary.trim() || null;
+  }
+  const summaryRecord = normalizeObject(parsedObject.summary);
+  return (
+    String(summaryRecord.outcome ?? summary.outcome ?? "").trim() || null
+  );
 }
 
 export async function publishWorkflowStepHandoffs({
@@ -112,7 +148,7 @@ export async function publishWorkflowStepHandoffs({
   const requestedNextRole = resolveRequestedNextRole(parsedObject);
   const resolvedTargetRole = allowedNextRoles.includes(requestedNextRole)
     ? requestedNextRole
-    : targetRole;
+    : targetRole ?? expectedHandoff.targetRole;
   const resolvedTargetSteps = resolvedTargetRole
     ? targetSteps.filter((candidate) => candidate.role === resolvedTargetRole)
     : [];
@@ -202,6 +238,58 @@ export async function publishWorkflowStepHandoffs({
         },
         payload: {
           workspacePurpose: allocation?.metadata?.workspacePurpose ?? null,
+        },
+        createdAt: String(step.settledAt ?? step.updatedAt ?? execution.updatedAt),
+        updatedAt: String(step.settledAt ?? step.updatedAt ?? execution.updatedAt),
+        consumedAt: null,
+      });
+    }
+  }
+
+  if (String(step.role ?? "") === "lead") {
+    const dispatchTask = normalizeObject(execution.metadata).dispatchTask;
+    const normalizedDispatchTask = normalizeObject(dispatchTask);
+    const taskId =
+      String(parsedObject.task_id ?? normalizedDispatchTask.taskId ?? "").trim() || null;
+    if (taskId) {
+      auxiliary.push({
+        id: buildHandoffId(String(step.id), "lead_progress"),
+        executionId: String(execution.id),
+        fromStepId: String(step.id),
+        toStepId: resolvedToStepId,
+        sourceRole: String(step.role),
+        targetRole: "coordinator",
+        kind: "lead_progress",
+        status: "ready",
+        summary: {
+          title: `Lead progress for ${taskId}`,
+          objective: execution.objective ?? null,
+          outcome: leadProgressSummaryText(parsedObject, summary),
+          confidence:
+            mapLeadProgressStatus(step, parsedObject) === "completed" ? "high" : "medium",
+        },
+        validation,
+        artifacts: {
+          sessionId: String(step.sessionId),
+          transcriptPath: String(session.transcriptPath ?? "") || null,
+          briefPath: briefArtifactPath(String(execution.id), String(step.sessionId)),
+          handoffPath: null,
+          workspaceId: null,
+          proposalArtifactId: null,
+          snapshotRef: null,
+          snapshotCommit: null,
+        },
+        payload: {
+          task_id: taskId,
+          active_task_id:
+            String(parsedObject.active_task_id ?? taskId).trim() || taskId,
+          status: mapLeadProgressStatus(step, parsedObject),
+          blocked_on_task_ids: Array.isArray(parsedObject.blocked_on_task_ids)
+            ? parsedObject.blocked_on_task_ids
+            : [],
+          replan_reason:
+            String(parsedObject.replan_reason ?? "").trim() || null,
+          summary: leadProgressSummaryText(parsedObject, summary),
         },
         createdAt: String(step.settledAt ?? step.updatedAt ?? execution.updatedAt),
         updatedAt: String(step.settledAt ?? step.updatedAt ?? execution.updatedAt),

@@ -14,7 +14,10 @@
 
 - owns one project-root execution family,
 - uses `rootExecutionId` as the canonical family identifier, with optional `familyKey` metadata for grouping surfaces,
+- delegates initial multi-domain decomposition to a separate project-scoped `planner` lane,
 - routes one project objective across multiple domain lead lanes,
+- adopts a durable `coordination_plan` before dispatching lead work,
+- owns a project-scoped dispatch queue and execution-wave ordering for domain tasks,
 - carries explicit `coordinationMode` metadata such as `delivery`, `project-breakdown`, or `brownfield-intake`,
 - remains read-mostly by default,
 - receives project-level escalations and promotion blockers,
@@ -25,10 +28,19 @@
 ### Lead
 
 - owns a domain stream,
-- decomposes local tasks,
+- receives a coordinator-scoped domain task package rather than the raw project objective,
+- decomposes local tasks beneath that assigned package,
 - invokes scout/builder/tester lanes,
 - requests reviewer gate when ready,
 - emits a durable `task_brief` handoff that scopes downstream work.
+
+### Planner
+
+- owns project-scoped decomposition before domain lead work begins,
+- inspects project structure, active domains, workflow options, and governance constraints,
+- emits a durable `coordination_plan` handoff consumed by the coordinator,
+- remains read-mostly,
+- does not own dispatch, merge, or promotion.
 
 ### Scout
 
@@ -97,15 +109,16 @@ The intended topology is now:
 ```text
 orchestrator
   -> coordinator
-       -> lead (backend)
-       -> lead (frontend)
-       -> lead (docs)
+       -> planner
+       -> lead (backend task package)
+       -> lead (frontend task package)
+       -> lead (docs task package)
        -> integrator
 ```
 
 Backward compatibility rule:
 
 - existing domain workflows remain lead-first,
-- `coordinator` and `integrator` are explicit planner/invoker paths,
+- `planner`, `coordinator`, and `integrator` are explicit project-scoped planner/invoker paths,
 - they are not silently prepended to domain `roleSequence` lists,
-- operator-visible family summaries describe coordinator-owned lead and integrator lanes without changing the lead-local or integrator-local execution contracts.
+- operator-visible family summaries now describe planner lane state, adopted planning artifacts, coordinator-owned dispatch queue state, lead progress, and integrator readiness without changing the lead-local or integrator-local execution contracts.

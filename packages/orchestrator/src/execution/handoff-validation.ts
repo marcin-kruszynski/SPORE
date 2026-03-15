@@ -19,6 +19,10 @@ const SECTION_ALIASES: Record<string, string[]> = {
   next_actions: ["next_actions", "nextActions"],
   target_branch: ["target_branch", "targetBranch"],
   integration_branch: ["integration_branch", "integrationBranch"],
+  task_id: ["task_id", "taskId"],
+  active_task_id: ["active_task_id", "activeTaskId"],
+  blocked_on_task_ids: ["blocked_on_task_ids", "blockedOnTaskIds"],
+  replan_reason: ["replan_reason", "replanReason"],
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -40,6 +44,68 @@ function buildIssue(
 function getValidation(record: Record<string, unknown>) {
   const validation = record.validation;
   return isRecord(validation) ? validation : {};
+}
+
+function isStringArray(value: unknown): boolean {
+  return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
+function isRecordArray(value: unknown): boolean {
+  return Array.isArray(value) && value.every((item) => isRecord(item));
+}
+
+function coordinationPlanSectionIsValid(
+  section: string,
+  value: unknown,
+): boolean {
+  if (section === "affected_domains" || section === "unresolved_questions") {
+    if (!Array.isArray(value)) {
+      return false;
+    }
+    return section === "affected_domains"
+      ? isStringArray(value) && value.length > 0
+      : isStringArray(value);
+  }
+  if (!isRecordArray(value)) {
+    return false;
+  }
+  const records = value as Array<Record<string, unknown>>;
+  if (section === "domain_tasks") {
+    if (records.length === 0) {
+      return false;
+    }
+    return records.every(
+      (record) =>
+        typeof record.id === "string" && record.id.trim().length > 0 &&
+        typeof record.domainId === "string" && record.domainId.trim().length > 0,
+    );
+  }
+  if (section === "waves") {
+    if (records.length === 0) {
+      return false;
+    }
+    return records.every(
+      (record) =>
+        typeof record.id === "string" && record.id.trim().length > 0 &&
+        isStringArray(record.task_ids),
+    );
+  }
+  if (section === "dependencies") {
+    return records.every(
+      (record) =>
+        typeof record.from_task_id === "string" &&
+        record.from_task_id.trim().length > 0 &&
+        typeof record.to_task_id === "string" &&
+        record.to_task_id.trim().length > 0,
+    );
+  }
+  if (section === "shared_contracts") {
+    return records.every(
+      (record) =>
+        typeof record.id === "string" && record.id.trim().length > 0,
+    );
+  }
+  return false;
 }
 
 function hasRequiredSection(
@@ -80,6 +146,24 @@ function hasRequiredSection(
       Array.isArray(value) ||
       (typeof value === "string" && value.trim().length > 0)
     );
+  }
+  if (["task_id", "active_task_id", "status", "replan_reason"].includes(section)) {
+    return typeof value === "string" && value.trim().length > 0;
+  }
+  if (section === "blocked_on_task_ids") {
+    return isStringArray(value);
+  }
+  if (
+    [
+      "affected_domains",
+      "domain_tasks",
+      "waves",
+      "dependencies",
+      "shared_contracts",
+      "unresolved_questions",
+    ].includes(section)
+  ) {
+    return coordinationPlanSectionIsValid(section, value);
   }
   if (
     [

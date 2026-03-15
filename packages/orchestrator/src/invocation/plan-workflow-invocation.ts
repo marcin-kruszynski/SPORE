@@ -14,6 +14,7 @@ type LooseRecord = any;
 const DEFAULT_ROLE_PROFILE = {
   orchestrator: "orchestrator",
   coordinator: "coordinator",
+  planner: "planner",
   lead: "lead",
   scout: "scout",
   builder: "builder",
@@ -24,6 +25,7 @@ const DEFAULT_ROLE_PROFILE = {
 
 const PROJECT_ROLE_KEYS = {
   coordinator: "coordinatorProfile",
+  planner: "plannerProfile",
   integrator: "integratorProfile",
 };
 
@@ -47,6 +49,51 @@ export const SUPPORTED_COORDINATION_MODES = [
 ] as const;
 
 export type CoordinationMode = (typeof SUPPORTED_COORDINATION_MODES)[number];
+
+export function buildPlannerIntent(
+  coordinationMode: CoordinationMode,
+  selectedDomains: string[] = [],
+) {
+  const baseIntent = {
+    coordinationMode,
+    selectedDomains: unique(selectedDomains),
+    requiresDiscoveryBeforeDispatch: false,
+  };
+  switch (coordinationMode) {
+    case "project-breakdown":
+      return {
+        ...baseIntent,
+        focus: "decomposition",
+        expectedOutputs: [
+          "domain_slices",
+          "dependency_ordering",
+          "handoff_boundaries",
+        ],
+      };
+    case "brownfield-intake":
+      return {
+        ...baseIntent,
+        focus: "discovery",
+        expectedOutputs: [
+          "shared_contracts",
+          "unresolved_questions",
+          "pre_dispatch_discovery",
+        ],
+        requiresDiscoveryBeforeDispatch: true,
+      };
+    case "delivery":
+    default:
+      return {
+        ...baseIntent,
+        focus: "implementation",
+        expectedOutputs: [
+          "implementation_work_packages",
+          "execution_waves",
+          "delivery_dependencies",
+        ],
+      };
+  }
+}
 
 function resolvePath(inputPath) {
   return path.isAbsolute(inputPath)

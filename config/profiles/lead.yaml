@@ -21,3 +21,7 @@ docsPolicy:
   updateRequired: true
 telemetryPolicy:
   level: standard
+progressPolicy:
+  kind: lead_progress
+  targetRole: coordinator
+  requiredSections: [summary, task_id, active_task_id, status, blocked_on_task_ids]

@@ -2,6 +2,13 @@ import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import test from "node:test";
 
+import {
+  adoptCoordinatorPlanFromHandoff,
+  createExecution,
+  openOrchestratorDatabase,
+  planFeaturePromotion,
+  upsertWorkflowHandoff,
+} from "@spore/orchestrator";
 import { makeTempPaths } from "@spore/test-support";
 import {
   findFreePort,
@@ -12,6 +19,7 @@ import {
   waitForHealth,
   withEventLogPath,
 } from "./helpers/http-harness.js";
+import { reconcileExecution } from "../../../packages/orchestrator/src/execution/workflow-execution.impl.js";
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -109,7 +117,12 @@ test("project coordination and promotion routes expose coordinator and integrato
       .coordinationMode,
     "brownfield-intake",
   );
-  assert.equal(projectPlan.json.detail.childInvocations.length, 2);
+  assert.equal(projectPlan.json.detail.childInvocations.length, 1);
+  assert.equal(
+    projectPlan.json.detail.childInvocations[0]?.metadata?.invocationMetadata
+      ?.projectLaneType,
+    "planner",
+  );
 
   const projectPlanProxy = await postJson(
     `http://127.0.0.1:${WEB_PORT}/api/orchestrator/projects/plan`,
@@ -163,6 +176,73 @@ test("project coordination and promotion routes expose coordinator and integrato
     "brownfield-intake",
   );
 
+  const db = openOrchestratorDatabase(dbPath);
+  try {
+    const plannerExecutionId = `${rootExecutionId}-planner`;
+    const coordinationPlanHandoff = {
+      id: `${rootExecutionId}-coordination-plan`,
+      executionId: plannerExecutionId,
+      fromStepId: `${plannerExecutionId}:planner`,
+      toStepId: `${rootExecutionId}:coordinator`,
+      sourceRole: "planner",
+      targetRole: "coordinator",
+      kind: "coordination_plan",
+      status: "ready",
+      summary: {
+        outcome: "Dispatch backend API work before the frontend shell.",
+      },
+      payload: {
+        version: 1,
+        domain_tasks: [
+          {
+            id: "task-backend-api",
+            domainId: "backend",
+            summary: "Land the backend API contract.",
+            recommended_workflow: "feature-delivery",
+          },
+          {
+            id: "task-frontend-shell",
+            domainId: "frontend",
+            summary: "Build the frontend shell against the contract.",
+            recommended_workflow: "feature-delivery",
+          },
+        ],
+        waves: [
+          { id: "wave-1", task_ids: ["task-backend-api"] },
+          { id: "wave-2", task_ids: ["task-frontend-shell"] },
+        ],
+        dependencies: [
+          {
+            from_task_id: "task-frontend-shell",
+            to_task_id: "task-backend-api",
+          },
+        ],
+        shared_contracts: [
+          {
+            id: "api-contract",
+            summary: "Shared API contract",
+          },
+        ],
+        unresolved_questions: [],
+      },
+      validation: {
+        valid: true,
+        degraded: false,
+        mode: "accept",
+        issues: [],
+      },
+      createdAt: "2026-03-14T12:00:00.000Z",
+      updatedAt: "2026-03-14T12:00:00.000Z",
+      consumedAt: null,
+    };
+    upsertWorkflowHandoff(db, coordinationPlanHandoff);
+    adoptCoordinatorPlanFromHandoff(db, rootExecutionId, coordinationPlanHandoff);
+  } finally {
+    db.close();
+  }
+
+  await reconcileExecution(rootExecutionId, { dbPath });
+
   const treeReview = await postJson(
     `http://127.0.0.1:${ORCHESTRATOR_PORT}/executions/${encodeURIComponent(rootExecutionId)}/tree/review`,
     {
@@ -187,55 +267,31 @@ test("project coordination and promotion routes expose coordinator and integrato
   assert.equal(treeApproval.status, 200);
   assert.ok(treeApproval.json.ok);
 
-  const promotionPlan = await waitForPromotionPlan(
-    ORCHESTRATOR_PORT,
-    rootExecutionId,
-    "main",
-    "Promote reviewed feature outputs into an integration candidate.",
-  );
-  assert.equal(promotionPlan.status, 200);
-  assert.ok(promotionPlan.json.ok);
-  assert.equal(
-    promotionPlan.json.detail.invocation.metadata.invocationMetadata
-      .projectRole,
-    "integrator",
-  );
-  assert.equal(
-    promotionPlan.json.detail.invocation.metadata.invocationMetadata
-      .projectLaneType,
-    "integrator",
-  );
-  assert.equal(
-    promotionPlan.json.detail.invocation.metadata.invocationMetadata
-      .topologyKind,
-    "promotion-lane",
-  );
-  assert.equal(
-    promotionPlan.json.detail.invocation.metadata.invocationMetadata.promotion
-      .targetBranch,
-    "main",
-  );
-
-  const promotionInvoke = await postJson(
-    `http://127.0.0.1:${ORCHESTRATOR_PORT}/promotions/invoke`,
-    {
-      execution: rootExecutionId,
-      targetBranch: "main",
-      objective:
-        "Promote reviewed feature outputs into an integration candidate.",
-      wait: true,
-      stub: true,
-      timeout: 20000,
-      interval: 250,
+  const promotionPlan = await planFeaturePromotion({
+    projectPath: "config/projects/spore.yaml",
+    invocationId: `${rootExecutionId}-integrator`,
+    coordinationGroupId: rootExecutionId,
+    parentExecutionId: rootExecutionId,
+    objective: "Promote reviewed feature outputs into an integration candidate.",
+    targetBranch: "main",
+    metadata: {
+      projectRootExecutionId: rootExecutionId,
+      rootExecutionId,
+      coordinationMode: "brownfield-intake",
+      promotion: {
+        status: "blocked",
+        targetBranch: "main",
+        blockers: [
+          {
+            code: "awaiting-coordinator",
+            reason: "Integrator should wait for coordinator unblock.",
+          },
+        ],
+      },
     },
-  );
-  assert.equal(promotionInvoke.status, 200);
-  assert.ok(promotionInvoke.json.ok);
-
-  const integratorExecutionId =
-    promotionInvoke.json.detail?.created?.execution?.id ??
-    promotionInvoke.json.detail?.plan?.invocation?.invocationId;
-  assert.ok(integratorExecutionId);
+  });
+  createExecution(promotionPlan, dbPath);
+  const integratorExecutionId = promotionPlan.invocationId;
 
   const integratorExecution = await getJson(
     `http://127.0.0.1:${ORCHESTRATOR_PORT}/executions/${encodeURIComponent(integratorExecutionId)}`,
@@ -255,7 +311,7 @@ test("project coordination and promotion routes expose coordinator and integrato
     "promotion-lane",
   );
   assert.ok(
-    ["running", "promotion_candidate", "completed"].includes(
+    ["blocked", "running", "promotion_candidate", "completed"].includes(
       integratorExecution.json.detail.execution.promotionStatus,
     ),
   );
@@ -274,10 +330,26 @@ test("project coordination and promotion routes expose coordinator and integrato
     coordinationFamily.json.detail.coordinationMode,
     "brownfield-intake",
   );
+  assert.equal(
+    coordinationFamily.json.detail.plannerLane?.role,
+    "planner",
+  );
+  assert.ok(coordinationFamily.json.detail.adoptedPlan);
+  assert.ok(Array.isArray(coordinationFamily.json.detail.dispatchQueue?.tasks));
+  assert.ok(
+    coordinationFamily.json.detail.dispatchQueue.tasks.every(
+      (task) => task.executionId || ["pending", "blocked"].includes(task.status),
+    ),
+  );
   assert.ok(Array.isArray(coordinationFamily.json.detail.leadLanes));
   assert.equal(
     coordinationFamily.json.detail.integratorLane?.executionId,
     integratorExecutionId,
+  );
+  assert.ok(
+    coordinationFamily.json.detail.leadLanes.every(
+      (lane) => lane.dispatchTaskId && lane.objective !== coordinationFamily.json.detail.objective,
+    ),
   );
 
   const nonRootCoordinationFamily = await getJson(
@@ -291,9 +363,19 @@ test("project coordination and promotion routes expose coordinator and integrato
   );
   assert.equal(coordinationLanes.status, 200);
   assert.ok(coordinationLanes.json.ok);
-  assert.deepEqual(
-    coordinationLanes.json.detail.leadLanes.map((lane) => lane.role),
-    ["lead", "lead"],
+  assert.deepEqual(coordinationLanes.json.detail.leadLanes.map((lane) => lane.role), [
+    "lead",
+  ]);
+  assert.ok(
+    coordinationLanes.json.detail.leadLanes.every(
+      (lane) => lane.dispatchTaskId && lane.recommendedWorkflow,
+    ),
+  );
+  assert.equal(
+    coordinationLanes.json.detail.dispatchQueue.tasks.some(
+      (task) => task.taskId === "task-frontend-shell" && task.status === "pending",
+    ),
+    true,
   );
   assert.equal(
     coordinationLanes.json.detail.integratorLane?.executionId,
@@ -319,29 +401,9 @@ test("project coordination and promotion routes expose coordinator and integrato
   );
   assert.equal(
     coordinationReadiness.json.detail.readiness.readyForIntegratorPlanning,
-    true,
+    false,
   );
-
-  const integratorWorkspaces = await getJson(
-    `http://127.0.0.1:${ORCHESTRATOR_PORT}/executions/${encodeURIComponent(integratorExecutionId)}/workspaces`,
-  );
-  assert.equal(integratorWorkspaces.status, 200);
-  assert.ok(integratorWorkspaces.json.ok);
-  assert.ok(Array.isArray(integratorWorkspaces.json.detail.workspaces));
-  assert.ok(integratorWorkspaces.json.detail.workspaces.length >= 1);
-  assert.ok(
-    integratorWorkspaces.json.detail.workspaces.some(
-      (workspace) => workspace.metadata?.workspacePurpose === "integration",
-    ),
-  );
-
-  const promotionPlanProxy = await postJson(
-    `http://127.0.0.1:${WEB_PORT}/api/orchestrator/promotions/plan`,
-    {
-      execution: rootExecutionId,
-      targetBranch: "main",
-    },
-  );
-  assert.equal(promotionPlanProxy.status, 200);
-  assert.ok(promotionPlanProxy.json.ok);
+  assert.ok(coordinationReadiness.json.detail.adoptedPlan);
+  assert.ok(coordinationReadiness.json.detail.queueStatus);
+  assert.ok(Array.isArray(coordinationReadiness.json.detail.replanHistory));
 });

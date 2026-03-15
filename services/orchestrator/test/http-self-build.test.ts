@@ -7,6 +7,7 @@ import path from "node:path";
 import test from "node:test";
 
 import {
+  adoptCoordinatorPlanFromHandoff,
   buildProjectCoordinationPlan,
   createExecution,
   createWorkItem,
@@ -21,6 +22,7 @@ import {
   openOrchestratorDatabase,
   planFeaturePromotion,
   planWorkflowInvocation,
+  upsertWorkflowHandoff,
   updateProposalArtifact,
   updateWorkspaceAllocation,
 } from "@spore/orchestrator";
@@ -4321,28 +4323,93 @@ test("operator thread detail exposes coordinator family context", async (t) => {
 
   const db = openOrchestratorDatabase(dbPath);
   try {
-    const backendExecution = getExecutionDetail(
-      `${rootExecutionId}-backend-lead`,
-      dbPath,
-    )?.execution;
-    const frontendExecution = getExecutionDetail(
-      `${rootExecutionId}-frontend-lead`,
-      dbPath,
-    )?.execution;
+    const plannerExecutionId = `${rootExecutionId}-planner`;
+    const coordinationPlanHandoff = {
+      id: `${rootExecutionId}-coordination-plan`,
+      executionId: plannerExecutionId,
+      fromStepId: `${plannerExecutionId}:planner`,
+      toStepId: `${rootExecutionId}:coordinator`,
+      sourceRole: "planner",
+      targetRole: "coordinator",
+      kind: "coordination_plan",
+      status: "ready",
+      summary: {
+        outcome: "Dispatch backend API work before the frontend shell.",
+      },
+      payload: {
+        version: 1,
+        domain_tasks: [
+          {
+            id: "task-backend-api",
+            domainId: "backend",
+            summary: "Land the backend API contract.",
+            recommended_workflow: "feature-delivery",
+          },
+          {
+            id: "task-frontend-shell",
+            domainId: "frontend",
+            summary: "Build the frontend shell against the contract.",
+            recommended_workflow: "feature-delivery",
+          },
+        ],
+        waves: [
+          { id: "wave-1", task_ids: ["task-backend-api"] },
+          { id: "wave-2", task_ids: ["task-frontend-shell"] },
+        ],
+        dependencies: [
+          {
+            from_task_id: "task-frontend-shell",
+            to_task_id: "task-backend-api",
+          },
+        ],
+        shared_contracts: [
+          {
+            id: "api-contract",
+            summary: "Shared API contract",
+          },
+        ],
+        unresolved_questions: [],
+      },
+      validation: {
+        valid: true,
+        degraded: false,
+        mode: "accept",
+        issues: [],
+      },
+      createdAt: "2026-03-14T12:00:00.000Z",
+      updatedAt: "2026-03-14T12:00:00.000Z",
+      consumedAt: null,
+    };
+    upsertWorkflowHandoff(db, coordinationPlanHandoff);
+    adoptCoordinatorPlanFromHandoff(db, rootExecutionId, coordinationPlanHandoff);
+  } finally {
+    db.close();
+  }
+
+  await reconcileExecution(rootExecutionId, { dbPath });
+
+  const familyCoordination = getExecutionDetail(rootExecutionId, dbPath)?.coordination;
+  const backendExecutionId = familyCoordination?.leadLanes.find(
+    (lane) => lane.domainId === "backend",
+  )?.executionId;
+  const frontendExecutionId = familyCoordination?.leadLanes.find(
+    (lane) => lane.domainId === "frontend",
+  )?.executionId;
+
+  const db2 = openOrchestratorDatabase(dbPath);
+  try {
+    const backendExecution = backendExecutionId
+      ? getExecutionDetail(backendExecutionId, dbPath)?.execution
+      : null;
     assert.ok(backendExecution);
-    assert.ok(frontendExecution);
     updateExecution(
-      db,
+      db2,
       transitionExecutionRecord(backendExecution, "waiting_review", {
         reviewStatus: "pending",
       }),
     );
-    updateExecution(
-      db,
-      transitionExecutionRecord(frontendExecution, "running", {}),
-    );
   } finally {
-    db.close();
+    db2.close();
   }
 
   const seededProposal = insertProposalArtifactForWorkItem({
@@ -4368,7 +4435,7 @@ test("operator thread detail exposes coordinator family context", async (t) => {
     asObject(asObject(coordination.links).family).href,
     `/coordination-families/${encodeURIComponent(rootExecutionId)}`,
   );
-  assert.equal(asArray<JsonRecord>(coordination.leadLanes).length, 2);
+  assert.equal(asArray<JsonRecord>(coordination.leadLanes).length, 1);
   assert.equal(
     asObject(coordination.integratorLane).executionId,
     `${rootExecutionId}-integrator`,
@@ -4377,6 +4444,17 @@ test("operator thread detail exposes coordinator family context", async (t) => {
     asObject(coordination.readiness).state,
     "blocked",
   );
+  assert.equal(asObject(asObject(coordination.plannerLane)).role, "planner");
+  assert.ok(asObject(coordination.adoptedPlan).handoffId);
+  assert.ok(Array.isArray(asObject(coordination.dispatchQueue).tasks));
+  assert.equal(
+    asArray<JsonRecord>(asObject(coordination.dispatchQueue).tasks).some(
+      (task) => task.taskId === "task-frontend-shell" && task.status === "pending",
+    ),
+    true,
+  );
+  assert.ok(asObject(coordination.queueStatus));
+  assert.ok(Array.isArray(asArray<JsonRecord>(coordination.replanHistory)));
   assert.ok(asArray<JsonRecord>(coordination.blockers).length >= 1);
   assert.deepEqual(
     asArray<JsonRecord>(coordination.pendingDecisions).map(

@@ -325,6 +325,283 @@ test("coordinator and integrator profiles expose structured handoff contracts", 
   ]);
 });
 
+test("published planner handoffs degrade malformed coordination plan artifacts", async (t) => {
+  const tempRoot = await fs.mkdtemp(
+    path.join(os.tmpdir(), "spore-workflow-handoffs-planner-invalid-"),
+  );
+  const dbPath = path.join(tempRoot, "orchestrator.sqlite");
+  const transcriptPath = path.join(tempRoot, "planner.transcript.md");
+
+  t.after(async () => {
+    await fs.rm(tempRoot, { recursive: true, force: true });
+  });
+
+  await fs.writeFile(
+    transcriptPath,
+    [
+      "[stub:agent-output:start]",
+      "[SPORE_HANDOFF_JSON_BEGIN]",
+      JSON.stringify(
+        {
+          summary: "Planner summary",
+          affected_domains: "backend",
+          domain_tasks: { backend: "ship API" },
+          waves: "wave-1",
+          dependencies: true,
+          shared_contracts: 123,
+          unresolved_questions: false,
+        },
+        null,
+        2,
+      ),
+      "[SPORE_HANDOFF_JSON_END]",
+      "[stub:agent-output:end]",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+
+  const db = openOrchestratorDatabase(dbPath);
+  try {
+    const published = await publishWorkflowStepHandoffs({
+      db,
+      execution: {
+        id: "execution-planner-invalid",
+        updatedAt: "2026-03-14T10:00:00.000Z",
+        objective: "Validate planner coordination plan handoffs.",
+      },
+      step: {
+        id: "execution-planner-invalid:step:1",
+        sessionId: "session-planner-invalid",
+        role: "planner",
+        profilePath: "config/profiles/planner.yaml",
+        updatedAt: "2026-03-14T10:00:00.000Z",
+      },
+      session: {
+        transcriptPath,
+      },
+      steps: [
+        {
+          id: "execution-planner-invalid:step:1",
+          role: "planner",
+          wave: 0,
+        },
+        {
+          id: "execution-planner-invalid:step:2",
+          role: "coordinator",
+          wave: 1,
+        },
+      ],
+    });
+
+    assert.equal(published.length, 1);
+    const primary = published[0] as Record<string, any>;
+    assert.equal(primary.kind, "coordination_plan");
+    assert.equal(primary.validation?.valid, false);
+    assert.equal(primary.validation?.mode, "review_pending");
+    assert.deepEqual(
+      primary.validation?.issues?.map((issue: Record<string, unknown>) => issue.section),
+      [
+        "affected_domains",
+        "domain_tasks",
+        "waves",
+        "dependencies",
+        "shared_contracts",
+        "unresolved_questions",
+      ],
+    );
+  } finally {
+    db.close();
+  }
+});
+
+test("published lead handoffs include durable lead_progress artifacts", async (t) => {
+  const tempRoot = await fs.mkdtemp(
+    path.join(os.tmpdir(), "spore-workflow-handoff-lead-progress-"),
+  );
+  const dbPath = path.join(tempRoot, "orchestrator.sqlite");
+  const transcriptPath = path.join(tempRoot, "lead.transcript.md");
+
+  t.after(async () => {
+    await fs.rm(tempRoot, { recursive: true, force: true });
+  });
+
+  await fs.writeFile(
+    transcriptPath,
+    [
+      "[agent:start]",
+      "Lead is updating the frontend shell plan.",
+      "",
+      "[SPORE_HANDOFF_JSON_BEGIN]",
+      JSON.stringify(
+        {
+          summary: "Frontend lane found a hidden dependency in the API contract.",
+          next_role: "builder",
+          scope: ["apps/web/src"],
+          blockers: ["Waiting on backend API contract completion."],
+          risks: ["Frontend shell cannot finalize until contract lands."],
+          task_id: "task-frontend-shell",
+          active_task_id: "task-frontend-shell",
+          status: "blocked",
+          blocked_on_task_ids: ["task-backend-api"],
+          replan_reason: "hidden_dependency",
+        },
+        null,
+        2,
+      ),
+      "[SPORE_HANDOFF_JSON_END]",
+      "[agent:end]",
+    ].join("\n"),
+    "utf8",
+  );
+
+  const db = openOrchestratorDatabase(dbPath);
+  try {
+    const published = await publishWorkflowStepHandoffs({
+      db,
+      execution: {
+        id: "execution-lead-progress",
+        objective: "Dispatch a frontend lane from a coordination plan.",
+        metadata: {
+          dispatchTask: {
+            taskId: "task-frontend-shell",
+            domainId: "frontend",
+            summary: "Build the frontend shell.",
+          },
+        },
+        updatedAt: "2026-03-14T10:00:00.000Z",
+      },
+      step: {
+        id: "execution-lead-progress:step:1",
+        sessionId: "session-lead-progress",
+        role: "lead",
+        state: "held",
+        profilePath: "config/profiles/lead.yaml",
+        updatedAt: "2026-03-14T10:00:00.000Z",
+      },
+      session: {
+        transcriptPath,
+      },
+      steps: [
+        {
+          id: "execution-lead-progress:step:1",
+          role: "lead",
+          wave: 0,
+        },
+        {
+          id: "execution-lead-progress:step:2",
+          role: "builder",
+          wave: 1,
+        },
+      ],
+    });
+
+    const leadProgress = published.find((handoff) => handoff.kind === "lead_progress") as Record<string, any> | undefined;
+    assert.ok(leadProgress);
+    assert.equal(leadProgress?.payload?.task_id, "task-frontend-shell");
+    assert.deepEqual(leadProgress?.payload?.blocked_on_task_ids, ["task-backend-api"]);
+    assert.equal(leadProgress?.payload?.replan_reason, "hidden_dependency");
+  } finally {
+    db.close();
+  }
+});
+
+test("lead_progress preserves object-form summary outcome text", async (t) => {
+  const tempRoot = await fs.mkdtemp(
+    path.join(os.tmpdir(), "spore-workflow-handoff-lead-object-summary-"),
+  );
+  const dbPath = path.join(tempRoot, "orchestrator.sqlite");
+  const transcriptPath = path.join(tempRoot, "lead-object.transcript.md");
+
+  t.after(async () => {
+    await fs.rm(tempRoot, { recursive: true, force: true });
+  });
+
+  await fs.writeFile(
+    transcriptPath,
+    [
+      "[agent:start]",
+      "Lead is coordinating frontend work.",
+      "",
+      "[SPORE_HANDOFF_JSON_BEGIN]",
+      JSON.stringify(
+        {
+          summary: {
+            outcome: "Frontend lane is blocked on a backend dependency.",
+          },
+          next_role: "builder",
+          scope: ["apps/web/src"],
+          blockers: ["Waiting on backend contract."],
+          risks: ["Frontend work may drift from API expectations."],
+          task_id: "task-frontend-shell",
+          active_task_id: "task-frontend-shell",
+          status: "blocked",
+          blocked_on_task_ids: ["task-backend-api"],
+        },
+        null,
+        2,
+      ),
+      "[SPORE_HANDOFF_JSON_END]",
+      "[agent:end]",
+    ].join("\n"),
+    "utf8",
+  );
+
+  const db = openOrchestratorDatabase(dbPath);
+  try {
+    const published = await publishWorkflowStepHandoffs({
+      db,
+      execution: {
+        id: "execution-lead-object-summary",
+        objective: "Coordinate frontend lane.",
+        metadata: {
+          dispatchTask: {
+            taskId: "task-frontend-shell",
+            domainId: "frontend",
+            summary: "Build the frontend shell.",
+          },
+        },
+        updatedAt: "2026-03-14T10:00:00.000Z",
+      },
+      step: {
+        id: "execution-lead-object-summary:step:1",
+        sessionId: "session-lead-object-summary",
+        role: "lead",
+        state: "held",
+        profilePath: "config/profiles/lead.yaml",
+        updatedAt: "2026-03-14T10:00:00.000Z",
+      },
+      session: {
+        transcriptPath,
+      },
+      steps: [
+        {
+          id: "execution-lead-object-summary:step:1",
+          role: "lead",
+          wave: 0,
+        },
+        {
+          id: "execution-lead-object-summary:step:2",
+          role: "builder",
+          wave: 1,
+        },
+      ],
+    });
+
+    const leadProgress = published.find((handoff) => handoff.kind === "lead_progress") as Record<string, any> | undefined;
+    assert.equal(
+      leadProgress?.summary?.outcome,
+      "Frontend lane is blocked on a backend dependency.",
+    );
+    assert.equal(
+      leadProgress?.payload?.summary,
+      "Frontend lane is blocked on a backend dependency.",
+    );
+  } finally {
+    db.close();
+  }
+});
+
 test("published workflow handoffs keep clean summary text when the structured summary is a string", async (t) => {
   const tempRoot = await fs.mkdtemp(
     path.join(os.tmpdir(), "spore-workflow-handoff-summary-"),
