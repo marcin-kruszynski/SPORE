@@ -33,6 +33,7 @@ import {
   planProjectCoordination,
   planWorkflowInvocation,
 } from "../invocation/plan-workflow-invocation.js";
+import { getDefaultProjectId } from "../project-config.js";
 import {
   createApprovalRecord,
   createAuditRecord,
@@ -566,7 +567,7 @@ async function ensureStepWorkspace(db, execution, step) {
         repoRoot,
         ".spore",
         "worktrees",
-        execution.projectId ?? "spore",
+        execution.projectId ?? getDefaultProjectId(),
         `${step.id}-verification-pending`,
       ),
       branchName:
@@ -775,7 +776,7 @@ async function ensureStepWorkspace(db, execution, step) {
       repoRoot,
       ".spore",
       "worktrees",
-      execution.projectId ?? "spore",
+      execution.projectId ?? getDefaultProjectId(),
       `${step.id}-pending`,
     ),
     branchName:
@@ -874,7 +875,7 @@ async function publishBuilderWorkspaceHandoff(db, execution, step) {
   }
 
   const snapshotRef = buildWorkspaceSnapshotRef({
-    projectId: execution.projectId ?? "spore",
+    projectId: execution.projectId ?? getDefaultProjectId(),
     executionId: execution.id,
     stepId: step.id,
     attemptCount: step.attemptCount,

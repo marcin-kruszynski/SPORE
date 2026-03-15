@@ -11,7 +11,10 @@ import {
   reconcileWorkspace,
   removeWorkspace,
 } from "@spore/workspace-manager";
-import { getExecutionDetail, listExecutionHandoffs } from "../execution/history.js";
+import {
+  getExecutionDetail,
+  listExecutionHandoffs,
+} from "../execution/history.js";
 import {
   invokeFeaturePromotion,
   planPromotionForExecution,
@@ -20,6 +23,13 @@ import {
   DEFAULT_ORCHESTRATOR_DB_PATH,
   PROJECT_ROOT,
 } from "../metadata/constants.js";
+import {
+  getDefaultProjectId,
+  listDomainConfigsSync,
+  normalizeProjectConfigPath,
+  normalizeProjectRef,
+  resolveProjectConfigPath,
+} from "../project-config.js";
 import {
   getRegressionDefinition,
   getScenarioDefinition,
@@ -234,20 +244,11 @@ function readYamlFileSync(filePath) {
   return parseYaml(readFileSync(filePath, "utf8"));
 }
 
-function resolveProjectPath(projectRef = "spore") {
-  const normalized = String(projectRef ?? "").trim();
-  if (!normalized) {
-    return path.join(PROJECT_ROOT, "config/projects/spore.yaml");
-  }
-  if (normalized.includes("/") || normalized.endsWith(".yaml")) {
-    return path.isAbsolute(normalized)
-      ? normalized
-      : path.join(PROJECT_ROOT, normalized);
-  }
-  return path.join(PROJECT_ROOT, "config/projects", `${normalized}.yaml`);
+function resolveProjectPath(projectRef = getDefaultProjectId()) {
+  return resolveProjectConfigPath(projectRef);
 }
 
-async function loadProjectConfig(projectRef = "spore") {
+async function loadProjectConfig(projectRef = getDefaultProjectId()) {
   const resolvedPath = resolveProjectPath(projectRef);
   const config = await readYamlFile(resolvedPath);
   return {
@@ -256,7 +257,7 @@ async function loadProjectConfig(projectRef = "spore") {
   };
 }
 
-function loadProjectConfigSync(projectRef = "spore") {
+function loadProjectConfigSync(projectRef = getDefaultProjectId()) {
   const resolvedPath = resolveProjectPath(projectRef);
   const config = readYamlFileSync(resolvedPath);
   return {
@@ -381,6 +382,9 @@ function resolveRecommendationTaskClass(
   mutationScope: string[] = [],
 ) {
   const scopes = dedupe(mutationScope);
+  const matchingDomain = listDomainConfigsSync().find((domain) =>
+    scopes.some((scope) => matchesPathPrefix(scope, domain.pathPrefixes)),
+  );
   if (templateId === "runtime-validation-pass") {
     return "runtime-validation";
   }
@@ -402,6 +406,9 @@ function resolveRecommendationTaskClass(
     scopes.some((scope) => matchesPathPrefix(scope, ["docs", "runbooks"]))
   ) {
     return "documentation";
+  }
+  if (matchingDomain?.taskClass) {
+    return matchingDomain.taskClass;
   }
   return "general-self-work";
 }
@@ -647,7 +654,7 @@ function normalizeAutonomousPolicy(
   };
 }
 
-async function loadProjectSelfBuildPolicy(projectRef = "spore") {
+async function loadProjectSelfBuildPolicy(projectRef = getDefaultProjectId()) {
   const project = await loadProjectConfig(projectRef);
   const projectConfig = asJsonObject(project.config);
   const policyPackIds = dedupe(projectConfig.policyPacks ?? []);
@@ -763,7 +770,7 @@ async function loadProjectSelfBuildPolicy(projectRef = "spore") {
   };
 }
 
-function loadProjectSelfBuildPolicySync(projectRef = "spore") {
+function loadProjectSelfBuildPolicySync(projectRef = getDefaultProjectId()) {
   const project = loadProjectConfigSync(projectRef);
   const projectConfig = asJsonObject(project.config);
   const policyPackIds = dedupe(projectConfig.policyPacks ?? []);
@@ -2644,14 +2651,36 @@ function isImplementationStyleFrontendGoal(goal = "") {
   );
 }
 
+function getGoalClassificationConfig(projectConfig: LooseRecord = {}) {
+  const defaults = compactObject(projectConfig.selfWorkDefaults);
+  const classification = compactObject(defaults.goalClassification);
+  const keywordMap = compactObject(classification.keywords);
+  return {
+    docs: dedupe(keywordMap.docs ?? ["doc", "adr", "readme"]),
+    config: dedupe(keywordMap.config ?? ["config", "schema"]),
+    frontend: dedupe(keywordMap.frontend ?? ["web", "ui", "dashboard"]),
+    backend: dedupe(
+      keywordMap.backend ?? ["runtime", "session", "gateway", "validation"],
+    ),
+  };
+}
+
+function goalMatchesKeywords(goal = "", keywords: string[] = []) {
+  const normalizedGoal = String(goal).toLowerCase();
+  return keywords.some((keyword) =>
+    normalizedGoal.includes(String(keyword).toLowerCase()),
+  );
+}
+
 function buildGoalRecommendations({
   goal,
   domainId,
   safeMode = true,
-  projectPath = "config/projects/spore.yaml",
+  projectPath = normalizeProjectConfigPath(),
   projectConfig = null,
 }) {
   const normalized = String(goal).toLowerCase();
+  const classification = getGoalClassificationConfig(projectConfig ?? {});
   const activeDomains = dedupe(
     asArray(projectConfig?.activeDomains)
       .map((entry) =>
@@ -2666,9 +2695,7 @@ function buildGoalRecommendations({
   const recommendations = [];
 
   if (
-    (normalized.includes("doc") ||
-      normalized.includes("adr") ||
-      normalized.includes("readme") ||
+    (goalMatchesKeywords(normalized, classification.docs) ||
       domainId === "docs") &&
     hasDomain("docs")
   ) {
@@ -2697,7 +2724,7 @@ function buildGoalRecommendations({
   }
 
   if (
-    (normalized.includes("config") || normalized.includes("schema")) &&
+    goalMatchesKeywords(normalized, classification.config) &&
     hasDomain("docs")
   ) {
     recommendations.push({
@@ -2728,9 +2755,7 @@ function buildGoalRecommendations({
   }
 
   if (
-    (normalized.includes("web") ||
-      normalized.includes("ui") ||
-      normalized.includes("dashboard") ||
+    (goalMatchesKeywords(normalized, classification.frontend) ||
       domainId === "frontend") &&
     hasDomain("frontend")
   ) {
@@ -2750,9 +2775,18 @@ function buildGoalRecommendations({
           workflowPath: "config/workflows/feature-delivery.yaml",
           domainId: "frontend",
           projectPath,
-          roles: ["orchestrator", "lead", "scout", "builder", "tester", "reviewer"],
+          roles: [
+            "orchestrator",
+            "lead",
+            "scout",
+            "builder",
+            "tester",
+            "reviewer",
+          ],
           safeMode,
-          mutationScope: safeMode ? ["docs", "config", "apps/web"] : ["apps/web"],
+          mutationScope: safeMode
+            ? ["docs", "config", "apps/web"]
+            : ["apps/web"],
           targetPaths: safeMode ? ["apps/web", "docs", "config"] : ["apps/web"],
           taskClass: "operator-surface",
           requiresProposal: true,
@@ -2780,7 +2814,9 @@ function buildGoalRecommendations({
           projectPath,
           roles: ["lead", "scout", "builder", "tester", "reviewer"],
           safeMode,
-          mutationScope: safeMode ? ["docs", "config", "apps/web"] : ["apps/web"],
+          mutationScope: safeMode
+            ? ["docs", "config", "apps/web"]
+            : ["apps/web"],
           targetPaths: safeMode ? ["apps/web", "docs", "config"] : ["apps/web"],
           taskClass: "operator-surface",
           requiresProposal: true,
@@ -2794,10 +2830,7 @@ function buildGoalRecommendations({
   }
 
   if (
-    (normalized.includes("runtime") ||
-      normalized.includes("session") ||
-      normalized.includes("gateway") ||
-      normalized.includes("validation") ||
+    (goalMatchesKeywords(normalized, classification.backend) ||
       domainId === "backend") &&
     hasDomain("backend")
   ) {
@@ -3070,14 +3103,24 @@ function ensureSafeMode(item, projectId = null) {
   const metadata = item.metadata ?? {};
   const safeMode = metadata.safeMode !== false;
   const mutationScope = dedupe(metadata.mutationScope ?? []);
-  const allowedSafeScope = [
-    "docs",
-    "config",
-    "runbooks",
-    "scenarios",
-    "regressions",
-    "apps/web",
-  ];
+  const project = loadProjectConfigSync(projectId ?? getDefaultProjectId());
+  const projectConfig =
+    project.config &&
+    typeof project.config === "object" &&
+    !Array.isArray(project.config)
+      ? project.config
+      : {};
+  const projectDefaults = compactObject(projectConfig.selfWorkDefaults);
+  const allowedSafeScope = dedupe(
+    projectDefaults.allowedMutationScope ?? [
+      "docs",
+      "config",
+      "runbooks",
+      "scenarios",
+      "regressions",
+      "apps/web",
+    ],
+  );
   if (!safeMode) {
     return { safeMode, mutationScope };
   }
@@ -3086,11 +3129,7 @@ function ensureSafeMode(item, projectId = null) {
       throw new Error(`safe mode blocks mutation scope: ${scope}`);
     }
   }
-  if (
-    projectId === "spore" &&
-    item.kind === "workflow" &&
-    mutationScope.length === 0
-  ) {
+  if (item.kind === "workflow" && mutationScope.length === 0) {
     throw new Error(
       "safe mode workflow work items must declare metadata.mutationScope",
     );
@@ -3436,13 +3475,7 @@ function workItemRunTerminalKind(run: LooseRecord = {}) {
   if (["failed", "rejected", "canceled", "stopped"].includes(status)) {
     return "failed";
   }
-  if (
-    [
-      "held",
-      "paused",
-      "blocked",
-    ].includes(status)
-  ) {
+  if (["held", "paused", "blocked"].includes(status)) {
     return "blocked";
   }
   if (["waiting_review", "waiting_approval"].includes(status)) {
@@ -3697,7 +3730,7 @@ async function provisionWorkspaceForWorkItemRun(
     : null;
   const allocation = {
     id: createId("workspace"),
-    projectId: item.metadata?.projectId ?? "spore",
+    projectId: item.metadata?.projectId ?? getDefaultProjectId(),
     ownerType: "work-item-run",
     ownerId: run.id,
     executionId: run.result?.executionId ?? null,
@@ -3709,7 +3742,7 @@ async function provisionWorkspaceForWorkItemRun(
       PROJECT_ROOT,
       ".spore",
       "worktrees",
-      item.metadata?.projectId ?? "spore",
+      item.metadata?.projectId ?? getDefaultProjectId(),
       createId("pending"),
     ),
     branchName: `pending/${run.id}`,
@@ -3963,7 +3996,7 @@ async function syncDocSuggestionRecordsForRun(
       summary: toText(suggestion.summary, `Follow up on ${item.title}.`),
       payload: suggestion,
       metadata: mergeMetadata(existing?.metadata ?? {}, {
-        projectId: item.metadata?.projectId ?? "spore",
+        projectId: item.metadata?.projectId ?? getDefaultProjectId(),
         domainId: item.metadata?.domainId ?? null,
         templateId: inferDocSuggestionTemplateId({
           ...existing,
@@ -4071,7 +4104,7 @@ export async function materializeDocSuggestionRecord(
       ]),
       metadata: mergeMetadata(record.metadata ?? {}, {
         sourceDocSuggestionId: record.id,
-        projectId: record.metadata?.projectId ?? "spore",
+        projectId: record.metadata?.projectId ?? getDefaultProjectId(),
         domainId: payload.domainId ?? record.metadata?.domainId ?? "docs",
         safeMode:
           payload.safeMode !== undefined
@@ -4565,7 +4598,7 @@ export async function refreshSelfBuildIntake(
 ) {
   const now = nowIso();
   const activeKeys = new Set();
-  const projectId = toText(options.projectId, "spore");
+  const projectId = normalizeProjectRef(options.projectId);
   const resolvedPolicy = await loadProjectSelfBuildPolicy(projectId);
   const autonomyPolicy = resolvedPolicy.autonomy;
   const learnings = listSelfBuildLearningSummaries(
@@ -4755,7 +4788,7 @@ export async function materializeSelfBuildIntake(
       goal: payload.goal ?? record.goal,
       domain: payload.domain ?? record.domainId,
       mode: payload.mode ?? "autonomous",
-      projectId: payload.projectId ?? record.projectId ?? "spore",
+      projectId: normalizeProjectRef(payload.projectId ?? record.projectId),
       safeMode: payload.safeMode !== undefined ? payload.safeMode : true,
       by: payload.by ?? "operator",
       source: payload.source ?? "self-build-intake-materialize",
@@ -4843,8 +4876,9 @@ export async function reworkProposalArtifact(
         workItem?.metadata ?? {},
         payload.metadata ?? {},
         {
-          projectId:
-            payload.projectId ?? workItem?.metadata?.projectId ?? "spore",
+          projectId: normalizeProjectRef(
+            payload.projectId ?? workItem?.metadata?.projectId,
+          ),
           projectPath:
             payload.projectPath ?? workItem?.metadata?.projectPath ?? null,
           domainId: payload.domainId ?? workItem?.metadata?.domainId ?? null,
@@ -5047,10 +5081,7 @@ function buildEmptyArtifactRecoverySummary(): ArtifactRecoverySummary {
   };
 }
 
-function buildExecutionObservabilitySummary(
-  executionDetail,
-  executionId,
-) {
+function buildExecutionObservabilitySummary(executionDetail, executionId) {
   if (!executionId) {
     return null;
   }
@@ -5068,7 +5099,9 @@ function buildExecutionObservabilitySummary(
     id: executionDetail.execution.id ?? executionId,
     state: executionDetail.execution.state ?? null,
     status:
-      executionDetail.execution.status ?? executionDetail.execution.state ?? null,
+      executionDetail.execution.status ??
+      executionDetail.execution.state ??
+      null,
     holdReason: executionDetail.execution.holdReason ?? null,
     holdOwner: executionDetail.execution.holdOwner ?? null,
     holdGuidance: executionDetail.execution.holdGuidance ?? null,
@@ -5150,11 +5183,13 @@ export function getSelfBuildWorkItemRun(
             run.result?.error ??
             run.metadata?.error ??
             "The work item run ended in a failed state.",
-          }
-        : run.status === "blocked" && terminalKind === "blocked" && !isInternalGovernanceHold
-          ? {
-              code: "work_item_run_blocked",
-              label: "Work item run blocked",
+        }
+      : run.status === "blocked" &&
+          terminalKind === "blocked" &&
+          !isInternalGovernanceHold
+        ? {
+            code: "work_item_run_blocked",
+            label: "Work item run blocked",
             reason:
               item?.blockedReason ??
               item?.dependencyState?.reason ??
@@ -5352,7 +5387,7 @@ export async function runSelfBuildWorkItem(
   if (!item) {
     return null;
   }
-  ensureSafeMode(item, item.metadata?.projectId ?? "spore");
+  ensureSafeMode(item, item.metadata?.projectId ?? getDefaultProjectId());
   let provisionedWorkspace = null;
   let result = null;
   try {
@@ -5584,7 +5619,8 @@ export async function createGoalPlan(
   dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
 ) {
   const now = nowIso();
-  const projectPath = payload.projectPath ?? payload.projectId ?? "spore";
+  const projectPath =
+    payload.projectPath ?? normalizeProjectRef(payload.projectId);
   const project = await loadProjectConfig(projectPath);
   const projectConfig =
     project.config &&
@@ -5610,7 +5646,7 @@ export async function createGoalPlan(
     id: payload.id ?? createId("goal-plan"),
     title: payload.title ?? `Goal plan for ${domainId}`,
     goal: toText(payload.goal, "Untitled goal"),
-    projectId: payload.projectId ?? "spore",
+    projectId: normalizeProjectRef(payload.projectId),
     domainId,
     mode: payload.mode ?? "supervised",
     status: "planned",
@@ -5654,9 +5690,13 @@ export function listGoalPlansSummary(
 ) {
   const status = options.status ? String(options.status).trim() : null;
   const limit = Number.parseInt(String(options.limit ?? "50"), 10) || 50;
-  return withDatabase(dbPath, (db) => listGoalPlans(db, status, limit)).map(
-    (plan) => buildGoalPlanSummary(plan),
-  );
+  const projectId =
+    options.projectId != null ? String(options.projectId).trim() || null : null;
+  return withDatabase(dbPath, (db) => listGoalPlans(db, status, limit))
+    .filter(
+      (plan) => !projectId || String(plan.projectId ?? "").trim() === projectId,
+    )
+    .map((plan) => buildGoalPlanSummary(plan));
 }
 
 export function getGoalPlanSummary(
@@ -7131,16 +7171,17 @@ function buildProposalReviewPackage(
     workItemRun: run,
     workItem,
     workspace,
-    execution: executionDetail && executionSummary
-      ? Object.assign({}, executionSummary, {
-          links: {
-            ...asJsonObject(executionSummary.links),
-            tree: `/executions/${encodeURIComponent(
-              executionDetail.execution?.id ?? promotion.sourceExecutionId,
-            )}/tree`,
-          },
-        })
-      : null,
+    execution:
+      executionDetail && executionSummary
+        ? Object.assign({}, executionSummary, {
+            links: {
+              ...asJsonObject(executionSummary.links),
+              tree: `/executions/${encodeURIComponent(
+                executionDetail.execution?.id ?? promotion.sourceExecutionId,
+              )}/tree`,
+            },
+          })
+        : null,
     handoffs:
       executionDetail?.handoffs ?? proposal.artifacts?.workflowHandoffs ?? [],
     promotion,
@@ -7371,7 +7412,7 @@ export async function invokeProposalPromotion(
         projectId:
           proposal.metadata?.projectId ??
           proposal.summary?.projectId ??
-          "spore",
+          getDefaultProjectId(),
         status: "promotion_candidate",
         targetBranch: planned.promotion.targetBranch,
         sourceExecutionId: planned.promotion.sourceExecutionId,
@@ -8310,7 +8351,7 @@ export async function materializePolicyRecommendation(
   let materializedIntakeId = existing?.materializedIntakeId ?? null;
   const mode = toText(payload.mode, "goal-plan");
   if (mode === "intake") {
-    const projectId = payload.projectId ?? "spore";
+    const projectId = normalizeProjectRef(payload.projectId);
     const resolvedPolicy = await loadProjectSelfBuildPolicy(projectId);
     const autonomyPolicy = resolvedPolicy.autonomy;
     const candidate = {
@@ -8356,7 +8397,7 @@ export async function materializePolicyRecommendation(
       {
         goal: recommendation.goal,
         title: recommendation.summary,
-        projectId: payload.projectId ?? "spore",
+        projectId: normalizeProjectRef(payload.projectId),
         domain: recommendation.domainId ?? payload.domain ?? "docs",
         source: payload.source ?? "policy-recommendation",
         by: payload.by ?? "operator",
@@ -9786,7 +9827,7 @@ export async function startSelfBuildLoop(
   dbPath = DEFAULT_ORCHESTRATOR_DB_PATH,
 ) {
   const startedAt = nowIso();
-  const projectId = options.projectId ?? "spore";
+  const projectId = normalizeProjectRef(options.projectId);
   const resolvedPolicy = await loadProjectSelfBuildPolicy(projectId);
   const current = withDatabase(dbPath, (db) =>
     getSelfBuildLoopState(db, "default"),
@@ -9799,7 +9840,7 @@ export async function startSelfBuildLoop(
       current?.mode ??
       resolvedPolicy.autonomy.mode ??
       "supervised",
-    projectId: options.projectId ?? current?.projectId ?? "spore",
+    projectId: normalizeProjectRef(options.projectId ?? current?.projectId),
     policy: normalizeAutonomousPolicy(
       mergeMetadata(
         current?.policy ?? {},
@@ -9881,7 +9922,7 @@ export function stopSelfBuildLoop(
     id: "default",
     status: "stopped",
     mode: current?.mode ?? options.mode ?? "supervised",
-    projectId: current?.projectId ?? options.projectId ?? "spore",
+    projectId: normalizeProjectRef(current?.projectId ?? options.projectId),
     policy: mergeMetadata(current?.policy ?? {}, options.policy ?? {}),
     metadata: mergeMetadata(current?.metadata ?? {}, {
       decisionLog: [
@@ -10003,7 +10044,7 @@ export function getSelfBuildSummary(dbPath = DEFAULT_ORCHESTRATOR_DB_PATH) {
   );
   const loopStatus = getSelfBuildLoopStatus(dbPath);
   const autonomyPolicy =
-    loadProjectSelfBuildPolicySync("spore").autonomy ??
+    loadProjectSelfBuildPolicySync(getDefaultProjectId()).autonomy ??
     normalizeAutonomousPolicy(
       asJsonObject(
         withDatabase(dbPath, (db) => getSelfBuildLoopState(db, "default"))
@@ -10771,12 +10812,18 @@ export function getSelfBuildDashboard(
 ) {
   const base = getSelfBuildSummary(dbPath);
   const filters = compactObject({
+    projectId: toText(options.projectId, ""),
     status: toText(options.status, ""),
     group: toText(options.group, ""),
     template: toText(options.template, ""),
     domain: toText(options.domain, ""),
   });
   const workItems = base.workItems.filter((item) => {
+    if (
+      filters.projectId &&
+      String(item.metadata?.projectId ?? "").trim() !== filters.projectId
+    )
+      return false;
     if (
       filters.status &&
       String(item.status ?? item.dependencyState?.state ?? "").trim() !==

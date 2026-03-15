@@ -13,11 +13,12 @@
 
 ### **Swarm Protocol for Orchestration, Rituals & Execution**
 
-*A self-improving multi-agent orchestration platform*<br/>
-*that governs its own development.*
+*Governed multi-agent orchestration platform*<br/>
+*powered by [PI](https://github.com/ArtificialAnomaly/pi) · built to manage any software project*
 
 <br/>
 
+[![Powered by PI](https://img.shields.io/badge/Powered_by-PI_Agent_Runtime-E040FB?style=for-the-badge)](https://github.com/ArtificialAnomaly/pi)
 [![Node 24+](https://img.shields.io/badge/Node-24%2B-339933?style=for-the-badge&logo=node.js&logoColor=white)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org)
 [![PI Runtime](https://img.shields.io/badge/PI_Runtime-Multi--Backend-00C853?style=for-the-badge)](.)
@@ -26,13 +27,13 @@
 
 <br/>
 
-**Documentation-First** · **Profile-Driven** · **Self-Building** · **Human-Steerable** · **Fully Observable**
+**PI-Powered** · **Documentation-First** · **Profile-Driven** · **Human-Steerable** · **Fully Observable**
 
 ---
 
 <br/>
 
-[Architecture](#-architecture) · [How It Works](#-how-it-works) · [Self-Build](#-self-build-system) · [Roles](#-role-system) · [Surfaces](#-operator-surfaces) · [Quick Start](#-quick-start) · [Roadmap](#-roadmap) · [Docs](#-documentation)
+[Why PI](#-powered-by-pi) · [Architecture](#-architecture) · [How It Works](#-how-it-works) · [Work Management](#-project-work-management) · [Roles](#-role-system) · [Surfaces](#-operator-surfaces) · [Quick Start](#-quick-start) · [Roadmap](#-roadmap) · [Docs](#-documentation)
 
 </div>
 
@@ -42,9 +43,9 @@
 
 Agentic workflows fail for three predictable reasons: they **mix implementation with coordination**, they **hide decisions in chat** that vanish when sessions end, and they provide **weak inspectability** -- operators cannot see, steer, or trust what agents are doing.
 
-SPORE solves this with a **structured orchestration protocol** where every decision is a durable artifact, every agent runs in an inspectable session, and the system can **safely improve itself** through governed, observable loops.
+SPORE solves this with a **structured orchestration protocol** where every decision is a durable artifact, every agent runs in an inspectable PI session, and work on any project flows through a **governed pipeline**: goal → plan → execute → validate → promote.
 
-> **SPORE doesn't just orchestrate agents -- it orchestrates its own evolution.**
+> **SPORE manages software projects the way the best human teams do -- but with full observability, structural governance, and AI agents powered by PI doing the work.**
 
 ## What's New
 
@@ -69,14 +70,14 @@ An orchestrator dispatches through domain-aware leads to specialized workers. Ei
 </td>
 <td width="33%" valign="top">
 
-### 🔄 Supervised Self-Build
-SPORE plans, executes, reviews, and promotes improvements to itself through governed loops with human checkpoints.
+### 🔄 Governed Work Management
+Goal → Plan → Execute → Validate → Promote. One pipeline for any project, with human checkpoints at every critical gate.
 
 </td>
 <td width="33%" valign="top">
 
 ### 🔍 Full Observability
-Every workflow step produces durable, inspectable artifacts. Sessions remain operator-visible across tmux-backed RPC and newer SDK-backed runtime modes.
+Every agent runs in an operator-visible PI session. Every decision is recorded. Every workflow step produces durable, inspectable artifacts across tmux-backed RPC and newer SDK-backed runtime modes.
 
 </td>
 </tr>
@@ -95,12 +96,54 @@ Natural language mission control. State goals, review plans, approve gates, and 
 </td>
 <td width="33%" valign="top">
 
-### 🧩 Multi-Backend PI Runtime
-SPORE keeps PI-first integration while supporting RPC, embedded SDK, and worker-process SDK backends behind one internal runtime contract.
+### 🤖 PI-Powered Agents
+Built on [PI](https://github.com/ArtificialAnomaly/pi) agent runtime. SPORE keeps PI-first integration while supporting RPC, embedded SDK, and worker-process SDK backends behind one internal runtime contract.
 
 </td>
 </tr>
 </table>
+
+<br/>
+
+---
+
+<br/>
+
+## 🤖 Powered by PI
+
+SPORE is built on [**PI**](https://github.com/ArtificialAnomaly/pi) -- an extensible agent runtime that provides the AI execution layer. PI is not an optional dependency; it's the **core runtime partner** that makes SPORE's agents actually work.
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                    SPORE + PI Partnership                            │
+│                                                                     │
+│   SPORE provides:                    PI provides:                   │
+│   ─────────────────                  ────────────────                │
+│   ✦ Workflow orchestration           ✦ Agent execution runtime      │
+│   ✦ Role-based delegation            ✦ LLM model access             │
+│   ✦ Governance & review gates        ✦ Bidirectional RPC            │
+│   ✦ Durable state & audit trail      ✦ Tool execution               │
+│   ✦ Operator surfaces (web/TUI/CLI)  ✦ Session event streaming      │
+│   ✦ Workspace isolation              ✦ Steer / follow-up / abort    │
+│   ✦ Configuration & policy           ✦ Extensible profiles          │
+│                                                                     │
+│   Together:                                                         │
+│   ─────────                                                         │
+│   SPORE plans the work, PI executes it, SPORE governs the result.  │
+│   Every PI session runs in tmux for live inspectability.            │
+│   The operator can steer any agent in real-time through PI's RPC.   │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### How PI Integrates
+
+| Mode | Command | Use Case |
+|------|---------|----------|
+| **PI RPC** | `pi --mode rpc` | **Primary.** Full bidirectional control: steer, follow up, abort, get state |
+| **PI JSON** | `pi --mode json` | Debug. One-shot JSON event streaming |
+| **Stub** | *(no PI needed)* | Testing. Simulates sessions for development without PI |
+
+SPORE auto-detects PI availability and falls back to stub mode gracefully. But the real power -- actual AI agents writing code, reviewing changes, running tests -- that comes from PI.
 
 <br/>
 
@@ -137,7 +180,7 @@ SPORE is organized into **five distinct layers**, each with clear ownership boun
 ║   │   Orchestrator :8789 │    │ Runtime Core + PI       │               ║
 ║   │   plan · invoke      │    │ adapter · launch        │  EXECUTE     ║
 ║   │   drive · review     │    │ rpc · embedded · worker │               ║
-║   │   self-build · govern│    │ artifact parity         │               ║
+║   │   work mgmt · govern │    │ artifact parity         │               ║
 ║   └──────────┬───────────┘    └──────────┬─────────────┘               ║
 ║              └───────── step drive ──────┘                              ║
 ║ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ║
@@ -271,9 +314,9 @@ Every artifact is inspectable. Operators see everything in real-time:
 
 <br/>
 
-## 🔄 Self-Build System
+## 🔄 Project Work Management
 
-SPORE's flagship capability: **the system improves itself** through governed, observable loops with human checkpoints at every critical transition.
+SPORE's flagship capability: a **governed work pipeline** that manages software delivery on **any project** -- including SPORE itself. Every change flows through the same pipeline with human checkpoints at every critical transition.
 
 ```
    ┌──────────┐     ┌──────────┐     ┌──────────┐     ┌──────────┐     ┌──────────┐
@@ -292,16 +335,18 @@ SPORE's flagship capability: **the system improves itself** through governed, ob
    in chat          edits items      git worktree     review/approve  landing zone
 ```
 
-### The Self-Build Pipeline
+### The Work Management Pipeline
 
 | Stage | What Happens | Governance |
 |-------|-------------|------------|
 | **Goal** | Operator states an objective via chat or CLI | Natural language, converted to structured plan |
-| **Plan** | System creates work items from templates | Operator reviews, edits, reorders before materialization |
-| **Execute** | Each work item runs in an isolated git worktree | Policy-gated, watchdog-monitored, workspace-backed |
+| **Plan** | System creates work items from project templates | Operator reviews, edits, reorders before materialization |
+| **Execute** | Each work item runs in an isolated git worktree via PI | Policy-gated, watchdog-monitored, workspace-backed |
 | **Validate** | Named validation bundles check results | Typecheck, lint, tests, format -- configurable per domain |
 | **Propose** | Builder outputs become proposal artifacts | Separate review and approval transitions |
 | **Promote** | Integrator moves approved work to integration branch | Never auto-merges to main; operator decides |
+
+> **Note:** SPORE uses this same pipeline to manage its own development -- a capability we call "self-build." But the pipeline is generic: configure your project, define your domains, provide work-item templates, and SPORE manages your work the same way.
 
 ### Safety Mechanisms
 
@@ -410,7 +455,7 @@ A TypeScript browser SPA providing full operator visibility:
 ├──────────────────────────────────────────────────────────────────────┤
 │                                                                      │
 │  ┌─────────────────────────────────────────┐  ┌───────────────────┐ │
-│  │  💬 Operator Chat                       │  │  📊 Self-Build    │ │
+│  │  💬 Operator Chat                       │  │  📊 Project Work  │ │
 │  │  ─────────────────                      │  │  Dashboard        │ │
 │  │  > "Run a docs maintenance pass"        │  │                   │ │
 │  │                                         │  │  Plans: 3 active  │ │
@@ -454,11 +499,11 @@ npm run orchestrator:project-plan -- --project config/projects/spore.yaml --doma
 | Service | Port | Endpoints | Purpose |
 |---------|------|-----------|---------|
 | **Session Gateway** | 8787 | 15+ | Session lifecycle, events, artifacts, SSE, control |
-| **Orchestrator** | 8789 | 145+ | Workflows, governance, self-build, scenarios, promotion |
+| **Orchestrator** | 8789 | 145+ | Workflows, governance, project work management, scenarios, promotion |
 
 ### Package CLIs
 
-Over **100 operator commands** through npm scripts covering orchestration, sessions, workspaces, scenarios, regressions, self-build, goal plans, proposals, governance, and more.
+Over **100 operator commands** through npm scripts covering orchestration, sessions, workspaces, scenarios, regressions, project work management, goal plans, proposals, governance, and more.
 
 <br/>
 
@@ -475,20 +520,20 @@ Over **100 operator commands** through npm scripts covering orchestration, sessi
  │                                                                     │
  │  packages/                                                          │
  │  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐  │
-   │  │  orchestrator    │  │  runtime-core    │  │  session-manager │  │
-   │  │  ═══════════════ │  │  ═══════════════ │  │  ═══════════════ │  │
-   │  │  ~30K lines      │  │  Runtime contract│  │  Lifecycle FSM   │  │
-   │  │  Workflow engine  │  │  tmux launcher   │  │  SQLite store    │  │
-   │  │  Self-build core  │  │  registry/superv.│  │  Event log       │  │
-   │  │  Governance       │  │  snapshots/events│  │  Reconciliation  │  │
-   │  └──────────────────┘  └──────────────────┘  └──────────────────┘  │
-   │  ┌──────────────────┐                                              │
-   │  │  runtime-pi      │                                              │
-   │  │  ═══════════════ │                                              │
-   │  │  PI adapters     │                                              │
-   │  │  rpc/sdk/worker  │                                              │
-   │  │  artifact parity │                                              │
-   │  └──────────────────┘                                              │
+ │  │  orchestrator    │  │  runtime-core    │  │  session-manager │  │
+ │  │  ═══════════════ │  │  ═══════════════ │  │  ═══════════════ │  │
+ │  │  ~30K lines      │  │  Runtime contract│  │  Lifecycle FSM   │  │
+ │  │  Workflow engine │  │  registry/superv.│  │  SQLite store    │  │
+ │  │  Work mgmt core  │  │  snapshots/events│  │  Event log       │  │
+ │  │  Governance      │  │  artifact parity │  │  Reconciliation  │  │
+ │  └──────────────────┘  └──────────────────┘  └──────────────────┘  │
+ │  ┌──────────────────┐                                              │
+ │  │  runtime-pi      │                                              │
+ │  │  ═══════════════ │                                              │
+ │  │  PI adapters     │                                              │
+ │  │  rpc/sdk/worker  │                                              │
+ │  │  control bridge  │                                              │
+ │  └──────────────────┘                                              │
  │  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐  │
  │  │  workspace-mgr   │  │  docs-kb         │  │  config-schema   │  │
  │  │  ═══════════════ │  │  ═══════════════ │  │  ═══════════════ │  │
@@ -558,7 +603,7 @@ Over **100 operator commands** through npm scripts covering orchestration, sessi
 node >= 24    npm    tmux    git    rg    jq    sqlite3
 ```
 
-Optional: `pi` agent runtime (`npm install -g @mariozechner/pi-coding-agent`)
+Required for real agent execution: `pi` agent runtime (`npm install -g @mariozechner/pi-coding-agent`)
 
 For the newer SDK-backed runtime backends, SPORE also installs `@mariozechner/pi-coding-agent` as a workspace dependency.
 
@@ -605,7 +650,7 @@ npm run orchestrator:plan -- --domain backend --roles lead,builder,tester,review
 npm run orchestrator:invoke -- --domain backend --roles lead,reviewer \
   --objective "Implement a health check endpoint" --wait
 
-# Self-build: create a goal plan
+# Project work: create a goal plan
 npm run orchestrator:goal-plan-create -- --goal "Stabilize CLI verification and docs follow-up"
 
 # Runtime stub smoke for SDK-backed backends
@@ -628,15 +673,15 @@ All configuration is **declarative YAML** validated against **15 JSON schemas**.
 ```
 config/
 ├── profiles/           8 agent role profiles (orchestrator, coordinator, lead, ...)
-├── workflows/         12 workflow templates (feature-delivery, bugfix, self-build, ...)
-├── projects/           2 project definitions (example + spore self-reference)
+├── workflows/         12 workflow templates (feature-delivery, bugfix, promotion, ...)
+├── projects/           2 project definitions (example + SPORE self-management)
 ├── domains/            4 domain configs with executable policy defaults
 ├── teams/              2 team compositions
 ├── policy-packs/       7 reusable policy presets
-├── scenarios/         11 test scenarios (including 7 self-build scenarios)
+├── scenarios/         11 test scenarios (including project-work and SPORE self-management flows)
 ├── regressions/        7 regression test suites
 ├── validation-bundles/ 4 validation bundle presets
-├── work-item-templates/4 work-item templates for self-build
+├── work-item-templates/4 work-item templates for project work management
 └── system/             4 system configs (defaults, runtime, observability, permissions)
 ```
 
@@ -702,8 +747,8 @@ The monorepo uses `node:test` and `node:assert/strict` across policy, HTTP, web,
    as Mission ───────────►    End-to-End ─────────►    & Onboarding
    Control                    Demo Flow
 
-   Self-Build
-   Scenario ─────────────►
+   Project Work
+   Scenario ────────────►
    Expansion
 
   ══════════════════════════════════════════════════════════════════════
@@ -711,30 +756,28 @@ The monorepo uses `node:test` and `node:assert/strict` across policy, HTTP, web,
 
 ### Current Focus
 
-The foundation is executable across all layers. The question has shifted from "can SPORE run?" to **"how far can SPORE safely improve itself while preserving operator trust?"**
+The foundation is executable across all layers. The immediate focus is **unifying the work management pipeline** so it serves any project, not just SPORE itself, and **deepening the PI integration** for richer agent capabilities.
 
 | Priority | Area | Goal |
 |----------|------|------|
-| 1 | **Planner Quality** | Better prioritization, deeper planning, learning feedback |
-| 2 | **Validation Discipline** | Broader bundles, rework lineage, clearer readiness states |
-| 3 | **Integration Diagnostics** | Stale detection, health summaries, conflict history |
-| 4 | **Mission Control** | Backlog views, review queues, deeper drilldowns |
-| 5 | **Scenario Expansion** | More failure modes, protected-scope, autonomous-loop coverage |
+| 1 | **Pipeline Generalization** | Externalize SPORE-specific hardcoding; make work management project-agnostic |
+| 2 | **Planner Quality** | Better prioritization, deeper planning, learning feedback |
+| 3 | **Validation Discipline** | Broader bundles, rework lineage, clearer readiness states |
+| 4 | **Integration Diagnostics** | Stale detection, health summaries, conflict history |
+| 5 | **Mission Control** | Backlog views, review queues, deeper drilldowns |
 
 ### Vision
 
-SPORE aims to become a platform where **multi-agent teams deliver software with the same governance, traceability, and quality controls that the best human teams use** -- but faster, more consistently, and with full observability into every decision.
-
-The long-term trajectory:
+SPORE aims to become the platform where **PI-powered agent teams deliver software with the same governance, traceability, and quality controls that the best human teams use** -- but faster, more consistently, and with full observability into every decision.
 
 ```
-   Supervised              Guarded                Autonomous
-   Self-Build    ────►     Autonomy     ────►     Self-Improvement
+   Managed                 Multi-Project          Autonomous
+   Single Project ────►    Orchestration  ────►   Governance
    (current)               (next)                  (future)
 
-   Human approves          System proposes,        System improves
-   every transition        human validates         with policy-based
-                           at key gates            trust boundaries
+   One project at          Multiple projects       System proposes
+   a time, human           with configured         improvements,
+   steered via chat        autonomy tiers          policy-based trust
 ```
 
 <br/>
@@ -747,18 +790,19 @@ The long-term trajectory:
 
 | Layer | Technology | Why |
 |-------|-----------|-----|
+| **Agent Runtime** | **[PI](https://github.com/ArtificialAnomaly/pi)** | **Core runtime partner.** Bidirectional RPC, event capture, LLM access, extensible profiles |
 | **Language** | TypeScript 5.9 | Type-safe, ESM-first, strong tooling |
 | **Runtime** | Node.js 24+ | Built-in SQLite, ESM support, stable |
 | **Storage** | SQLite (WAL mode) | Zero-ops, local-first, concurrent reads |
-| **Sessions** | tmux + generic runtime artifacts | Durable, inspectable, operator-accessible |
-| **Agent Runtime** | PI (`pi_rpc`, `pi_sdk_embedded`, `pi_sdk_worker`) | One adapter boundary with compatibility and SDK-backed modes |
+| **Sessions** | tmux + runtime artifacts | Durable, inspectable, operator-accessible |
+| **PI Backends** | `pi_rpc`, `pi_sdk_embedded`, `pi_sdk_worker` | One PI-first runtime boundary with compatibility and SDK-backed modes |
 | **HTTP** | `node:http` | Zero dependencies, full control |
 | **Formatting** | Biome 2.4 | Fast, opinionated, single tool |
 | **Testing** | `node:test` + `node:assert` | Built-in, no test framework dependency |
 | **Modules** | ESM + NodeNext | Modern, explicit, tree-shakeable |
 | **Search** | FNV-1a hash embeddings | Local-first, no external API needed |
 
-**Local-first runtime posture.** The platform still centers on Node.js, SQLite, tmux, and local files, while the PI integration boundary now supports both CLI RPC and SDK-backed runtime modes.
+**PI is the agent engine. SPORE is the orchestration layer.** The platform stays local-first around Node.js, SQLite, tmux, and files, while the PI integration boundary now supports both CLI RPC and SDK-backed runtime modes.
 
 <br/>
 
@@ -773,7 +817,8 @@ The long-term trajectory:
 | Document | Purpose |
 |----------|---------|
 | [Project State & Direction](docs/plans/project-state-and-direction-handoff.md) | Where the project is and where it's going |
-| [Self-Build Status](docs/plans/self-build-status-and-next-steps.md) | Tactical status of the self-build system |
+| [Project Work Status](docs/plans/self-build-status-and-next-steps.md) | Tactical status of the project work management system |
+| [Unification Refactoring Plan](docs/plans/unification-refactoring-plan.md) | How self-build becomes the standard project work pipeline |
 | [Roadmap](docs/plans/roadmap.md) | Strategic priorities: Now / Next / Later |
 | [Local Dev Runbook](docs/runbooks/local-dev.md) | Setup, smoke tests, development workflow |
 
@@ -802,6 +847,7 @@ The long-term trajectory:
 - [ADR-0014: Multi-Backend PI Runtime Adapter](docs/decisions/ADR-0014-runtime-adapter-multi-backend-pi.md)
 - [ADR-0015: PI SDK Worker Transport](docs/decisions/ADR-0015-pi-sdk-worker-transport.md)
 - [ADR-0016: Runtime Artifact Parity](docs/decisions/ADR-0016-runtime-artifact-parity.md)
+- [ADR-0017: Unified Project Work Management](docs/decisions/ADR-0017-unified-project-work-management.md)
 
 ### Full Index
 

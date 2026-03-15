@@ -1,5 +1,7 @@
 id: frontend
 name: Frontend
+taskClass: operator-surface
+pathPrefixes: [apps/web]
 policyPacks: [ui-core]
 leadProfile: frontend-lead
 defaultBuilderProfile: frontend-builder

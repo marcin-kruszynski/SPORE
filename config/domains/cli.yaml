@@ -1,5 +1,7 @@
 id: cli
 name: CLI
+taskClass: general-self-work
+pathPrefixes: [packages/tui, apps/cli]
 policyPacks: [cli-core]
 leadProfile: cli-lead
 defaultBuilderProfile: cli-builder

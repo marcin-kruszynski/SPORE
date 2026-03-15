@@ -1,5 +1,7 @@
 id: docs
 name: Documentation
+taskClass: documentation
+pathPrefixes: [docs, README.md]
 policyPacks: [docs-core]
 leadProfile: docs-lead
 defaultBuilderProfile: docs-builder

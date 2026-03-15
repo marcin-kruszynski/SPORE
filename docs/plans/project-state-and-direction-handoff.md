@@ -14,8 +14,8 @@ Use it to answer five questions quickly:
 
 This document is intentionally broader than `docs/plans/self-build-status-and-next-steps.md` and less prescriptive than `docs/plans/full-self-build-implementation-plan.md`.
 
-- Use `self-build-status-and-next-steps` for the tactical snapshot.
-- Use `full-self-build-implementation-plan` for the execution-facing roadmap.
+- Use `self-build-status-and-next-steps` for the tactical project work management snapshot.
+- Use `full-self-build-implementation-plan` for the execution-facing roadmap until a renamed successor exists.
 - Use this file as the orientation and decision context layer between those two.
 
 ## Executive Summary
@@ -24,24 +24,22 @@ SPORE is no longer in bootstrap mode.
 
 It already has:
 - a documentation-first architecture foundation,
-- a PI-first runtime boundary,
-- durable session, execution, scenario, regression, and self-build state,
+- a PI-powered runtime boundary (PI is the core agent runtime partner, not an optional dependency),
+- durable session, execution, scenario, regression, and project work management state,
 - workspace-backed mutation isolation,
 - project-scoped `coordinator` and `integrator` lanes,
-- supervised self-build with policy-gated autonomous behavior,
+- a governed work management pipeline (goal → plan → execute → validate → promote) that works on any project,
 - promotion to integration branches,
 - quarantine, rollback, and protected-scope override surfaces,
 - browser, HTTP, package-level CLI, and TUI operator surfaces.
 
-The project is now in the transition from:
-- **supervised self-build with guarded autonomy**
+The project is now in a **unification phase**:
 
-toward:
-- **stronger autonomous self-improvement over more of the repository**.
+The work management pipeline (previously called "self-build") is being formalized as SPORE's standard way of managing work on **any project**, not just SPORE itself. Analysis showed that ~95% of the pipeline code is already generic -- only ~200-300 lines contain SPORE-specific hardcoding that needs to be externalized to configuration.
 
-This is not yet a fully unattended whole-repo autopilot.
+See `docs/decisions/ADR-0017-unified-project-work-management.md` for the architectural decision and `docs/plans/unification-refactoring-plan.md` for the implementation plan.
 
-The current system is strong enough for SPORE to work on SPORE in controlled, inspectable, policy-gated loops. It is not yet strong enough to claim that it can safely and independently evolve every part of the repository without structured human oversight.
+The current system is strong enough for governed project work management in controlled, inspectable, policy-gated loops. It is not yet strong enough to claim fully unattended multi-project autopilot.
 
 ## Current Maturity Level
 
@@ -61,7 +59,7 @@ SPORE can already:
 - quarantine or roll back blocked or unsafe work,
 - track autonomous decisions durably,
 - surface learnings, doc suggestions, intake, and policy recommendations,
-- expose self-build lifecycle state through Web, TUI, CLI, and HTTP.
+- expose project work lifecycle state through Web, TUI, CLI, and HTTP.
 
 ### What SPORE Cannot Yet Claim
 
@@ -89,7 +87,7 @@ Stable enough:
 - canonical docs indexes,
 - ADR discipline,
 - architecture docs for runtime, workflow, role, config, and clients,
-- planning docs for self-build,
+- planning docs for project work management,
 - TypeScript-first codebase baseline.
 
 Implication:
@@ -119,9 +117,9 @@ Stable enough:
 - policy-aware execution behavior.
 
 Implication:
-- new self-build flows should compose around these concepts, not bypass them.
+- new project work flows should compose around these concepts, not bypass them.
 
-### Self-Build Slice
+### Project Work Management Layer
 
 Stable enough:
 - work items,
@@ -135,27 +133,29 @@ Stable enough:
 - policy recommendations,
 - doc suggestions,
 - intake queue,
-- self-build dashboard.
+- project work dashboard.
 
 Implication:
-- next work should make this slice deeper and more autonomous, not rebuild it from scratch.
+- next work should make this layer deeper, more general, and more autonomous, not rebuild it from scratch.
 
 ## Current Direction Of Development
 
-The project is currently moving in one clear direction:
+The project is currently moving in two clear directions:
 
-> turn SPORE from a supervised self-work platform into a stronger, policy-gated self-building system that can improve SPORE itself while remaining inspectable and governable.
+> **1. Unify the work management pipeline** so it serves any project, not just SPORE itself (see ADR-0017).
+> **2. Deepen the pipeline's autonomy, safety, and operator experience** to handle more complex work with less supervision.
 
 In practice that means the center of gravity has moved away from bootstrap and infrastructure setup, and toward:
-- self-build planning quality,
-- autonomous eligibility and scheduling,
+- pipeline generalization across projects,
+- stronger PI-backed execution as the normal operating mode,
+- planning quality and autonomous scheduling,
 - stronger proposal and validation discipline,
 - integration-branch promotion flows,
 - richer operator visibility,
 - controlled expansion of autonomous scope.
 
 The next meaningful improvements are no longer “make the repo runnable.” They are:
-- “make the self-build loop deeper, safer, and more useful.”
+- “make the project work management loop deeper, safer, and more useful.”
 
 ## What Is Incomplete Or Underdeveloped
 
@@ -228,7 +228,7 @@ Still underdeveloped:
 Impact:
 - the landing zone exists, but the branch hygiene and long-lived diagnostics are still relatively thin.
 
-### 6. Self-Build Lifecycle Dashboard Depth
+### 6. Project Work Lifecycle Dashboard Depth
 
 The dashboard is now genuinely useful, but it is still not the final operator control plane.
 
@@ -240,14 +240,14 @@ Still missing or underdeveloped:
 - richer evidence drilldowns directly from lifecycle cards.
 
 Impact:
-- the operator can already use the dashboard, but it is not yet the final “mission control” for self-build.
+- the operator can already use the dashboard, but it is not yet the final “mission control” for project work.
 
-### 7. Self-Build Scenario and Regression Coverage
+### 7. Project Work Scenario and Regression Coverage
 
-Canonical self-build scenarios and regressions now exist, but the matrix still needs growth.
+Canonical project-work scenarios and regressions now exist, but the matrix still needs growth.
 
 Missing depth:
-- more self-build-specific failure mode scenarios,
+- more project-work-specific failure mode scenarios,
 - more protected-scope and quarantine recovery scenarios,
 - stronger autonomous-loop regression scenarios,
 - scenarios for long-running intake and recommendation churn.
@@ -280,7 +280,7 @@ Rules that should remain intact:
 
 ### Workspace Discipline
 
-High risk because self-build mutates repo state.
+High risk because project work mutates repo state.
 
 Rules that should remain intact:
 - no shared family worktree default,
@@ -348,24 +348,25 @@ Under-covered aspects:
 
 A new agent should read in this order:
 
-1. [docs/INDEX.md](/home/antman/projects/SPORE/docs/INDEX.md)
-2. [docs/plans/project-state-and-direction-handoff.md](/home/antman/projects/SPORE/docs/plans/project-state-and-direction-handoff.md)
-3. [docs/plans/self-build-status-and-next-steps.md](/home/antman/projects/SPORE/docs/plans/self-build-status-and-next-steps.md)
-4. [docs/plans/roadmap.md](/home/antman/projects/SPORE/docs/plans/roadmap.md)
-5. [docs/plans/full-self-build-implementation-plan.md](/home/antman/projects/SPORE/docs/plans/full-self-build-implementation-plan.md)
-6. [docs/architecture/role-model.md](/home/antman/projects/SPORE/docs/architecture/role-model.md)
-7. [docs/architecture/workflow-model.md](/home/antman/projects/SPORE/docs/architecture/workflow-model.md)
-8. [docs/architecture/config-model.md](/home/antman/projects/SPORE/docs/architecture/config-model.md)
-9. [docs/architecture/clients-and-surfaces.md](/home/antman/projects/SPORE/docs/architecture/clients-and-surfaces.md)
-10. [docs/specs/worktree-and-workspace-isolation.md](/home/antman/projects/SPORE/docs/specs/worktree-and-workspace-isolation.md)
-11. [README.md](/home/antman/projects/SPORE/README.md)
+1. [docs/INDEX.md](../INDEX.md)
+2. [docs/plans/project-state-and-direction-handoff.md](project-state-and-direction-handoff.md)
+3. [docs/decisions/ADR-0017-unified-project-work-management.md](../decisions/ADR-0017-unified-project-work-management.md)
+4. [docs/plans/self-build-status-and-next-steps.md](self-build-status-and-next-steps.md)
+5. [docs/plans/unification-refactoring-plan.md](unification-refactoring-plan.md)
+6. [docs/plans/roadmap.md](roadmap.md)
+7. [docs/architecture/role-model.md](../architecture/role-model.md)
+8. [docs/architecture/workflow-model.md](../architecture/workflow-model.md)
+9. [docs/architecture/config-model.md](../architecture/config-model.md)
+10. [docs/architecture/clients-and-surfaces.md](../architecture/clients-and-surfaces.md)
+11. [docs/specs/worktree-and-workspace-isolation.md](../specs/worktree-and-workspace-isolation.md)
+12. [README.md](../../README.md)
 
 If the task touches project-level roles or promotion, then also read:
-- [docs/decisions/ADR-0006-project-coordinator-role.md](/home/antman/projects/SPORE/docs/decisions/ADR-0006-project-coordinator-role.md)
-- [docs/decisions/ADR-0007-feature-integrator-promotion-boundary.md](/home/antman/projects/SPORE/docs/decisions/ADR-0007-feature-integrator-promotion-boundary.md)
+- [docs/decisions/ADR-0006-project-coordinator-role.md](../decisions/ADR-0006-project-coordinator-role.md)
+- [docs/decisions/ADR-0007-feature-integrator-promotion-boundary.md](../decisions/ADR-0007-feature-integrator-promotion-boundary.md)
 
-If the task touches autonomous policy or self-build roadmap shape, then also read:
-- [docs/plans/long-range-self-build-roadmap.md](/home/antman/projects/SPORE/docs/plans/long-range-self-build-roadmap.md)
+If the task touches autonomous policy or project work roadmap shape, then also read:
+- [docs/plans/long-range-self-build-roadmap.md](long-range-self-build-roadmap.md)
 
 ## Recommended Next Work Packages
 
@@ -398,7 +399,7 @@ Focus:
 ### Package 3 — Richer Lifecycle Dashboard
 
 Goal:
-- make the self-build dashboard the main operational control plane.
+- make the project work dashboard the main operational control plane.
 
 Focus:
 - active autonomous run views,
@@ -408,10 +409,10 @@ Focus:
 - override and recommendation review queues,
 - stronger evidence drilldowns.
 
-### Package 4 — Self-Build Scenario Expansion
+### Package 4 — Project Work Scenario Expansion
 
 Goal:
-- harden the self-build loop with stronger regression coverage.
+- harden the project work loop with stronger regression coverage.
 
 Focus:
 - protected-scope block scenarios,
@@ -437,7 +438,7 @@ Focus:
 
 A new agent should avoid these unless there is a very explicit reason:
 - rebuilding runtime foundations,
-- replacing the self-build model with a new abstraction,
+- replacing the project work management model with a new abstraction,
 - auto-merging to `main`,
 - weakening validation or promotion gates to increase autonomy quickly,
 - bypassing orchestrator or gateway surfaces in favor of direct SQLite scraping,
@@ -448,7 +449,7 @@ Approved exception:
 
 ## Verification Expectations
 
-For self-build work, the minimum expected verification loop remains:
+For project work management changes, the minimum expected verification loop remains:
 
 ```bash
 npm run docs-kb:index
@@ -467,7 +468,7 @@ SPORE_RUN_PI_E2E=1 npm run test:e2e:pi
 SPORE_RUN_PI_E2E=1 SPORE_RUN_PI_CONTROL_E2E=1 npm run test:e2e:gateway-control
 ```
 
-For planner/self-build execution changes, also validate the operator flow you changed using the corresponding HTTP or CLI surface, not just unit tests.
+For planner/project-work execution changes, also validate the operator flow you changed using the corresponding HTTP or CLI surface, not just unit tests.
 
 ## Bottom-Line Assessment
 
@@ -478,7 +479,7 @@ The main question now is:
 > can it safely, visibly, and repeatably improve itself over larger parts of the repository without collapsing operator trust?
 
 Today’s answer is:
-- **yes, for supervised self-build and guarded autonomous self-improvement**,
+- **yes, for supervised project work management and guarded autonomous self-improvement**,
 - **not yet for full unattended whole-repo autopilot**.
 
 That is the correct stage to be in.

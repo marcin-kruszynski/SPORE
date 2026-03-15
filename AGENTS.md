@@ -2,12 +2,12 @@
 
 ## Mission
 
-SPORE (Swarm Protocol for Orchestration, Rituals & Execution) is a modular, profile-driven, documentation-first orchestration platform for governed multi-agent software delivery and supervised self-build.
+SPORE (Swarm Protocol for Orchestration, Rituals & Execution) is a modular, profile-driven, documentation-first orchestration platform for governed multi-agent software delivery and project work management. "Self-build" is the special case where SPORE uses that same pipeline to manage its own repository.
 
 ## Current Phase
 
 - Current scope is bootstrap-plus-executable-foundation.
-- In scope: repo structure, docs, config skeletons, docs search, session lifecycle, operator surfaces, PI-first runtime planning, and the first orchestrator-facing workflow slice.
+- In scope: repo structure, docs, config skeletons, docs search, session lifecycle, operator surfaces, PI-first runtime planning, and the first governed project-work-management slice.
 - Do not build a production orchestrator runtime, production web UI, or a full execution engine in this phase.
 - Approved architecture exception: bounded work on a multi-backend PI `RuntimeAdapter` boundary is allowed when it preserves the current PI-first slice and does not broaden into a general orchestrator/runtime rewrite.
 
@@ -21,7 +21,7 @@ SPORE (Swarm Protocol for Orchestration, Rituals & Execution) is a modular, prof
 ## Current Ground Truth Docs
 
 - Current project state: `docs/plans/project-state-and-direction-handoff.md`
-- Tactical next work: `docs/plans/self-build-status-and-next-steps.md`
+- Tactical next work: `docs/plans/self-build-status-and-next-steps.md` (project work management status; historical path retained)
 - Current roadmap: `docs/plans/roadmap.md`
 - Historical bootstrap docs under `docs/roadmap/` and older bootstrap plans are context only, not the current implementation plan.
 
@@ -41,7 +41,7 @@ SPORE (Swarm Protocol for Orchestration, Rituals & Execution) is a modular, prof
 - `packages/runtime-pi/` is the PI integration boundary.
 - `packages/session-manager/` is the session state boundary.
 - `packages/workspace-manager/` is the workspace/worktree boundary.
-- `packages/orchestrator/` and `services/orchestrator/` own workflow planning and invocation.
+- `packages/orchestrator/` and `services/orchestrator/` own workflow planning, invocation, and project work management.
 - `services/session-gateway/` is the shared session HTTP surface.
 - The orchestrator execution store is the source of truth for workflow state; do not infer state from transcripts or raw SQLite when HTTP or CLI surfaces already exist.
 
@@ -56,6 +56,7 @@ SPORE (Swarm Protocol for Orchestration, Rituals & Execution) is a modular, prof
 ## Environment Baseline
 
 - Required tools: `node >= 24`, `npm`, `tmux`, `pi`, `jq`, `sqlite3`, `python3`, `git`, `rg`.
+- `pi` is the core runtime partner for real agent execution, not a merely optional add-on. If PI is unavailable, say that explicitly and note when stub mode was used.
 - If `pi` is installed but missing from `PATH`, set `export SPORE_PI_BIN="${SPORE_PI_BIN:-$(npm prefix -g)/bin/pi}"`.
 - Prefer isolated state for local runs with `SPORE_ORCHESTRATOR_DB_PATH`, `SPORE_SESSION_DB_PATH`, and `SPORE_EVENT_LOG_PATH`.
 
@@ -174,6 +175,7 @@ SPORE (Swarm Protocol for Orchestration, Rituals & Execution) is a modular, prof
 ## Runtime And Operator Rules
 
 - Prefer real PI validation when available; use stub mode only when isolating launcher behavior or when PI is unavailable.
+- Treat project work management as the standard SPORE work pipeline; use "self-build" only when the managed project is SPORE itself.
 - Use tmux-backed sessions for inspectable live runs.
 - Reconcile detached sessions with `npm run session:reconcile` rather than manual database edits.
 - Prefer `GET /sessions/:id/live` and orchestrator read surfaces over ad hoc file readers in new clients.

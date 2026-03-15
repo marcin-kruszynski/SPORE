@@ -327,6 +327,20 @@
       "properties": {
         "safeMode": { "type": "boolean" },
         "defaultGoalPlannerPolicy": { "type": "string" },
+        "goalClassification": {
+          "type": "object",
+          "properties": {
+            "keywords": {
+              "type": "object",
+              "properties": {
+                "docs": { "type": "array", "items": { "type": "string" } },
+                "config": { "type": "array", "items": { "type": "string" } },
+                "frontend": { "type": "array", "items": { "type": "string" } },
+                "backend": { "type": "array", "items": { "type": "string" } }
+              }
+            }
+          }
+        },
         "defaultValidationBundles": {
           "type": "array",
           "items": { "type": "string" }

@@ -200,7 +200,7 @@ documents:
     domain: shared
     status: active
     owner: architecture-council
-    tags: [self-build, backlog, next-steps]
+    tags: [project-work-management, self-build, backlog, next-steps]
     path: docs/plans/self-build-status-and-next-steps.md
   - id: operator-chat-surface-plan
     type: roadmap
@@ -216,6 +216,13 @@ documents:
     owner: architecture-council
     tags: [roadmap, priorities, direction]
     path: docs/plans/roadmap.md
+  - id: unification-refactoring-plan
+    type: roadmap
+    domain: orchestration
+    status: active
+    owner: architecture-council
+    tags: [project-work-management, unification, refactoring]
+    path: docs/plans/unification-refactoring-plan.md
   - id: long-range-self-build-roadmap
     type: roadmap
     domain: shared
@@ -314,6 +321,13 @@ documents:
     owner: architecture-council
     tags: [runtime, artifacts, inspectability, recovery]
     path: docs/decisions/ADR-0016-runtime-artifact-parity.md
+  - id: adr-unified-project-work-management
+    type: decision
+    domain: orchestration
+    status: accepted
+    owner: architecture-council
+    tags: [project-work-management, self-build, unification]
+    path: docs/decisions/ADR-0017-unified-project-work-management.md
   - id: bootstrap-completion-summary
     type: historical
     domain: shared

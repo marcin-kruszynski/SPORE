@@ -1,5 +1,7 @@
 id: backend
 name: Backend
+taskClass: runtime-validation
+pathPrefixes: [packages/runtime-pi, services/session-gateway, services/orchestrator, packages/orchestrator]
 policyPacks: [service-core]
 leadProfile: backend-lead
 defaultBuilderProfile: backend-builder

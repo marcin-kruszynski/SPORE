@@ -123,6 +123,10 @@ function notFound(response, message) {
   });
 }
 
+function decodePathPart(value) {
+  return value ? decodeURIComponent(value) : null;
+}
+
 async function readJsonBody(request) {
   const chunks = [];
   let size = 0;
@@ -417,6 +421,25 @@ const server = http.createServer(async (request, response) => {
       json(response, 200, {
         ok: true,
         detail: getSelfBuildDashboard({
+          status: url.searchParams.get("status")?.trim() || null,
+          group: url.searchParams.get("group")?.trim() || null,
+          template: url.searchParams.get("template")?.trim() || null,
+          domain: url.searchParams.get("domain")?.trim() || null,
+        }),
+      });
+      return;
+    }
+
+    if (
+      request.method === "GET" &&
+      parts.length === 3 &&
+      parts[0] === "projects" &&
+      parts[2] === "dashboard"
+    ) {
+      json(response, 200, {
+        ok: true,
+        detail: getSelfBuildDashboard({
+          projectId: decodePathPart(parts[1]),
           status: url.searchParams.get("status")?.trim() || null,
           group: url.searchParams.get("group")?.trim() || null,
           template: url.searchParams.get("template")?.trim() || null,
@@ -1488,11 +1511,45 @@ const server = http.createServer(async (request, response) => {
       return;
     }
 
+    if (
+      request.method === "GET" &&
+      parts.length === 3 &&
+      parts[0] === "projects" &&
+      parts[2] === "goals"
+    ) {
+      json(response, 200, {
+        ok: true,
+        detail: listGoalPlansSummary({
+          projectId: decodePathPart(parts[1]),
+          status: url.searchParams.get("status")?.trim() || null,
+          limit: url.searchParams.get("limit")?.trim() || "50",
+        }),
+      });
+      return;
+    }
+
     if (request.method === "POST" && url.pathname === "/goals/plan") {
       const body = await readJsonBody(request);
       json(response, 200, {
         ok: true,
         detail: await createGoalPlan(body),
+      });
+      return;
+    }
+
+    if (
+      request.method === "POST" &&
+      parts.length === 3 &&
+      parts[0] === "projects" &&
+      parts[2] === "goals"
+    ) {
+      const body = await readJsonBody(request);
+      json(response, 200, {
+        ok: true,
+        detail: await createGoalPlan({
+          ...body,
+          projectId: body.projectId ?? decodePathPart(parts[1]),
+        }),
       });
       return;
     }
@@ -2047,6 +2104,22 @@ const server = http.createServer(async (request, response) => {
 
     if (request.method === "GET" && url.pathname === "/work-items") {
       const detail = listSelfBuildWorkItems({
+        projectId: url.searchParams.get("projectId")?.trim() || null,
+        status: url.searchParams.get("status")?.trim() || null,
+        limit: url.searchParams.get("limit")?.trim() || "50",
+      });
+      json(response, 200, { ok: true, detail });
+      return;
+    }
+
+    if (
+      request.method === "GET" &&
+      parts.length === 3 &&
+      parts[0] === "projects" &&
+      parts[2] === "work-items"
+    ) {
+      const detail = listSelfBuildWorkItems({
+        projectId: decodePathPart(parts[1]),
         status: url.searchParams.get("status")?.trim() || null,
         limit: url.searchParams.get("limit")?.trim() || "50",
       });
